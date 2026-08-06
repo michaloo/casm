@@ -39,15 +39,12 @@ That maintains a plain list in `~/.config/casm/config.json`:
 
 ```sh
 casm continue                  # pick from your 10 most recent local sessions, resume it
-casm active                    # this machine AND every configured host, "none" where nothing runs
-casm active --local            # ...only this machine
-casm active --host fedora      # ...only one host
+casm search "oculink"          # full-text search across agents and machines
+casm resume 019e4ee3           # resume by id, cd into the session directory and resume in appropriate coding agent
+casm active                    # list currently active sessions from all nodes
 casm list -n 30                # newest sessions across all agents and machines
 casm list --agent opencode     # one agent only
-casm search "oculink"          # full-text search across agents and machines
 casm show ses_110bdd           # preview a session, here or on any host (agent auto-detected)
-casm resume 019e4ee3           # resume by id, cd into the session directory and resume in appropriate coding agent
-
 casm host list                 # configured hosts + their reachability
 ```
 

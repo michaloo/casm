@@ -48,6 +48,23 @@ casm show ses_110bdd           # preview a session, here or on any host (agent a
 casm host list                 # configured hosts + their reachability
 ```
 
+## Bookmarks
+
+Pin the sessions you intend to come back to:
+
+```sh
+casm bookmark 19dc764f casm-work   # bookmark with an alias (casm bm works too)
+casm bookmark fc1cbe91             # bookmark without one
+casm bookmark                      # list bookmarks
+casm bookmark rm casm-work         # unpin (the session itself is untouched)
+```
+
+Bookmarked sessions are pinned to the top of `casm continue` with a `★`, and an
+alias works anywhere an id-prefix does: `casm resume casm-work`,
+`casm show casm-work`, `casm push casm-work fedora`. Stored in
+`~/.config/casm/config.json` next to `hosts`; bookmarks are per-machine and
+refer to local sessions.
+
 ## `push` and `pull`
 
 Casm allows easy copying sessions between nodes. This doesn't cover cross-agent migrations, Claude Code session can be moved to other machine to continue with Claude Code there.

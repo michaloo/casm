@@ -2,7 +2,7 @@
 // casm - multi-node coding-agent session manager for Claude Code, opencode, and pi.
 import os from "node:os";
 import { dim, cyan, green, magenta, yellow, die, listHosts, strFlag, casmRemote } from "../lib/util.mjs";
-import { cmdList, cmdSearch, cmdShow, cmdResume, cmdContinue, cmdActive, cmdPush, cmdPull, cmdHost } from "../lib/commands.mjs";
+import { cmdList, cmdSearch, cmdShow, cmdResume, cmdContinue, cmdActive, cmdPush, cmdPull, cmdHost, cmdBookmark } from "../lib/commands.mjs";
 
 // multi-machine fan-out: casm must be installed on every managed host.
 // remotes run concurrently and their output is buffered, so the per-host
@@ -17,6 +17,9 @@ async function runRemote(host, cmd, args) {
 }
 
 async function fanOut(cmd, fn, args) {
+  // --json is machine-readable output for a single node (it's how casm nodes
+  // talk to each other); fanning it out would interleave headers with JSON
+  if (args.includes("--json")) return fn(args);
   const explicitAll = args.includes("--all");
   const hostArg = strFlag(args, "--host", null);
   // listing commands survey every configured host by default; --local opts out
@@ -41,7 +44,7 @@ async function fanOut(cmd, fn, args) {
 
 const [cmd, ...rest] = process.argv.slice(2);
 const FANOUT_CMDS = new Set(["list", "search", "active"]); // all-hosts by default, --local/--host to scope
-const commands = { list: cmdList, search: cmdSearch, show: cmdShow, resume: cmdResume, continue: cmdContinue, push: cmdPush, pull: cmdPull, active: cmdActive, host: cmdHost };
+const commands = { list: cmdList, search: cmdSearch, show: cmdShow, resume: cmdResume, continue: cmdContinue, push: cmdPush, pull: cmdPull, active: cmdActive, host: cmdHost, bookmark: cmdBookmark, bm: cmdBookmark };
 
 if (!cmd || !commands[cmd]) {
   console.log(`casm - multi-node coding-agent session manager (claude code ${cyan("cc")} / opencode ${magenta("oc")} / pi ${yellow("pi")})
@@ -56,6 +59,8 @@ usage:
   casm push   <id-prefix> <host> [--to <path>] [--dry-run] [--force]
   casm pull   <host> [id-prefix] [-n 20] [--force]   fetch a session from a host
   casm host   list | add <ssh-target> | rm <ssh-target>
+  casm bookmark [<id-prefix> [alias]] | rm <alias>   pin sessions in continue;
+                                                 an alias works wherever an id does
 
 sessions are agent-scoped: push moves a session to the SAME agent on the
 other machine (claude→claude, opencode→opencode, pi→pi). the agent is

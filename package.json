@@ -1,10 +1,10 @@
 {
   "name": "casm-cli",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Multi-node coding-agent session manager (claude code / opencode / pi)",
   "type": "module",
   "bin": { "casm": "bin/casm.mjs" },
-  "files": ["bin", "lib", "README.md"],
+  "files": ["bin", "lib", "README.md", "CHANGELOG.md"],
   "keywords": ["claude-code", "opencode", "sessions", "cli", "ssh", "agent"],
   "license": "MIT",
   "os": ["darwin", "linux"],

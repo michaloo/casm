@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1 - 2026-08-07
+
+- package metadata only: `repository`/`homepage`/`bugs` now point at
+  github.com/michaloo/casm, which also makes the README's demo image render on
+  npmjs.com. No code changes.
+
 ## 0.7.0 - 2026-08-07
 
 ### Added

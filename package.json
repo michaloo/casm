@@ -1,9 +1,12 @@
 {
   "name": "casm-cli",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Multi-node coding-agent session manager (claude code / opencode / pi)",
   "type": "module",
   "bin": { "casm": "bin/casm.mjs" },
+  "repository": { "type": "git", "url": "git+https://github.com/michaloo/casm.git" },
+  "homepage": "https://github.com/michaloo/casm#readme",
+  "bugs": { "url": "https://github.com/michaloo/casm/issues" },
   "files": ["bin", "lib", "README.md", "CHANGELOG.md"],
   "keywords": ["claude-code", "opencode", "sessions", "cli", "ssh", "agent"],
   "license": "MIT",

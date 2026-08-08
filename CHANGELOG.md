@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.8.3 - 2026-08-08
+
+### Changed
+
+- A container's `HOME` is now your own home path rather than `/casmhome`, so
+  every path means the same thing on both sides. `~` resolves identically, and
+  `~/Projects/thing` works inside when `--dir ~/Projects/thing` is mounted, which
+  it previously did not: the absolute path resolved but the tilde path did not
+  exist. The home directory inside stays container-local and nearly empty. Note
+  that `--dir` is the writable blast radius, since agents inside run with
+  permissions off and passwordless sudo.
+
+### Fixed
+
+- `casm push <id> <container>` could not find the project and offered to copy the
+  whole thing in beside the copy already mounted. The candidate path was mapped
+  home-relative, which is right for an ssh host with a different home but wrong
+  for a container, where the project is mounted at the host's own path. It now
+  pushes straight to that path when the session lives inside the container's
+  `--dir`, and says so when it does not.
+- `casm push <container> <id>`, with the arguments the wrong way round, failed
+  with `no session matching '<container>'`. It now recognises a host or container
+  name in that position and prints the corrected command.
+- `casm container rm` could hang indefinitely, leaving the container wedged in
+  `Stopping`. podman waits for a graceful stop before killing, and the
+  `docker rm -f` casm shells out to had no timeout, so a container holding a
+  live exec session (an interactive agent) blocked the command with no
+  explanation. It now passes `-t 0` on podman, which skips the wait, and bounds
+  every removal with a hard timeout that prints the manual command if it trips.
+  Measured on Fedora: `podman rm -f` took 10s against a container whose exec
+  session ignores SIGTERM, `podman rm -f -t 0` took 0s. Docker has no such flag
+  and already kills immediately.
+
 ## 0.8.2 - 2026-08-08
 
 ### Added

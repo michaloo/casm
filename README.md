@@ -52,11 +52,35 @@ casm container auth work                           # top up its credentials
 casm container rm work                             # destroys the sessions inside
 ```
 
-The project is mounted read-write at its own host path, so recorded paths are
-valid on both sides. Agent config is mounted read-only for parity
-(`~/.claude/settings.json`, `plugins`, `skills`, `opencode.jsonc`,
-`~/.gitconfig`); state directories are not, so the container's sessions are its
-own. All three agents run unprompted inside: `create` writes
+### What is mounted where
+
+`--dir` is mounted **at its own host path**, and `HOME` inside the container is
+your own home path too. So every path means the same thing on both sides: `~`
+resolves the same, a transcript written inside is readable outside, and nothing
+needs translating anywhere.
+
+| host | in the container | |
+|---|---|---|
+| `<--dir>` | the same absolute path, and the working directory | rw |
+| `~/.claude/settings.json`, `plugins`, `skills` | the same paths | ro |
+| `~/.config/opencode/opencode.jsonc`, `skills` | the same paths | ro |
+| `~/.pi/agent/settings.json`, `models.json` | the same paths | ro |
+| `~/.gitconfig` | the same path | ro |
+| everything else under `~` | not mounted | absent |
+
+The home directory inside is container-local and nearly empty: the read-only
+config above, the credentials casm seeds, and whatever the agents write. Your
+actual home is not mounted, so `~/Documents` does not exist in there. Only
+`--dir` is writable through to the host.
+
+That means **whatever you point `--dir` at, the agent can write** - it runs with
+permissions off and passwordless sudo, so treat `--dir` as the blast radius and
+pick it deliberately. Pointing it at `~` mounts your whole home read-write.
+
+Credentials are copied in rather than mounted, and state directories are neither,
+so the container's sessions are its own.
+
+All three agents run unprompted inside: `create` writes
 `/etc/claude-code/managed-settings.json` (`defaultMode: bypassPermissions`,
 `allowManagedPermissionRulesOnly: true`, so host `deny` rules cannot narrow it)
 and `/etc/opencode/opencode.json`; pi has no gates. Both are root-owned, so the

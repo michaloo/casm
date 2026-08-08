@@ -4,6 +4,26 @@
 
 ### Changed
 
+- **A bare target name is now always a local container**, and a container
+  elsewhere is addressed as `<host>/<name>` (`fedora.local/agent1`,
+  `user@box/agent1`). Container names are only unique within a machine, so the
+  old fallthrough let a local container silently shadow a remote one of the same
+  name and pointed pushes at the wrong machine; a name that existed only
+  remotely was not addressable at all and failed with
+  `Could not resolve hostname`. Remote containers are reached by ssh plus
+  `docker exec`, and file transfer stages through a temp path on the machine in
+  between, so `list`, `search`, `active`, `show`, `push`, `pull`, `resume` and
+  `new` all work against them.
+- `container create` now always builds the image rather than telling you to run
+  `casm container build` first, so a container can never be created from an image
+  that predates the casm you are running. That is not hypothetical: a stale image
+  survived an upgrade and produced containers with no sudo in them. The build is
+  cached, so an unchanged Dockerfile costs well under a second (measured
+  437-724ms) and runs quietly, while a changed one rebuilds what moved.
+- `container build` now always skips the cache. Layer caching pins the agent CLIs
+  to whenever the layer was built, so a cached rebuild would leave them untouched
+  - which is not what asking for a rebuild means. It is the way to pull newer
+  claude, opencode and pi into the image.
 - A container's `HOME` is now your own home path rather than `/casmhome`, so
   every path means the same thing on both sides. `~` resolves identically, and
   `~/Projects/thing` works inside when `--dir ~/Projects/thing` is mounted, which
@@ -14,6 +34,14 @@
 
 ### Fixed
 
+- On Linux, a session running in a container was reported twice by `casm active`:
+  once by the container's own casm and again by the host's, because a container's
+  processes are visible in the host process table there. The host's entry was the
+  wrong one - it matched the process against whatever transcript was newest in
+  that directory, which after a `casm pull` is a stale copy shown with a stale
+  age. Processes belonging to a container are now skipped, identified by the
+  runtime named in `/proc/<pid>/cgroup`. macOS was never affected, since it keeps
+  containers in a VM.
 - `casm push <id> <container>` could not find the project and offered to copy the
   whole thing in beside the copy already mounted. The candidate path was mapped
   home-relative, which is right for an ssh host with a different home but wrong

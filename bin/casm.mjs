@@ -15,8 +15,13 @@ import { cmdList, cmdSearch, cmdShow, cmdResume, cmdContinue, cmdActive, cmdPush
 // go to an ssh host on purpose: a pre-0.8 casm there does not know
 // `--local-containers`, and would fan out to its own hosts if it saw only that.
 async function runRemote(node, cmd, args) {
-  const scope = node.kind === "docker" ? ["--local"] : ["--local", "--local-containers"];
-  const r = await casmOn(node, [cmd, ...args, ...scope]);
+  const scope = (node.kind === "docker" || node.kind === "ssh-docker")
+    ? ["--local"] : ["--local", "--local-containers"];
+  // Tell the far end what we call it, so its own container headers read as
+  // fedora.local/agent1 rather than a bare name that means a *local* container
+  // here. Sent as one token: an older casm skips unknown dash-arguments, but a
+  // separate value would be read as a positional and become search's term.
+  const r = await casmOn(node, [cmd, ...args, ...scope, `--as=${node.name}`]);
   const parts = [r.out, r.err].filter(Boolean);
   if (!r.ok) parts.push(dim(`(${node.name}: no answer - check that casm is installed there: npm i -g casm-cli)`));
   return parts.join("\n") || dim("none");
@@ -29,8 +34,12 @@ async function fanOut(cmd, fn, args) {
   const explicitAll = args.includes("--all");
   const hostArg = strFlag(args, "--host", null);
   const withContainers = args.includes("--local-containers");
+  // set when another casm is asking: it has already printed a header for us, so
+  // ours would be a duplicate, and our containers belong in its namespace
+  const asName = (args.find((a) => a.startsWith("--as=")) ?? "").slice(5) || null;
   const localArgs = args.filter((a, i) =>
-    !["--all", "--local", "--local-containers", "--host"].includes(a) && args[i - 1] !== "--host");
+    !["--all", "--local", "--local-containers", "--host"].includes(a) &&
+    !a.startsWith("--as=") && args[i - 1] !== "--host");
 
   // --local-containers is tested first so it wins when both are present, which
   // is exactly how runRemote addresses an ssh host.
@@ -48,11 +57,11 @@ async function fanOut(cmd, fn, args) {
   const all = explicitAll || !hostArg;
   const remotes = nodes.map((n) => runRemote(n, cmd, localArgs)); // start before the local pass
   if (all) {
-    console.log(`\n${green("● local")} ${dim(os.hostname())}`);
+    if (!asName) console.log(`\n${green("● local")} ${dim(os.hostname())}`);
     await fn(localArgs);
   }
   for (const [i, n] of nodes.entries()) {
-    console.log(`\n${green("● " + n.name)}`);
+    console.log(`\n${green("● " + (asName ? `${asName}/${n.name}` : n.name))}`);
     console.log(await remotes[i]);
   }
 }
@@ -83,11 +92,14 @@ sessions are agent-scoped: push moves a session to the SAME agent on the
 other machine (claude→claude, opencode→opencode, pi→pi). the agent is
 detected from the session id - no flag needed.
 
-a host is anywhere casm can run: an ssh target (a ~/.ssh/config name or
-user@host - put ports and identities in ~/.ssh/config) or a container created
-with 'casm container create', reached over docker exec instead of ssh. casm
-must be installed and on PATH on every one of them (npm i -g casm-cli); the
-container image ships with it.
+a target is anywhere casm can run:
+  local              this machine
+  <name>             a container here, and only ever here
+  <ssh-target>       a machine: a ~/.ssh/config name or user@host
+  <ssh-target>/<name>  a container on that machine
+container names are only unique per machine, so a bare name never means a
+remote one. casm must be installed and on PATH on every machine (npm i -g
+casm-cli); the container image ships with it.
 
 a container is a machine like any other: its sessions live inside it, so
 'casm container rm' destroys them - 'casm pull <name> <id>' first.

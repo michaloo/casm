@@ -56,11 +56,13 @@ The project is mounted read-write at its own host path, so recorded paths are
 valid on both sides. Agent config is mounted read-only for parity
 (`~/.claude/settings.json`, `plugins`, `skills`, `opencode.jsonc`,
 `~/.gitconfig`); state directories are not, so the container's sessions are its
-own. `create` writes `/etc/claude-code/managed-settings.json` with
-`defaultMode: bypassPermissions` and `allowManagedPermissionRulesOnly: true`, so
-agents inside run unprompted and host `deny` rules cannot narrow them.
-Containers run as your uid and are registered in `~/.config/casm/config.json`
-next to `hosts`.
+own. All three agents run unprompted inside: `create` writes
+`/etc/claude-code/managed-settings.json` (`defaultMode: bypassPermissions`,
+`allowManagedPermissionRulesOnly: true`, so host `deny` rules cannot narrow it)
+and `/etc/opencode/opencode.json`; pi has no gates. Both are root-owned, so the
+agents cannot rewrite their own rules. opencode's is a default rather than a
+lock: set `OPENCODE_PERMISSION` or a user config and yours wins. Containers run
+as your uid and are registered in `~/.config/casm/config.json` next to `hosts`.
 
 ## Usage
 

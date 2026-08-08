@@ -465,9 +465,14 @@ Doing it here rather than with `--permission-mode` is deliberate. It holds
 however the session starts, including a plain `claude` typed inside the
 container, so casm does not have to be in the loop on every launch.
 
-**opencode** gets `OPENCODE_PERMISSION` with a trailing `"*": "allow"` and
-`OPENCODE_DISABLE_PROJECT_CONFIG=1`, set as container environment so they apply
-to every invocation.
+**opencode** gets a managed config at `/etc/opencode/opencode.json`, opencode's
+system-level config directory on linux, plus `OPENCODE_DISABLE_PROJECT_CONFIG=1`.
+
+This is deliberately a default and not a lock. Experiment established that
+`OPENCODE_PERMISSION` beats the managed file in both directions, which is the
+opposite of claude, where managed settings top the stack. Setting the env var
+too would have made the container's policy unoverridable, and someone who
+changes these settings on purpose should get what they asked for.
 
 **pi** needs nothing. It has no permission gates.
 

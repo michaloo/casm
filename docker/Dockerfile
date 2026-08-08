@@ -22,9 +22,12 @@ ARG EXTRA_SETUP=""
 
 # git and openssh-client so the agent can actually use a repo; rsync and sqlite3
 # because casm needs them (sqlite3 for opencode session listing); procps for the
-# `ps` that `casm active` parses.
+# `ps` that `casm active` parses; sudo so the agent can install its own
+# dependencies, which casm grants passwordless at create time. Root inside a
+# container does not cross the container boundary, and an agent that cannot
+# apt-get install is hobbled for unattended work.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git openssh-client rsync sqlite3 procps less ${EXTRA_PACKAGES} \
+      ca-certificates curl git openssh-client rsync sqlite3 procps less sudo ${EXTRA_PACKAGES} \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g --no-fund --no-audit \

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.8.2 - 2026-08-08
+
+### Added
+
+- Agents in a container get **passwordless sudo**, so they can install their own
+  dependencies. Previously they ran as a non-root user with no sudo in the image,
+  so `apt-get install` and `npm i -g` both failed and only project-local package
+  managers worked. Root inside a container does not cross the container
+  boundary, which is already the trust boundary here. `--no-sudo` opts out.
+  Verified on Docker and on rootless podman under `--userns=keep-id`.
+
+### Fixed
+
+- A container could invalidate the host's claude login. The linux path copied
+  `~/.claude/.credentials.json` wholesale, refresh token included, while macOS
+  stripped it, so on linux the host and container shared one refresh token and
+  whichever refreshed first took out the other. This is not theoretical: it
+  happened to a Fedora host during testing. Both platforms now go through one
+  `claudeCredential()` that always strips the refresh token, so a container can
+  use its access token but never rotate yours.
+- `container create` and `container auth` now report the seeded token's expiry,
+  and say so plainly when the host's access token has **already** expired. A
+  stripped credential cannot refresh itself, so seeding an expired one produced a
+  container that looked authorised and then failed on the first prompt with
+  `Login expired · Please run /login`.
+
 ## 0.8.1 - 2026-08-08
 
 ### Fixed

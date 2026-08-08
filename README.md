@@ -209,15 +209,19 @@ Other meta values:
   paths; agents handle that fine going forward.
 - Containers hold their sessions internally, so `casm container rm` destroys
   them; `casm pull <name> <id>` first.
-- Container auth is copied at create time, not mounted. On macOS claude's
-  credentials come from the Keychain
-  (`security find-generic-password -l 'Claude Code-credentials'`), minus the
-  refresh token, so the container cannot rotate the one your host login uses.
-  It therefore stops working when the access token expires: `casm container
-  auth <name>` tops it up. `--no-keychain` opts out entirely, for
-  `claude setup-token` and `CLAUDE_CODE_OAUTH_TOKEN`;
+- Container auth is copied at create time, not mounted, always **without the
+  refresh token**, so a container can use your credential but never rotate the
+  one your host login depends on. claude's comes from
+  `~/.claude/.credentials.json` on Linux and from the Keychain on macOS
+  (`security find-generic-password -l 'Claude Code-credentials'`). The container
+  therefore stops working when the access token expires; `casm container auth
+  <name>` tops it up, and `create` tells you when it expires. `--no-keychain`
+  opts out entirely, for `claude setup-token` and `CLAUDE_CODE_OAUTH_TOKEN`;
   `--with-refresh-token` keeps the refresh token if you want the container to
-  renew itself.
+  renew itself, at the cost of it being able to invalidate your host login.
+- Agents inside get passwordless sudo, so they can `apt-get install` what they
+  need. The image is slim, so `sudo apt-get update` is needed first. `--no-sudo`
+  opts out.
 - Containers get a dedicated key at `~/.config/casm/ssh/id_ed25519`, installed
   at the default path inside. `~/.ssh` is not mounted; git on the mounted
   project is normally done from the host.

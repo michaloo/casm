@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.3 - 2026-08-08
+## 0.8.4 - 2026-08-08
 
 ### Changed
 
@@ -14,6 +14,11 @@
   `docker exec`, and file transfer stages through a temp path on the machine in
   between, so `list`, `search`, `active`, `show`, `push`, `pull`, `resume` and
   `new` all work against them.
+- Containers in the fleet survey are now labelled by the machine they are on
+  (`fedora.local/agent1`), and a remote no longer prints a second `local` header
+  inside its parent's. A bare container name in that listing meant a local
+  container to the machine printing it and something else to the machine reading
+  it.
 - `container create` now always builds the image rather than telling you to run
   `casm container build` first, so a container can never be created from an image
   that predates the casm you are running. That is not hypothetical: a stale image
@@ -24,13 +29,6 @@
   to whenever the layer was built, so a cached rebuild would leave them untouched
   - which is not what asking for a rebuild means. It is the way to pull newer
   claude, opencode and pi into the image.
-- A container's `HOME` is now your own home path rather than `/casmhome`, so
-  every path means the same thing on both sides. `~` resolves identically, and
-  `~/Projects/thing` works inside when `--dir ~/Projects/thing` is mounted, which
-  it previously did not: the absolute path resolved but the tilde path did not
-  exist. The home directory inside stays container-local and nearly empty. Note
-  that `--dir` is the writable blast radius, since agents inside run with
-  permissions off and passwordless sudo.
 
 ### Fixed
 
@@ -42,15 +40,33 @@
   age. Processes belonging to a container are now skipped, identified by the
   runtime named in `/proc/<pid>/cgroup`. macOS was never affected, since it keeps
   containers in a VM.
+- `casm push <container> <id>`, with the arguments the wrong way round, failed
+  with `no session matching '<container>'`. It now recognises a host or container
+  name in that position and prints the corrected command.
+- podman's `Emulate Docker CLI using podman` banner, which it prints on the
+  stderr of every invocation, no longer leaks into relayed output or into the
+  middle of a transfer. It was only stripped from the probe path before.
+
+## 0.8.3 - 2026-08-08
+
+### Changed
+
+- A container's `HOME` is now your own home path rather than `/casmhome`, so
+  every path means the same thing on both sides. `~` resolves identically, and
+  `~/Projects/thing` works inside when `--dir ~/Projects/thing` is mounted, which
+  it previously did not: the absolute path resolved but the tilde path did not
+  exist. The home directory inside stays container-local and nearly empty. Note
+  that `--dir` is the writable blast radius, since agents inside run with
+  permissions off and passwordless sudo.
+
+### Fixed
+
 - `casm push <id> <container>` could not find the project and offered to copy the
   whole thing in beside the copy already mounted. The candidate path was mapped
   home-relative, which is right for an ssh host with a different home but wrong
   for a container, where the project is mounted at the host's own path. It now
   pushes straight to that path when the session lives inside the container's
   `--dir`, and says so when it does not.
-- `casm push <container> <id>`, with the arguments the wrong way round, failed
-  with `no session matching '<container>'`. It now recognises a host or container
-  name in that position and prints the corrected command.
 - `casm container rm` could hang indefinitely, leaving the container wedged in
   `Stopping`. podman waits for a graceful stop before killing, and the
   `docker rm -f` casm shells out to had no timeout, so a container holding a

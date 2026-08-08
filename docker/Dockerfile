@@ -40,6 +40,10 @@ RUN if [ -n "${EXTRA_SETUP}" ]; then sh -c "${EXTRA_SETUP}"; fi
 # project belong to you, and because claude refuses to disable permissions while
 # running as root. That uid is not known at build time, so HOME has to be
 # writable by whoever turns up.
+#
+# casm overrides both of these at run time, pointing HOME at the host's own home
+# path so that `~` means the same thing inside and out. /casmhome is only the
+# fallback for running this image directly.
 RUN mkdir -p /casmhome && chmod 1777 /casmhome
 ENV HOME=/casmhome
 

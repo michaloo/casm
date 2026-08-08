@@ -18,39 +18,113 @@ No npm dependencies. Node 18+. macOS and Linux.
 npm i -g casm-cli        # installs the `casm` command
 ```
 
-## Hosts
+---
 
-A host is anywhere casm can run: an **ssh target** - a name from your
-`~/.ssh/config`, or `user@host` - or a **container** (see below). Usernames,
-ports, identity files and jump hosts belong in `~/.ssh/config`.
+## Continue from anywhere
 
-```sh
-casm host add rig                # adds it, then checks ssh + casm on the far end
-casm host add me@fedora.local
-casm host list                   # every host: ready / no casm / unreachable
-casm host rm rig
-```
+The reason casm exists. `casm continue` lists your 10 most recent sessions
+across all three agents, newest first, with age, agent, project, context size
+and opening message. Pick a number and casm changes into that session's own
+directory and hands the terminal to its agent, resuming **by id** so you land in
+the session you picked rather than whatever was newest in that folder.
 
-That maintains a plain list in `~/.config/casm/config.json`:
-
-```json
-{ "hosts": ["rig", "me@fedora.local"] }
-```
-
-## Containers
-
-A container is a host reached over `docker exec` instead of ssh. casm runs
-inside it, so its sessions live there and every command works as it does for any
-other host.
+![casm continue: 10 recent sessions across claude, opencode and pi; pick one and it resumes in the right directory](docs/media/continue.gif)
 
 ```sh
-casm container create work --dir ~/Projects/thing  # builds the image first, always
-casm container build                               # rebuild by hand
-casm new --host work                               # start a session inside it
-casm list --host work
-casm container auth work                           # top up its credentials
-casm container rm work                             # destroys the sessions inside
+casm continue                   # the 10 most recent, pick one
+casm continue --agent opencode  # one agent only
+casm continue --host rig        # or on another machine entirely
 ```
+
+Bookmarked sessions sort to the top with a `★`. Enter takes the newest, `q`
+aborts. If the original directory is gone it says so and starts where you are.
+
+## Search and resume
+
+Full-text search across every transcript, every agent and every machine, with
+the matching line shown in context. Then resume the hit wherever it lives.
+
+![casm search: full-text hit across transcripts, then casm show to read the session](docs/media/search.gif)
+
+```sh
+casm search "oculink"             # every agent, every machine, every container
+casm search "flaky test" --agent claude
+casm show 019e4ee3 -n 20          # read it first
+casm resume 019e4ee3              # ...then pick it up
+```
+
+Ids can be abbreviated anywhere to a unique prefix, and a bookmark alias works
+in every place an id does.
+
+## See what every machine is doing
+
+One command for the whole fleet: which agents are running, on which machine or
+container, in which project, and whether they are working or sat waiting for
+you.
+
+```sh
+casm active                     # this machine + every host + every container
+casm active --local             # just here
+```
+
+Statuses are inferred from each agent's own transcript: `generating`,
+`running tool`, `waiting approval?`, `working`, `stalled?`, `idle`. The one
+worth watching for is `waiting approval?` - an agent that has been sitting on a
+permission prompt while you were somewhere else.
+
+## Move a session between machines
+
+Start something on the laptop, finish it on the workstation. The session keeps
+its id and its full history; only the project path is adjusted for the target.
+
+```sh
+casm push c66fbd0b rig          # interactive: casm finds the project over there
+casm push c66fbd0b rig --to /home/me/proj
+casm pull rig                   # what is on rig?
+casm pull rig c66fbd0b          # bring one back
+```
+
+Sessions are agent-scoped: claude to claude, opencode to opencode, pi to pi,
+detected from the id with no flag needed. Both copies then exist under the same
+id and drift apart independently, so `casm show` prints an `also on <host>` line
+for every other machine holding it.
+
+## Run an agent in a container
+
+Give an agent a box it cannot damage, then work in it normally. Inside the
+container permissions are off for all three agents, so nothing interrupts you,
+and the container is the boundary instead.
+
+```sh
+# 1. give the agent a box. builds the image if it is missing, mounts the project
+#    read-write at its own path, seeds your agent credentials, publishes 5 ports
+casm container create work --dir ~/Projects/thing
+
+# 2. move a session you already started into it. the project is mounted at the
+#    same path it has on the host, so the session's directory is valid inside
+casm push c66fbd0b work
+
+# 3. pick it up in there. casm changes into the project and hands over the
+#    terminal, exactly as it does locally - only now the agent runs unprompted,
+#    because the container is the boundary instead of the permission prompts
+casm resume c66fbd0b --host work
+
+# or skip the move and just start something new inside
+casm new --host work
+
+# from the outside it is a host like any other
+casm list --host work        # its sessions
+casm active                  # running containers join the fleet survey
+casm container rm work       # destroys the sessions inside it
+```
+
+None of that is special-cased: a container is a host reached over `docker exec`
+instead of ssh, with casm running inside it, so every command works against it
+unchanged. A container on another machine is addressed as `<host>/<name>`.
+
+Each container gets five published ports from 20000 up, mapped identically, so a
+dev server the agent starts is reachable from the host at the same number.
+`CASM_PORTS` and `PORT` are set inside so the agent knows its range.
 
 ### What is mounted where
 
@@ -67,6 +141,12 @@ needs translating anywhere.
 | `~/.pi/agent/settings.json`, `models.json` | the same paths | ro |
 | `~/.gitconfig` | the same path | ro |
 | everything else under `~` | not mounted | absent |
+
+Each container also gets five published ports from 20000 up, mapped identically,
+so a dev server the agent starts is reachable from the host at the same number.
+`CASM_PORTS` and `PORT` are set inside so the agent knows its range. Blocks do
+not overlap between containers. `--ports N` resizes and `--no-ports` opts out;
+like mounts, the block is fixed at create time.
 
 The home directory inside is container-local and nearly empty: the read-only
 config above, the credentials casm seeds, and whatever the agents write. Your
@@ -88,7 +168,34 @@ agents cannot rewrite their own rules. opencode's is a default rather than a
 lock: set `OPENCODE_PERMISSION` or a user config and yours wins. Containers run
 as your uid and are registered in `~/.config/casm/config.json` next to `hosts`.
 
-## Usage
+---
+
+## Targets
+
+A target is anywhere casm can run:
+
+| | |
+|---|---|
+| `local` | this machine |
+| `<name>` | a container here, and only ever here |
+| `<ssh-target>` | a machine: a `~/.ssh/config` name, or `user@host` |
+| `<ssh-target>/<name>` | a container on that machine |
+
+Container names are only unique per machine, so a bare name never reaches a
+remote one. Usernames, ports, identity files and jump hosts belong in
+`~/.ssh/config`.
+
+```sh
+casm host add rig                # adds it, then checks ssh + casm on the far end
+casm host list                   # every host: ready / no casm / unreachable
+casm host rm rig
+casm container list              # containers, their state, ports and project
+```
+
+Hosts are a plain list in `~/.config/casm/config.json`, containers a map beside
+it.
+
+## All commands
 
 ```sh
 casm continue                  # pick from your 10 most recent local sessions, resume it
@@ -132,44 +239,6 @@ alias works anywhere an id-prefix does: `casm resume casm-work`,
 `casm show casm-work`, `casm push casm-work fedora`. Stored in
 `~/.config/casm/config.json` next to `hosts`; bookmarks are per-machine and
 refer to local sessions.
-
-## `push` and `pull`
-
-Casm allows easy copying sessions between nodes. This doesn't cover cross-agent migrations, Claude Code session can be moved to other machine to continue with Claude Code there.
-
-When running `push session_id` casm will check if the project path existing on the remote box and will give you options:
-
-1. Push into the exact matching path, if it exists there
-2. Push into a directory of the same name found elsewhere on the target
-3. Rsync the whole local project directory over first, then push
-4. A custom remote path, created if missing
-
-```sh
-casm push c66fbd0b fedora      # interactive move to another machine
-casm push ses_110bdd fedora --to /home/user/proj   # non-interactive
-casm pull fedora               # list what is on fedora
-casm pull fedora c66fbd0b      # fetch that session here (any agent)
-```
-
-Pushed and pulled sessions keep the original session ID. That means a
-transferred session exists on both machines under the same id, and the two
-copies drift apart the moment you work on either one - there is no ongoing sync.
-
-- `casm show <id>` prints the copy it found plus a `also on <host> - last
-  activity 3.1h ago` line for every other machine holding that id, so you can
-  tell which copy is ahead.
-- `push`/`pull` refuse to transfer on top of an existing copy; `--force` to overwrite.
-
-## `continue`
-
-`casm continue` lists your 10 most recent local sessions across all three
-agents, newest first, with age / agent / project / first message. Pick a number
-(enter takes the newest, `q` aborts) and casm chdirs into that session's own
-directory and hands the terminal to its agent.
-
-It resumes the session **by id** (`claude --resume <id>`, `opencode -s <id>`,
-`pi --session <id>`). If the original directory is
-gone it warns and starts in the current one.
 
 ## How push works
 
@@ -247,6 +316,9 @@ Other meta values:
   opts out entirely, for `claude setup-token` and `CLAUDE_CODE_OAUTH_TOKEN`;
   `--with-refresh-token` keeps the refresh token if you want the container to
   renew itself, at the cost of it being able to invalidate your host login.
+- Containers run with `--init`, so orphaned processes are reaped rather than
+  accumulating as zombies against the pid limit. Resource limits are
+  4G memory / 1024 pids / 2 cpus.
 - Agents inside get passwordless sudo, so they can `apt-get install` what they
   need. The image is slim, so `sudo apt-get update` is needed first. `--no-sudo`
   opts out.

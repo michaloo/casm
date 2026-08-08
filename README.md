@@ -6,8 +6,6 @@ List, search, and resume sessions for **Claude Code** (`cc`), **opencode** (`oc`
 **Move sessions between machines over SSH** so you can continue them where you're working.
 Sessions are agent-scoped: a session always moves to the *same* agent on the other machine, never across agents.
 
-![casm active: running claude, opencode and pi sessions on two machines, with their status and last activity](casm-demo.png)
-
 No npm dependencies. Node 18+. macOS and Linux.
 
 ## Install

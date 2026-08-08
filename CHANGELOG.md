@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.8.1 - 2026-08-08
+
+### Fixed
+
+- Containers were unusable under rootless podman: it maps the host user to
+  container root, so `--user <hostuid>` landed on a subuid owning none of the
+  bind mounts and the project tree appeared root-owned and read-only from
+  inside. casm now detects podman and uses `--userns=keep-id` instead, which
+  keeps the uid non-root and the mounts writable. Verified on Fedora with
+  SELinux enforcing, where `keep-id` and the existing
+  `--security-opt label=disable` are both required.
+- claude asked you to log in again in a fresh container even though its
+  credential was seeded. `~/.claude.json` holds the account and onboarding state
+  claude needs alongside the credential, and it was never copied. It now is,
+  minus `projects`, `githubRepoPaths`, `mcpServers` and the cache blobs, which
+  takes it from 284kB of host path history to about 9kB.
+- Containers only turned permissions off for claude. opencode still gated tools
+  in the interactive TUI, and a `permission` block in the mounted host
+  `opencode.jsonc` would have applied inside the container too. `create` now
+  writes `/etc/opencode/opencode.json`, opencode's managed config, allowing every
+  documented surface. It is a default rather than a lock: `OPENCODE_PERMISSION`
+  and a user config both outrank it, so a deliberate override still wins. pi has
+  no permission gates, so it needed nothing.
+
 ## 0.8.0 - 2026-08-08
 
 ### Added

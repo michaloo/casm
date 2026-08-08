@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.8.5 - 2026-08-08
+
+### Added
+
+- Containers get a block of **published ports** so an agent can show you what it
+  built. Five by default from 20000 up, published identically (20000 inside is
+  20000 outside) to match how paths are mapped, so a URL the agent prints is a
+  URL you can open. Each container gets its own block, chosen by skipping blocks
+  already claimed by another casm container and any port something else on the
+  machine is listening on. `CASM_PORTS` and `PORT` are set inside so an agent can
+  discover its range without being told. `--ports N` resizes, `--no-ports` opts
+  out. Ports are fixed at `docker run`, so changing the block means recreating
+  the container.
+
+### Fixed
+
+- **Containers wedged after hours of real work: every command failed, `echo`
+  included.** PID 1 was `sleep infinity`, which never calls `wait()`, so every
+  orphaned process inside reparented to it and stayed a zombie forever. Each held
+  a slot against `--pids-limit 256`, and once free slots ran out `fork()` failed,
+  which kills even shell builtins because each one forks a subshell. Reported
+  from a 4-hour session at 206/256 pids, 117 of them zombies; only a restart
+  clears them, since nothing can force PID 1 to reap. Containers now run with
+  `--init`, so PID 1 is a real init that reaps orphans (tini on docker,
+  catatonit on podman). Verified: 200 orphaned processes now leave 0 zombies and
+  7 total pids, where before 20 orphans left 40 permanent zombies.
+- The default pid limit is raised from 256 to 1024. It is a fork-bomb backstop,
+  not a workload budget, and a real session running npm, a bundler, a database
+  and a test runner sits inside 256. The reaper above is the actual fix; this
+  only removes a needlessly tight ceiling.
+- A fresh container asked "do you trust this folder?" on first launch. The
+  workspace-trust state lives in `~/.claude.json` under `projects`, which casm
+  drops when seeding because it is host path history. Choosing `--dir` is the act
+  of trusting that directory, so casm now seeds trust for exactly that one path -
+  a prompt with no decision in it is just a prompt.
+
 ## 0.8.4 - 2026-08-08
 
 ### Changed

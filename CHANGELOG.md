@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.8.0 - 2026-08-08
+
+### Added
+
+- **Containers as hosts**: `casm container build | create | list | rm`. A
+  container is a host reached over `docker exec` instead of ssh, with casm
+  running inside it, so `list`/`search`/`active`/`show`/`push`/`pull` and
+  `--host` work against it unchanged; running containers join the default
+  fan-out. `create` mounts the project read-write at its own host path, mounts
+  agent config read-only for parity, seeds auth (from the macOS Keychain for
+  claude, access token only), installs a dedicated ssh key from `~/.config/casm/ssh/id_ed25519`, and
+  writes `/etc/claude-code/managed-settings.json` so agents inside run
+  unprompted. Containers run as your uid; their sessions live inside them, so
+  `casm container rm` destroys them.
+- **`casm container auth <name>`**: re-seed a running container's credentials
+  from this host. Needed because the claude credential is seeded **without its
+  refresh token**, so a container can never rotate the one your host login uses;
+  it stops at expiry instead. `--with-refresh-token` opts out of that.
+- **`casm new`**: start a session rather than resume one, on any node
+  (`--agent`, `--host`, `--dir`).
+- **`--local-containers`**: scope `active`/`list`/`search` to this machine and
+  its own containers, without fanning out to configured ssh hosts. Remote
+  invocations now use it, so a host reports its containers' sessions as well as
+  its own; a container is a leaf and is still pinned to `--local`. Both flags
+  are sent to an ssh host so a pre-0.8 casm there stays local instead of fanning
+  out to its own hosts.
+- **`--host` on `resume` and `continue`**: interactive commands now work on a
+  remote node, handing over the terminal with `ssh -t` or `docker exec -it`.
+  Previously they were local-only.
+
+### Changed
+
+- Every remote operation goes through one transport layer (`lib/nodes.mjs`)
+  covering local, ssh and `docker exec`. `ssh()`/`sshTry()`/`casmRemote()` are
+  gone from `lib/util.mjs`; `rsync` and `docker cp` sit behind one interface.
+- Each agent now exposes `resumeArgv(s, cwd)` returning an argv array instead of
+  `resumeCmd(s, path)` returning a string. `launch()` used to rebuild argv by
+  splitting that string on spaces, which broke any argument containing one.
+- opencode is pinned with `--dir` on resume and on new sessions; without it
+  opencode ignores the spawn cwd and walks up to the nearest project root.
+
+### Fixed
+
+- The docker daemon probe used `docker info --format {{.ServerVersion}}`, which
+  podman's shim rejects, so casm reported docker unavailable on podman hosts
+  even when it was working. It now runs plain `docker info`.
+
 ## 0.7.1 - 2026-08-07
 
 - package metadata only: `repository`/`homepage`/`bugs` now point at

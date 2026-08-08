@@ -44,8 +44,8 @@ inside it, so its sessions live there and every command works as it does for any
 other host.
 
 ```sh
-casm container build                               # once: builds casm/agents
-casm container create work --dir ~/Projects/thing  # long-lived, project mounted
+casm container create work --dir ~/Projects/thing  # builds the image first, always
+casm container build                               # rebuild by hand
 casm new --host work                               # start a session inside it
 casm list --host work
 casm container auth work                           # top up its credentials
@@ -104,7 +104,11 @@ casm host list                 # configured hosts + their reachability
 casm container list            # containers casm manages
 ```
 
-`continue`, `resume` and `new` take `--host`: an ssh target or a container.
+`continue`, `resume` and `new` take `--host`, as do `list`, `search`, `active`
+and `show`. A target is `local`, a container name (always one of **yours**, on
+this machine), an ssh target, or `<ssh-target>/<container>` for a container on
+another machine. Container names are only unique per machine, so a bare name
+never reaches a remote one.
 
 `active`, `list` and `search` cover this machine, every configured host and
 every running container. Scope them with `--local` (this machine alone),

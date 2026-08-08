@@ -1,8 +1,8 @@
 # casm
 
-**Simple multi-node coding-agent session manager (claude code / opencode / pi) over SSH.**
+**Simple multi-node coding-agent session manager (claude code / opencode / pi) over SSH and Docker.**
 
-List, search, and resume sessions for **Claude Code** (`cc`), **opencode** (`oc`), and **pi** (`pi`) - on local machine or via SSH.
+List, search, and resume sessions for **Claude Code** (`cc`), **opencode** (`oc`), and **pi** (`pi`) - on local machine, via SSH, or in a Docker container.
 **Move sessions between machines over SSH** so you can continue them where you're working.
 Sessions are agent-scoped: a session always moves to the *same* agent on the other machine, never across agents.
 
@@ -20,7 +20,9 @@ npm i -g casm-cli        # installs the `casm` command
 
 ## Hosts
 
-A host is just an **ssh target** - a name from your `~/.ssh/config`, or `user@host`. Usernames, ports, identity files and jump hosts belong in `~/.ssh/config`.
+A host is anywhere casm can run: an **ssh target** - a name from your
+`~/.ssh/config`, or `user@host` - or a **container** (see below). Usernames,
+ports, identity files and jump hosts belong in `~/.ssh/config`.
 
 ```sh
 casm host add rig                # adds it, then checks ssh + casm on the far end
@@ -35,18 +37,54 @@ That maintains a plain list in `~/.config/casm/config.json`:
 { "hosts": ["rig", "me@fedora.local"] }
 ```
 
+## Containers
+
+A container is a host reached over `docker exec` instead of ssh. casm runs
+inside it, so its sessions live there and every command works as it does for any
+other host.
+
+```sh
+casm container build                               # once: builds casm/agents
+casm container create work --dir ~/Projects/thing  # long-lived, project mounted
+casm new --host work                               # start a session inside it
+casm list --host work
+casm container auth work                           # top up its credentials
+casm container rm work                             # destroys the sessions inside
+```
+
+The project is mounted read-write at its own host path, so recorded paths are
+valid on both sides. Agent config is mounted read-only for parity
+(`~/.claude/settings.json`, `plugins`, `skills`, `opencode.jsonc`,
+`~/.gitconfig`); state directories are not, so the container's sessions are its
+own. `create` writes `/etc/claude-code/managed-settings.json` with
+`defaultMode: bypassPermissions` and `allowManagedPermissionRulesOnly: true`, so
+agents inside run unprompted and host `deny` rules cannot narrow them.
+Containers run as your uid and are registered in `~/.config/casm/config.json`
+next to `hosts`.
+
 ## Usage
 
 ```sh
 casm continue                  # pick from your 10 most recent local sessions, resume it
+casm new                       # start a new session (--agent, --host, --dir)
 casm search "oculink"          # full-text search across agents and machines
 casm resume 019e4ee3           # resume by id, cd into the session directory and resume in appropriate coding agent
+casm resume 019e4ee3 --host rig  # resume it on another machine
 casm active                    # list currently active sessions from all nodes
 casm list -n 30                # newest sessions across all agents and machines
 casm list --agent opencode     # one agent only
 casm show ses_110bdd           # preview a session, here or on any host (agent auto-detected)
 casm host list                 # configured hosts + their reachability
+casm container list            # containers casm manages
 ```
+
+`continue`, `resume` and `new` take `--host`: an ssh target or a container.
+
+`active`, `list` and `search` cover this machine, every configured host and
+every running container. Scope them with `--local` (this machine alone),
+`--local-containers` (this machine and its containers) or `--host <name>`. A
+remote host is asked for itself and its own containers, never for its hosts, so
+the survey cannot loop.
 
 ## Bookmarks
 
@@ -167,6 +205,22 @@ Other meta values:
   versions; parsing is defensive (bad lines skipped) but may degrade.
 - Old tool results inside a moved conversation still reference source-machine
   paths; agents handle that fine going forward.
+- Containers hold their sessions internally, so `casm container rm` destroys
+  them; `casm pull <name> <id>` first.
+- Container auth is copied at create time, not mounted. On macOS claude's
+  credentials come from the Keychain
+  (`security find-generic-password -l 'Claude Code-credentials'`), minus the
+  refresh token, so the container cannot rotate the one your host login uses.
+  It therefore stops working when the access token expires: `casm container
+  auth <name>` tops it up. `--no-keychain` opts out entirely, for
+  `claude setup-token` and `CLAUDE_CODE_OAUTH_TOKEN`;
+  `--with-refresh-token` keeps the refresh token if you want the container to
+  renew itself.
+- Containers get a dedicated key at `~/.config/casm/ssh/id_ed25519`, installed
+  at the default path inside. `~/.ssh` is not mounted; git on the mounted
+  project is normally done from the host.
+- Lima-backed Docker mounts only the paths Lima exposes; `~` needs
+  `writable: true` in `lima.yaml`.
 
 ## Alternatives
 

@@ -1,0 +1,74 @@
+#!/usr/bin/env expect -f
+# Drives one recording. expect sits OUTSIDE asciinema on purpose: if asciinema
+# runs inside expect's pty the recorded program renders to the wrong terminal
+# and the cast comes out blank.
+#
+#   drive.exp <cols> <rows> <out.cast> <steps-file>
+#
+# The steps file is a tiny line format, so the scenarios stay readable:
+#   type <text>     type it a character at a time, like a person
+#   enter           press return
+#   send <text>     send raw text with no typing delay
+#   wait <secs>     hold still, so a viewer can actually read the screen
+#   ctrl <letter>   send a control character
+
+set timeout 60
+set cols  [lindex $argv 0]
+set rows  [lindex $argv 1]
+set cast  [lindex $argv 2]
+set steps [lindex $argv 3]
+
+proc type {s} {
+  foreach c [split $s ""] {
+    send -- $c
+    # slight variation reads as typing rather than as a paste
+    after [expr {35 + int(rand() * 35)}]
+  }
+}
+
+set t0 [clock milliseconds]
+spawn -noecho asciinema rec --overwrite --quiet --window-size ${cols}x${rows} \
+  -c "bash --noprofile --rcfile $env(CASM_REPO)/docs/media/demo.bashrc -i" $cast
+
+# let the shell draw its first prompt before anything is typed
+sleep 1.2
+
+set fh [open $steps r]
+foreach line [split [read $fh] "\n"] {
+  set line [string trim $line]
+  if {$line eq "" || [string index $line 0] eq "#"} { continue }
+  set verb [lindex [split $line " "] 0]
+  set rest [string range $line [expr {[string length $verb] + 1}] end]
+  switch -- $verb {
+    type  { type $rest }
+    enter { send -- "\r" }
+    send  { send -- $rest }
+    wait  { sleep $rest }
+    ctrl  { send -- [format %c [expr {[scan [string toupper $rest] %c] - 64}]] }
+    default { puts stderr "drive.exp: unknown step '$line'"; exit 1 }
+  }
+}
+close $fh
+
+# Where the interesting part ends. The teardown below has to happen inside the
+# recording - asciinema only closes the cast when its command exits - so record
+# the mark and let agg trim everything after it.
+set fo [open "$cast.end" w]
+puts $fo [format %.2f [expr {([clock milliseconds] - $t0) / 1000.0}]]
+close $fo
+
+# Quit whatever is in the foreground, then the shell. Two interrupts because an
+# agent TUI asks for confirmation on the first; both are harmless at a bash
+# prompt. Never type a bare word and press return here - if an agent is still up
+# that is a prompt submitted to the model, not a shell command.
+send -- "\x03"
+sleep 0.5
+send -- "\x03"
+sleep 1.0
+send -- "exit\r"
+
+set timeout 20
+expect {
+  eof { }
+  timeout { puts stderr "drive.exp: session did not exit, killing"; exec kill [exp_pid] }
+}

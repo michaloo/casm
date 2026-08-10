@@ -1,0 +1,12 @@
+# Continue from anywhere: one list across all three agents, pick a number, casm
+# changes into that session's directory and resumes it by id.
+wait 0.4
+type casm continue
+enter
+# hold on the list - this is the frame that has to be readable
+wait 5.5
+type 3
+wait 1.2
+enter
+# claude comes up in the session's own directory, with its history restored
+wait 6

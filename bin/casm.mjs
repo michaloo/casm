@@ -2,7 +2,7 @@
 // casm - multi-node coding-agent session manager for Claude Code, opencode, and pi.
 import os from "node:os";
 import { dim, cyan, green, magenta, yellow, die, listHosts, strFlag } from "../lib/util.mjs";
-import { casmOn, resolveNode, runningContainers } from "../lib/nodes.mjs";
+import { casmOn, resolveNode, containerNames, ensureRunning } from "../lib/nodes.mjs";
 import { cmdList, cmdSearch, cmdShow, cmdResume, cmdContinue, cmdActive, cmdPush, cmdPull, cmdHost, cmdBookmark, cmdNew, cmdContainer } from "../lib/commands.mjs";
 
 // multi-machine fan-out: casm must be installed on every managed host.
@@ -15,6 +15,12 @@ import { cmdList, cmdSearch, cmdShow, cmdResume, cmdContinue, cmdActive, cmdPush
 // go to an ssh host on purpose: a pre-0.8 casm there does not know
 // `--local-containers`, and would fan out to its own hosts if it saw only that.
 async function runRemote(node, cmd, args) {
+  // A container stopped by a reboot still holds its sessions, so it is started
+  // rather than skipped. Concurrent with every other node's start, and a
+  // `sleep infinity` container comes up in well under a second.
+  const why = await ensureRunning(node);
+  if (why) return dim(`(${why})`);
+
   const scope = (node.kind === "docker" || node.kind === "ssh-docker")
     ? ["--local"] : ["--local", "--local-containers"];
   // Tell the far end what we call it, so its own container headers read as
@@ -45,11 +51,11 @@ async function fanOut(cmd, fn, args) {
   // is exactly how runRemote addresses an ssh host.
   if (!withContainers && args.includes("--local")) return fn(localArgs);
 
-  // running containers join the survey, but only the running ones: a stopped
-  // container has nothing to report, and a stopped docker daemon returns none
-  // at all rather than making every casm invocation look broken.
+  // Containers join the survey whether or not they are running: a stopped one
+  // still holds its sessions, and runRemote starts it. A stopped docker daemon
+  // contributes none at all rather than making every casm invocation look broken.
   const nodes = hostArg ? [resolveNode(hostArg)]
-    : (withContainers ? runningContainers() : [...listHosts(), ...runningContainers()]).map(resolveNode);
+    : (withContainers ? containerNames() : [...listHosts(), ...containerNames()]).map(resolveNode);
   if (!nodes.length) {
     if (explicitAll || hostArg) die("no hosts configured - add one with: casm host add <ssh-target>");
     return fn(localArgs); // nothing to fan out to: just this machine
@@ -75,6 +81,7 @@ if (!cmd || !commands[cmd]) {
 
 usage:
   casm continue [-n 10] [--agent X] [--host H]   pick a recent session and resume it
+                                                 (this machine and its containers)
   casm new    [--agent X] [--host H] [--dir P]   start a NEW session
   casm active                                    running sessions + inferred status
   casm list   [-n 20] [--agent X] [--project P]  newest sessions across agents
@@ -84,7 +91,8 @@ usage:
   casm push   <id-prefix> <host> [--to <path>] [--dry-run] [--force]
   casm pull   <host> [id-prefix] [-n 20] [--force]   fetch a session from a host
   casm host   list | add <ssh-target> | rm <ssh-target>
-  casm container list | create <name> --dir <path> | auth <name> | rm <name> | build
+  casm container list | create <name> --dir <path> | start [<name>] | auth <name>
+                      | rm <name> | build
   casm bookmark [<id-prefix> [alias]] | rm <alias>   pin sessions in continue;
                                                  an alias works wherever an id does
 
@@ -102,10 +110,13 @@ remote one. casm must be installed and on PATH on every machine (npm i -g
 casm-cli); the container image ships with it.
 
 a container is a machine like any other: its sessions live inside it, so
-'casm container rm' destroys them - 'casm pull <name> <id>' first.
+'casm container rm' destroys them - 'casm pull <name> <id>' first. a stopped
+container is started by whatever needs it, so a reboot costs you nothing.
 
-active/list/search cover this machine, every configured host and every running
-container by default. scope them with --local (this machine alone),
+active/list/search cover this machine, every configured host and every
+container by default. continue covers this machine and its containers only,
+since it ends by handing your terminal over; use --host to reach a host.
+scope them with --local (this machine alone),
 --local-containers (this machine and its containers) or --host <name> (one).
 a remote host is asked for itself and its own containers, never for its hosts.`);
   process.exit(cmd ? 1 : 0);

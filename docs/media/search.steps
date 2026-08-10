@@ -1,0 +1,12 @@
+# Search and resume: one full-text pass over every agent's transcripts - claude,
+# opencode and pi - then resume the hit by id, without having to remember which
+# agent it was or which directory it lived in.
+wait 0.4
+type casm search config
+enter
+# hold on the hits - the match is highlighted inside its surrounding text, and
+# the three rows are three different agents
+wait 6
+type casm resume e78fdd25
+enter
+wait 5.5

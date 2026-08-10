@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.8.6 - 2026-08-09
+
+### Fixed
+
+- **Starting or resuming an opencode session did nothing**: opencode printed its
+  command list and exited 1, which reads as casm having launched nothing at all.
+  casm passed the working directory as `--dir`, which opencode removed - 1.18
+  takes it as a positional (`opencode [project]`) and rejects the flag outright.
+  Naming the directory is still not optional, since opencode otherwise ignores
+  the spawn cwd and walks up to the nearest project root, which in a container
+  means working outside the directory that was mounted for it. `-s <id>` for
+  resume is unchanged. claude and pi were never affected.
+
+- **Some casm commands left the terminal broken - text typed afterwards went
+  invisible until `clear`.** Everything casm prints out of a transcript is
+  untrusted terminal input, not text: agent sessions are full of pasted build
+  logs, coloured diffs and screen captures, and roughly one in eleven claude
+  sessions here carries ANSI escapes in its message text. Two ways that reached
+  the terminal. `casm show` truncated a turn at 400 characters and `casm search`
+  cut a 40-character window either side of the match, so a cut landing inside an
+  escape emitted an unterminated one - a CSI runs until a byte in `0x40-0x7e`,
+  so the terminal then swallowed the newline and the front of the shell prompt
+  looking for it. And a complete sequence passed through drove the terminal
+  directly: `ESC[8m` conceals everything typed after it, `ESC[?1049h` switches to
+  the alternate screen, `ESC c` resets the lot. Transcript text is now stripped
+  of escapes and control bytes where it enters casm - previews, search hits,
+  `show` turns, session cwds and error messages - and `pad`/`truncate` refuse to
+  leave a chopped sequence behind even when handed casm's own colours. Covered
+  by tests in `lib/util.test.mjs`.
+- casm now restores the terminal after handing it to an agent. An agent TUI that
+  dies without unwinding - killed, or cut off with its ssh connection - leaves
+  its attributes set and its cursor hidden on your terminal, and the shell
+  prompt inherits them. `ssh -t` and `docker exec -it` restore the line
+  discipline they changed, but nothing restores what the program drew. casm
+  re-asserts an SGR reset and a visible cursor, the two that are always safe to
+  repeat; leaving the alternate screen is not, so it stays the agent's job.
+- `casm search` highlighted the wrong characters. The match offset was computed
+  against the raw text but applied to the whitespace-collapsed copy, so the
+  highlight drifted right by however many whitespace runs preceded the term.
+
+- **A reboot stranded every container's sessions.** Containers came back
+  `exited`, and casm only ever surveyed running ones, so their sessions vanished
+  from `list`, `active` and `search` with nothing to say they existed;
+  `--host <name>` failed with docker's `can only create exec sessions on running
+  containers`. A stopped container is not a broken one - its sessions are
+  untouched - so casm now starts it instead. Automatic in `container list`,
+  `list`, `active`, `search`, `continue`, `resume`, `new`, `push` and `pull`,
+  concurrently with everything else in the survey, and cheap enough not to
+  notice: a `sleep infinity` container comes up in well under a second.
+- New containers are created with `--restart unless-stopped`, so a reboot brings
+  them back without casm being involved at all. `unless-stopped` and not
+  `always`, so one you stop by hand stays stopped. Rootless podman also needs
+  `systemctl --user enable podman-restart.service` for this, which is why the
+  start-on-demand above exists rather than relying on the policy alone.
+
+### Added
+
+- `casm continue` now covers this machine **and its containers**, in one list
+  ordered by recency, and resumes the pick wherever it lives. It was
+  local-only, which meant the sessions most worth continuing - the ones an agent
+  is running unattended in a container - were the ones you could not see.
+  Deliberately not the configured ssh hosts, unlike `list`/`active`/`search`:
+  `continue` ends by handing your terminal to an agent, and a numbered list that
+  can silently drop you onto another machine is a mis-key waiting to happen. A
+  container is different: it shares this machine's filesystem and mounts its
+  project at the same path. Reach a host explicitly with `--host`.
+- `casm container start [<name>...]` starts one, several, or all of them. Rarely
+  needed by hand now that everything else does it, but useful in a script that
+  wants a container up before it does anything with it.
+
+### Changed
+
+- The `continue` picker labels its two sections, `bookmarks` and `recent`.
+  Bookmarks have always been pinned above the rest - that is what a pin is for -
+  but with no header it read as a sorting bug, since a pinned session two days
+  old sits above one from ten seconds ago.
+- The picker gains a node column when the list spans more than one node, so it
+  is clear which pick lands in a container.
+
 ## 0.8.5 - 2026-08-08
 
 ### Added

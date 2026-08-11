@@ -1,5 +1,90 @@
 # Changelog
 
+## 0.9.0 - 2026-08-11
+
+Containers stop being places you manage and become a property of a session, and
+**codex joins claude code, opencode and pi** as a supported agent.
+
+### Breaking
+
+- **`casm container` is gone**, all of it. A session gets a container with
+  `casm containerize <id>` or `casm new --containerized`; one that is stopped is
+  started by whatever needs it; credentials are re-seeded on the way in; and the
+  image builds on demand. To free disk, `docker rm` the container - it loses no
+  conversation, and the next resume rebuilds it. `docker rmi casm/agents` is how
+  you refresh the agent CLIs inside it.
+- **Containers are no longer targets.** `--host <container>` and
+  `<host>/<container>` addressing are gone, along with `--local-containers`. A
+  containerized session is reached by its own id from the machine that owns it.
+- **Sessions in 0.8-style containers are not read by 0.9.** They lived inside
+  the container; they now live on the host. Copy them out with
+  `casm pull <container> <id>` under 0.8.6 before upgrading, then
+  `casm containerize <id>`.
+- **Unknown options now fail** instead of being ignored. A misspelled
+  `--containerized` used to start an ordinary session while you believed you
+  were in a container.
+
+### Added
+
+- **`casm containerize <id>`** moves a session into a container of its own, and
+  **`casm new --containerized`** starts one already inside. One session, one
+  container: the environment an agent builds - packages it installed, a database
+  it started - is part of that conversation and lasts as long as it does.
+- **Transcripts live on the host, not in the container.** Each containerized
+  session gets a store under `~/.local/share/casm/containers/<name>/`, and the
+  agents inside are pointed at it with `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
+  `PI_CODING_AGENT_SESSION_DIR` and `XDG_DATA_HOME`. `list`, `search`, `show`
+  and `continue` therefore read a containerized session without ever entering
+  its container, and removing the container loses nothing.
+- **Containerizing is one-way.** The transcript moves rather than copies, so
+  there is no second copy to drift - which is what the container-as-host model
+  produced - and no route back that would quietly resume a prompts-off session
+  with prompts on.
+- **Rebuild from record.** If a container is gone when you resume, casm rebuilds
+  it from what it recorded, on the same published ports, and re-runs
+  `~/.casm/setup.sh` from the store. The agent is told it is in a container that
+  can be reset and asked to record what it installs there.
+- **codex support**: `cx` in listings, `codex resume <id>`, context from its
+  `token_count` records, and containerized sessions like the rest. Its
+  `<environment_context>` and AGENTS.md injections are filtered out of previews,
+  turns and search, where they would otherwise be the first thing shown for
+  every session.
+- **`casm help` and `casm version`.** Help leads with the command table, then
+  three dense use-case blocks. Bare `casm` prints help; an unknown command says
+  so in one line instead of dumping it.
+- A `▣` beside the project marks a containerized session in `list`, `search`,
+  `active` and `continue`, with a one-line legend printed only when something in
+  the output carries it.
+
+### Fixed
+
+- **Duplicate, diverging sessions.** Pushing to a container copied the
+  transcript into it, so the same session existed twice and drifted apart. On
+  one machine a session sat frozen at 775k on the host while the live copy in
+  its container had moved a day further on, and `casm continue` offered both.
+- **Every containerized claude session opened on a modal.** With
+  `CLAUDE_CONFIG_DIR` pointing at the store, claude reads `.claude.json` from
+  there, so casm's copy at `$HOME/.claude.json` was ignored and first-run
+  onboarding ran on top of the resumed conversation. The bypass-mode warning did
+  the same. Both are seeded now - an unattended session used to sit on that
+  dialog forever.
+- **Agent config was silently ignored inside containers.** `~/.claude/settings.json`,
+  plugins and skills were mounted where the agent no longer looks. Config is now
+  copied into the store, writable, and refreshed on rebuild - codex writes its
+  model choice into `config.toml`, so a read-only mount made that fail on every
+  start.
+- Credentials follow the same rule: claude's and opencode's are seeded inside
+  the store, pi's is not, because only its sessions are redirected.
+- **`casm active` shows containerized sessions.** Their processes are in the
+  container's pid namespace - filtered out of the host's on linux, invisible in
+  a VM on macOS - so casm asks each running container, and answers the
+  children check that separates `running tool` from `waiting approval?` from the
+  same call.
+- `casm search` marks containerized hits, which it previously did not.
+- codex gets `--dangerously-bypass-approvals-and-sandbox` inside a container. It
+  was the one agent still stopping to ask.
+- `bubblewrap` is in the image, so codex stops warning about it on every start.
+
 ## 0.8.6 - 2026-08-09
 
 ### Fixed

@@ -16,6 +16,16 @@ PRISTINE="$2"
 [ -d "$PRISTINE" ] || { echo "no pristine snapshot at $PRISTINE" >&2; exit 1; }
 rsync -a --delete "$PRISTINE/" "$HOME_DIR/"
 
+# A take that containerizes a session leaves a container behind, and the next
+# take would refuse to reuse the name. Only ever removes containers whose
+# project is inside the demo home.
+if command -v docker >/dev/null 2>&1; then
+  docker ps -a --filter label=casm=1 --format '{{.Names}}\t{{.Label "casm.dir"}}' 2>/dev/null |
+    while IFS=$'\t' read -r cname cdir; do
+      case "$cdir" in "$HOME_DIR"/*) docker rm -f "$cname" >/dev/null 2>&1 && echo "  removed demo container $cname";; esac
+    done
+fi
+
 # Newest first. These offsets are what the picker shows as the age column, so
 # they are chosen to look like a real week of work rather than six sessions from
 # the same ten minutes. The third row is the one the scenarios select.
@@ -52,6 +62,10 @@ fs.writeFileSync(path.join(dir, ".credentials.json"), c.json, { mode: 0o600 });
 const left = c.expiresAt ? Math.round((c.expiresAt - Date.now()) / 60000) : null;
 console.error(`  seeded claude auth from ${c.source}${left !== null ? ` (${left} min left)` : ""}`);
 ' "$HOME_DIR"
+
+# codex dates a session by its file mtime, like claude and pi
+find "$HOME_DIR/.codex/sessions" -name '*.jsonl' -print0 2>/dev/null |
+  while IFS= read -r -d '' f; do touch_ago "$f" $((150 * 60)); done
 
 # opencode keeps its own clock in sqlite, in epoch milliseconds
 DB="$HOME_DIR/.local/share/opencode/opencode.db"

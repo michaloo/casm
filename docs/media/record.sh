@@ -37,6 +37,7 @@ IDLE_LIMIT="${IDLE_LIMIT:-9}"
 SCENES=(
   "continue:104:16"
   "search:152:16"
+  "container:118:22"
 )
 
 [ -d "$DEMO_HOME" ] || { echo "no demo home at $DEMO_HOME - see docs/media/README.md" >&2; exit 1; }
@@ -61,18 +62,22 @@ for scene in "${SCENES[@]}"; do
   # agg rejects a position past the end.
   select=""
   if [ -f "$CASTS/$name.cast.end" ]; then
-    end=$(python3 - "$CASTS/$name.cast" "$(cat "$CASTS/$name.cast.end")" <<'PY'
+    end=$(python3 - "$CASTS/$name.cast" "$(cat "$CASTS/$name.cast.end")" "$IDLE_LIMIT" <<'CLAMP'
 import json, sys
+# agg caps every idle gap at --idle-time-limit *before* --select is applied, so
+# the timeline it measures is shorter than wall clock by whatever it trimmed.
+# Summing raw intervals overshoots and agg rejects the position outright.
+limit = float(sys.argv[3])
 total = 0.0
 with open(sys.argv[1]) as f:
     next(f, None)                      # header
     for line in f:
         line = line.strip()
         if line.startswith("["):
-            try: total += json.loads(line)[0]
+            try: total += min(json.loads(line)[0], limit)
             except Exception: pass
-print(f"{min(float(sys.argv[2]), total):.2f}")
-PY
+print(f"{min(float(sys.argv[2]), max(total - 0.05, 0)):.2f}")
+CLAMP
 )
     select="--select ..$end"
   fi

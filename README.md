@@ -31,13 +31,12 @@ than whatever was newest in that folder.
 ```sh
 casm continue                   # the 10 most recent, pick one
 casm continue --agent opencode  # one agent only
-casm continue --local           # skip the containers, this machine alone
 casm continue --host rig        # or on another machine entirely
 ```
 
-The picker covers this machine and its containers in one list, and resumes the
-pick wherever it lives. Configured ssh hosts are left out, since `continue` ends
-by handing over your terminal; reach one with `--host`.
+The picker covers this machine, containerized sessions included, and resumes
+each one where it belongs. Configured ssh hosts are left out, since `continue`
+ends by handing over your terminal; reach one with `--host`.
 
 Bookmarks are pinned above the rest under a `bookmarks` header, with a `★`.
 Enter takes the first, `q` aborts. If the original directory is gone it says so
@@ -51,7 +50,7 @@ the matching line shown in context. Then resume the hit wherever it lives.
 ![casm search: one query matching transcripts from all three agents with the term highlighted in context, then casm resume picking one up by id](docs/media/search.gif)
 
 ```sh
-casm search "rate limiting"       # every agent, every machine, every container
+casm search "rate limiting"       # every agent, every machine
 casm search "flaky test" --agent claude
 casm show 019e4ee3 -n 20          # read it first
 casm resume 019e4ee3              # ...then pick it up
@@ -66,7 +65,7 @@ Which agents are running, on which machine or container, in which project, and
 whether they are working or waiting on you.
 
 ```sh
-casm active                     # this machine + every host + every container
+casm active                     # this machine + every configured host
 casm active --local             # just here
 ```
 
@@ -92,58 +91,59 @@ detected from the id with no flag needed. Both copies then exist under the same
 id and drift apart independently, so `casm show` prints an `also on <host>` line
 for every other machine holding it.
 
-## Run an agent in a container
+## Bypass permission prompts, in a dedicated container
 
-Run an agent with its permission prompts off, in a container rather than on your
-machine. casm turns off prompting for all three agents inside, so the container
-is what limits the agent instead of the prompts.
+Agents ask permission constantly, and turning that off on your own machine means
+an agent with your shell and your home directory. `casm containerize` moves a
+session into a dedicated container: prompts off inside, where the only thing it
+can reach is the project you pointed it at.
 
 ```sh
-# 1. give the agent a box. builds the image if it is missing, mounts the project
-#    read-write at its own path, seeds your agent credentials, publishes 5 ports
-casm container create work --dir ~/Projects/thing
-
-# 2. move a session you already started into it. the project is mounted at the
-#    same path it has on the host, so the session's directory is valid inside
-casm push c66fbd0b work
-
-# 3. pick it up in there. casm changes into the project and hands over the
-#    terminal, exactly as it does locally - only now the agent never stops to ask
-casm resume c66fbd0b --host work
-
-# or skip the move and just start something new inside
-casm new --host work
-
-# from the outside it is a host like any other
-casm list --host work        # its sessions
-casm active                  # containers join the fleet survey
-casm continue                # and their sessions join the local picker
-casm container rm work       # destroys the sessions inside it
+casm containerize c66fbd0b     # move a session you already started into one
+casm new --containerized       # or start a fresh session already inside one
 ```
 
-None of that is special-cased: a container is a host reached over `docker exec`
-instead of ssh, with casm running inside it, so every command works against it
-unchanged. A container on another machine is addressed as `<host>/<name>`.
+That is the whole interface. There is no container to name, create, start,
+authenticate or clean up.
 
-`--dir` is mounted at its own host path, and `HOME` inside is your home path too,
-so paths mean the same thing on both sides and nothing needs translating. Your
-agent config comes along read-only; the rest of your home does not come along at
-all. **`--dir` is the only thing the agent can write through to the host, and it
-can write all of it** - permissions are off and sudo needs no password - so pick
-it deliberately. Pointing it at `~` mounts your whole home read-write.
+**The session is still yours.** Its transcripts live on this machine, not inside
+the container, so `casm list`, `casm search` and `casm show` read it exactly as
+before and `casm continue` offers it alongside everything else, with a `▣`
+beside the project. Only resuming goes into the container.
 
-Credentials are copied in rather than mounted, always without the refresh token,
-so a container can use your login but never rotate the one your host depends on.
-It stops working when the access token expires; `casm container auth <name>`
-tops it up.
+**Containerizing is one-way.** The transcript moves rather than copies, so there
+is no second copy to drift apart, and no route back that would quietly resume a
+prompts-off session with prompts on.
 
-A stopped container is started by whatever needs it, so a reboot costs you
-nothing - its sessions are untouched either way.
+**The container is disposable, the session is not.** Delete it with `docker rm`
+whenever you want the disk back. The next resume rebuilds it from what casm
+recorded, on the same published ports, and re-runs the setup script the agent
+kept while it worked. The agent is told it is in a container that can be reset,
+and to record anything it installs there.
 
-Each container gets five published ports from 20000 up, mapped identically, so a
-dev server the agent starts is reachable from the host at the same number.
-`CASM_PORTS` and `PORT` are set inside so the agent knows its range. `--ports N`
-resizes, `--no-ports` opts out, and the block is fixed at create time.
+**One session, one container.** The environment an agent builds - packages it
+installed, a database it started - is part of that conversation and lasts
+exactly as long as it does.
+
+### What the agent can reach
+
+The project directory, mounted read-write at its own path, so `~` and every path
+in the transcript mean the same thing inside and out and nothing needs
+translating. Your agent config comes along read-only. The rest of your home does
+not come along at all.
+
+**That project directory is the blast radius.** Permissions are off in there and
+sudo needs no password, so the agent can write all of it. Pick it deliberately -
+pointing it at `~` mounts your whole home read-write.
+
+Credentials are copied in rather than mounted, and always without the refresh
+token, so a container can use your login but can never rotate the one your host
+depends on. casm tops them up each time you resume.
+
+Five ports from 20000 up are published unchanged, so a dev server the agent
+starts on 20000 is on 20000 for you too. `CASM_PORTS` and `PORT` are set inside
+so the agent knows its range without being told. `--ports N` resizes and
+`--no-ports` opts out.
 
 ---
 
@@ -154,30 +154,29 @@ A target is anywhere casm can run:
 | | |
 |---|---|
 | `local` | this machine |
-| `<name>` | a container here, and only ever here |
 | `<ssh-target>` | a machine: a `~/.ssh/config` name, or `user@host` |
-| `<ssh-target>/<name>` | a container on that machine |
 
-Container names are only unique per machine, so a bare name never reaches a
-remote one. Usernames, ports, identity files and jump hosts belong in
-`~/.ssh/config`.
+Usernames, ports, identity files and jump hosts belong in `~/.ssh/config`.
 
 ```sh
 casm host add rig                # adds it, then checks ssh + casm on the far end
 casm host list                   # every host: ready / no casm / unreachable
 casm host rm rig
-casm container list              # containers, their state, ports and project
-casm container start work        # rarely needed - everything else starts them
 ```
 
-Hosts are a plain list in `~/.config/casm/config.json`, containers a map beside
-it.
+Containers are not targets. A containerized session is reached by its own id
+wherever you are, and casm knows which container it belongs to.
+
+Hosts are a plain list in `~/.config/casm/config.json`, with the containerized
+sessions recorded beside them.
 
 ## All commands
 
 ```sh
 casm continue                  # pick from your 10 most recent sessions here or in a container
 casm new                       # start a new session (--agent, --host, --dir)
+casm new --containerized       # ...in a dedicated container
+casm containerize 019e4ee3     # move an existing session into one (one-way)
 casm search "rate limiting"    # full-text search across agents and machines
 casm resume 019e4ee3           # resume by id, in its own directory and its own agent
 casm resume 019e4ee3 --host rig  # resume it on another machine
@@ -186,16 +185,14 @@ casm list -n 30                # newest sessions across all agents and machines
 casm list --agent opencode     # one agent only
 casm show ses_110bdd           # preview a session, here or on any host (agent auto-detected)
 casm host list                 # configured hosts + their reachability
-casm container list            # containers casm manages
 ```
 
 `continue`, `resume` and `new` take `--host`, as do `list`, `search`, `active`
 and `show`.
 
-`active`, `list` and `search` cover this machine, every configured host and
-every container. Scope them with `--local` (this machine alone),
-`--local-containers` (this machine and its containers) or `--host <name>`.
-`continue` covers this machine and its containers only.
+`active`, `list` and `search` cover this machine and every configured host;
+scope them with `--local` or `--host <name>`. `continue` covers this machine
+only, since it ends by handing your terminal over.
 
 ## Bookmarks
 

@@ -35,6 +35,7 @@ touch_ago() { # <file> <seconds-ago>
 }
 
 CC="$HOME_DIR/.claude/projects"
+touch_ago "$CC/-Users-michal-casm-demo-home-Projects-kmod/7c1d9a02-5f31-4c88-9a17-2b6e0d4a1f55.jsonl" $((14 * 60))
 touch_ago "$CC/-Users-michal-casm-demo-home-Projects-acme-web/2690cd0d-87e9-47eb-b8ae-11eb1ba5ddca.jsonl" $((22 * 60))
 touch_ago "$CC/-Users-michal-casm-demo-home-Projects-acme-web/8b9440f7-8ac2-4a25-b3bc-3ddbd10a0a22.jsonl" $((70 * 60))
 touch_ago "$CC/-Users-michal-casm-demo-home-Projects-acme-api/da9c8c9e-c339-4d18-85bc-db03c647e21c.jsonl" $((185 * 60))

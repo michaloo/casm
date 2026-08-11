@@ -1,33 +1,24 @@
 #!/usr/bin/env node
 // casm - multi-node coding-agent session manager for Claude Code, opencode, and pi.
 import os from "node:os";
-import { dim, cyan, green, magenta, yellow, die, listHosts, strFlag } from "../lib/util.mjs";
-import { casmOn, resolveNode, containerNames, ensureRunning } from "../lib/nodes.mjs";
-import { cmdList, cmdSearch, cmdShow, cmdResume, cmdContinue, cmdActive, cmdPush, cmdPull, cmdHost, cmdBookmark, cmdNew, cmdContainer } from "../lib/commands.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { dim, cyan, green, magenta, yellow, blue, die, listHosts, strFlag } from "../lib/util.mjs";
+import { casmOn, resolveNode } from "../lib/nodes.mjs";
+import { cmdList, cmdSearch, cmdShow, cmdResume, cmdContinue, cmdActive, cmdPush, cmdPull, cmdHost, cmdBookmark, cmdNew, cmdContainerize } from "../lib/commands.mjs";
 
 // multi-machine fan-out: casm must be installed on every managed host.
 // remotes run concurrently and their output is buffered, so the per-host
 // blocks stay grouped and one slow/unreachable host doesn't serialize the rest.
 //
 // Scope is pinned on every remote invocation, or two machines listing each
-// other would never terminate. An ssh host is asked for itself plus its own
-// containers; a container is a leaf and is asked for itself alone. Both flags
-// go to an ssh host on purpose: a pre-0.8 casm there does not know
-// `--local-containers`, and would fan out to its own hosts if it saw only that.
+// other would never terminate. Containers are not nodes: a containerized
+// session's transcripts live on the machine that owns the container, so that
+// machine reports them in its own pass and reaching into the container would
+// list every one of them twice.
 async function runRemote(node, cmd, args) {
-  // A container stopped by a reboot still holds its sessions, so it is started
-  // rather than skipped. Concurrent with every other node's start, and a
-  // `sleep infinity` container comes up in well under a second.
-  const why = await ensureRunning(node);
-  if (why) return dim(`(${why})`);
-
-  const scope = (node.kind === "docker" || node.kind === "ssh-docker")
-    ? ["--local"] : ["--local", "--local-containers"];
-  // Tell the far end what we call it, so its own container headers read as
-  // fedora.local/agent1 rather than a bare name that means a *local* container
-  // here. Sent as one token: an older casm skips unknown dash-arguments, but a
-  // separate value would be read as a positional and become search's term.
-  const r = await casmOn(node, [cmd, ...args, ...scope, `--as=${node.name}`]);
+  const r = await casmOn(node, [cmd, ...args, "--local", `--as=${node.name}`]);
   const parts = [r.out, r.err].filter(Boolean);
   if (!r.ok) parts.push(dim(`(${node.name}: no answer - check that casm is installed there: npm i -g casm-cli)`));
   return parts.join("\n") || dim("none");
@@ -39,7 +30,6 @@ async function fanOut(cmd, fn, args) {
   if (args.includes("--json")) return fn(args);
   const explicitAll = args.includes("--all");
   const hostArg = strFlag(args, "--host", null);
-  const withContainers = args.includes("--local-containers");
   // set when another casm is asking: it has already printed a header for us, so
   // ours would be a duplicate, and our containers belong in its namespace
   const asName = (args.find((a) => a.startsWith("--as=")) ?? "").slice(5) || null;
@@ -47,15 +37,9 @@ async function fanOut(cmd, fn, args) {
     !["--all", "--local", "--local-containers", "--host"].includes(a) &&
     !a.startsWith("--as=") && args[i - 1] !== "--host");
 
-  // --local-containers is tested first so it wins when both are present, which
-  // is exactly how runRemote addresses an ssh host.
-  if (!withContainers && args.includes("--local")) return fn(localArgs);
+  if (args.includes("--local")) return fn(localArgs);
 
-  // Containers join the survey whether or not they are running: a stopped one
-  // still holds its sessions, and runRemote starts it. A stopped docker daemon
-  // contributes none at all rather than making every casm invocation look broken.
-  const nodes = hostArg ? [resolveNode(hostArg)]
-    : (withContainers ? containerNames() : [...listHosts(), ...containerNames()]).map(resolveNode);
+  const nodes = hostArg ? [resolveNode(hostArg)] : listHosts().map(resolveNode);
   if (!nodes.length) {
     if (explicitAll || hostArg) die("no hosts configured - add one with: casm host add <ssh-target>");
     return fn(localArgs); // nothing to fan out to: just this machine
@@ -72,17 +56,73 @@ async function fanOut(cmd, fn, args) {
   }
 }
 
+// Every option each command accepts. Anything else that looks like a flag is a
+// mistake and is refused, rather than silently ignored: a misspelled
+// `--containerized` used to start an ordinary session while you believed you
+// were in a container, which is the kind of typo that has to fail loudly.
+const FLAGS = {
+  list:         ["-n", "--agent", "--project", "--id", "--json", "--local", "--host", "--all", "--as"],
+  search:       ["-n", "--agent", "--local", "--host", "--all", "--as"],
+  active:       ["--local", "--host", "--all", "--as"],
+  show:         ["-n", "--host", "--local"],
+  resume:       ["--host"],
+  continue:     ["-n", "--agent", "--host", "--local"],
+  new:          ["--agent", "--host", "--dir", "--containerized", "--image", "--ports", "--no-ports"],
+  containerize: ["--image", "--ports", "--no-ports"],
+  push:         ["--to", "--dry-run", "--force"],
+  pull:         ["-n", "--force"],
+  host:         [],
+  bookmark:     [],
+  bm:           [],
+};
+
+function checkFlags(cmd, args) {
+  const known = FLAGS[cmd];
+  if (!known) return;
+  for (const a of args) {
+    if (a === "--" || !a.startsWith("-") || a === "-") continue;
+    const name = a.split("=")[0];
+    if (known.includes(name)) continue;
+    const near = known.find((k) => k.replace(/[^a-z]/g, "").startsWith(name.replace(/[^a-z]/g, "").slice(0, 6)));
+    die(`unknown option '${name}' for 'casm ${cmd}'` +
+        (near ? ` - did you mean ${near}?` : ` - try: casm help`));
+  }
+}
+
 const [cmd, ...rest] = process.argv.slice(2);
 const FANOUT_CMDS = new Set(["list", "search", "active"]); // all-hosts by default, --local/--host to scope
-const commands = { list: cmdList, search: cmdSearch, show: cmdShow, resume: cmdResume, continue: cmdContinue, push: cmdPush, pull: cmdPull, active: cmdActive, host: cmdHost, bookmark: cmdBookmark, bm: cmdBookmark, new: cmdNew, container: cmdContainer };
+const commands = { list: cmdList, search: cmdSearch, show: cmdShow, resume: cmdResume, continue: cmdContinue, push: cmdPush, pull: cmdPull, active: cmdActive, host: cmdHost, bookmark: cmdBookmark, bm: cmdBookmark, new: cmdNew, containerize: cmdContainerize };
 
-if (!cmd || !commands[cmd]) {
-  console.log(`casm - multi-node coding-agent session manager (claude code ${cyan("cc")} / opencode ${magenta("oc")} / pi ${yellow("pi")})
+// fileURLToPath, not new URL().pathname: a checkout under a path with a space
+// comes back percent-encoded from the latter and the read fails.
+const version = () =>
+  JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")).version;
+
+// The three things people install casm for. Kept to a headline, one sentence and
+// something you can paste - the command table above is the reference, this is
+// the part that answers "what is this for".
+const USE_CASES = [
+  ["continue from anywhere",
+   "your most recent sessions across every agent, newest first. pick one and\ncasm changes into its directory and resumes it with its own agent.",
+   "casm continue"],
+  ["search and resume",
+   "full-text over every transcript, on this machine and every host, with the match\nshown in context. resume the hit wherever it turns out to live.",
+   `casm search "rate limiting"`],
+  ["new session in a dedicated container",
+   "permission prompts off inside, where the only thing the agent can reach is the\nproject you point it at. `casm containerize <id>` moves an existing one in.",
+   "casm new --containerized"],
+];
+
+function help() {
+  console.log(`casm ${dim(version())} - multi-node coding-agent session manager
+${dim("  agents:")} claude code ${cyan("cc")} · codex ${blue("cx")} · opencode ${magenta("oc")} · pi ${yellow("pi")}
 
 usage:
   casm continue [-n 10] [--agent X] [--host H]   pick a recent session and resume it
-                                                 (this machine and its containers)
   casm new    [--agent X] [--host H] [--dir P]   start a NEW session
+              [--containerized]                  ...in a container of its own
+  casm containerize <id-prefix>                  move a session into a container of
+                                                 its own (one-way)
   casm active                                    running sessions + inferred status
   casm list   [-n 20] [--agent X] [--project P]  newest sessions across agents
   casm search <term> [-n 25] [--agent X]         full-text search of transcripts
@@ -91,35 +131,27 @@ usage:
   casm push   <id-prefix> <host> [--to <path>] [--dry-run] [--force]
   casm pull   <host> [id-prefix] [-n 20] [--force]   fetch a session from a host
   casm host   list | add <ssh-target> | rm <ssh-target>
-  casm container list | create <name> --dir <path> | start [<name>] | auth <name>
-                      | rm <name> | build
   casm bookmark [<id-prefix> [alias]] | rm <alias>   pin sessions in continue;
                                                  an alias works wherever an id does
+  casm help | casm version                       this screen; the installed version`);
 
-sessions are agent-scoped: push moves a session to the SAME agent on the
-other machine (claude→claude, opencode→opencode, pi→pi). the agent is
-detected from the session id - no flag needed.
-
-a target is anywhere casm can run:
-  local              this machine
-  <name>             a container here, and only ever here
-  <ssh-target>       a machine: a ~/.ssh/config name or user@host
-  <ssh-target>/<name>  a container on that machine
-container names are only unique per machine, so a bare name never means a
-remote one. casm must be installed and on PATH on every machine (npm i -g
-casm-cli); the container image ships with it.
-
-a container is a machine like any other: its sessions live inside it, so
-'casm container rm' destroys them - 'casm pull <name> <id>' first. a stopped
-container is started by whatever needs it, so a reboot costs you nothing.
-
-active/list/search cover this machine, every configured host and every
-container by default. continue covers this machine and its containers only,
-since it ends by handing your terminal over; use --host to reach a host.
-scope them with --local (this machine alone),
---local-containers (this machine and its containers) or --host <name> (one).
-a remote host is asked for itself and its own containers, never for its hosts.`);
-  process.exit(cmd ? 1 : 0);
+  for (const [title, desc, example] of USE_CASES) {
+    console.log(`\n${green(title)}`);
+    for (const line of desc.split("\n")) console.log(dim("  " + line));
+    console.log(`  ${cyan("$ " + example)}`);
+  }
 }
-const runner = FANOUT_CMDS.has(cmd) ? fanOut(cmd, commands[cmd], rest) : commands[cmd](rest);
-Promise.resolve(runner).catch((e) => die(e.message));
+
+if (cmd === "help" || cmd === "--help" || cmd === "-h") { help(); process.exit(0); }
+if (cmd === "version" || cmd === "--version" || cmd === "-v") { console.log(version()); process.exit(0); }
+
+if (!cmd) {
+  help();
+  process.exit(0);
+} else if (!commands[cmd]) {
+  die(`unknown command '${cmd}' - try: casm help`);
+} else {
+  checkFlags(cmd, rest);
+  const runner = FANOUT_CMDS.has(cmd) ? fanOut(cmd, commands[cmd], rest) : commands[cmd](rest);
+  Promise.resolve(runner).catch((e) => die(e.message));
+}

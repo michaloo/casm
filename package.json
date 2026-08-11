@@ -1,6 +1,6 @@
 {
   "name": "casm-cli",
-  "version": "0.8.6",
+  "version": "0.9.0",
   "description": "Multi-node coding-agent session manager (claude code / opencode / pi)",
   "type": "module",
   "bin": { "casm": "bin/casm.mjs" },

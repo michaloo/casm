@@ -67,8 +67,16 @@ send -- "\x03"
 sleep 1.0
 send -- "exit\r"
 
+# Reap the recorder no matter how the session ended. A surviving asciinema keeps
+# the pipeline's stdout open, so record.sh never finishes and the render never
+# runs - which looks exactly like a slow render and is not one.
 set timeout 20
 expect {
   eof { }
-  timeout { puts stderr "drive.exp: session did not exit, killing"; exec kill [exp_pid] }
+  timeout {
+    puts stderr "drive.exp: session did not exit on its own, killing the recorder"
+    catch { exec kill -9 [exp_pid] }
+  }
 }
+catch { close }
+catch { wait }

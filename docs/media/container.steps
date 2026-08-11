@@ -1,0 +1,19 @@
+# Bypass permission prompts, in a dedicated container. Three beats: see the
+# session, move it into a container of its own, resume it in there.
+wait 0.4
+type casm list -n 3
+enter
+# hold so the id being containerized is readable in the next command
+wait 4.5
+type casm containerize 2690cd0d
+enter
+# the one-way warning is the frame that matters
+wait 5
+type y
+enter
+# creating the container: image check, credential seed, ports. silent while it works
+wait 14
+type casm resume 2690cd0d
+enter
+# claude comes up inside, in bypass mode, with the session restored
+wait 7

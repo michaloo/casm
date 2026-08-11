@@ -33,11 +33,14 @@ LINE_HEIGHT="${LINE_HEIGHT:-1.45}"
 # reading pause silently compresses the exact frames the demo exists to show.
 IDLE_LIMIT="${IDLE_LIMIT:-9}"
 
-# name:cols:rows
+# name:cols:rows[:font-size]
 SCENES=(
   "continue:104:16"
   "search:152:16"
-  "container:118:22"
+  "container:92:20"
+  "container-social:84:18"
+  # 72x52 at font-size 24 renders to 1066x1909 - a 9:16 frame with no letterbox
+  "container-vertical:72:52:24"
 )
 
 [ -d "$DEMO_HOME" ] || { echo "no demo home at $DEMO_HOME - see docs/media/README.md" >&2; exit 1; }
@@ -45,7 +48,8 @@ for t in asciinema agg expect; do command -v "$t" >/dev/null || { echo "missing 
 mkdir -p "$CASTS"
 
 for scene in "${SCENES[@]}"; do
-  IFS=: read -r name cols rows <<<"$scene"
+  IFS=: read -r name cols rows fontsize <<<"$scene"
+  fontsize="${fontsize:-$FONT_SIZE}"
   [ $# -eq 0 ] || [[ " $* " == *" $name "* ]] || continue
 
   if [ -z "${RENDER_ONLY:-}" ]; then
@@ -84,7 +88,7 @@ CLAMP
 
   echo "rendering $name"
   # shellcheck disable=SC2086
-  agg --theme "$THEME" --font-family "$FONT" --font-size "$FONT_SIZE" \
+  agg --theme "$THEME" --font-family "$FONT" --font-size "$fontsize" \
       --line-height "$LINE_HEIGHT" --idle-time-limit "$IDLE_LIMIT" --last-frame-duration 4 \
       $select "$CASTS/$name.cast" "$MEDIA/$name.gif"
   echo "  -> $MEDIA/$name.gif ($(du -h "$MEDIA/$name.gif" | cut -f1))"

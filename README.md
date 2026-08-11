@@ -98,6 +98,8 @@ an agent with your shell and your home directory. `casm containerize` moves a
 session into a dedicated container: prompts off inside, where the only thing it
 can reach is the project you pointed it at.
 
+![casm containerize: a kernel-module session moved into a container of its own, then resumed inside it with claude running in bypass mode](docs/media/container.gif)
+
 ```sh
 casm containerize c66fbd0b     # move a session you already started into one
 casm new --containerized       # or start a fresh session already inside one

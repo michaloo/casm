@@ -1,0 +1,20 @@
+# The vertical cut, for Shorts / Reels / TikTok. Recorded at 72x52 so it fills a
+# 9:16 frame natively rather than being letterboxed into one.
+#
+# Paced a little slower than the landscape cuts: on a phone the viewer is
+# reading a small frame, and there is no scrubbing back.
+wait 0.5
+type casm list -n 6
+enter
+wait 5
+type casm containerize 7c1d9a02
+enter
+wait 6
+type y
+enter
+# creating the container - the progress lines carry this stretch
+wait 15
+type casm resume 7c1d9a02
+enter
+# claude comes up in bypass mode, filling the tall frame
+wait 8

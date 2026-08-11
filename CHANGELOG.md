@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.9.1 - 2026-08-11
+
+### Fixed
+
+- **Claude plugins did not load in a containerized session.** claude's registry
+  records an absolute path to every installed plugin, all under
+  `$HOME/.claude/plugins`; a container's store puts that directory somewhere
+  else, so every path pointed at nothing. The files were all present and claude
+  could not find any of them. The registry is rewritten to the store's own
+  prefix after seeding.
+- **Agent config silently failed to copy in, and said nothing.** Two separate
+  causes, both reported now rather than swallowed:
+  - Skills directories are commonly farms of symlinks into a shared
+    `~/.agents/skills`, and `docker cp` refuses any symlink that points outside
+    the tree it is copying. `docker cp -L` fails identically and leaves a
+    partial copy behind. Config is streamed through a dereferenced `tar`, so
+    the container gets real files.
+  - macOS `tar` embeds `com.apple.provenance` and AppleDouble metadata, which a
+    Linux container rejects with `lsetxattr … operation not supported`. That
+    alone was enough to lose the plugins directory and `opencode.jsonc`.
+- **Creating a container looked hung.** It is ten to twenty seconds of silence,
+  and a first-ever image build is minutes, with nothing on screen for either.
+  Each step now reports itself - starting the container, turning off permission
+  prompts, claiming the home directory, copying your agent settings in, seeding
+  credentials, installing the ssh key - so a slow step is identifiable rather
+  than indistinguishable from a hang. A first build says it is a first build.
+
+### Changed
+
+- `casm containerize` says what it is about to do rather than warning about it:
+  *"you are about to move this session into a dedicated container, to run its
+  agent in bypass mode. the containerized agent gets the same settings and auth
+  as your host agent."* The move is still one-way; that is what "move" means.
+- **claude's bypass-mode warning is no longer suppressed.** 0.9.0 seeded the
+  acceptance flag to skip it. Seeing it is worth the keypress: it is the
+  confirmation that prompts really are off in there, and casm always hands over
+  a terminal, so someone is present to accept it. First-run *onboarding* is
+  still seeded away - that one tells you nothing.
+- The credential note no longer points at `casm container auth`, a command 0.9.0
+  removed. casm re-seeds on the next resume, so it now says so.
+
+### Known gaps
+
+- pi packages do not follow into a container. `settings.json` names them but
+  they install under `~/.pi/agent/npm` as host-platform native binaries, which
+  cannot be copied to a Linux container for the same reason opencode's
+  `node_modules` is excluded.
+- codex is not told the mounted project is trusted, so it asks on first run.
+  claude has been seeded with this since 0.9.0.
+
 ## 0.9.0 - 2026-08-11
 
 Containers stop being places you manage and become a property of a session, and

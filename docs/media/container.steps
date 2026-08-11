@@ -5,7 +5,7 @@ type casm list -n 3
 enter
 # hold so the id being containerized is readable in the next command
 wait 4.5
-type casm containerize 2690cd0d
+type casm containerize 7c1d9a02
 enter
 # the one-way warning is the frame that matters
 wait 5
@@ -13,7 +13,7 @@ type y
 enter
 # creating the container: image check, credential seed, ports. silent while it works
 wait 14
-type casm resume 2690cd0d
+type casm resume 7c1d9a02
 enter
 # claude comes up inside, in bypass mode, with the session restored
 wait 7

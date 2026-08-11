@@ -1,0 +1,15 @@
+# A short cut for social: one session, into its own container, agent running
+# with prompts off. No resume step - the payoff is the bypass banner.
+wait 0.3
+type casm list -n 3
+enter
+wait 3.5
+type casm containerize 7c1d9a02
+enter
+wait 3.5
+type y
+enter
+wait 13
+type casm resume 7c1d9a02
+enter
+wait 6

@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dim, cyan, green, magenta, yellow, blue, die, listHosts, strFlag } from "../lib/util.mjs";
 import { casmOn, resolveNode } from "../lib/nodes.mjs";
-import { cmdList, cmdSearch, cmdShow, cmdResume, cmdContinue, cmdActive, cmdPush, cmdPull, cmdHost, cmdBookmark, cmdNew, cmdContainerize } from "../lib/commands.mjs";
+import { cmdList, cmdSearch, cmdShow, cmdResume, cmdContinue, cmdActive, cmdPush, cmdPull, cmdHost, cmdBookmark, cmdNew, cmdContainerize, cmdAuth } from "../lib/commands.mjs";
 
 // multi-machine fan-out: casm must be installed on every managed host.
 // remotes run concurrently and their output is buffered, so the per-host
@@ -69,6 +69,7 @@ const FLAGS = {
   continue:     ["-n", "--agent", "--host", "--local"],
   new:          ["--agent", "--host", "--dir", "--containerized", "--image", "--ports", "--no-ports"],
   containerize: ["--image", "--ports", "--no-ports"],
+  auth:         [],
   push:         ["--to", "--dry-run", "--force"],
   pull:         ["-n", "--force"],
   host:         [],
@@ -76,13 +77,30 @@ const FLAGS = {
   bm:           [],
 };
 
+const VALUE_FLAGS = new Set([
+  "-n", "--agent", "--project", "--id", "--host", "--as", "--dir",
+  "--image", "--ports", "--to",
+]);
+
 function checkFlags(cmd, args) {
   const known = FLAGS[cmd];
   if (!known) return;
-  for (const a of args) {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
     if (a === "--" || !a.startsWith("-") || a === "-") continue;
-    const name = a.split("=")[0];
-    if (known.includes(name)) continue;
+    const eq = a.indexOf("=");
+    const name = eq === -1 ? a : a.slice(0, eq);
+    if (known.includes(name)) {
+      if (eq !== -1 && !VALUE_FLAGS.has(name))
+        die(`option '${name}' for 'casm ${cmd}' does not take a value`);
+      if (VALUE_FLAGS.has(name)) {
+        const value = eq === -1 ? args[i + 1] : a.slice(eq + 1);
+        if (!value || (eq === -1 && value.startsWith("-")))
+          die(`option '${name}' for 'casm ${cmd}' needs a value`);
+        if (eq === -1) i++;
+      }
+      continue;
+    }
     const near = known.find((k) => k.replace(/[^a-z]/g, "").startsWith(name.replace(/[^a-z]/g, "").slice(0, 6)));
     die(`unknown option '${name}' for 'casm ${cmd}'` +
         (near ? ` - did you mean ${near}?` : ` - try: casm help`));
@@ -91,7 +109,7 @@ function checkFlags(cmd, args) {
 
 const [cmd, ...rest] = process.argv.slice(2);
 const FANOUT_CMDS = new Set(["list", "search", "active"]); // all-hosts by default, --local/--host to scope
-const commands = { list: cmdList, search: cmdSearch, show: cmdShow, resume: cmdResume, continue: cmdContinue, push: cmdPush, pull: cmdPull, active: cmdActive, host: cmdHost, bookmark: cmdBookmark, bm: cmdBookmark, new: cmdNew, containerize: cmdContainerize };
+const commands = { list: cmdList, search: cmdSearch, show: cmdShow, resume: cmdResume, continue: cmdContinue, push: cmdPush, pull: cmdPull, active: cmdActive, host: cmdHost, bookmark: cmdBookmark, bm: cmdBookmark, new: cmdNew, containerize: cmdContainerize, auth: cmdAuth };
 
 // fileURLToPath, not new URL().pathname: a checkout under a path with a space
 // comes back percent-encoded from the latter and the read fails.
@@ -123,6 +141,8 @@ usage:
               [--containerized]                  ...in a container of its own
   casm containerize <id-prefix>                  move a session into a container of
                                                  its own (one-way)
+  casm auth [<id-prefix>]                        re-seed credentials into containerized
+                                                 sessions, without resuming them
   casm active                                    running sessions + inferred status
   casm list   [-n 20] [--agent X] [--project P]  newest sessions across agents
   casm search <term> [-n 25] [--agent X]         full-text search of transcripts

@@ -1,8 +1,8 @@
 # casm
 
-**Multi-node coding-agent session manager (claude code / opencode / pi) over SSH and Docker.**
+**Multi-node coding-agent session manager (claude code / codex / opencode / pi) over SSH and Docker.**
 
-List, search, and resume sessions for **Claude Code** (`cc`), **opencode** (`oc`), and **pi** (`pi`) - on this machine, over SSH, or in a container.
+List, search, and resume sessions for **Claude Code** (`cc`), **codex** (`cx`), **opencode** (`oc`) and **pi** (`pi`) - on this machine, over SSH, or in a container.
 **Move sessions between machines over SSH** so you can continue them where you're working.
 Sessions are agent-scoped: a session always moves to the *same* agent on the other machine, never across agents.
 
@@ -20,13 +20,13 @@ npm i -g casm-cli        # installs the `casm` command
 
 ## Continue from anywhere
 
-`casm continue` lists your 10 most recent sessions across all three agents,
+`casm continue` lists your 10 most recent sessions across every agent,
 newest first, with age, agent, project, context size and opening message. Pick a
 number and casm changes into that session's own directory and hands the terminal
 to its agent, resuming **by id** so you land in the session you picked rather
 than whatever was newest in that folder.
 
-![casm continue: recent sessions across claude, opencode and pi in one list; picking number 3 changes into that project and resumes the session with its history restored](docs/media/continue.gif)
+![casm continue: recent sessions across claude, codex, opencode and pi in one list; picking number 3 changes into that project and resumes the session with its history restored](docs/media/continue.gif)
 
 ```sh
 casm continue                   # the 10 most recent, pick one
@@ -47,7 +47,7 @@ and starts where you are.
 Full-text search across every transcript, every agent and every machine, with
 the matching line shown in context. Then resume the hit wherever it lives.
 
-![casm search: one query matching transcripts from all three agents with the term highlighted in context, then casm resume picking one up by id](docs/media/search.gif)
+![casm search: one query matching transcripts from several agents with the term highlighted in context, then casm resume picking one up by id](docs/media/search.gif)
 
 ```sh
 casm search "rate limiting"       # every agent, every machine
@@ -105,8 +105,8 @@ casm containerize c66fbd0b     # move a session you already started into one
 casm new --containerized       # or start a fresh session already inside one
 ```
 
-That is the whole interface. There is no container to name, create, start,
-authenticate or clean up.
+That is the whole interface. There is no container to name, create, start or
+clean up.
 
 **The session is still yours.** Its transcripts live on this machine, not inside
 the container, so `casm list`, `casm search` and `casm show` read it exactly as
@@ -118,10 +118,10 @@ is no second copy to drift apart, and no route back that would quietly resume a
 prompts-off session with prompts on.
 
 **The container is disposable, the session is not.** Delete it with `docker rm`
-whenever you want the disk back. The next resume rebuilds it from what casm
-recorded, on the same published ports, and re-runs the setup script the agent
-kept while it worked. The agent is told it is in a container that can be reset,
-and to record anything it installs there.
+whenever you want the disk back. The next resume builds a fresh one from the
+standard image, on the same published ports. Nothing is replayed into it: the
+agent is told it is in a container that can be reset, and decides for itself
+what to reinstall - it keeps its own notes at `$CASM_SETUP` for exactly that.
 
 **One session, one container.** The environment an agent builds - packages it
 installed, a database it started - is part of that conversation and lasts
@@ -131,8 +131,9 @@ exactly as long as it does.
 
 The project directory, mounted read-write at its own path, so `~` and every path
 in the transcript mean the same thing inside and out and nothing needs
-translating. Your agent config comes along read-only. The rest of your home does
-not come along at all.
+translating. Your agent config is copied in - settings, plugins and skills -
+writable, so an agent that rewrites its own config only ever affects its own
+container. The rest of your home does not come along at all.
 
 **That project directory is the blast radius.** Permissions are off in there and
 sudo needs no password, so the agent can write all of it. Pick it deliberately -
@@ -140,7 +141,14 @@ pointing it at `~` mounts your whole home read-write.
 
 Credentials are copied in rather than mounted, and always without the refresh
 token, so a container can use your login but can never rotate the one your host
-depends on. casm tops them up each time you resume.
+depends on. casm tops them up each time you resume. For a session you are *not*
+about to resume - one left running unattended, or one whose agent hit the expiry
+mid-run - `casm auth` tops them up in place:
+
+```sh
+casm auth                       # every containerized session
+casm auth c66fbd0b              # just this one
+```
 
 Five ports from 20000 up are published unchanged, so a dev server the agent
 starts on 20000 is on 20000 for you too. `CASM_PORTS` and `PORT` are set inside
@@ -179,6 +187,7 @@ casm continue                  # pick from your 10 most recent sessions here or 
 casm new                       # start a new session (--agent, --host, --dir)
 casm new --containerized       # ...in a dedicated container
 casm containerize 019e4ee3     # move an existing session into one (one-way)
+casm auth [019e4ee3]           # re-seed credentials into containerized sessions
 casm search "rate limiting"    # full-text search across agents and machines
 casm resume 019e4ee3           # resume by id, in its own directory and its own agent
 casm resume 019e4ee3 --host rig  # resume it on another machine

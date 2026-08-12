@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.9.2 - 2026-08-12
+
+### Added
+
+- **`casm auth [<id-prefix>]`** - re-seeds credentials into containerized
+  sessions without resuming them. 0.9.0 dropped `casm container auth` on the
+  grounds that resuming already tops credentials up, which covers the session
+  you are about to sit in front of and nothing else: a container seeded without
+  a refresh token cannot heal itself, so a session left running unattended, or
+  one whose agent hit the expiry mid-run, had no way back short of exiting and
+  resuming it. With no argument it does every containerized session. It reports
+  per session, keyed by project rather than container name, and says so plainly
+  when the host's own token is the thing that expired - re-seeding a dead
+  credential would otherwise look like success.
+
+### Fixed
+
+- **`--option=value` was accepted and then ignored.** Option checking splits on
+  `=`, but the readers behind it matched flag names exactly, so
+  `casm list --agent=claude` passed validation and then ran without the agent
+  filter, saying nothing. Both forms now work everywhere. This is precisely the
+  failure strict option checking was added in 0.9.1 to prevent: the command
+  runs, reports nothing wrong, and does something other than what was asked.
+- **A session whose agent could not be started reported success.** When the
+  process failed to spawn at all - a missing binary, a missing `docker` -
+  `interactive()` returned exit 0 and casm exited as though the session had
+  ended normally. A spawn failure is now surfaced as an error, and a session
+  killed by a signal no longer exits 0 either.
+
+### Changed
+
+- **Options are checked for their values, not just their names.** A value
+  option with nothing after it (`casm list --agent --local`), a malformed
+  integer (`-n nope`), and a value assigned to a boolean
+  (`--containerized=true`) are each refused, naming the option at fault.
+  Together with the fix above, an option is now either honoured or rejected,
+  never silently dropped.
+- **Error messages no longer name commands that no longer exist.** Three of
+  them still pointed at `casm container build`, `create` and `rm`, removed in
+  0.9.0. They now name `docker rm -f` or say to resume the session, which is
+  what actually rebuilds a container.
+- **A rebuilt container is a stock container.** Through 0.9.1, casm re-ran the
+  agent's `$CASM_SETUP` script on rebuild, before handing over. casm now builds
+  from the standard image and replays nothing - the agent is told the container
+  can be reset and decides for itself what is worth reinstalling, with its own
+  notes at `$CASM_SETUP` to consult. Running a script casm never wrote,
+  unattended, before the agent has said anything, was doing too much on the
+  agent's behalf. The brief injected into each session says this rather than
+  promising a restore that no longer happens.
+
 ## 0.9.1 - 2026-08-11
 
 ### Fixed

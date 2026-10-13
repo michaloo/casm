@@ -68,6 +68,49 @@ public struct SubscribeResult: Codable, Sendable {
     /// Events of the in-flight turn, for clients that subscribe mid-turn.
     public var turn: [AgentEvent]
     public var permissions: [PermissionRequest]
+    /// Pending questions; absent from servers older than the questions change.
+    public var questions: [QuestionRequest]
+
+    private enum CodingKeys: String, CodingKey { case status, turn, permissions, questions }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = try c.decode(AgentStatus.self, forKey: .status)
+        turn = try c.decode([AgentEvent].self, forKey: .turn)
+        permissions = try c.decode([PermissionRequest].self, forKey: .permissions)
+        questions = try c.decodeIfPresent([QuestionRequest].self, forKey: .questions) ?? []
+    }
+}
+
+struct CatalogParams: Codable, Sendable {
+    var provider: ProviderID
+    var refresh: Bool?
+}
+
+public struct UpdateAgentParams: Codable, Sendable {
+    public var id: String
+    public var name: String?
+    public var projectId: String?
+    /// Replaces the stored config; send the full config, not a patch.
+    public var config: AgentConfig?
+    public var tags: [String]?
+    public var archived: Bool?
+
+    public init(id: String, name: String? = nil, projectId: String? = nil, config: AgentConfig? = nil,
+                tags: [String]? = nil, archived: Bool? = nil) {
+        self.id = id
+        self.name = name
+        self.projectId = projectId
+        self.config = config
+        self.tags = tags
+        self.archived = archived
+    }
+}
+
+struct AnswerQuestionParams: Codable, Sendable {
+    var id: String
+    var requestId: String
+    var answers: [String: AnswerValue]?
 }
 
 public enum WhenBusy: String, Codable, Sendable { case queue, steer }
@@ -92,6 +135,10 @@ public extension RPCClient {
         try await call("server.info", EmptyParams())
     }
 
+    func catalog(provider: ProviderID, refresh: Bool = false) async throws -> Catalog {
+        try await call("provider.catalog", CatalogParams(provider: provider, refresh: refresh ? true : nil))
+    }
+
     func listProjects() async throws -> [Project] {
         try await (call("project.list", EmptyParams()) as ProjectList).projects
     }
@@ -106,6 +153,10 @@ public extension RPCClient {
 
     func createAgent(_ params: CreateAgentParams) async throws -> Agent {
         try await call("agent.create", params)
+    }
+
+    func updateAgent(_ params: UpdateAgentParams) async throws -> Agent {
+        try await call("agent.update", params)
     }
 
     func history(agentId: String, before: Int? = nil, limit: Int? = nil) async throws -> HistoryPage {
@@ -135,6 +186,11 @@ public extension RPCClient {
 
     func restart(agentId: String) async throws {
         let _: OK = try await call("agent.restart", ByID(id: agentId))
+    }
+
+    /// `answers == nil` dismisses the question.
+    func answerQuestion(agentId: String, requestId: String, answers: [String: AnswerValue]?) async throws {
+        let _: OK = try await call("agent.answerQuestion", AnswerQuestionParams(id: agentId, requestId: requestId, answers: answers))
     }
 
     func respondPermission(agentId: String, requestId: String, decision: PermissionDecision, message: String? = nil) async throws {

@@ -270,6 +270,145 @@ public struct Agent: Codable, Sendable, Hashable, Identifiable {
     public var createdAt: String
     public var updatedAt: String
     public var status: AgentStatus
+    /// A prompt waiting for a provider usage limit to reset; the server sends it then.
+    public var deferred: Deferred?
+    /// Messages waiting to be sent (see `agent.pending`).
+    public var pending: PendingSummary?
+
+    public struct Deferred: Codable, Sendable, Hashable {
+        /// ISO time the limit resets.
+        public var until: String
+        public var reason: String
+    }
+
+    public struct PendingSummary: Codable, Sendable, Hashable {
+        public var count: Int
+        /// The earliest time a waiting message is due (ISO), if any waits for a time.
+        public var next: String?
+    }
+}
+
+/// A message the server will send later: behind a running turn ("queued"), after a usage limit
+/// resets ("limit"), or at a set time ("scheduled"). Sent in order.
+public struct PendingMessage: Codable, Sendable, Hashable, Identifiable {
+    public enum Reason: OpenEnum {
+        case queued, limit, scheduled
+        case unknown(String)
+
+        public init?(rawValue: String) {
+            switch rawValue {
+            case "queued": self = .queued
+            case "limit": self = .limit
+            case "scheduled": self = .scheduled
+            default: self = .unknown(rawValue)
+            }
+        }
+
+        public var rawValue: String {
+            switch self {
+            case .queued: "queued"
+            case .limit: "limit"
+            case .scheduled: "scheduled"
+            case .unknown(let raw): raw
+            }
+        }
+    }
+
+    public var id: String
+    public var agentId: String
+    public var text: String
+    public var imageCount: Int?
+    public var reason: Reason
+    /// ISO time it may be sent from.
+    public var notBefore: String?
+    public var note: String?
+    public var createdAt: String
+
+    public init(id: String, agentId: String, text: String, imageCount: Int? = nil, reason: Reason,
+                notBefore: String? = nil, note: String? = nil, createdAt: String) {
+        self.id = id
+        self.agentId = agentId
+        self.text = text
+        self.imageCount = imageCount
+        self.reason = reason
+        self.notBefore = notBefore
+        self.note = note
+        self.createdAt = createdAt
+    }
+}
+
+/// A turn that failed on a usage or rate limit; its prompt waits for the reset.
+public struct TurnLimit: Codable, Sendable, Hashable {
+    public var message: String
+    public var resetsAt: String?
+
+    public init(message: String, resetsAt: String? = nil) {
+        self.message = message
+        self.resetsAt = resetsAt
+    }
+}
+
+/// One usage window of a provider subscription (e.g. 5-hour session, weekly).
+public struct LimitWindow: Codable, Sendable, Hashable, Identifiable {
+    public enum Status: OpenEnum {
+        case ok, warning, exhausted
+        case unknown(String)
+
+        public init?(rawValue: String) {
+            switch rawValue {
+            case "ok": self = .ok
+            case "warning": self = .warning
+            case "exhausted": self = .exhausted
+            default: self = .unknown(rawValue)
+            }
+        }
+
+        public var rawValue: String {
+            switch self {
+            case .ok: "ok"
+            case .warning: "warning"
+            case .exhausted: "exhausted"
+            case .unknown(let raw): raw
+            }
+        }
+    }
+
+    public var id: String
+    public var label: String?
+    public var usedPercent: Double?
+    public var resetsAt: String?
+    public var windowMinutes: Double?
+    public var status: Status?
+}
+
+/// The latest known subscription limits of one provider on a host.
+public struct ProviderLimits: Codable, Sendable, Hashable {
+    public var provider: ProviderID
+    public var plan: String?
+    public var windows: [LimitWindow]
+    public var updatedAt: String
+}
+
+public struct SubagentRun: Codable, Sendable, Hashable {
+    public var id: String
+    public var title: String
+    public var agentType: String?
+    public var status: ToolStatus
+    /// The latest thing it did, e.g. the tool it is running.
+    public var activity: String?
+    public var summary: String?
+    public var usage: Usage?
+
+    public init(id: String, title: String, agentType: String? = nil, status: ToolStatus,
+                activity: String? = nil, summary: String? = nil, usage: Usage? = nil) {
+        self.id = id
+        self.title = title
+        self.agentType = agentType
+        self.status = status
+        self.activity = activity
+        self.summary = summary
+        self.usage = usage
+    }
 }
 
 public enum ToolStatus: OpenEnum {
@@ -322,6 +461,8 @@ public enum Item: Codable, Sendable, Hashable, Identifiable {
     case notice(id: String, text: String, level: NoticeLevel? = nil)
     /// The agent's todo list; each update replaces the entries.
     case plan(id: String, entries: [PlanEntry])
+    /// A subagent the agent spawned itself (Claude Task tool, Codex sub-agents); upserted as it runs.
+    case subagent(SubagentRun)
     /// A kind this client doesn't know yet.
     case unknown(id: String, kind: String)
 
@@ -348,6 +489,7 @@ public enum Item: Codable, Sendable, Hashable, Identifiable {
         case "notice": .notice(id: id, text: try c.decode(String.self, forKey: .text),
                                level: try c.decodeIfPresent(NoticeLevel.self, forKey: .level))
         case "plan": .plan(id: id, entries: try c.decode([PlanEntry].self, forKey: .entries))
+        case "subagent": .subagent(try SubagentRun(from: decoder))
         case "tool": .tool(try ToolCall(from: decoder))
         default: .unknown(id: id, kind: kind)
         }
@@ -374,6 +516,9 @@ public enum Item: Codable, Sendable, Hashable, Identifiable {
             try c.encode(kind, forKey: .kind)
             try c.encode(id, forKey: .id)
             try c.encode(entries, forKey: .entries)
+        case .subagent(let run):
+            try c.encode(kind, forKey: .kind)
+            try run.encode(to: encoder)
         case .tool(let call):
             try c.encode(kind, forKey: .kind)
             try call.encode(to: encoder)
@@ -387,6 +532,7 @@ public enum Item: Codable, Sendable, Hashable, Identifiable {
         switch self {
         case .user(let id, _, _), .assistant(let id, _), .reasoning(let id, _), .notice(let id, _, _), .plan(let id, _),
              .unknown(let id, _): id
+        case .subagent(let run): run.id
         case .tool(let call): call.id
         }
     }
@@ -399,6 +545,7 @@ public enum Item: Codable, Sendable, Hashable, Identifiable {
         case .tool: "tool"
         case .notice: "notice"
         case .plan: "plan"
+        case .subagent: "subagent"
         case .unknown(_, let kind): kind
         }
     }
@@ -592,11 +739,11 @@ public enum AgentEvent: Codable, Sendable, Hashable {
     /// Appends to a running tool item's output; the final tool item replaces it.
     case toolOutput(itemId: String, text: String)
     case usage(Usage)
-    case turnEnded(turnId: String, outcome: TurnOutcome, error: String?)
+    case turnEnded(turnId: String, outcome: TurnOutcome, error: String?, limit: TurnLimit? = nil)
     /// A type this client doesn't know yet, or a known type with an unexpected body.
     case unknown(type: String)
 
-    private enum CodingKeys: String, CodingKey { case type, turnId, item, kind, text, request, requestId, outcome, error, itemId, usage }
+    private enum CodingKeys: String, CodingKey { case type, turnId, item, kind, text, request, requestId, outcome, error, itemId, usage, limit }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -622,7 +769,8 @@ public enum AgentEvent: Codable, Sendable, Hashable {
         case "turnEnded":
             .turnEnded(turnId: try c.decode(String.self, forKey: .turnId),
                        outcome: try c.decode(TurnOutcome.self, forKey: .outcome),
-                       error: try c.decodeIfPresent(String.self, forKey: .error))
+                       error: try c.decodeIfPresent(String.self, forKey: .error),
+                       limit: try c.decodeIfPresent(TurnLimit.self, forKey: .limit))
         default: .unknown(type: type)
         }
     }
@@ -659,11 +807,12 @@ public enum AgentEvent: Codable, Sendable, Hashable {
         case .usage(let usage):
             try c.encode("usage", forKey: .type)
             try c.encode(usage, forKey: .usage)
-        case .turnEnded(let turnId, let outcome, let error):
+        case .turnEnded(let turnId, let outcome, let error, let limit):
             try c.encode("turnEnded", forKey: .type)
             try c.encode(turnId, forKey: .turnId)
             try c.encode(outcome, forKey: .outcome)
             try c.encodeIfPresent(error, forKey: .error)
+            try c.encodeIfPresent(limit, forKey: .limit)
         case .unknown(let type):
             try c.encode(type, forKey: .type)
         }
@@ -680,6 +829,7 @@ public enum ServerNotification: Sendable {
     case agentRemoved(agentId: String)
     case projectChanged(Project)
     case projectRemoved(projectId: String)
+    case providerLimits(ProviderLimits)
     case unknown(method: String)
 
     private struct AgentEventParams: Decodable { var agentId: String; var event: AgentEvent }
@@ -688,6 +838,7 @@ public enum ServerNotification: Sendable {
     private struct AgentIDParams: Decodable { var agentId: String }
     private struct ProjectParams: Decodable { var project: Project }
     private struct ProjectIDParams: Decodable { var projectId: String }
+    private struct LimitsParams: Decodable { var limits: ProviderLimits }
     private struct Envelope<P: Decodable>: Decodable { var params: P }
 
     /// Decodes the params of a notification envelope whose `method` is already known.
@@ -704,6 +855,7 @@ public enum ServerNotification: Sendable {
         case "agent.removed": self = .agentRemoved(agentId: try params(AgentIDParams.self).agentId)
         case "project.changed": self = .projectChanged(try params(ProjectParams.self).project)
         case "project.removed": self = .projectRemoved(projectId: try params(ProjectIDParams.self).projectId)
+        case "provider.limits": self = .providerLimits(try params(LimitsParams.self).limits)
         default: self = .unknown(method: method)
         }
     }

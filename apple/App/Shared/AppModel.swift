@@ -162,6 +162,8 @@ final class HostModel: Identifiable {
     /// Open chats get this host's live events and are re-synced on reconnect.
     @ObservationIgnored private var chats: [String: WeakChat] = [:]
     private var catalogs: [ProviderID: Catalog] = [:]
+    /// Latest subscription limits per provider on this host (provider.limits + live notifications).
+    private(set) var limits: [ProviderID: ProviderLimits] = [:]
     @ObservationIgnored private var catalogLoads: Set<ProviderID> = []
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
 
@@ -216,6 +218,10 @@ final class HostModel: Identifiable {
             async let agents = client.listAgents(includeArchived: true)
             (self.projects, self.agents) = try await (projects, agents)
             lastError = nil
+            // Older servers don't have provider.limits; that's fine.
+            if let all = try? await client.limits() {
+                limits = Dictionary(all.map { ($0.provider, $0) }, uniquingKeysWith: { _, b in b })
+            }
         } catch {
             lastError = error.localizedDescription
         }
@@ -256,7 +262,11 @@ final class HostModel: Identifiable {
             }
             setStatus(status, of: agentID)
         case .agentChanged(let agent):
+            let pendingChanged = self.agent(agent.id)?.pending != agent.pending
             upsert(agent)
+            if pendingChanged { chats[agent.id]?.chat?.refreshPendingSoon() }
+        case .providerLimits(let value):
+            limits[value.provider] = value
         case .agentRemoved(let agentID):
             agents.removeAll { $0.id == agentID }
         case .projectChanged(let project):

@@ -99,6 +99,7 @@ final class ChatModel {
             let first = historyStart == nil
             try await loadLatest()
             if let usage = try? await host.client.usage(agentId: agentId) { self.usage = usage }
+            await refreshPending()
             // Slow on the server (seconds); start early so "/" has them ready.
             Task { await loadCommands() }
             if first { scrollToBottomRequest += 1 }
@@ -183,11 +184,16 @@ final class ChatModel {
             }
         case .usage(let usage):
             self.usage = usage
-        case .turnEnded(_, let outcome, let error):
+        case .turnEnded(_, let outcome, let error, let limit):
             draft = nil
             permissions = []
             questions = []
-            if outcome == .failed { upsert(.notice(id: "failed-\(UUID().uuidString)", text: "Turn failed: \(error ?? "unknown error")")) }
+            if let limit {
+                self.limit = limit
+            } else if outcome == .completed {
+                self.limit = nil
+            }
+            if outcome == .failed && limit == nil { upsert(.notice(id: "failed-\(UUID().uuidString)", text: "Turn failed: \(error ?? "unknown error")")) }
             // History can hold items that never arrived live (e.g. the interrupt marker).
             Task { try? await loadLatest() }
         case .unknown:
@@ -221,7 +227,8 @@ final class ChatModel {
         guard let host, !text.isEmpty || !images.isEmpty else { return false }
         do {
             let result = try await host.client.send(agentId: agentId, text: text, images: images)
-            if result.queued { upsert(.notice(id: "queued-\(UUID().uuidString)", text: "Queued: runs after the current turn.")) }
+            // Queued and deferred messages show in the pending strip above the composer.
+            if result.queued || result.deferredUntil != nil || result.pendingId != nil { await refreshPending() }
             scrollToBottomRequest += 1
             return true
         } catch {
@@ -246,6 +253,49 @@ final class ChatModel {
             self.error = error.localizedDescription
             return false
         }
+    }
+
+    // MARK: Pending messages and limits (B2)
+
+    /// Messages the server will send later (queued behind a turn, waiting for a limit, scheduled).
+    private(set) var pending: [PendingMessage] = []
+    /// The last turn failed on a usage limit (cleared by a completed turn).
+    private(set) var limit: TurnLimit?
+    /// Text the composer should take over (Edit on a pending message).
+    var composerTakeover: String?
+
+    func refreshPending() async {
+        guard let host else { return }
+        if let list = try? await host.client.pending(agentId: agentId) { pending = list }
+    }
+
+    /// Coalesces bursts of agent.changed notifications.
+    @ObservationIgnored private var pendingRefresh: Task<Void, Never>?
+    func refreshPendingSoon() {
+        pendingRefresh?.cancel()
+        pendingRefresh = Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            await refreshPending()
+        }
+    }
+
+    func cancelPending(_ message: PendingMessage?) async {
+        await perform { _ = try await $0.cancelPending(agentId: self.agentId, messageId: message?.id) }
+        await refreshPending()
+    }
+
+    /// Takes a pending message back into the composer to change it.
+    func editPending(_ message: PendingMessage) async {
+        guard let host else { return }
+        do {
+            let cancelled = try await host.client.cancelPending(agentId: agentId, messageId: message.id)
+            // 0 means it was sent meanwhile; don't duplicate it.
+            if cancelled > 0 { composerTakeover = message.text }
+        } catch {
+            self.error = error.localizedDescription
+        }
+        await refreshPending()
     }
 
     // MARK: Composer data

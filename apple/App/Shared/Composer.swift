@@ -172,6 +172,12 @@ struct Composer: View {
             text = Drafts.shared.text(draftKey)
             attachments = Drafts.shared.images(draftKey).map { Attachment(image: $0) }
         }
+        .onChange(of: chat.composerTakeover) {
+            guard let taken = chat.composerTakeover else { return }
+            chat.composerTakeover = nil
+            text = text.isEmpty ? taken : text + "\n" + taken
+            focused = true
+        }
         .onChange(of: text) { Drafts.shared.save(draftKey, text: text, images: attachments.map(\.image)) }
         .onChange(of: attachments) { Drafts.shared.save(draftKey, text: text, images: attachments.map(\.image)) }
         #if os(iOS)

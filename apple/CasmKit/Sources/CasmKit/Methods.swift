@@ -291,9 +291,23 @@ public struct SendParams: Codable, Sendable {
     public var text: String
     public var images: [ImageData]?
     public var whenBusy: WhenBusy?
+    /// Send at this ISO time instead of now (a "scheduled" pending message).
+    public var at: String?
 }
 
-public struct SendResult: Codable, Sendable { public var queued: Bool }
+public struct SendResult: Codable, Sendable {
+    public var queued: Bool
+    /// Set when the provider is over its usage limit: the prompt waits until then.
+    public var deferredUntil: String?
+    /// The pending message created for a queued, deferred or scheduled send.
+    public var pendingId: String?
+}
+
+struct PendingList: Codable, Sendable { var messages: [PendingMessage] }
+struct LimitsParams: Codable, Sendable { var provider: ProviderID?; var refresh: Bool? }
+struct LimitsResult: Codable, Sendable { var limits: [ProviderLimits] }
+struct CancelPendingParams: Codable, Sendable { var id: String; var messageId: String? }
+struct CancelPendingResult: Codable, Sendable { var cancelled: Int }
 
 public struct RespondPermissionParams: Codable, Sendable {
     public var id: String
@@ -352,6 +366,22 @@ public extension RPCClient {
 
     func createAgent(_ params: CreateAgentParams) async throws -> Agent {
         try await call("agent.create", params)
+    }
+
+    /// Latest known subscription limits, per provider (all installed ones when `provider` is nil).
+    func limits(provider: ProviderID? = nil, refresh: Bool = false) async throws -> [ProviderLimits] {
+        try await (call("provider.limits", LimitsParams(provider: provider, refresh: refresh ? true : nil)) as LimitsResult).limits
+    }
+
+    /// Messages waiting to be sent to this agent, in order.
+    func pending(agentId: String) async throws -> [PendingMessage] {
+        try await (call("agent.pending", ByID(id: agentId)) as PendingList).messages
+    }
+
+    /// Cancels one pending message, or all of them when `messageId` is nil. Returns how many.
+    @discardableResult
+    func cancelPending(agentId: String, messageId: String? = nil) async throws -> Int {
+        try await (call("agent.cancelPending", CancelPendingParams(id: agentId, messageId: messageId)) as CancelPendingResult).cancelled
     }
 
     func usage(agentId: String) async throws -> Usage? {

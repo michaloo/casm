@@ -29,16 +29,19 @@ struct ChatView: View {
             if Exp.list { ListTranscript(chat: chat) } else { transcript }
             if let error = chat.error {
                 ErrorBar(message: error) { chat.error = nil }
+                    .modifier(ComposerColumn())
             }
             ForEach(chat.permissions) { request in
                 PermissionBanner(request: request) { decision in
                     Task { await chat.respond(to: request, decision) }
                 }
+                .modifier(ComposerColumn())
             }
             ForEach(chat.questions) { request in
                 QuestionCard(request: request) { answers in
                     Task { await chat.answer(request, answers) }
                 }
+                .modifier(ComposerColumn())
             }
             Composer(chat: chat, working: app.workingSubagents(of: chat.agentId, on: chat.host))
         }
@@ -467,7 +470,8 @@ struct PermissionBanner: View {
             }
         }
         .padding(12)
-        .background(.orange.opacity(0.12))
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.orange.opacity(0.3)))
     }
 
     private var summary: some View {
@@ -510,7 +514,7 @@ struct ErrorBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.red.opacity(0.1))
+        .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

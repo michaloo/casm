@@ -176,7 +176,8 @@ Each adapter implements: `start`, `resume`, `send`, `steer`, `interrupt`, `event
   - iOS: a navigation stack over the same views.
 - **Chat transcript risk:** a long, streaming list with markdown, code, tool calls and diffs. Spike it
   early with a 2k-message session. The fallback is a `WKWebView` for the transcript only.
-- **OS floor:** iOS 27 / macOS 27 only. The iPhone 13 mini is supported.
+- **OS floor:** iOS 26 / macOS 26 for now. The MacBook has Xcode 26.6, and moving to 27 later is cheap
+  because nothing has shipped. iPhone 13 mini is supported.
 - **Builds:** the apps build on the MacBook (Xcode); the server and protocol are testable on ubuntu.
 
 ## 5. Schedules inside agents

@@ -133,6 +133,7 @@ export const Item = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("reasoning"), id: z.string(), text: z.string() }),
   z.object({
     kind: z.literal("tool"),
+    origin: z.enum(["user", "agent"]).optional(),
     id: z.string(),
     name: z.string(),
     input: z.unknown(),
@@ -377,8 +378,8 @@ export const methods = {
 
   // <project path>/AGENTS.md, which Codex, OpenCode, pi and Claude Code read.
   // `content` is null when the file doesn't exist.
-  "project.agentsMd": method(ById, z.object({ path: z.string(), content: z.string().nullable() })),
-  "project.setAgentsMd": method(z.object({ id: z.string(), content: z.string() }), z.object({ path: z.string(), content: z.string() })),
+  "project.agentsMd": method(ById, z.object({ path: z.string(), content: z.string().nullable(), sha256: z.string().nullable() })),
+  "project.setAgentsMd": method(z.object({ id: z.string(), content: z.string(), expectedSha256: z.string().nullable().optional() }), z.object({ path: z.string(), content: z.string() })),
   // Each installed agent's memories that apply to the project folder. Agents
   // with no memory store (or nothing stored) are left out.
   "project.memories": method(ById, z.object({ agents: z.array(AgentMemories) })),
@@ -458,7 +459,7 @@ export const methods = {
     z.object({ items: z.array(Item) }),
   ),
   // Slash commands and skills the agent accepts. Send them as text ("/name args").
-  "agent.commands": method(ById, z.object({ commands: z.array(Command) })),
+  "agent.commands": method(ById.extend({ refresh: z.boolean().optional() }), z.object({ commands: z.array(Command) })),
   // Runs a shell command in the agent's cwd as the user ("!cmd"). It shows as a
   // tool item with streamed output, and lands in the agent's own history and
   // context the way the agent does it natively. Rejected while a turn runs.

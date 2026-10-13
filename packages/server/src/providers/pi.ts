@@ -39,7 +39,7 @@ export type PiUsage = {
 // A user shell command (`!cmd`, the RPC `bash` command) as a tool item. A
 // cancelled command has no exit code.
 export function shellItem(id: string, command: string, output: string | undefined, exitCode: number | undefined, cancelled?: boolean): Tool {
-  return { kind: "tool", id, name: "shell", input: { command }, status: exitCode === 0 && !cancelled ? "done" : "error", output: truncate(output ?? "") };
+  return { kind: "tool", id, name: "shell", origin: "user", input: { command }, status: exitCode === 0 && !cancelled ? "done" : "error", output: truncate(output ?? "") };
 }
 
 export type PiMessage = {
@@ -787,7 +787,7 @@ class PiSession implements ProviderSession {
   // pi runs it, streams bash_execution_update with the command's id and stores
   // a bashExecution message that reaches the model with the next prompt.
   shell(command: string, itemId: string) {
-    const item: Tool = { kind: "tool", id: itemId, name: "shell", input: { command }, status: "running" };
+    const item: Tool = { kind: "tool", id: itemId, name: "shell", origin: "user", input: { command }, status: "running" };
     const id = `casm-${++this.seq}`;
     this.running = true;
     this.turnAbort = new AbortController();

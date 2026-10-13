@@ -144,7 +144,7 @@ const ABORTED = /\n*<metadata>\nUser aborted the command\n<\/metadata>$/;
 // command completes with a marker, which becomes an error status.
 export function shellTool(item: Extract<Item, { kind: "tool" }>): Item {
   const command = (item.input as { command?: unknown } | undefined)?.command;
-  const out: Extract<Item, { kind: "tool" }> = { ...item, name: "shell", input: { command: typeof command === "string" ? command : "" } };
+  const out: Extract<Item, { kind: "tool" }> = { ...item, name: "shell", origin: "user", input: { command: typeof command === "string" ? command : "" } };
   if (out.output !== undefined && ABORTED.test(out.output)) {
     out.output = out.output.replace(ABORTED, "");
     out.status = "error";

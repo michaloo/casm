@@ -199,7 +199,7 @@ after(async () => {
 
 test("project.agentsMd reads and writes <project>/AGENTS.md", async () => {
   const p = await client.call("project.create", { path: project });
-  assert.deepEqual(await client.call("project.agentsMd", { id: p.id }), { path: join(project, "AGENTS.md"), content: null });
+  assert.deepEqual(await client.call("project.agentsMd", { id: p.id }), { path: join(project, "AGENTS.md"), content: null, sha256: null });
   const saved = await client.call("project.setAgentsMd", { id: p.id, content: "# Rules\n- be brief\n" });
   assert.equal(saved.path, join(project, "AGENTS.md"));
   assert.equal(readFileSync(join(project, "AGENTS.md"), "utf8"), "# Rules\n- be brief\n");

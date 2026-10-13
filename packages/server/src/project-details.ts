@@ -1,25 +1,51 @@
 // Per-project details that live in the folder or in the agents' own stores:
 // AGENTS.md and each agent's memories.
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, rename, unlink } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { ErrorCode, type AgentMemories, type MemoryEntry, type ProviderId } from "@casm/protocol";
 import { RpcError } from "./agents.ts";
 import type { Provider } from "./providers/types.ts";
 
-export async function readAgentsMd(folder: string): Promise<{ path: string; content: string | null }> {
+const sha256 = (content: string) => createHash("sha256").update(content).digest("hex");
+const writes = new Map<string, Promise<unknown>>();
+
+export async function readAgentsMd(folder: string) {
   const path = join(folder, "AGENTS.md");
   try {
-    return { path, content: await readFile(path, "utf8") };
+    const content = await readFile(path, "utf8");
+    return { path, content, sha256: sha256(content) };
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { path, content: null };
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { path, content: null, sha256: null };
     throw e;
   }
 }
 
-export async function writeAgentsMd(folder: string, content: string): Promise<{ path: string; content: string }> {
+export async function writeAgentsMd(folder: string, content: string, expectedSha256?: string | null): Promise<{ path: string; content: string }> {
   const path = join(folder, "AGENTS.md");
-  await writeFile(path, content);
-  return { path, content };
+  // Serialize server writes so two saves against the same version cannot both win.
+  const previous = writes.get(path);
+  const write = (async () => {
+    await previous?.catch(() => {});
+    const temp = join(folder, `.AGENTS.md.${randomUUID()}.tmp`);
+    try {
+      await writeFile(temp, content, { flag: "wx" });
+      const current = await readAgentsMd(folder);
+      if (expectedSha256 !== undefined && current.sha256 !== expectedSha256) {
+        throw new RpcError(ErrorCode.Conflict, "AGENTS.md changed since it was read; reload before saving.");
+      }
+      await rename(temp, path);
+      return { path, content };
+    } finally {
+      await unlink(temp).catch((e: NodeJS.ErrnoException) => { if (e.code !== "ENOENT") throw e; });
+    }
+  })();
+  writes.set(path, write);
+  try {
+    return await write;
+  } finally {
+    if (writes.get(path) === write) writes.delete(path);
+  }
 }
 
 // One provider failing to read its store doesn't hide the others.

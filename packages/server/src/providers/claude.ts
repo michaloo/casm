@@ -360,13 +360,13 @@ export class Normalizer {
     const input = BASH_INPUT.exec(text);
     if (input) {
       const rest = text.slice(input[0].length);
-      const item: ToolItem = { kind: "tool", id: uuid, name: "shell", input: { command: input[1] }, status: "running" };
+      const item: ToolItem = { kind: "tool", id: uuid, name: "shell", origin: "user", input: { command: input[1] }, status: "running" };
       if (!BASH_OUTPUT.test(rest)) return (this.bash = item);
       this.bash = null;
       return { ...item, ...bashResult(rest) };
     }
     if (!BASH_OUTPUT.test(text)) return null;
-    const prev = this.bash ?? { kind: "tool", id: uuid, name: "shell", input: { command: "" }, status: "running" };
+    const prev = this.bash ?? { kind: "tool", id: uuid, name: "shell", origin: "user", input: { command: "" }, status: "running" };
     this.bash = null;
     return { ...prev, ...bashResult(text) };
   }
@@ -1023,7 +1023,7 @@ class ClaudeSession implements ProviderSession {
   // the turn. The record's uuid is the item id, so history matches.
   shell(command: string, itemId: string) {
     const { cwd, config, emit } = this.opts;
-    const item: ToolItem = { kind: "tool", id: itemId, name: "shell", input: { command }, status: "running" };
+    const item: ToolItem = { kind: "tool", id: itemId, name: "shell", origin: "user", input: { command }, status: "running" };
     this.item(item);
     const env = { ...(process.env as Record<string, string>), ...config.env };
     const proc = spawn(shellPath(env.SHELL), ["-c", command], { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });

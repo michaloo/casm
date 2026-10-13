@@ -706,11 +706,18 @@
               "string",
               "null"
             ]
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "path",
-          "content"
+          "content",
+          "sha256"
         ]
       }
     },
@@ -724,6 +731,12 @@
           },
           "content": {
             "type": "string"
+          },
+          "expectedSha256": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1859,6 +1872,13 @@
                       "type": "string",
                       "const": "tool"
                     },
+                    "origin": {
+                      "type": "string",
+                      "enum": [
+                        "user",
+                        "agent"
+                      ]
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -2178,6 +2198,13 @@
                             "kind": {
                               "type": "string",
                               "const": "tool"
+                            },
+                            "origin": {
+                              "type": "string",
+                              "enum": [
+                                "user",
+                                "agent"
+                              ]
                             },
                             "id": {
                               "type": "string"
@@ -3034,6 +3061,13 @@
                       "type": "string",
                       "const": "tool"
                     },
+                    "origin": {
+                      "type": "string",
+                      "enum": [
+                        "user",
+                        "agent"
+                      ]
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -3215,6 +3249,9 @@
         "properties": {
           "id": {
             "type": "string"
+          },
+          "refresh": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -3727,6 +3764,13 @@
                         "kind": {
                           "type": "string",
                           "const": "tool"
+                        },
+                        "origin": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "agent"
+                          ]
                         },
                         "id": {
                           "type": "string"

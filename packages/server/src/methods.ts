@@ -83,7 +83,7 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
       return { ok: true };
     },
     "project.agentsMd": (p) => readAgentsMd(getProject(p.id).path),
-    "project.setAgentsMd": (p) => writeAgentsMd(getProject(p.id).path, p.content),
+    "project.setAgentsMd": (p) => writeAgentsMd(getProject(p.id).path, p.content, p.expectedSha256),
     "project.memories": async (p) => ({ agents: await listMemories(agents.installedProviders(), getProject(p.id).path) }),
     "agent.list": (p) => ({ agents: store.listAgents(p).map((a) => agents.withStatus(a)) }),
     "agent.get": (p) => getAgent(p.id),
@@ -140,7 +140,7 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     "pending.list": () => ({ messages: agents.pendingMessages(), blocked: agents.blocked() }),
     "agent.usage": async (p) => ({ usage: await agents.usage(p.id) }),
     "agent.subagentHistory": async (p) => ({ items: await agents.subagentHistory(p.id, p.subagentId, p.limit) }),
-    "agent.commands": async (p) => ({ commands: await agents.commands(p.id) }),
+    "agent.commands": async (p) => ({ commands: await agents.commands(p.id, p.refresh) }),
     "agent.shell": (p) => {
       agents.shell(p.id, p.command);
       return { ok: true };

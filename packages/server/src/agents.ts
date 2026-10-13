@@ -67,6 +67,7 @@ export type Prompt = { text: string; images?: ImageData[] };
 export type Notify = <N extends NotificationName>(name: N, params: NotificationParams<N>, agentId?: string) => void;
 
 export class AgentManager {
+  private commandCache = new Map<string, { at: number; pending: boolean; promise: Promise<Command[]> }>();
   private live = new Map<string, Live>();
   private catalogs = new Map<ProviderId, { at: number; catalog: Promise<Catalog> }>();
   // Latest account limits per provider, as sessions or queries reported them.
@@ -325,6 +326,7 @@ export class AgentManager {
 
   private openSession(a: StoredAgent, l: Live) {
     if (!l.session) {
+      void this.commands(a.id).catch(() => {});
       const gen = ++l.generation;
       l.session = this.provider(a.provider).open({
         cwd: a.cwd,
@@ -651,9 +653,25 @@ export class AgentManager {
     return this.provider(a.provider).usage(a.nativeSessionId, a.cwd);
   }
 
-  commands(id: string): Promise<Command[]> {
+  commands(id: string, refresh = false): Promise<Command[]> {
     const a = this.agent(id);
-    return this.provider(a.provider).commands(a.cwd);
+    const key = JSON.stringify([a.provider, a.cwd]);
+    const cached = this.commandCache.get(key);
+    if (cached && (cached.pending || (!refresh && Date.now() - cached.at < 5 * 60_000))) return cached.promise;
+    const entry = { at: 0, pending: true, promise: Promise.resolve([] as Command[]) };
+    entry.promise = Promise.resolve().then(() => this.provider(a.provider).commands(a.cwd)).then(
+      (commands) => {
+        entry.at = Date.now();
+        entry.pending = false;
+        return commands;
+      },
+      (error) => {
+        this.commandCache.delete(key);
+        throw error;
+      },
+    );
+    this.commandCache.set(key, entry);
+    return entry.promise;
   }
 
   async history(id: string, before?: number, limit = 200): Promise<{ items: Item[]; start: number; total: number }> {

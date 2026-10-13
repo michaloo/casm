@@ -341,8 +341,8 @@ test("commands: get_commands entries with kinds; argument hints from prompt temp
 test("user shell commands (bashExecution) are shell items; non-zero exits and cancels are errors", () => {
   const tools = new Map<string, Tool>();
   const bash = (extra: Partial<PiMessage>): PiMessage => ({ role: "bashExecution", command: "ls", output: "a\n", exitCode: 0, cancelled: false, timestamp: 9, ...extra });
-  assert.deepEqual(normalize(bash({}), tools), [{ kind: "tool", id: "9", name: "shell", input: { command: "ls" }, status: "done", output: "a\n" }]);
+  assert.deepEqual(normalize(bash({}), tools), [{ kind: "tool", id: "9", name: "shell", origin: "user", input: { command: "ls" }, status: "done", output: "a\n" }]);
   assert.equal((normalize(bash({ exitCode: 2 }), tools)[0] as Tool).status, "error");
   assert.equal((normalize(bash({ exitCode: undefined, cancelled: true }), tools)[0] as Tool).status, "error");
-  assert.deepEqual(shellItem("x", "true", undefined, 0), { kind: "tool", id: "x", name: "shell", input: { command: "true" }, status: "done", output: "" });
+  assert.deepEqual(shellItem("x", "true", undefined, 0), { kind: "tool", id: "x", name: "shell", origin: "user", input: { command: "true" }, status: "done", output: "" });
 });

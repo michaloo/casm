@@ -246,8 +246,9 @@ struct Composer: View {
     }
 
     @ViewBuilder private var sendOrInterrupt: some View {
-        // While a turn runs the round button is Interrupt; Enter still queues a message.
-        if busy && !shellMode {
+        // M3: while a turn runs the button is Stop only when there's nothing to send; with text it
+        // is Send, which queues the message (the only way to queue on iPhone, where Return adds a line).
+        if busy && !shellMode && trimmed.isEmpty && attachments.isEmpty {
             Button("Interrupt", systemImage: "stop.fill") { Task { await chat.interrupt() } }
                 .labelStyle(.iconOnly)
                 .font(.caption)
@@ -263,7 +264,9 @@ struct Composer: View {
                 .frame(width: 26, height: 26)
                 .background(canSend ? (shellMode ? Color.green : Color.accentColor) : Color.secondary.opacity(0.35), in: Circle())
                 .disabled(!canSend)
-                .help(shellMode ? "Run in the agent's folder (Enter)" : "Send (Enter). Shift-Enter for a new line.")
+                .help(shellMode ? "Run in the agent's folder (Enter)"
+                      : busy ? "Queue: sends after the current turn (Enter). ⌘. interrupts."
+                      : "Send (Enter). Shift-Enter for a new line.")
         }
     }
 

@@ -396,7 +396,7 @@ test("a turn that hits a usage limit is deferred, blocks further sends and retri
   assert.equal((await client.call("agent.send", { id: b.id, text: "hello" })).queued, true);
 
   // After the reset the first deferred prompt runs; the rest follows.
-  server.agents.runDueDeferred(Date.now() + 3 * 3600_000);
+  server.agents.runDuePending(Date.now() + 3 * 3600_000);
   assert.equal((await client.call("agent.get", { id: a.id })).deferred, null);
   await client.call("agent.wait", { id: a.id });
   await client.call("agent.wait", { id: a.id });
@@ -406,4 +406,33 @@ test("a turn that hits a usage limit is deferred, blocks further sends and retri
   // Interrupt drops a deferred prompt.
   await client.call("agent.interrupt", { id: b.id });
   assert.equal((await client.call("agent.get", { id: b.id })).deferred, null);
+});
+
+test("pending messages are listed, scheduled and cancellable", async () => {
+  const p = await client.call("project.create", { name: "P16", path: "/tmp" });
+  const b = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  // Busy: a queued message is visible and cancellable.
+  await client.call("agent.send", { id: b.id, text: "slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  const q = await client.call("agent.send", { id: b.id, text: "after slow" });
+  const later = new Date(Date.now() + 3600_000).toISOString();
+  const s = await client.call("agent.send", { id: b.id, text: "in an hour", at: later });
+  const { messages } = await client.call("agent.pending", { id: b.id });
+  assert.deepEqual(messages.map((m) => [m.reason, m.text]), [["queued", "after slow"], ["scheduled", "in an hour"]]);
+  assert.equal(messages[1].notBefore, later);
+  const agent = await client.call("agent.get", { id: b.id });
+  assert.deepEqual(agent.pending, { count: 2, next: later });
+  const all = await client.call("pending.list", {});
+  assert.ok(all.messages.some((m) => m.id === q.pendingId));
+
+  assert.deepEqual(await client.call("agent.cancelPending", { id: b.id, messageId: q.pendingId! }), { cancelled: 1 });
+  await assert.rejects(client.call("agent.cancelPending", { id: b.id, messageId: q.pendingId! }), (e: CasmError) => e.code === 1001);
+  // Interrupt keeps scheduled messages.
+  await client.call("agent.interrupt", { id: b.id });
+  await client.call("agent.wait", { id: b.id });
+  assert.deepEqual((await client.call("agent.pending", { id: b.id })).messages.map((m) => m.id), [s.pendingId]);
+  // When due, the scheduled message is sent.
+  server.agents.runDuePending(Date.now() + 2 * 3600_000);
+  assert.equal((await client.call("agent.wait", { id: b.id })).lastReply, "echo: in an hour");
+  assert.deepEqual((await client.call("agent.pending", { id: b.id })).messages, []);
 });

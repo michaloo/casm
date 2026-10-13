@@ -190,6 +190,89 @@
         ]
       }
     },
+    "pending.list": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {}
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "agentId": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "imageCount": {
+                  "type": "number"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "queued",
+                    "limit",
+                    "scheduled"
+                  ]
+                },
+                "notBefore": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "agentId",
+                "text",
+                "reason",
+                "createdAt"
+              ]
+            }
+          },
+          "blocked": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "agentId": {
+                  "type": "string"
+                },
+                "permissions": {
+                  "type": "number"
+                },
+                "questions": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "agentId",
+                "permissions",
+                "questions"
+              ]
+            }
+          }
+        },
+        "required": [
+          "messages",
+          "blocked"
+        ]
+      }
+    },
     "provider.limits": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -902,6 +985,20 @@
                       "type": "null"
                     }
                   ]
+                },
+                "pending": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "number"
+                    },
+                    "next": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "count"
+                  ]
                 }
               },
               "required": [
@@ -1078,6 +1175,20 @@
               {
                 "type": "null"
               }
+            ]
+          },
+          "pending": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "count"
             ]
           }
         },
@@ -1343,6 +1454,20 @@
                 "type": "null"
               }
             ]
+          },
+          "pending": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "count"
+            ]
           }
         },
         "required": [
@@ -1562,6 +1687,20 @@
               {
                 "type": "null"
               }
+            ]
+          },
+          "pending": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "count"
             ]
           }
         },
@@ -2665,6 +2804,9 @@
               "queue",
               "fail"
             ]
+          },
+          "at": {
+            "type": "string"
           }
         },
         "required": [
@@ -2680,6 +2822,9 @@
             "type": "boolean"
           },
           "deferredUntil": {
+            "type": "string"
+          },
+          "pendingId": {
             "type": "string"
           }
         },
@@ -3097,6 +3242,102 @@
         },
         "required": [
           "ok"
+        ]
+      }
+    },
+    "agent.pending": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "agentId": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "imageCount": {
+                  "type": "number"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "queued",
+                    "limit",
+                    "scheduled"
+                  ]
+                },
+                "notBefore": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "agentId",
+                "text",
+                "reason",
+                "createdAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "messages"
+        ]
+      }
+    },
+    "agent.cancelPending": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cancelled": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "cancelled"
         ]
       }
     },
@@ -4058,6 +4299,20 @@
                 {
                   "type": "null"
                 }
+              ]
+            },
+            "pending": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "number"
+                },
+                "next": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "count"
               ]
             }
           },

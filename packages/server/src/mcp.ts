@@ -55,6 +55,11 @@ const tools = {
       "Subscription/account limits per agent provider on a host: each window's used %, reset time and status. Check before delegating long work; `refresh` queries providers that support it.",
     input: z.object({ host, refresh: z.boolean().optional() }),
   },
+  list_pending: {
+    description:
+      "Everything waiting on a host: messages queued behind running turns, deferred by usage limits or scheduled for later, and agents waiting for a permission or an answer.",
+    input: z.object({ host }),
+  },
   get_usage: {
     description: "Context-window usage and cost of one agent (tokens used of the window, model).",
     input: z.object({ host, agent: agentRef }),
@@ -197,6 +202,10 @@ export function createMcp(ctx: McpContext) {
 
     async get_limits(a) {
       return (await target(a.host).call("provider.limits", { refresh: a.refresh })).limits;
+    },
+
+    async list_pending(a) {
+      return target(a.host).call("pending.list", {});
     },
 
     async get_usage(a) {

@@ -27,6 +27,14 @@ class FakeSession implements ProviderSession {
         await new Promise((r) => this.abort.signal.addEventListener("abort", r, { once: true }));
         return this.opts.emit({ type: "turnEnded", outcome: "interrupted" });
       }
+      if (text.includes("question")) {
+        const answers = await this.opts.askQuestion(
+          { id: "q-1", prompts: [{ id: "color", text: "Pick a color", kind: "select", options: [{ label: "red" }, { label: "blue" }] }] },
+          this.abort.signal,
+        );
+        this.opts.emit({ type: "item", item: { kind: "assistant", id: `a-${text}`, text: `answer: ${JSON.stringify(answers)}` } });
+        return this.opts.emit({ type: "turnEnded", outcome: "completed" });
+      }
       if (text.includes("ask")) {
         const a = await this.opts.askPermission(
           { id: "req-1", toolName: "Write", input: { file_path: "x" }, canAlwaysAllow: false },
@@ -56,6 +64,7 @@ const fake = {
   sessions: 0,
   opened: [] as OpenOptions[],
   history: new Map<string, Item[]>(),
+  catalogCalls: 0,
 };
 
 const provider: Provider = {
@@ -66,6 +75,10 @@ const provider: Provider = {
   },
   async history(sessionId) {
     return fake.history.get(sessionId) ?? [];
+  },
+  async catalog() {
+    fake.catalogCalls++;
+    return { models: [{ id: "m1", isDefault: true, efforts: ["low", "high"] }], modes: [{ id: "default" }] };
   },
 };
 
@@ -185,4 +198,32 @@ test("invalid params are rejected with JSON-RPC errors", async () => {
     (e: CasmError) => e.code === -32602,
   );
   await assert.rejects(client.call("agent.get", { id: "missing" }), (e: CasmError) => e.code === 1001);
+});
+
+test("questions block the turn and return the answers", async () => {
+  const p = await client.call("project.create", { name: "P7" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "a question" });
+  assert.equal((await client.call("agent.wait", { id: a.id })).status, "waiting");
+  const sub = await client.call("agent.subscribe", { id: a.id });
+  assert.equal(sub.questions[0].prompts[0].id, "color");
+  assert.deepEqual(sub.permissions, []);
+  await assert.rejects(client.call("agent.respondPermission", { id: a.id, requestId: "q-1", decision: "allow" }));
+  await client.call("agent.answerQuestion", { id: a.id, requestId: "q-1", answers: { color: "blue" } });
+  assert.equal((await client.call("agent.wait", { id: a.id })).lastReply, 'answer: {"color":"blue"}');
+
+  await client.call("agent.send", { id: a.id, text: "another question" });
+  assert.equal((await client.call("agent.wait", { id: a.id })).status, "waiting");
+  await client.call("agent.answerQuestion", { id: a.id, requestId: "q-1" });
+  assert.equal((await client.call("agent.wait", { id: a.id })).lastReply, "answer: null");
+});
+
+test("provider catalog is cached until refreshed", async () => {
+  const before = fake.catalogCalls;
+  const c = await client.call("provider.catalog", { provider: "claude" });
+  assert.equal(c.models[0].id, "m1");
+  await client.call("provider.catalog", { provider: "claude" });
+  assert.equal(fake.catalogCalls, before + 1);
+  await client.call("provider.catalog", { provider: "claude", refresh: true });
+  assert.equal(fake.catalogCalls, before + 2);
+  await assert.rejects(client.call("provider.catalog", { provider: "codex" }), (e: CasmError) => e.code === 1003);
 });

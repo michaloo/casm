@@ -3,7 +3,8 @@
 // History comes from the server's `session/:id/message`.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import type { Item } from "@casm/protocol";
+import { homedir } from "node:os";
+import type { Answers, Catalog, Item, QuestionRequest } from "@casm/protocol";
 import type { OpenOptions, Provider, ProviderEvent, ProviderSession } from "./types.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -48,6 +49,29 @@ type OcPermission = {
   metadata: Record<string, unknown>;
   always: string[];
 };
+
+export type OcQuestion = {
+  id: string;
+  sessionID: string;
+  questions: {
+    question: string;
+    header?: string;
+    options?: { label: string; description?: string }[];
+    multiple?: boolean;
+    custom?: boolean;
+  }[];
+};
+
+export type OcProviders = {
+  providers: {
+    id: string;
+    name?: string;
+    models: Record<string, { id?: string; name?: string; status?: string; variants?: Record<string, unknown> }>;
+  }[];
+  default: Record<string, string>;
+};
+
+export type OcAgent = { name: string; description?: string; mode?: string; hidden?: boolean };
 
 type OcEvent = { type: string; properties: Record<string, unknown> };
 
@@ -95,6 +119,56 @@ export function normalizeMessages(messages: OcMessage[]): Item[] {
 
 function errorText(e: OcError | undefined): string {
   return e?.data?.message || e?.name || "unknown error";
+}
+
+// --- questions: one prompt per native question; the reply is one label list per question, in order
+
+export function questionRequest(q: OcQuestion): QuestionRequest {
+  return {
+    id: q.id,
+    prompts: q.questions.map((x, i) => {
+      const options = (x.options ?? []).map((o) => (o.description ? o : { label: o.label }));
+      const base = { id: `q${i}`, text: x.question, header: x.header || undefined };
+      if (!options.length) return { ...base, kind: "text" as const };
+      // OpenCode allows a typed answer unless the question sets custom: false.
+      return { ...base, kind: "select" as const, options, multiple: x.multiple === true, allowOther: x.custom !== false };
+    }),
+  };
+}
+
+export function questionReply(q: OcQuestion, answers: Answers): string[][] {
+  return q.questions.map((_, i) => {
+    const v = answers[`q${i}`];
+    if (Array.isArray(v)) return v.filter((s) => s.trim());
+    if (typeof v === "boolean") return [v ? "Yes" : "No"];
+    return v?.trim() ? [v.trim()] : [];
+  });
+}
+
+// --- catalog
+
+export function parseCatalog(providers: OcProviders, agents: OcAgent[], configModel: string | undefined): Catalog {
+  const first = providers.providers.find((p) => providers.default[p.id]);
+  const defaultModel = configModel ?? (first ? `${first.id}/${providers.default[first.id]}` : undefined);
+  const models = providers.providers.flatMap((p) =>
+    Object.entries(p.models)
+      .filter(([, m]) => m.status !== "deprecated")
+      .map(([key, m]) => {
+        const id = `${p.id}/${key}`;
+        const efforts = Object.keys(m.variants ?? {});
+        return {
+          id,
+          name: m.name ?? key,
+          description: p.name ?? p.id,
+          ...(id === defaultModel ? { isDefault: true } : {}),
+          ...(efforts.length ? { efforts } : {}),
+        };
+      }),
+  );
+  const modes = agents
+    .filter((a) => (a.mode === "primary" || a.mode === "all") && a.hidden !== true)
+    .map((a) => ({ id: a.name, ...(a.description ? { description: a.description } : {}) }));
+  return { models, modes };
 }
 
 // --- shared server
@@ -334,7 +408,25 @@ class OpencodeSession implements ProviderSession {
       case "permission.asked":
         void this.permission(p as unknown as OcPermission);
         return;
+      case "question.asked":
+        void this.question(p as unknown as OcQuestion);
+        return;
     }
+  }
+
+  private async question(q: OcQuestion) {
+    const signal = this.turnAbort.signal;
+    let answers: Answers | null = null;
+    try {
+      answers = await this.opts.askQuestion(questionRequest(q), signal);
+    } catch {
+      // Aborted: reject so the tool call ends like a dismissal.
+    }
+    const path = answers ? `/question/${q.id}/reply` : `/question/${q.id}/reject`;
+    const body = answers ? { answers: questionReply(q, answers) } : undefined;
+    await this.server.request("POST", path, this.opts.cwd, body).catch(() => {
+      // The server already dropped it (turn aborted or answered elsewhere).
+    });
   }
 
   private async permission(req: OcPermission) {
@@ -427,6 +519,20 @@ export function opencodeProvider(): Provider {
       const release = await server.acquire();
       try {
         return normalizeMessages(await server.request<OcMessage[]>("GET", `/session/${sessionId}/message`, cwd));
+      } finally {
+        release();
+      }
+    },
+    async catalog() {
+      const release = await server.acquire();
+      try {
+        const dir = homedir();
+        const [providers, agents, config] = await Promise.all([
+          server.request<OcProviders>("GET", "/config/providers", dir),
+          server.request<OcAgent[]>("GET", "/agent", dir),
+          server.request<{ model?: string }>("GET", "/config", dir),
+        ]);
+        return parseCatalog(providers, agents, config.model);
       } finally {
         release();
       }

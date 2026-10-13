@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalize, unwrapShell, type CodexItem } from "../src/providers/codex.ts";
+import {
+  elicitationQuestion,
+  elicitationResponse,
+  normalize,
+  parseModels,
+  unwrapShell,
+  userInputQuestion,
+  userInputResponse,
+  type CodexItem,
+} from "../src/providers/codex.ts";
 
 // Trimmed from real `thread/items/list` output (codex-cli 0.160.1).
 const fx = {
@@ -116,4 +125,130 @@ test("unwrapShell strips the login-shell wrapper only when it is unambiguous", (
   assert.equal(unwrapShell("/bin/bash -lc 'sleep 8'"), "sleep 8");
   assert.equal(unwrapShell(`/bin/bash -lc "echo 'a'"`), `/bin/bash -lc "echo 'a'"`);
   assert.equal(unwrapShell("git status"), "git status");
+});
+
+// Captured from codex-cli 0.160.1 app-server requests.
+const userInput = {
+  threadId: "01a134ac-e57c-7c20-886c-558bea30bbcb",
+  turnId: "01a134ac-e5cb-77f2-8d9b-fbf2ad3b5cc2",
+  itemId: "call_d40a1d6298534c0bbb5177cf57805495",
+  questions: [
+    {
+      id: "color",
+      header: "Color",
+      question: "Which color do you prefer?",
+      isOther: true,
+      isSecret: false,
+      options: [
+        { label: "Red", description: "Choose red." },
+        { label: "Green", description: "Choose green." },
+      ],
+    },
+    { id: "name", header: "Name", question: "What should I call you?", isOther: false, isSecret: false, options: null },
+  ],
+  isBlocking: false,
+  autoResolutionMs: null,
+};
+
+test("requestUserInput questions become select/text prompts", () => {
+  assert.deepEqual(userInputQuestion(userInput, "call_1"), {
+    id: "call_1",
+    prompts: [
+      {
+        id: "color",
+        text: "Which color do you prefer?",
+        header: "Color",
+        kind: "select",
+        options: [
+          { label: "Red", description: "Choose red." },
+          { label: "Green", description: "Choose green." },
+        ],
+        allowOther: true,
+      },
+      { id: "name", text: "What should I call you?", header: "Name", kind: "text" },
+    ],
+  });
+});
+
+test("answers map back to per-question answer lists; dismissal answers nothing", () => {
+  assert.deepEqual(userInputResponse(userInput, { color: "Green", name: "Ada" }), {
+    answers: { color: { answers: ["Green"] }, name: { answers: ["Ada"] } },
+  });
+  assert.deepEqual(userInputResponse(userInput, { color: ["Red", "teal"], name: "" }), { answers: { color: { answers: ["Red", "teal"] } } });
+  assert.deepEqual(userInputResponse(userInput, null), { answers: {} });
+});
+
+const pizza = {
+  threadId: "t1",
+  turnId: "turn1",
+  serverName: "elicit",
+  mode: "form",
+  _meta: null,
+  message: "Pizza order details",
+  requestedSchema: {
+    type: "object",
+    properties: {
+      count: { type: "integer", title: "How many", default: 1 },
+      extraCheese: { type: "boolean", title: "Extra cheese?" },
+      note: { type: "string", title: "Note", description: "Anything for the cook" },
+      size: { type: "string", title: "Size", oneOf: [{ const: "s", title: "Small" }, { const: "l", title: "Large" }] },
+      crust: { type: "string", enum: ["thin", "deep"], enumNames: ["Thin", "Deep dish"] },
+      toppings: { type: "array", title: "Toppings", items: { anyOf: [{ const: "ham", title: "Ham" }, { const: "olive", title: "Olives" }] } },
+    },
+    required: ["size"],
+  },
+};
+
+test("form elicitations become one prompt per field", () => {
+  const form = elicitationQuestion(pizza, "e1");
+  assert.deepEqual(form?.req, {
+    id: "e1",
+    title: "Pizza order details",
+    prompts: [
+      { id: "count", text: "How many", header: undefined, kind: "text", placeholder: "1" },
+      { id: "extraCheese", text: "Extra cheese?", header: undefined, kind: "confirm" },
+      { id: "note", text: "Anything for the cook", header: "Note", kind: "text", placeholder: undefined },
+      { id: "size", text: "Size", header: undefined, kind: "select", options: [{ label: "Small" }, { label: "Large" }], multiple: undefined },
+      { id: "crust", text: "crust", header: undefined, kind: "select", options: [{ label: "Thin" }, { label: "Deep dish" }], multiple: undefined },
+      { id: "toppings", text: "Toppings", header: undefined, kind: "select", options: [{ label: "Ham" }, { label: "Olives" }], multiple: true },
+    ],
+  });
+  assert.deepEqual(
+    elicitationResponse(form!, { count: "2", extraCheese: true, note: "well done", size: "Large", crust: "Deep dish", toppings: ["Ham", "Olives"] }),
+    { action: "accept", content: { count: 2, extraCheese: true, note: "well done", size: "l", crust: "deep", toppings: ["ham", "olive"] }, _meta: null },
+  );
+  assert.deepEqual(elicitationResponse(form!, { size: "Small", count: "lots" }), { action: "accept", content: { size: "s" }, _meta: null });
+  assert.deepEqual(elicitationResponse(form!, null), { action: "cancel", content: null, _meta: null });
+});
+
+test("empty, url and unsupported elicitations are not questions", () => {
+  const approval = { ...pizza, message: "Allow the elicit MCP server to run tool?", requestedSchema: { type: "object", properties: {} } };
+  assert.equal(elicitationQuestion(approval, "e"), null);
+  assert.equal(elicitationQuestion({ ...pizza, mode: "url", url: "https://x", elicitationId: "u1" }, "e"), null);
+  assert.equal(elicitationQuestion({ ...pizza, requestedSchema: { type: "object", properties: { o: { type: "object" } } } }, "e"), null);
+});
+
+test("model/list parses into catalog models", () => {
+  // Trimmed from real model/list output.
+  const data = [
+    {
+      id: "gpt-6.1-sol",
+      model: "gpt-6.1-sol",
+      displayName: "GPT-6.1-Sol",
+      description: "Latest workhorse model for coding and everyday work.",
+      hidden: false,
+      supportedReasoningEfforts: [
+        { reasoningEffort: "low", description: "Fast responses with lighter reasoning" },
+        { reasoningEffort: "high", description: "Greater reasoning depth for complex problems" },
+      ],
+      defaultReasoningEffort: "low",
+      isDefault: true,
+    },
+    { id: "gpt-6-luna", model: "gpt-6-luna", displayName: "GPT-6-Luna", description: "", hidden: false, supportedReasoningEfforts: [], isDefault: false },
+    { id: "old", model: "old", displayName: "Old", hidden: true, supportedReasoningEfforts: [], isDefault: false },
+  ];
+  assert.deepEqual(parseModels(data), [
+    { id: "gpt-6.1-sol", name: "GPT-6.1-Sol", description: "Latest workhorse model for coding and everyday work.", isDefault: true, efforts: ["low", "high"] },
+    { id: "gpt-6-luna", name: "GPT-6-Luna", description: undefined, isDefault: false },
+  ]);
 });

@@ -1,6 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeMessages, normalizePart, type OcMessage, type OcPart } from "../src/providers/opencode.ts";
+import {
+  normalizeMessages,
+  normalizePart,
+  parseCatalog,
+  questionReply,
+  questionRequest,
+  type OcAgent,
+  type OcMessage,
+  type OcPart,
+  type OcProviders,
+  type OcQuestion,
+} from "../src/providers/opencode.ts";
 
 const ids = { sessionID: "ses_1", messageID: "msg_a1" };
 
@@ -84,4 +95,97 @@ test("live tool parts map to running, then done with truncated output", () => {
 test("empty text and bookkeeping parts produce nothing", () => {
   assert.equal(normalizePart({ id: "prt_r", ...ids, type: "reasoning", text: "", time: { start: 1 } }), null);
   assert.equal(normalizePart({ id: "prt_s", ...ids, type: "step-finish" }), null);
+});
+
+// `question.asked` properties (opencode 1.19), second question added for multi/text cases.
+const question: OcQuestion = {
+  id: "que_134adfbd4001HBnsd3INhR0yFf",
+  sessionID: "ses_1",
+  questions: [
+    {
+      question: "Which color do you prefer?",
+      header: "Color",
+      options: [
+        { label: "Red", description: "The color red" },
+        { label: "Green", description: "" },
+      ],
+    },
+    { question: "Which files?", header: "Files", options: [{ label: "a.ts", description: "" }, { label: "b.ts", description: "" }], multiple: true, custom: false },
+    { question: "Anything else?", header: "", options: [] },
+  ],
+};
+
+test("maps a native question to a QuestionRequest", () => {
+  assert.deepEqual(questionRequest(question), {
+    id: "que_134adfbd4001HBnsd3INhR0yFf",
+    prompts: [
+      {
+        id: "q0",
+        text: "Which color do you prefer?",
+        header: "Color",
+        kind: "select",
+        options: [{ label: "Red", description: "The color red" }, { label: "Green" }],
+        multiple: false,
+        allowOther: true,
+      },
+      {
+        id: "q1",
+        text: "Which files?",
+        header: "Files",
+        kind: "select",
+        options: [{ label: "a.ts" }, { label: "b.ts" }],
+        multiple: true,
+        allowOther: false,
+      },
+      { id: "q2", text: "Anything else?", header: undefined, kind: "text" },
+    ],
+  });
+});
+
+test("maps answers to one label list per question, in order", () => {
+  assert.deepEqual(questionReply(question, { q0: "Green", q1: ["a.ts", "b.ts"], q2: "  no  " }), [["Green"], ["a.ts", "b.ts"], ["no"]]);
+  assert.deepEqual(questionReply(question, { q0: "Purple" }), [["Purple"], [], []]);
+  assert.deepEqual(questionReply(question, { q0: true, q2: "" }), [["Yes"], [], []]);
+});
+
+// Trimmed `GET /config/providers` and `GET /agent` output.
+const providers: OcProviders = {
+  providers: [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: {
+        "big-pickle": { id: "big-pickle", name: "Big Pickle", status: "active", variants: {} },
+        "cat-jam-free": { id: "cat-jam-free", name: "Cat Jam Free", status: "active", variants: { low: {}, high: {} } },
+        "old-free": { id: "old-free", name: "Old", status: "deprecated" },
+      },
+    },
+    { id: "llama.cpp", name: "llama-server (router)", models: { "qwen3.6-35b": { id: "qwen3.6-35b", name: "qwen3.6-35b" } } },
+  ],
+  default: { opencode: "big-pickle", "llama.cpp": "qwen3.6-35b" },
+};
+
+const agents: OcAgent[] = [
+  { name: "build", mode: "primary", description: "The default agent." },
+  { name: "compaction", mode: "primary", hidden: true },
+  { name: "explore", mode: "subagent", description: "Fast agent." },
+  { name: "plan", mode: "primary", description: "Plan mode." },
+  { name: "review", mode: "all" },
+];
+
+test("parses the catalog: provider/model ids, variants as efforts, primary agents as modes", () => {
+  assert.deepEqual(parseCatalog(providers, agents, undefined), {
+    models: [
+      { id: "opencode/big-pickle", name: "Big Pickle", description: "OpenCode", isDefault: true },
+      { id: "opencode/cat-jam-free", name: "Cat Jam Free", description: "OpenCode", efforts: ["low", "high"] },
+      { id: "llama.cpp/qwen3.6-35b", name: "qwen3.6-35b", description: "llama-server (router)" },
+    ],
+    modes: [
+      { id: "build", description: "The default agent." },
+      { id: "plan", description: "Plan mode." },
+      { id: "review" },
+    ],
+  });
+  const fromConfig = parseCatalog(providers, agents, "llama.cpp/qwen3.6-35b");
+  assert.deepEqual(fromConfig.models.filter((m) => m.isDefault).map((m) => m.id), ["llama.cpp/qwen3.6-35b"]);
 });

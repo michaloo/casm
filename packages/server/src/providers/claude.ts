@@ -2,19 +2,28 @@
 // session, fed by an async input queue. History comes from Claude's own JSONL.
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { homedir } from "node:os";
 import {
   query,
   getSessionMessages,
   type CanUseTool,
+  type ElicitationRequest,
+  type ElicitationResult,
+  type ModelInfo as SdkModelInfo,
+  type OnElicitation,
   type Options,
   type PermissionMode,
+  type PermissionResult,
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { Item } from "@casm/protocol";
+import type { Answers, AnswerValue, Catalog, Item, ModeInfo, ModelInfo, QuestionPrompt, QuestionRequest } from "@casm/protocol";
 import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
+const CATALOG_TIMEOUT_MS = 30_000;
+// supportedModels() lists this pseudo-model first; open() passes no model for it.
+const DEFAULT_MODEL = "default";
 
 // --- normalization (shared by history and live events)
 
@@ -85,6 +94,138 @@ export function normalize(
   return out;
 }
 
+// --- questions: AskUserQuestion and MCP elicitations
+
+// AskUserQuestionInput in sdk-tools.d.ts, loosened since tool input is untrusted.
+type AskQuestion = {
+  question: string;
+  header?: string;
+  options?: { label: string; description?: string }[];
+  multiSelect?: boolean;
+};
+
+// One prompt per question; prompt ids are the question index.
+export function askUserQuestionRequest(id: string, input: { questions?: AskQuestion[] }): QuestionRequest {
+  const questions = input.questions ?? [];
+  return {
+    id,
+    prompts: questions.map((q, i) => ({
+      id: `q${i}`,
+      text: q.question,
+      header: q.header || undefined,
+      kind: "select",
+      options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description || undefined })),
+      multiple: q.multiSelect || undefined,
+      // Claude always offers a free-text "Other" answer.
+      allowOther: true,
+    })),
+  };
+}
+
+function answerText(v: AnswerValue): string {
+  return Array.isArray(v) ? v.join(", ") : String(v);
+}
+
+// The tool expects answers keyed by question text; multi-select answers are comma-separated.
+export function askUserQuestionInput(
+  input: { questions?: AskQuestion[] },
+  answers: Answers,
+): { questions?: AskQuestion[]; answers: Record<string, string> } {
+  const out: Record<string, string> = {};
+  (input.questions ?? []).forEach((q, i) => {
+    const v = answers[`q${i}`];
+    if (v !== undefined && answerText(v) !== "") out[q.question] = answerText(v);
+  });
+  return { ...input, answers: out };
+}
+
+type SchemaProp = {
+  type?: string;
+  title?: string;
+  description?: string;
+  enum?: unknown[];
+  enumNames?: string[];
+  oneOf?: { const?: unknown; title?: string }[];
+  items?: { enum?: unknown[]; anyOf?: { const?: unknown; title?: string }[] };
+  default?: unknown;
+};
+
+function schemaProps(req: ElicitationRequest): [string, SchemaProp][] {
+  const props = (req.requestedSchema?.properties ?? {}) as Record<string, SchemaProp>;
+  return Object.entries(props);
+}
+
+function choices(p: SchemaProp): { label: string; description?: string }[] | undefined {
+  if (p.oneOf) return p.oneOf.map((o) => ({ label: String(o.const), description: o.title }));
+  if (p.enum) return p.enum.map((v, i) => ({ label: String(v), description: p.enumNames?.[i] }));
+  if (p.items?.anyOf) return p.items.anyOf.map((o) => ({ label: String(o.const), description: o.title }));
+  if (p.items?.enum) return p.items.enum.map((v) => ({ label: String(v) }));
+  return undefined;
+}
+
+// Form mode: one prompt per top-level schema property (prompt id = property name).
+// URL mode: one confirm prompt; confirming means the user finished in the browser.
+export function elicitationRequest(id: string, req: ElicitationRequest): QuestionRequest {
+  const title = req.title ?? req.displayName ?? req.serverName;
+  if (req.mode === "url")
+    return { id, title, prompts: [{ id: "url", kind: "confirm", text: `${req.message}\n${req.url ?? ""}`.trim() }] };
+  const required = new Set((req.requestedSchema?.required as string[] | undefined) ?? []);
+  const prompts: QuestionPrompt[] = schemaProps(req).map(([key, p]) => {
+    const text = [p.title ?? key, p.description].filter(Boolean).join(": ") + (required.has(key) ? "" : " (optional)");
+    const options = choices(p);
+    if (p.type === "boolean") return { id: key, kind: "confirm", text };
+    if (options) return { id: key, kind: "select", text, options, multiple: p.type === "array" || undefined };
+    return { id: key, kind: "text", text, placeholder: p.default === undefined ? undefined : String(p.default) };
+  });
+  if (!prompts.length) return { id, title, prompts: [{ id: "confirm", kind: "confirm", text: req.message }] };
+  return { id, title: `${title}: ${req.message}`, prompts };
+}
+
+export function elicitationResult(req: ElicitationRequest, answers: Answers | null): ElicitationResult {
+  if (!answers) return { action: "decline" };
+  if (req.mode === "url") return { action: answers.url === false ? "decline" : "accept" };
+  const props = schemaProps(req);
+  if (!props.length) return { action: answers.confirm === false ? "decline" : "accept" };
+  const content: Record<string, string | number | boolean | string[]> = {};
+  for (const [key, p] of props) {
+    const v = answers[key];
+    if (v === undefined || v === "") continue;
+    if (p.type === "boolean") content[key] = v === true || v === "true";
+    else if (p.type === "number" || p.type === "integer") {
+      const n = Number(answerText(v));
+      if (Number.isFinite(n)) content[key] = p.type === "integer" ? Math.trunc(n) : n;
+    } else if (p.type === "array") content[key] = Array.isArray(v) ? v : [String(v)];
+    else content[key] = answerText(v);
+  }
+  return { action: "accept", content };
+}
+
+// --- catalog
+
+const MODES: (ModeInfo & { id: PermissionMode })[] = [
+  { id: "default", name: "Default", description: "Ask before edits and commands" },
+  { id: "acceptEdits", name: "Accept edits", description: "Edit files without asking; ask for commands" },
+  { id: "plan", name: "Plan", description: "Read-only planning; ask before leaving plan mode" },
+  { id: "auto", name: "Auto", description: "A classifier approves safe actions; asks when unsure" },
+  { id: "dontAsk", name: "Don't ask", description: "Deny anything not pre-approved" },
+  { id: "bypassPermissions", name: "Bypass permissions", description: "Run every tool without asking" },
+];
+
+export function parseCatalog(models: SdkModelInfo[]): Catalog {
+  return {
+    models: models.map(
+      (m): ModelInfo => ({
+        id: m.value,
+        name: m.displayName,
+        description: m.description || undefined,
+        isDefault: m.value === DEFAULT_MODEL || undefined,
+        efforts: m.supportedEffortLevels?.length ? [...m.supportedEffortLevels] : undefined,
+      }),
+    ),
+    modes: MODES.filter((mode) => mode.id !== "auto" || models.some((m) => m.supportsAutoMode)),
+  };
+}
+
 // --- input queue for streaming-input mode
 
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -140,8 +281,10 @@ class ClaudeSession implements ProviderSession {
     const options: Options = {
       cwd,
       resume: resumeId ?? undefined,
-      model: config.model,
+      model: config.model === DEFAULT_MODEL ? undefined : config.model,
       permissionMode: config.mode as PermissionMode | undefined,
+      // bypassPermissions is refused without this; only set it when that mode was chosen.
+      allowDangerouslySkipPermissions: config.mode === "bypassPermissions" || undefined,
       effort: config.effort as Options["effort"],
       systemPrompt: { type: "preset", preset: "claude_code", append: config.systemPrompt },
       mcpServers: config.mcpServers as Options["mcpServers"],
@@ -149,12 +292,14 @@ class ClaudeSession implements ProviderSession {
       includePartialMessages: true,
       pathToClaudeCodeExecutable: executable,
       canUseTool: this.canUseTool,
+      onElicitation: this.onElicitation,
     };
     this.q = query({ prompt: this.input, options });
     void this.pump();
   }
 
   private canUseTool: CanUseTool = async (toolName, input, o) => {
+    if (toolName === "AskUserQuestion") return this.askUserQuestion(input, o.toolUseID ?? randomUUID(), o.signal);
     const answer = await this.opts.askPermission(
       {
         id: o.toolUseID ?? randomUUID(),
@@ -171,6 +316,26 @@ class ClaudeSession implements ProviderSession {
       updatedInput: input,
       updatedPermissions: answer.decision === "allowAlways" ? o.suggestions : undefined,
     };
+  };
+
+  private async askUserQuestion(input: Record<string, unknown>, id: string, signal: AbortSignal): Promise<PermissionResult> {
+    const questions = input as { questions?: AskQuestion[] };
+    let answers: Answers | null;
+    try {
+      answers = await this.opts.askQuestion(askUserQuestionRequest(id, questions), signal);
+    } catch {
+      return { behavior: "deny", message: "The question was cancelled.", interrupt: true };
+    }
+    if (!answers) return { behavior: "deny", message: "The user dismissed the question without answering." };
+    return { behavior: "allow", updatedInput: { ...askUserQuestionInput(questions, answers) } };
+  }
+
+  private onElicitation: OnElicitation = async (req, o) => {
+    try {
+      return elicitationResult(req, await this.opts.askQuestion(elicitationRequest(o.requestId || randomUUID(), req), o.signal));
+    } catch {
+      return { action: "cancel" };
+    }
   };
 
   private async pump() {
@@ -234,11 +399,31 @@ class ClaudeSession implements ProviderSession {
   }
 }
 
+// A short-lived query whose input never yields: it initializes, answers
+// supportedModels() and is closed without starting a session.
+async function fetchCatalog(executable: string | undefined): Promise<Catalog> {
+  const idle: AsyncIterable<SDKUserMessage> = {
+    [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<SDKUserMessage>>(() => {}) }),
+  };
+  const q = query({ prompt: idle, options: { cwd: homedir(), pathToClaudeCodeExecutable: executable, env: process.env as Record<string, string> } });
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("claude did not report its models in time")), CATALOG_TIMEOUT_MS);
+    });
+    return parseCatalog(await Promise.race([q.supportedModels(), timeout]));
+  } finally {
+    clearTimeout(timer);
+    q.close();
+  }
+}
+
 export function claudeProvider(): Provider {
   const executable = findClaude();
   return {
     id: "claude",
     open: (opts) => new ClaudeSession(opts, executable),
+    catalog: () => fetchCatalog(executable),
     async history(sessionId, cwd) {
       const messages = await getSessionMessages(sessionId, { dir: cwd });
       const tools = new Map<string, Extract<Item, { kind: "tool" }>>();

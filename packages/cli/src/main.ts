@@ -49,6 +49,10 @@ agents:
   history <agent> [-n count]
   watch <agent>                      stream live events
   permissions <agent>                list pending permission requests
+  questions <agent>                  list pending questions
+  answer <agent> <request> <prompt>=<value>...   (repeat a prompt for several choices)
+  answer <agent> <request> --dismiss
+  models [--provider p] [--refresh]  models and modes each agent offers on the host
   approve <agent> <request> [--always]
   deny <agent> <request> [--message text]
   interrupt | reload | restart | archive | rm <agent>
@@ -82,6 +86,8 @@ const { values: opt, positionals } = parseArgs({
     n: { type: "string", short: "n" },
     always: { type: "boolean" },
     message: { type: "string" },
+    dismiss: { type: "boolean" },
+    refresh: { type: "boolean" },
   },
 });
 
@@ -139,6 +145,10 @@ function renderEvent(e: AgentEvent): string | null {
   switch (e.type) {
     case "item":
       return renderItem(e.item);
+    case "question":
+      return e.request.prompts
+        .map((p) => `  ? question ${e.request.id} ${p.id}: ${p.text}${p.options ? ` [${p.options.map((o) => o.label).join(" | ")}]` : ""}`)
+        .join("\n");
     case "permission":
       return `  ? permission ${e.request.id}: ${e.request.title ?? e.request.toolName} ${JSON.stringify(e.request.input)}`;
     case "turnEnded":
@@ -192,7 +202,7 @@ async function waitAndPrint(c: CasmClient, id: string) {
   const timeoutMs = opt.timeout ? Number(opt.timeout) * 1000 : undefined;
   const r = await c.call("agent.wait", { id, timeoutMs });
   out(r, () => {
-    if (r.status === "waiting") console.error(`agent is waiting for permission (casm permissions ${shortId(id)})`);
+    if (r.status === "waiting") console.error(`agent is waiting for you: casm permissions ${shortId(id)} / casm questions ${shortId(id)}`);
     if (r.timedOut) console.error("timed out; the agent is still running");
     if (r.lastReply) console.log(r.lastReply);
   });
@@ -314,6 +324,65 @@ async function run(c: CasmClient) {
       await c.call("agent.unsubscribe", { id: a.id });
       return out(permissions, () => {
         for (const p of permissions) console.log(`${p.id}  ${p.title ?? p.toolName}  ${JSON.stringify(p.input)}`);
+      });
+    }
+
+    case "questions": {
+      const a = await agentRef(c, args[0]);
+      const { questions } = await c.call("agent.subscribe", { id: a.id });
+      await c.call("agent.unsubscribe", { id: a.id });
+      return out(questions, () => {
+        for (const q of questions) {
+          console.log(`${q.id}${q.title ? `  ${q.title}` : ""}`);
+          for (const p of q.prompts) {
+            const opts = p.options?.map((o) => o.label).join(" | ");
+            console.log(`  ${p.id} (${p.kind}${p.multiple ? ", several" : ""}): ${p.text}${opts ? `  [${opts}]` : ""}`);
+          }
+        }
+      });
+    }
+
+    case "answer": {
+      const a = await agentRef(c, args[0]);
+      const requestId = args[1];
+      if (!requestId) fail("answer needs a request id (see casm questions)");
+      if (opt.dismiss) return void (await c.call("agent.answerQuestion", { id: a.id, requestId }));
+      const { questions } = await c.call("agent.subscribe", { id: a.id });
+      await c.call("agent.unsubscribe", { id: a.id });
+      const q = questions.find((x) => x.id === requestId) ?? fail(`no pending question ${requestId}`);
+      const answers: Record<string, string | string[] | boolean> = {};
+      for (const pair of args.slice(2)) {
+        const i = pair.indexOf("=");
+        if (i < 1) fail(`expected <prompt>=<value>, got "${pair}"`);
+        const key = pair.slice(0, i);
+        const value = pair.slice(i + 1);
+        const prompt = q.prompts.find((p) => p.id === key) ?? fail(`no prompt "${key}" in ${requestId}`);
+        if (prompt.kind === "confirm") answers[key] = /^(y|yes|true|1)$/i.test(value);
+        else if (prompt.multiple) answers[key] = [...((answers[key] as string[] | undefined) ?? []), value];
+        else answers[key] = value;
+      }
+      await c.call("agent.answerQuestion", { id: a.id, requestId, answers });
+      return;
+    }
+
+    case "models": {
+      const { providers } = await c.call("server.info", {});
+      const wanted = opt.provider ? [opt.provider as ProviderId] : providers;
+      const result: Record<string, unknown> = {};
+      for (const p of wanted) {
+        try {
+          result[p] = await c.call("provider.catalog", { provider: p, refresh: opt.refresh });
+        } catch (e) {
+          result[p] = { error: e instanceof Error ? e.message : String(e) };
+        }
+      }
+      return out(result, () => {
+        for (const [p, cat] of Object.entries(result) as [string, { error?: string; models?: { id: string; name?: string; isDefault?: boolean; efforts?: string[] }[]; modes?: { id: string }[] }][]) {
+          console.log(`${p}${cat.error ? `  (error: ${cat.error})` : ""}`);
+          for (const m of cat.models ?? [])
+            console.log(`  ${m.isDefault ? "*" : " "} ${m.id}${m.name && m.name !== m.id ? `  ${m.name}` : ""}${m.efforts?.length ? `  effort: ${m.efforts.join(", ")}` : ""}`);
+          if (cat.modes?.length) console.log(`    modes: ${cat.modes.map((m) => m.id).join(", ")}`);
+        }
       });
     }
 

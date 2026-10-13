@@ -165,6 +165,8 @@ final class HostModel: Identifiable {
     /// Latest subscription limits per provider on this host (provider.limits + live notifications).
     private(set) var limits: [ProviderID: ProviderLimits] = [:]
     @ObservationIgnored private var catalogLoads: Set<ProviderID> = []
+    /// Bumped after a failed catalog load so views ask again.
+    private var catalogRetry = 0
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
 
     nonisolated var id: UUID { entry.id }
@@ -218,6 +220,8 @@ final class HostModel: Identifiable {
             async let agents = client.listAgents(includeArchived: true)
             (self.projects, self.agents) = try await (projects, agents)
             lastError = nil
+            // m2: fetch the catalogs of providers in use now, so pickers never start with raw ids.
+            for provider in Set(self.agents.map(\.provider)) { _ = catalog(for: provider) }
             // Older servers don't have provider.limits; that's fine.
             if let all = try? await client.limits() {
                 limits = Dictionary(all.map { ($0.provider, $0) }, uniquingKeysWith: { _, b in b })
@@ -238,14 +242,17 @@ final class HostModel: Identifiable {
 
     /// Models and modes for a provider; loaded on first use and cached for the connection.
     func catalog(for provider: ProviderID) -> Catalog? {
+        _ = catalogRetry
         if catalogs[provider] == nil, isOnline, !catalogLoads.contains(provider) {
             catalogLoads.insert(provider)
             Task {
                 defer { catalogLoads.remove(provider) }
-                do { catalogs[provider] = try await client.catalog(provider: provider) } catch {
-                    #if DEBUG && os(macOS)
-                    DebugControl.shared.log("catalog \(provider.rawValue) on \(name) failed: \(error)")
-                    #endif
+                do {
+                    catalogs[provider] = try await client.catalog(provider: provider)
+                } catch {
+                    // m2: try again shortly; a view re-reading the catalog starts the next attempt.
+                    try? await Task.sleep(for: .seconds(3))
+                    catalogRetry += 1
                 }
             }
         }

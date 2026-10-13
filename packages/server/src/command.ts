@@ -7,7 +7,12 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { Store } from "./db.ts";
 import { startServer } from "./server.ts";
+import { execFileSync } from "node:child_process";
 import { claudeProvider } from "./providers/claude.ts";
+import { codexProvider } from "./providers/codex.ts";
+import { opencodeProvider } from "./providers/opencode.ts";
+import { piProvider } from "./providers/pi.ts";
+import type { Provider } from "./providers/types.ts";
 
 const VERSION = "0.0.1";
 const DEFAULT_LISTEN = "127.0.0.1:7373";
@@ -20,6 +25,28 @@ function readConfig(): { listen?: string } {
   } catch {
     return {};
   }
+}
+
+// Only agents installed on this host are offered. CASM_<NAME>_PATH overrides the binary.
+function installed(bin: string): boolean {
+  const override = process.env[`CASM_${bin.toUpperCase()}_PATH`];
+  if (override) return true;
+  try {
+    execFileSync("which", [bin], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function availableProviders(): Provider[] {
+  const all: [string, () => Provider][] = [
+    ["claude", claudeProvider],
+    ["codex", codexProvider],
+    ["pi", piProvider],
+    ["opencode", opencodeProvider],
+  ];
+  return all.filter(([bin]) => installed(bin)).map(([, make]) => make());
 }
 
 function parseListen(s: string): { host: string; port: number } {
@@ -49,7 +76,8 @@ export async function serverCommand(argv: string[]) {
   } else if (cmd === "serve") {
     const { host, port } = parseListen(values.listen ?? process.env.CASM_LISTEN ?? readConfig().listen ?? DEFAULT_LISTEN);
     const log = (m: string) => console.error(`[${new Date().toISOString()}] ${m}`);
-    const server = await startServer({ store, providers: [claudeProvider()], host, port, version: VERSION, log });
+    const server = await startServer({ store, providers: availableProviders(), host, port, version: VERSION, log });
+    log(`agents: ${server.agents.providerIds().join(", ") || "none found on PATH"}`);
     if (store.listTokens().length === 0) log('no client tokens yet: run "casm token create <name>"');
     const stop = async () => {
       log("shutting down");

@@ -201,25 +201,26 @@ final class ChatModel {
         }
     }
 
-    /// A "!" command's output is what the user asked for: open its tool row.
-    @ObservationIgnored private var expandNextTool = false
-
     private func upsert(_ item: Item) {
-        if expandNextTool, case .tool(let call) = item {
-            expandNextTool = false
-            expanded.insert(call.id)
-        }
         if let i = index[item.id] {
             items[i] = item
         } else {
+            expandIfShell(item)
             index[item.id] = items.count
             items.append(item)
         }
     }
 
+    /// "!" commands (casm's "shell" tool items) start expanded: their output is the point. The
+    /// user can still collapse them; that sticks because only new items are expanded.
+    private func expandIfShell(_ item: Item) {
+        if case .tool(let call) = item, call.name == "shell" { expanded.insert(call.id) }
+    }
+
     private func setItems(_ new: [Item]) {
         // Keep the same newest rows in view: the window is anchored to the end.
         let shown = items.count - windowStart
+        for item in new where index[item.id] == nil { expandIfShell(item) }
         items = new
         windowStart = max(0, new.count - max(shown, Self.window))
         index = Dictionary(new.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { _, last in last })
@@ -250,7 +251,6 @@ final class ChatModel {
         let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let host, !command.isEmpty else { return false }
         do {
-            expandNextTool = true
             try await host.client.shell(agentId: agentId, command: command)
             scrollToBottomRequest += 1
             return true

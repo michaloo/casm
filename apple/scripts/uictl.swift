@@ -110,7 +110,7 @@ func click(_ p: CGPoint) {
     }
 }
 
-let keyCodes: [String: CGKeyCode] = ["a": 0, "return": 36, "tab": 48, "space": 49, "escape": 53, "down": 125, "up": 126, "left": 123, "right": 124, "delete": 51]
+let keyCodes: [String: CGKeyCode] = ["a": 0, "n": 45, "k": 40, "r": 15, "1": 18, "2": 19, "3": 20, "period": 47, "return": 36, "tab": 48, "space": 49, "escape": 53, "down": 125, "up": 126, "left": 123, "right": 124, "delete": 51]
 
 func key(_ code: CGKeyCode, _ flags: CGEventFlags = []) {
     let src = CGEventSource(stateID: .hidSystemState)

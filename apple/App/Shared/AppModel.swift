@@ -64,8 +64,8 @@ final class AppModel {
     }
     var confirmation: Confirmation?
 
-    /// Shows archived projects and agents in the sidebar (dimmed, with Unarchive).
-    var showArchived = false
+    /// The sidebar's search text. Archived projects and agents only appear through search.
+    var sidebarSearch = ""
 
     init() {
         #if DEBUG
@@ -327,6 +327,33 @@ final class HostModel: Identifiable {
 
     func project(_ id: String) -> Project? { projects.first { $0.id == id } }
 
+    /// Sidebar search, archived included: agents whose name, tags, project or folder match, and
+    /// matching projects. Live ones first, then the most recently updated.
+    func search(_ query: String) -> (projects: [Project], agents: [Agent]) {
+        let words = query.lowercased().split(separator: " ").map(String.init)
+        guard !words.isEmpty else { return ([], []) }
+        func matches(_ fields: [String]) -> Bool {
+            let text = fields.joined(separator: " ").lowercased()
+            return words.allSatisfy { text.contains($0) }
+        }
+        let projects: [Project] = self.projects
+            .filter { project in matches([project.name, project.path, project.group ?? ""] + project.tags) }
+            .sorted { a, b in
+                if (a.archivedAt == nil) != (b.archivedAt == nil) { return a.archivedAt == nil }
+                return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            }
+        let agents: [Agent] = self.agents
+            .filter { agent in
+                let projectName: String = project(agent.projectId)?.name ?? ""
+                return matches([agent.name, agent.cwd, agent.provider.rawValue, projectName] + agent.tags)
+            }
+            .sorted { a, b in
+                if (a.archivedAt == nil) != (b.archivedAt == nil) { return a.archivedAt == nil }
+                return a.updatedAt > b.updatedAt
+            }
+        return (projects, agents)
+    }
+
     /// Top-level agents of a project; subagents whose caller is on this host are nested under it.
     func agents(in project: String, includeArchived: Bool = false) -> [Agent] {
         agents.filter { $0.projectId == project && (includeArchived || $0.archivedAt == nil) && !hasLocalParent($0) }
@@ -387,7 +414,7 @@ final class HostModel: Identifiable {
 
     // MARK: Editing
 
-    private func upsert(_ project: Project) {
+    func upsert(_ project: Project) {
         if let i = projects.firstIndex(where: { $0.id == project.id }) { projects[i] = project } else { projects.append(project) }
     }
 

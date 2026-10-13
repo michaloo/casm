@@ -354,9 +354,7 @@ struct Composer: View {
         text = ""
         attachments = []
         suggestions = []
-        #if os(iOS)
-        focused = false
-        #endif
+        // m11: the keyboard stays up after sending, for the next message.
         Task {
             let ok = shell ? await chat.shell(String(message.dropFirst())) : await chat.send(message, images: images)
             // m1: put it back if it didn't go through, ahead of anything typed since.

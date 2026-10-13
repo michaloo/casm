@@ -1,5 +1,6 @@
 // Claude Code via the Claude Agent SDK: one long-lived query() per open
 // session, fed by an async input queue. History comes from Claude's own JSONL.
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -8,6 +9,7 @@ import { constants as osConstants, homedir } from "node:os";
 import { join } from "node:path";
 import {
   query,
+  getSubagentMessages,
   type CanUseTool,
   type ElicitationRequest,
   type ElicitationResult,
@@ -128,6 +130,8 @@ export function bashRecord(command: string, stdout: string, stderr: string, exit
 // A transcript entry: an SDK message (live) or a JSONL line (history).
 export type Entry = {
   type: string;
+  parent_tool_use_id?: string | null;
+  origin?: { kind?: string; runId?: string };
   uuid?: string;
   subtype?: string;
   message?: unknown;
@@ -168,6 +172,7 @@ export class Normalizer {
   private bash: ToolItem | null = null;
 
   entry<E extends Entry>(e: E): Item[] {
+    if (e.parent_tool_use_id) return [];
     if (e.type === "system") return this.system(e);
     const m = e.message as { role?: string; content?: unknown; model?: string } | undefined;
     if (!m || !e.uuid) return [];
@@ -179,6 +184,9 @@ export class Normalizer {
         return [{ kind: "notice", id: `${uuid}:0`, level: "error", text: text || `API error: ${String(e.error)}` }];
       }
       return this.assistant(uuid, blocks(m.content));
+    }
+    if (e.type === "user" && e.origin?.kind === "task-notification") {
+      return this.backgroundTasks.notification(blocks(m.content).filter((b) => b.type === "text").map((b) => String(b.text)).join("\n"), e.origin.runId);
     }
     if (e.type !== "user" || e.isMeta || e.isCompactSummary) return [];
     return this.user(e, uuid, blocks(m.content));
@@ -244,7 +252,7 @@ export class Normalizer {
     if (event.type === "content_block_start") {
       this.inputStreams.delete(event.index);
       const b = event.content_block;
-      if (b.type !== "tool_use" || PLAN_TOOLS.has(b.name) || this.tools.has(b.id)) return [];
+      if (b.type !== "tool_use" || PLAN_TOOLS.has(b.name) || b.name === "Task" || b.name === "Agent" || this.tools.has(b.id)) return [];
       const item: ToolItem = { kind: "tool", id: b.id, name: b.name, input: b.input ?? {}, status: "running" };
       this.tools.set(item.id, item);
       this.draftingTools.add(item.id);
@@ -308,6 +316,10 @@ export class Normalizer {
         this.finishInput(String(b.id));
         const name = String(b.name);
         const input = (b.input ?? {}) as Record<string, unknown>;
+        if (name === "Task" || name === "Agent") {
+          out.push(...this.backgroundTasks.start(String(b.id), input));
+          return;
+        }
         if (PLAN_TOOLS.has(name)) {
           this.calls.set(String(b.id), { tool: name as TaskCall["tool"], input });
           // TodoWrite carries the whole list, so it applies right away.
@@ -374,6 +386,8 @@ export class Normalizer {
   private toolResult(b: Block, structured: unknown): Item[] {
     const id = String(b.tool_use_id);
     this.finishInput(id);
+    const child = this.backgroundTasks.result(id, toolOutput(b.content), !!b.is_error, structured);
+    if (child) return child;
     const call = this.calls.get(id);
     if (call && !b.is_error) {
       this.calls.delete(id);
@@ -738,6 +752,17 @@ const LIMIT_LABELS: Record<string, string> = {
   overage: "extra usage",
 };
 
+// Live utilization is a fraction; the account-query response uses percentages.
+export function rateLimitWindow(info: SDKRateLimitInfo) {
+  const id = info.rateLimitType ?? "usage";
+  return {
+    id, label: LIMIT_LABELS[id] ?? id.replace(/_/g, "-"),
+    usedPercent: info.utilization != null ? info.utilization * 100 : undefined,
+    resetsAt: info.resetsAt != null ? new Date(info.resetsAt * 1000).toISOString() : undefined,
+    status: info.status === "rejected" ? "exhausted" as const : info.status === "allowed_warning" ? "warning" as const : "ok" as const,
+  };
+}
+
 class ClaudeSession implements ProviderSession {
   private input = new InputQueue();
   private q: ReturnType<typeof query>;
@@ -979,13 +1004,7 @@ class ClaudeSession implements ProviderSession {
       type: "limits",
       limits: {
         windows: [
-          {
-            id: info.rateLimitType ?? "usage",
-            label: LIMIT_LABELS[info.rateLimitType ?? ""] ?? kind,
-            usedPercent: info.utilization != null ? Math.round(info.utilization * 1000) / 10 : undefined,
-            resetsAt: info.resetsAt ? new Date(info.resetsAt * 1000).toISOString() : undefined,
-            status: info.status === "rejected" ? "exhausted" : info.status === "allowed_warning" ? "warning" : "ok",
-          },
+          rateLimitWindow(info),
         ],
       },
     });
@@ -1144,6 +1163,37 @@ async function withIdleQuery<T>(executable: string | undefined, cwd: string, wha
   }
 }
 
+export async function queryLimits(fetch: () => Promise<unknown>): Promise<Awaited<ReturnType<NonNullable<Provider["limits"]>>>> {
+  try {
+    const value = await fetch();
+    const window = z.object({ utilization: z.number().finite().nonnegative().nullable(), resets_at: z.iso.datetime({ offset: true }).nullable() });
+    const parsed = z.object({
+      subscription_type: z.string().nullable(), rate_limits_available: z.boolean(),
+      rate_limits: z.object({
+        five_hour: window.nullish(), seven_day: window.nullish(), seven_day_opus: window.nullish(),
+        seven_day_sonnet: window.nullish(), seven_day_oauth_apps: window.nullish(),
+        extra_usage: z.object({ is_enabled: z.boolean(), utilization: z.number().finite().nonnegative().nullable() }).nullish(),
+      }).nullable(),
+    }).safeParse(value);
+    if (!parsed.success || !parsed.data.rate_limits_available || !parsed.data.rate_limits) return null;
+    const windows = Object.entries(parsed.data.rate_limits).flatMap(([key, w]) => {
+      if (!w || ("is_enabled" in w && !w.is_enabled)) return [];
+      const id = key === "extra_usage" ? "overage" : key;
+      return [{ id, label: LIMIT_LABELS[id] ?? id.replace(/_/g, " "),
+        usedPercent: w.utilization ?? undefined,
+        resetsAt: "resets_at" in w ? w.resets_at ?? undefined : undefined,
+        ...(w.utilization == null ? {} : { status: w.utilization >= 100 ? "exhausted" as const : w.utilization >= 80 ? "warning" as const : "ok" as const }),
+      }];
+    });
+    return windows.length ? { plan: parsed.data.subscription_type ?? undefined, windows } : null;
+  } catch { return null; }
+}
+
+function fetchLimits(executable: string | undefined) {
+  return queryLimits(() => withIdleQuery(executable, homedir(), "limits", (q) =>
+    q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })));
+}
+
 function fetchCatalog(executable: string | undefined): Promise<Catalog> {
   return withIdleQuery(executable, homedir(), "models", async (q) => parseCatalog(await q.supportedModels()));
 }
@@ -1189,6 +1239,44 @@ export function claudeProvider(): Provider {
     async usage(sessionId, cwd) {
       return usageFromLines(await readLines(sessionId, cwd), windows);
     },
+    async subagentHistory(sessionId, cwd, subagentId) {
+      const lines = await readLines(sessionId, cwd);
+      let nativeId = subagentId;
+      for (const l of lines) {
+        const content = blocks((l.message as { content?: unknown } | undefined)?.content);
+        if (content.some((b) => b.type === "tool_result" && b.tool_use_id === subagentId)) {
+          const r = (l.toolUseResult ?? l.tool_use_result) as { agentId?: string } | undefined;
+          const output = content.map((b) => toolOutput(b.content)).join("\n");
+          nativeId = r?.agentId ?? /agentId:\s*([a-zA-Z0-9_-]+)/.exec(output)?.[1] ?? nativeId;
+        }
+        const progress = l as Entry & { parentToolUseID?: string; data?: { agentId?: string } };
+        if (progress.parentToolUseID === subagentId && progress.data?.agentId) nativeId = progress.data.agentId;
+      }
+      // Current CLIs do not persist task_* events. The sidecar joins a running
+      // foreground call to its transcript before any tool_result exists.
+      if (nativeId === subagentId) {
+        const parent = await transcriptPath(sessionId, cwd);
+        if (parent) {
+          const dir = join(parent.slice(0, -".jsonl".length), "subagents");
+          for (const file of await readdir(dir).catch(() => [] as string[])) {
+            const match = /^agent-([a-zA-Z0-9_-]+)\.meta\.json$/.exec(file);
+            if (!match) continue;
+            try {
+              const metadata = JSON.parse(await readFile(join(dir, file), "utf8"));
+              if (metadata.toolUseId === subagentId) { nativeId = match[1]!; break; }
+            } catch { /* A sidecar may still be in the process of being written. */ }
+          }
+        }
+      }
+      if (!/^[a-zA-Z0-9_-]+$/.test(nativeId)) return [];
+      const n = new Normalizer();
+      const items = new Map<string, Item>();
+      for (const m of await getSubagentMessages(sessionId, nativeId, { dir: cwd })) {
+        for (const item of n.entry({ type: m.type, uuid: m.uuid, message: m.message })) items.set(item.id, item);
+      }
+      return [...items.values()];
+    },
+    limits: () => fetchLimits(executable),
     memories: claudeMemories,
   };
 }

@@ -12,76 +12,93 @@ const taskStart = {
   uuid: "00000000-0000-0000-0000-000000000001", session_id: "session-1",
 } satisfies SDKTaskStartedMessage;
 
-test("Claude task lifecycle upserts one notice and survives foreground turn completion", () => {
+const child = (items: ReturnType<Normalizer["entry"]>) => {
+  const item = items[0];
+  assert.ok(item?.kind === "subagent");
+  return item;
+};
+
+test("Claude task lifecycle upserts a subagent and survives foreground turn completion", () => {
   const n = new Normalizer();
-  const start = n.entry(taskStart);
-  assert.deepEqual(start, [{ kind: "notice", id: "claude-task:child-1", level: "info", text: "Subagent (Explore) running: Review authentication" }]);
-  const update = n.entry({ ...taskStart, subtype: "task_updated", patch: { is_backgrounded: true } });
-  assert.match((update[0] as { text: string }).text, /running \(background\)/);
+  assert.deepEqual(n.entry(taskStart), [{ kind: "subagent", id: "child-1", title: "Review authentication", agentType: "Explore", status: "running" }]);
+  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_updated", patch: { is_backgrounded: true } }), []);
   n.endTurn();
-  const progress = n.entry({
-    ...taskStart, subtype: "task_progress", is_backgrounded: true, last_tool_name: "Grep",
-    summary: "Checking token validation", usage: { total_tokens: 1234, tool_uses: 3, duration_ms: 2500 },
-  });
-  assert.equal(progress[0]?.id, start[0]?.id);
-  assert.match((progress[0] as { text: string }).text, /Checking token validation\n3 tool uses · 1234 tokens · 3s · last tool: Grep/);
-  const done = n.entry({
-    type: "system", subtype: "task_notification", task_id: "child-1", run_id: "run-001",
-    status: "completed", summary: "No authentication issues found", output_file: "/unused/result",
-  });
-  assert.deepEqual(done, [{
-    kind: "notice", id: "claude-task:child-1", level: "info",
-    text: "Subagent (Explore) completed: Review authentication\nNo authentication issues found\n3 tool uses · 1234 tokens · 3s",
-  }]);
+  const progress = child(n.entry({ ...taskStart, subtype: "task_progress", last_tool_name: "Grep",
+    summary: "Checking tokens", usage: { total_tokens: 1234, tool_uses: 3, duration_ms: 2500 } }));
+  assert.equal(progress.activity, "Grep");
+  assert.deepEqual(progress.usage, { totalTokens: 1234, toolUses: 3, durationMs: 2500 });
+  const done = child(n.entry({ ...taskStart, subtype: "task_notification", status: "completed", summary: "No issues" }));
+  assert.equal(done.id, progress.id);
+  assert.equal(done.status, "done");
+  assert.equal(done.summary, "No issues");
+  assert.deepEqual(done.usage, progress.usage);
 });
 
-test("Claude tasks reject stale frames and permit a new run of the same task", () => {
+test("Claude rejects stale frames and permits a new run", () => {
   const n = new Normalizer();
   n.entry(taskStart);
-  const done = { ...taskStart, subtype: "task_notification", status: "completed", summary: "First run done" };
+  const done = { ...taskStart, subtype: "task_notification", status: "completed", summary: "Done" };
   n.entry(done);
-  assert.deepEqual(n.entry(done), []); // Duplicate notification.
-  assert.deepEqual(n.entry(taskStart), []); // Late start cannot revive a finished run.
-  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "running" } }), []);
-  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_progress", usage: { total_tokens: 1, tool_uses: 1, duration_ms: 1 } }), []);
-  const resumed = n.entry({ ...taskStart, run_id: "run-002", is_backgrounded: true });
-  assert.equal(resumed[0]?.id, "claude-task:child-1");
-  assert.match((resumed[0] as { text: string }).text, /running \(background\)/);
-  assert.deepEqual(n.entry(done), []); // Late completion of the older run.
-  assert.deepEqual(n.entry({ ...done, run_id: undefined }), []); // Unversioned frame cannot override a versioned run.
+  for (const event of [done, taskStart, { ...taskStart, subtype: "task_updated", patch: { status: "running" } },
+    { ...taskStart, subtype: "task_progress" }]) assert.deepEqual(n.entry(event), []);
+  assert.equal(child(n.entry({ ...taskStart, run_id: "run-002" })).status, "running");
+  assert.deepEqual(n.entry(done), []);
+  assert.deepEqual(n.entry({ ...done, run_id: undefined }), []);
 });
 
-test("Claude hides ambient tasks and does not materialize unknown progress or patches", () => {
-  const n = new Normalizer();
-  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_progress", usage: { total_tokens: 0, tool_uses: 0, duration_ms: 0 } }), []);
-  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "running" } }), []);
-  assert.deepEqual(n.entry({ ...taskStart, ambient: true }), []);
-  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_progress", usage: { total_tokens: 8, tool_uses: 1, duration_ms: 20 } }), []);
-  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_notification", status: "completed", summary: "Housekeeping done" }), []);
-  assert.deepEqual(n.entry({ ...taskStart, task_id: "hidden", skip_transcript: true }), []);
-  assert.deepEqual(n.entry({ ...taskStart, task_id: "hidden", subtype: "task_notification", status: "failed" }), []);
+test("Claude hides ambient and nested tasks and unknown progress", () => {
+  for (const flags of [{ ambient: true }, { skip_transcript: true }, { parent_task_id: "parent" }, { spawn_depth: 2 }]) {
+    const n = new Normalizer();
+    assert.deepEqual(n.entry({ ...taskStart, subtype: "task_progress" }), []);
+    assert.deepEqual(n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "running" } }), []);
+    assert.deepEqual(n.entry({ ...taskStart, ...flags }), []);
+    assert.deepEqual(n.entry({ ...taskStart, subtype: "task_notification", status: "completed" }), []);
+  }
 });
 
-test("Claude task pauses, failures and standalone completion remain visible with useful severity", () => {
+test("Claude represents pauses as running and failed/stopped tasks as errors", () => {
   const n = new Normalizer();
   n.entry(taskStart);
-  const paused = n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "paused" } });
-  assert.match((paused[0] as { text: string }).text, /paused/);
-  const failed = n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "failed", error: "Model unavailable" } });
-  assert.deepEqual(failed, [{ kind: "notice", id: "claude-task:child-1", level: "error", text: "Subagent (Explore) failed: Review authentication\nModel unavailable" }]);
-  const stopped = n.entry({ type: "system", subtype: "task_notification", task_id: "older-task", status: "stopped", summary: "Worker restarted" });
-  assert.deepEqual(stopped, [{ kind: "notice", id: "claude-task:older-task", level: "warning", text: "Task stopped: older-task\nWorker restarted" }]);
-  const enriched = n.entry({ ...taskStart, subtype: "task_notification", status: "failed", summary: "Final failure details" });
-  assert.match((enriched[0] as { text: string }).text, /Final failure details/);
+  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "paused" } }), []);
+  const failed = child(n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "failed", error: "Unavailable" } }));
+  assert.equal(failed.status, "error");
+  assert.equal(failed.summary, "Unavailable");
+  assert.equal(child(n.entry({ type: "system", subtype: "task_notification", task_id: "old", status: "stopped" })).status, "error");
+  assert.equal(child(n.entry({ ...taskStart, subtype: "task_notification", status: "failed", summary: "Final details" })).summary, "Final details");
 });
 
-test("Claude task notices are bounded and malformed records are ignored", () => {
+test("Claude bounds descriptions and ignores malformed tasks", () => {
   const n = new Normalizer();
-  const item = n.entry({ ...taskStart, description: "x".repeat(9000) })[0];
-  assert.equal((item as { text: string }).text.length, 8000);
-  assert.deepEqual(n.entry({ ...taskStart, task_id: "" }), []);
-  assert.deepEqual(n.entry({ ...taskStart, task_id: 42 }), []);
+  assert.equal(child(n.entry({ ...taskStart, description: "x".repeat(9000) })).title.length, 8000);
+  for (const task_id of ["", 42]) assert.deepEqual(n.entry({ ...taskStart, task_id }), []);
   assert.deepEqual(n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "made-up" } }), []);
+});
+
+test("Claude merges Agent/Task calls, lifecycle and results under the tool ID in live and history", () => {
+  for (const name of ["Agent", "Task"]) {
+    const call = { type: "assistant", uuid: "a", message: { content: [{ type: "tool_use", id: "tool-1", name, input: { description: "Review authentication", subagent_type: "Explore" } }] } };
+    const result = { type: "user", uuid: "r", parentUuid: "a", toolUseResult: { agentId: "child-1", totalTokens: 150, totalToolUseCount: 2, totalDurationMs: 10 },
+      message: { content: [{ type: "tool_result", tool_use_id: "tool-1", content: "Done" }] } };
+    const n = new Normalizer();
+    assert.deepEqual(n.stream({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tool-1", name, input: {} } }), []);
+    assert.equal(child(n.entry(call)).id, "tool-1");
+    n.entry({ ...taskStart, tool_use_id: "tool-1" });
+    assert.equal(child(n.entry({ ...taskStart, subtype: "task_progress", last_tool_name: "Read" })).id, "tool-1");
+    const live = child(n.entry(result));
+    const stored = child(historyItems([call, result]));
+    assert.equal(live.id, stored.id);
+    assert.equal(stored.status, "done");
+    assert.deepEqual(stored.usage, { totalTokens: 150, toolUses: 2, durationMs: 10 });
+    assert.deepEqual(n.entry({ type: "assistant", uuid: "internal", parent_tool_use_id: "tool-1", message: { content: "Private child text" } }), []);
+  }
+});
+
+test("Claude background launch results do not complete subagents", () => {
+  const n = new Normalizer();
+  n.entry({ type: "assistant", uuid: "a", message: { content: [{ type: "tool_use", id: "t", name: "Agent", input: { description: "Background" } }] } });
+  assert.deepEqual(n.entry({ type: "user", uuid: "r", toolUseResult: { status: "async_launched" }, message: { content: [{ type: "tool_result", tool_use_id: "t", content: "Launched" }] } }), []);
+  n.endTurn();
+  assert.equal(child(n.entry({ ...taskStart, tool_use_id: "t", subtype: "task_notification", status: "completed", summary: "Done" })).status, "done");
 });
 
 test("normalizes a tool call and completes it from the tool result", () => {
@@ -346,4 +363,71 @@ test("bash mode: casm's one-message record and Claude's two-message form become 
     { kind: "notice", id: "i2", text: "Interrupted" },
   ]);
   assert.deepEqual(bashResult("<bash-stdout>x</bash-stdout><bash-stderr></bash-stderr><bash-exit-code>0</bash-exit-code>"), { output: "x", status: "done" });
+});
+
+test("subagentHistory reads sidecar-linked running transcripts and completed result links without leaking them into the parent", async () => {
+  const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { claudeProvider } = await import("../src/providers/claude.ts");
+  const home = await mkdtemp(join(tmpdir(), "claude-history-test-"));
+  const original = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = home;
+  try {
+    const cwd = "/tmp/claude-fixture";
+    const session = "00000000-0000-4000-8000-000000000099";
+    const project = join(home, "projects", "-tmp-claude-fixture");
+    const children = join(project, session, "subagents");
+    await mkdir(children, { recursive: true });
+    const call = { type: "assistant", uuid: "parent", parentUuid: null, message: { content: [{ type: "tool_use", id: "tool-1", name: "Agent", input: { description: "Inspect" } }] } };
+    await writeFile(join(project, `${session}.jsonl`), JSON.stringify(call) + "\n");
+    await writeFile(join(children, "agent-child.meta.json"), JSON.stringify({ toolUseId: "tool-1" }));
+    const messages = [
+      { type: "user", uuid: "u", parentUuid: null, isSidechain: true, message: { role: "user", content: "Inspect directory" } },
+      { type: "assistant", uuid: "a", parentUuid: "u", isSidechain: true, message: { role: "assistant", content: [{ type: "tool_use", id: "read", name: "Read", input: { file_path: "README" } }] } },
+      { type: "user", uuid: "r", parentUuid: "a", isSidechain: true, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "read", content: "Child-only contents" }] } },
+    ];
+    await writeFile(join(children, "agent-child.jsonl"), messages.map((m) => JSON.stringify(m)).join("\n") + "\n");
+    const provider = claudeProvider();
+    const items = await provider.subagentHistory!(session, cwd, "tool-1");
+    assert.equal(items.length, 2);
+    assert.ok(items.some((i) => i.kind === "tool" && i.status === "done" && i.output === "Child-only contents"));
+    assert.deepEqual((await provider.history(session, cwd)).map((i) => i.kind), ["subagent"]);
+    await rm(join(children, "agent-child.meta.json"));
+    const result = { type: "user", uuid: "result", parentUuid: "parent", toolUseResult: { agentId: "child" }, message: { content: [{ type: "tool_result", tool_use_id: "tool-1", content: "Summary" }] } };
+    await writeFile(join(project, `${session}.jsonl`), [call, result].map((m) => JSON.stringify(m)).join("\n") + "\n");
+    assert.deepEqual(await provider.subagentHistory!(session, cwd, "tool-1"), items);
+    assert.deepEqual(await provider.subagentHistory!(session, cwd, "child"), items);
+    assert.deepEqual(await provider.subagentHistory!(session, cwd, "unknown"), []);
+    assert.deepEqual(await provider.subagentHistory!(session, cwd, "../../outside"), []);
+  } finally {
+    if (original === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = original;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("Claude replays saved background notifications as the same completed card, not a user prompt", () => {
+  const call = { type: "assistant", uuid: "a", message: { content: [{ type: "tool_use", id: "t", name: "Agent", input: { description: "Background" } }] } };
+  const launch = { type: "user", uuid: "r", parentUuid: "a", toolUseResult: { status: "async_launched", agentId: "child" }, message: { content: [{ type: "tool_result", tool_use_id: "t", content: "Launched" }] } };
+  const content = '<task-notification>\n<task-id>child</task-id>\n<tool-use-id>t</tool-use-id>\n<status>completed</status>\n<summary>Agent finished</summary>\n<result>All good</result>\n<usage><subagent_tokens>150</subagent_tokens><tool_uses>1</tool_uses><duration_ms>25</duration_ms></usage>\n</task-notification>';
+  const notification = { type: "user", uuid: "done", parentUuid: "r", origin: { kind: "task-notification", runId: "run-1" }, message: { content } };
+  const stored = historyItems([call, launch, notification]);
+  const n = new Normalizer();
+  n.entry(call);
+  n.entry({ type: "system", subtype: "task_started", task_id: "child", tool_use_id: "t", run_id: "run-1", description: "Background" });
+  n.entry(launch);
+  const live = n.entry({ type: "system", subtype: "task_notification", task_id: "child", run_id: "run-1", status: "completed", summary: "All good", usage: { total_tokens: 150, tool_uses: 1, duration_ms: 25 } });
+  assert.deepEqual(stored, live);
+  assert.equal(stored.length, 1);
+  // An actual user's pasted markup must remain user text.
+  assert.equal(new Normalizer().entry({ ...notification, origin: undefined })[0]?.kind, "user");
+});
+
+test("Claude retains the tool ID when a native task resumes without repeating tool_use_id", () => {
+  const n = new Normalizer();
+  n.entry({ ...taskStart, tool_use_id: "tool-1" });
+  n.entry({ ...taskStart, subtype: "task_notification", status: "completed" });
+  assert.equal(child(n.entry({ ...taskStart, run_id: "run-002" })).id, "tool-1");
+  assert.equal(child(n.entry({ ...taskStart, run_id: "run-002", subtype: "task_notification", status: "failed" })).id, "tool-1");
 });

@@ -11,6 +11,19 @@ struct QuestionCard: View {
     @State private var text: [String: String] = [:]
     @State private var confirmed: [String: Bool] = [:]
 
+    /// B1: half-filled answers survive switching agents and relaunching.
+    private var draft: Drafts.Answers {
+        Drafts.Answers(picked: picked.mapValues { Array($0).sorted() }, other: other, text: text, confirmed: confirmed)
+    }
+
+    private func restoreDraft() {
+        let saved = Drafts.shared.answers(request.id)
+        picked = saved.picked.mapValues(Set.init)
+        other = saved.other
+        text = saved.text
+        confirmed = saved.confirmed
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(request.title ?? "The agent has a question", systemImage: "questionmark.bubble.fill")
@@ -34,6 +47,8 @@ struct QuestionCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.blue.opacity(0.25)))
+        .onAppear(perform: restoreDraft)
+        .onChange(of: draft) { Drafts.shared.save(request.id, answers: draft) }
     }
 
     private var prompts: some View {

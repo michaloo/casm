@@ -36,6 +36,8 @@ struct Composer: View {
     @State private var pasteMonitor: Any?
     #endif
 
+    private var draftKey: String { Drafts.key(host: chat.host?.id, agent: chat.agentId) }
+
     private var busy: Bool { chat.status.isBusy }
     private var online: Bool { chat.host?.isOnline ?? false }
     /// A leading "!" runs the rest as a shell command in the agent's cwd.
@@ -165,6 +167,13 @@ struct Composer: View {
         #endif
         .modifier(ComposerColumn())
         .task(id: context) { await refreshSuggestions() }
+        // B1: the draft belongs to the agent, not to this view (which is rebuilt per selection).
+        .onAppear {
+            text = Drafts.shared.text(draftKey)
+            attachments = Drafts.shared.images(draftKey).map { Attachment(image: $0) }
+        }
+        .onChange(of: text) { Drafts.shared.save(draftKey, text: text, images: attachments.map(\.image)) }
+        .onChange(of: attachments) { Drafts.shared.save(draftKey, text: text, images: attachments.map(\.image)) }
         #if os(iOS)
         .onAppear(perform: checkClipboard)
         .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in checkClipboard() }

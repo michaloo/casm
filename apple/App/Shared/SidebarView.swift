@@ -315,7 +315,8 @@ struct AgentNode: View {
     }
 }
 
-/// Rename, move, archive and delete an agent (sidebar context menu and the chat's More menu).
+/// Rename, archive and delete an agent (sidebar context menu and the chat's More menu).
+/// Agents stay in the project they were created in.
 struct AgentMenu: View {
     @Environment(AppModel.self) private var app
     let host: HostModel
@@ -325,16 +326,6 @@ struct AgentMenu: View {
         Button("Rename…") {
             app.textPrompt = .init(title: "Rename Agent", placeholder: "Name", text: agent.name, confirm: "Rename") { name in
                 Task { await host.rename(agent, to: name) }
-            }
-        }
-        Menu("Move to Project") {
-            ForEach(host.pickerProjects()) { project in
-                Button {
-                    Task { await host.move(agent, to: project.id) }
-                } label: {
-                    let title = project.group.map { "\($0) › \(project.name)" } ?? project.name
-                    if project.id == agent.projectId { Label(title, systemImage: "checkmark") } else { Text(title) }
-                }
             }
         }
         Button("Copy Agent ID") { Clipboard.copy(agent.id) }

@@ -193,20 +193,19 @@ struct CatalogParams: Codable, Sendable {
     var refresh: Bool?
 }
 
+/// `agent.update`. An agent's project is fixed at creation, so there is no way to move it.
 public struct UpdateAgentParams: Codable, Sendable {
     public var id: String
     public var name: String?
-    public var projectId: String?
     /// Replaces the stored config; send the full config, not a patch.
     public var config: AgentConfig?
     public var tags: [String]?
     public var archived: Bool?
 
-    public init(id: String, name: String? = nil, projectId: String? = nil, config: AgentConfig? = nil,
+    public init(id: String, name: String? = nil, config: AgentConfig? = nil,
                 tags: [String]? = nil, archived: Bool? = nil) {
         self.id = id
         self.name = name
-        self.projectId = projectId
         self.config = config
         self.tags = tags
         self.archived = archived

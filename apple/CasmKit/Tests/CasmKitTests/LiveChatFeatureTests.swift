@@ -40,6 +40,22 @@ struct LiveChatFeatures {
         await client.stop()
     }
 
+    @Test func agentsMdAndMemories() async throws {
+        let client = try await connect()
+        let dir = (env["CASM_TEST_DIR"] ?? NSTemporaryDirectory()) + "/agentsmd-\(UUID().uuidString.prefix(6))"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let project = try await client.createProject(CreateProjectParams(path: dir))
+        let before = try await client.agentsMd(projectId: project.id)
+        #expect(before.content == nil, "no AGENTS.md yet")
+        let written = try await client.setAgentsMd(projectId: project.id, content: "# Notes\n\nBe brief.\n")
+        #expect(written.content == "# Notes\n\nBe brief.\n")
+        #expect(try String(contentsOfFile: written.path, encoding: .utf8) == "# Notes\n\nBe brief.\n")
+        #expect(try await client.agentsMd(projectId: project.id).content == written.content)
+        let memories = try await client.memories(projectId: project.id)
+        #expect(memories.allSatisfy { !$0.location.isEmpty })
+        await client.stop()
+    }
+
     /// Needs a provider that implements shell; enable with CASM_TEST_SHELL=1.
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CASM_TEST_SHELL"] != nil))
     func shellRunsAsATurnAndRejectsWhileBusy() async throws {

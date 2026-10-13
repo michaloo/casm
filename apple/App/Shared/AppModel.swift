@@ -27,12 +27,14 @@ final class AppModel {
         case newProject(HostModel?, group: String? = nil)
         case newAgent(HostModel?, projectId: String?)
         case hostInfo(HostModel)
+        case projectDetails(HostModel, projectId: String)
         var id: String {
             switch self {
             case .addHost: "addHost"
             case .newProject: "newProject"
             case .newAgent: "newAgent"
             case .hostInfo(let host): "hostInfo-\(host.id)"
+            case .projectDetails(_, let projectId): "projectDetails-\(projectId)"
             }
         }
     }

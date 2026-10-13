@@ -89,6 +89,9 @@ import Testing
             "agent.shell": { _ = try decode(OK.self, $0) },
             "fs.search": { _ = try decode(FileSearchResult.self, $0) },
             "peer.list": { _ = try decode(PeerList.self, $0) },
+            "project.agentsMd": { _ = try decode(AgentsMd.self, $0) },
+            "project.setAgentsMd": { _ = try decode(AgentsMd.self, $0) },
+            "project.memories": { _ = try decode(ProjectMemories.self, $0) },
             "agent.list": { _ = try decode(AgentList.self, $0) },
             "agent.create": { _ = try decode(Agent.self, $0) },
             "agent.update": { _ = try decode(Agent.self, $0) },
@@ -118,6 +121,7 @@ import Testing
         let sent: [(String, any Encodable)] = [
             ("provider.catalog", CatalogParams(provider: .claude, refresh: true)),
             ("project.create", CreateProjectParams(path: "/x", name: "n", group: "g", tags: ["t"])),
+            ("project.setAgentsMd", SetAgentsMdParams(id: "p", content: "# Notes")),
             ("project.update", UpdateProjectParams(id: "p", group: .clear, tags: ["t"], sort: 1, archived: false)),
             ("agent.create", CreateAgentParams(projectId: "p", provider: .claude, name: "n", config: AgentConfig(model: "m", mode: "default", effort: "low"), tags: [], prompt: "hi")),
             ("agent.update", UpdateAgentParams(id: "a", config: AgentConfig(model: "m"))),

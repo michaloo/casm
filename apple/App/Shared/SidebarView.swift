@@ -215,16 +215,23 @@ struct ProjectNode: View {
                 Text(project.tags.joined(separator: " · ")).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
             }
             Spacer(minLength: 4)
-            Button("New Agent in \(project.name)", systemImage: "plus") {
-                app.sheet = .newAgent(host, projectId: project.id)
+            Group {
+                Button("Details of \(project.name)", systemImage: "info.circle") {
+                    app.sheet = .projectDetails(host, projectId: project.id)
+                }
+                .help("AGENTS.md and memories")
+                Button("New Agent in \(project.name)", systemImage: "plus") {
+                    app.sheet = .newAgent(host, projectId: project.id)
+                }
+                .help("New agent in \(project.name)")
+                .disabled(archived)
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help("New agent in \(project.name)")
             #if os(macOS)
             // Shown on hover so the tree stays quiet; still reachable via the context menu.
-            .opacity(hovering && !archived ? 1 : 0)
+            .opacity(hovering ? 1 : 0)
             #endif
         }
         #if os(macOS)
@@ -237,6 +244,7 @@ struct ProjectNode: View {
 
     @ViewBuilder private var menu: some View {
         Button("New Agent…") { app.sheet = .newAgent(host, projectId: project.id) }
+        Button("Project Details…") { app.sheet = .projectDetails(host, projectId: project.id) }
         Menu("Group") {
             ForEach(host.groups(), id: \.self) { group in
                 Button {

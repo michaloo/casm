@@ -208,7 +208,6 @@ struct Composer: View {
                 .foregroundStyle(.white)
                 .frame(width: 26, height: 26)
                 .background(Color.primary.opacity(0.8), in: Circle())
-                .keyboardShortcut(".", modifiers: .command)
                 .help("Interrupt the running turn (⌘.). Enter still queues a message.")
         } else {
             Button(shellMode ? "Run" : "Send", systemImage: shellMode ? "return" : "arrow.up", action: submit)

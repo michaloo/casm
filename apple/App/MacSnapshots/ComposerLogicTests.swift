@@ -60,6 +60,15 @@ final class ComposerLogicTests: XCTestCase {
         XCTAssertNil(ImageEncoding.encode(Data("not an image".utf8)))
     }
 
+    func testNotificationKinds() {
+        XCTAssertEqual(Notifier.kind(from: .running, to: .waiting, focusedOnAgent: false), .needsYou)
+        XCTAssertEqual(Notifier.kind(from: .running, to: .idle, focusedOnAgent: false), .finished)
+        XCTAssertEqual(Notifier.kind(from: .waiting, to: .idle, focusedOnAgent: false), .finished)
+        XCTAssertNil(Notifier.kind(from: .running, to: .waiting, focusedOnAgent: true), "not while looking at it")
+        XCTAssertNil(Notifier.kind(from: .idle, to: .running, focusedOnAgent: false))
+        XCTAssertNil(Notifier.kind(from: .idle, to: .idle, focusedOnAgent: false))
+    }
+
     func testContextRingDetails() {
         let ring = ContextRing(usage: Usage(model: "haiku", contextTokens: 34200, contextWindow: 200000, inputTokens: nil, outputTokens: nil, costUsd: 0.0123))
         // Numbers and currency follow the user's locale, so only check the stable parts.

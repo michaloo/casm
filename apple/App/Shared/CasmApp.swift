@@ -6,18 +6,47 @@ struct CasmApp: App {
     @State private var app = AppModel()
 
     var body: some Scene {
-        WindowGroup {
+        mainWindow
+        #if os(macOS)
+        MenuBarExtra {
+            MenuBarContent().environment(app)
+        } label: {
+            MenuBarLabel().environment(app)
+        }
+        #endif
+    }
+
+    private var mainWindow: some Scene {
+        WindowGroup(id: "main") {
             ContentView()
                 .environment(app)
         }
         #if os(macOS)
         .defaultSize(width: 1100, height: 760)
         .commands {
-            CommandGroup(after: .newItem) {
-                Button("New Agent…") { app.sheet = .newAgent(nil, projectId: nil) }
-                    .keyboardShortcut("n", modifiers: [.command, .shift])
+            // ⌘N makes an agent, not a second window.
+            CommandGroup(replacing: .newItem) {
+                Button("New Agent…") { app.sheet = .newAgent(app.chat?.host, projectId: app.chat?.agent?.projectId) }
+                    .keyboardShortcut("n")
                 Button("New Project…") { app.sheet = .newProject(nil) }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
                 Button("Add Host…") { app.sheet = .addHost }
+            }
+            CommandMenu("Agent") {
+                Button("Focus Composer") { app.chat?.focusComposerRequest += 1 }
+                    .keyboardShortcut("k")
+                    .disabled(app.chat == nil)
+                Button("Interrupt") { Task { await app.chat?.interrupt() } }
+                    .keyboardShortcut(".")
+                    .disabled(app.chat?.status.isBusy != true)
+                Button("Reload Agent") { Task { await app.chat?.reload() } }
+                    .keyboardShortcut("r")
+                    .disabled(app.chat?.agent == nil)
+                Divider()
+                ForEach(Array(app.sidebarAgents().prefix(9).enumerated()), id: \.element.agent.id) { i, entry in
+                    Button(entry.agent.name) { app.selection = .agent(host: entry.host.id, agent: entry.agent.id) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")))
+                }
             }
             #if DEBUG
             CommandMenu("Debug") {
@@ -77,6 +106,16 @@ struct ContentView: View {
             // iOS suspends the socket in the background; don't wait for the backoff when we're back.
             if scenePhase == .active { app.hosts.forEach { $0.reconnectNow() } }
         }
+        .onAppear { Notifier.shared.attach(app) }
+        .onChange(of: scenePhase, initial: true) { Notifier.shared.appActive = scenePhase == .active }
+        #if os(macOS)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Notifier.shared.appActive = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            Notifier.shared.appActive = false
+        }
+        #endif
         #if DEBUG && os(macOS)
         .onAppear { DebugControl.shared.attach(app) }
         #endif

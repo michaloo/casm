@@ -1,6 +1,6 @@
 # casm NG (working name)
 
-A small, self-hosted server for coding agents (Claude Code now; Codex, pi and OpenCode next), with
+A small, self-hosted server for coding agents (Claude Code, Codex, pi and OpenCode), with
 native macOS/iOS clients to come. Design: [docs/design.md](docs/design.md).
 
 ```
@@ -49,3 +49,16 @@ Example: `casm --json agents | jq '.[] | select(.status=="waiting")'`.
 npm run typecheck
 npm test            # fake-provider end-to-end tests; no agent CLI needed
 ```
+
+## Agents
+
+Each host offers the agents installed on it (`casm info` lists them). Each one uses its native protocol:
+
+| Agent | Transport | Native session id | Permissions |
+|---|---|---|---|
+| Claude Code | Claude Agent SDK | session UUID | `canUseTool` (modes: default, acceptEdits, plan, auto, …) |
+| Codex | `codex app-server` (JSON-RPC stdio) | thread id | approvals; modes `read-only`, `auto`, `untrusted`, `full-access` |
+| pi | `pi --mode rpc` | session file path | none built in; extension confirm dialogs are routed as permission requests |
+| OpenCode | one shared `opencode serve` per host (HTTP + SSE) | session id | permission asks; mode = OpenCode agent (`build`, `plan`, …) |
+
+Override a binary with `CASM_CLAUDE_PATH`, `CASM_CODEX_PATH`, `CASM_PI_PATH` or `CASM_OPENCODE_PATH`.

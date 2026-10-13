@@ -53,32 +53,21 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
 
     "project.list": (p) => ({ projects: store.listProjects(p.includeArchived) }),
     "project.create": (p) => {
-      if (p.parentId) getProject(p.parentId);
-      const project = store.createProject(p);
+      if (!isAbsolute(p.path)) throw new RpcError(ErrorCode.InvalidParams, "path must be absolute");
+      const project = store.createProject({ ...p, name: p.name ?? (basename(p.path) || p.path) });
       notify("project.changed", { project });
       return project;
     },
     "project.update": (p) => {
       getProject(p.id);
-      if (p.parentId) {
-        // Reject cycles: the new parent must not be the project or its descendant.
-        for (let q = store.getProject(p.parentId); q; q = q.parentId ? store.getProject(q.parentId) : undefined)
-          if (q.id === p.id) throw new RpcError(ErrorCode.Conflict, "a project cannot be nested inside itself");
-      }
+      if (p.path !== undefined && !isAbsolute(p.path)) throw new RpcError(ErrorCode.InvalidParams, "path must be absolute");
       const project = store.updateProject(p.id, p)!;
       notify("project.changed", { project });
       return project;
     },
     "project.delete": async (p) => {
       getProject(p.id);
-      const ids = new Set([p.id]);
-      // Collect descendants so their live agents are stopped before the cascade.
-      for (let grew = true; grew; ) {
-        grew = false;
-        for (const q of store.listProjects(true))
-          if (q.parentId && ids.has(q.parentId) && !ids.has(q.id)) (ids.add(q.id), (grew = true));
-      }
-      for (const a of store.listAgents({ includeArchived: true })) if (ids.has(a.projectId)) await agents.remove(a.id);
+      for (const a of store.listAgents({ projectId: p.id, includeArchived: true })) await agents.remove(a.id);
       store.deleteProject(p.id);
       notify("project.removed", { projectId: p.id });
       return { ok: true };
@@ -87,8 +76,7 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     "agent.list": (p) => ({ agents: store.listAgents(p).map((a) => agents.withStatus(a)) }),
     "agent.get": (p) => getAgent(p.id),
     "agent.create": (p) => {
-      getProject(p.projectId);
-      const cwd = p.cwd ?? store.projectPath(p.projectId) ?? homedir();
+      const cwd = p.cwd ?? getProject(p.projectId).path;
       const stored = store.createAgent({
         projectId: p.projectId,
         name: p.name ?? `${p.provider} · ${basename(cwd)}`,

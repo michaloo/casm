@@ -11,11 +11,12 @@ export const PROTOCOL_VERSION = 1;
 export const ProviderId = z.enum(["claude", "codex", "pi", "opencode"]);
 export type ProviderId = z.infer<typeof ProviderId>;
 
+// A hand-picked folder. `group` is only a visual grouping label for clients.
 export const Project = z.object({
   id: z.string(),
   name: z.string(),
-  parentId: z.string().nullable(),
-  path: z.string().nullable(),
+  path: z.string(),
+  group: z.string().nullable(),
   tags: z.array(z.string()),
   sort: z.number(),
   archivedAt: z.string().nullable(),
@@ -252,9 +253,10 @@ export const methods = {
   "project.list": method(z.object({ includeArchived: z.boolean().optional() }), z.object({ projects: z.array(Project) })),
   "project.create": method(
     z.object({
-      name: z.string().min(1),
-      parentId: z.string().nullish(),
-      path: z.string().nullish(),
+      // Absolute path on the server; the name defaults to its last segment.
+      path: z.string().min(1),
+      name: z.string().min(1).optional(),
+      group: z.string().nullish(),
       tags: z.array(z.string()).optional(),
     }),
     Project,
@@ -263,8 +265,9 @@ export const methods = {
     z.object({
       id: z.string(),
       name: z.string().min(1).optional(),
-      parentId: z.string().nullish(),
-      path: z.string().nullish(),
+      path: z.string().min(1).optional(),
+      // null removes the project from its group.
+      group: z.string().nullish(),
       tags: z.array(z.string()).optional(),
       sort: z.number().optional(),
       archived: z.boolean().optional(),

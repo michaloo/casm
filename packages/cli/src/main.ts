@@ -39,7 +39,8 @@ hosts (stored in ${hostsFile}):
 
 projects:
   projects
-  project create <name> [--path dir] [--parent project] [--tag t]...
+  project create <dir> [--name n] [--group g] [--tag t]...
+  project group <project> [group]     set the project's group; omit it to ungroup
   project rm <project>
 
 agents:
@@ -92,6 +93,7 @@ const { values: opt, positionals } = parseArgs({
     always: { type: "boolean" },
     message: { type: "string" },
     dismiss: { type: "boolean" },
+    group: { type: "string" },
     refresh: { type: "boolean" },
     "casm-tools": { type: "boolean" },
   },
@@ -253,37 +255,34 @@ async function run(c: CasmClient) {
 
     case "projects": {
       const list = await projects(c);
-      const byParent = new Map<string | null, Project[]>();
-      for (const p of list) byParent.set(p.parentId, [...(byParent.get(p.parentId) ?? []), p]);
       return out(list, () => {
-        const walk = (parent: string | null, depth: number) => {
-          for (const p of byParent.get(parent) ?? []) {
+        const groups = [...new Set(list.map((p) => p.group))].sort((a, b) => (a ?? "").localeCompare(b ?? ""));
+        for (const g of groups) {
+          if (g) console.log(`${g}/`);
+          for (const p of list.filter((x) => x.group === g)) {
             const extra = [p.path, p.tags.length ? `#${p.tags.join(" #")}` : "", p.archivedAt ? "(archived)" : ""].filter(Boolean);
-            console.log(`${shortId(p.id)}  ${"  ".repeat(depth)}${p.name}  ${extra.join("  ")}`);
-            walk(p.id, depth + 1);
+            console.log(`${shortId(p.id)}  ${g ? "  " : ""}${p.name}  ${extra.join("  ")}`);
           }
-        };
-        walk(null, 0);
+        }
       });
     }
 
     case "project": {
-      const [sub, ref] = args;
+      const [sub, ref, value] = args;
       if (sub === "create" && ref) {
-        const parentId = opt.parent ? pick(await projects(c), opt.parent, "project").id : undefined;
-        const p = await c.call("project.create", {
-          name: ref,
-          parentId,
-          path: opt.path ? resolve(opt.path) : undefined,
-          tags: opt.tag,
-        });
+        const p = await c.call("project.create", { path: resolve(ref), name: opt.name, group: opt.group, tags: opt.tag });
         return out(p, () => console.log(p.id));
+      }
+      if (sub === "group" && ref) {
+        const id = pick(await projects(c), ref, "project").id;
+        await c.call("project.update", { id, group: value ?? null });
+        return;
       }
       if (sub === "rm" && ref) {
         await c.call("project.delete", { id: pick(await projects(c), ref, "project").id });
         return;
       }
-      fail("usage: casm project create|rm");
+      fail("usage: casm project create|group|rm");
     }
 
     case "agents": {

@@ -1,4 +1,5 @@
 import CasmKit
+import QuartzCore
 import SwiftUI
 
 struct ChatView: View {
@@ -6,11 +7,12 @@ struct ChatView: View {
     @Bindable var chat: ChatModel
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var nearBottom = true
+    @State private var scrolling = false
     @State private var confirmRestart = false
 
     var body: some View {
         VStack(spacing: 0) {
-            transcript
+            if Exp.list { ListTranscript(chat: chat) } else { transcript }
             if let error = chat.error {
                 ErrorBar(message: error) { chat.error = nil }
             }
@@ -63,10 +65,29 @@ struct ChatView: View {
                     ProgressView()
                         .controlSize(.small)
                         .frame(maxWidth: .infinity)
-                        .onAppear { Task { await chat.loadOlder() } }
+                        .onAppear {
+                            // Keep the row that was on top in place, so revealing older rows doesn't
+                            // move the view (and doesn't cascade while the sentinel stays visible).
+                            let anchor = chat.visibleItems.first?.id
+                            Task {
+                                #if DEBUG && os(macOS)
+                                let t0 = CACurrentMediaTime(), before = chat.visibleItems.count
+                                #endif
+                                await chat.revealOlder()
+                                #if DEBUG && os(macOS)
+                                DebugControl.shared.afterIdle {
+                                    DebugControl.shared.log(String(format: "reveal %d→%d rows: %.0f ms", before, chat.visibleItems.count, (CACurrentMediaTime() - t0) * 1000))
+                                }
+                                #endif
+                                if let anchor { position.scrollTo(id: anchor, anchor: .top) }
+                            }
+                        }
+                        // A new identity per window, so onAppear fires again if it stays visible.
+                        .id("older-\(chat.windowStart)-\(chat.historyStart ?? 0)")
                 }
-                ForEach(chat.items) { item in
+                ForEach(chat.visibleItems) { item in
                     ItemRow(item: item, expanded: $chat.expanded)
+                        .modifier(HoverSelectable(scrolling: scrolling))
                 }
                 if let draft = chat.draft {
                     DraftRow(draft: draft)
@@ -80,21 +101,25 @@ struct ChatView: View {
             .frame(maxWidth: 900)
             .frame(maxWidth: .infinity)
         }
+        .accessibilityIdentifier("transcript")
+        .onScrollPhaseChange { _, phase in scrolling = phase != .idle }
         .scrollPosition($position)
         // Keeps the bottom in place when content grows, so prepending older pages doesn't jump
         // and streaming text stays in view.
         .defaultScrollAnchor(.bottom)
         .onScrollGeometryChange(for: Bool.self) { geo in
-            geo.contentSize.height - geo.visibleRect.maxY < 80
+            Exp.noGeo || geo.contentSize.height - geo.visibleRect.maxY < 80
         } action: { _, near in
             nearBottom = near
+            if near { chat.trimWindow() }
         }
         #if DEBUG && os(macOS)
-        .onScrollGeometryChange(for: CGSize.self) { geo in
-            CGSize(width: geo.contentSize.height, height: geo.containerSize.height)
-        } action: { _, size in
-            DebugControl.shared.contentHeight = size.width
-            DebugControl.shared.viewportHeight = size.height
+        .onScrollGeometryChange(for: CGRect.self) { geo in
+            CGRect(x: geo.contentOffset.y, y: 0, width: geo.contentSize.height, height: geo.containerSize.height)
+        } action: { _, r in
+            DebugControl.shared.offsetY = r.minX
+            DebugControl.shared.contentHeight = r.width
+            DebugControl.shared.viewportHeight = r.height
         }
         #endif
         .overlay {
@@ -156,7 +181,7 @@ struct UserBubble: View {
         HStack {
             Spacer(minLength: 60)
             Text(Markdown.inline(text))
-                .textSelection(.enabled)
+                .modifier(Selectable())
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))

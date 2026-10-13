@@ -144,7 +144,54 @@ struct MarkdownView: View {
                 }
             }
         }
-        .textSelection(.enabled)
+        .modifier(Selectable())
+    }
+}
+
+/// Rendering experiments for the scroll spike (DEBUG only): `CASM_EXP=noselect,nocodescroll,nogeo`.
+enum Exp {
+    #if DEBUG
+    private static let flags = Set((ProcessInfo.processInfo.environment["CASM_EXP"] ?? "").split(separator: ",").map(String.init))
+    static let noSelect = flags.contains("noselect")
+    static let noCodeScroll = flags.contains("nocodescroll")
+    static let noGeo = flags.contains("nogeo")
+    static let list = flags.contains("list")
+    static let noWindow = flags.contains("nowindow")
+    static func int(_ key: String) -> Int? { ProcessInfo.processInfo.environment[key].flatMap(Int.init) }
+    #else
+    static func int(_ key: String) -> Int? { nil }
+    static let noSelect = false, noCodeScroll = false, noGeo = false, list = false, noWindow = false
+    #endif
+}
+
+extension EnvironmentValues {
+    /// Whether transcript text is selectable right now. Text selection is the most expensive part
+    /// of laying out a row while scrolling, so on macOS it is turned on only for the row under the
+    /// pointer once scrolling has stopped (see `HoverSelectable`).
+    @Entry var transcriptSelectable = true
+}
+
+struct Selectable: ViewModifier {
+    @Environment(\.transcriptSelectable) private var selectable
+
+    func body(content: Content) -> some View {
+        if selectable && !Exp.noSelect { content.textSelection(.enabled) } else { content }
+    }
+}
+
+/// Makes a transcript row's text selectable while the pointer rests on it (macOS).
+struct HoverSelectable: ViewModifier {
+    let scrolling: Bool
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content
+            .onHover { hovering = $0 }
+            .environment(\.transcriptSelectable, hovering && !scrolling)
+        #else
+        content
+        #endif
     }
 }
 
@@ -157,10 +204,14 @@ struct CodeBlock: View {
             if let language, language != "table" {
                 Text(language).font(.caption2).foregroundStyle(.secondary)
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
-                    .font(.system(.callout, design: .monospaced))
-                    .fixedSize(horizontal: true, vertical: false)
+            if Exp.noCodeScroll {
+                Text(code).font(.system(.callout, design: .monospaced))
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(code)
+                        .font(.system(.callout, design: .monospaced))
+                        .fixedSize(horizontal: true, vertical: false)
+                }
             }
         }
         .padding(10)

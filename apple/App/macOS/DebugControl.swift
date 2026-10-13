@@ -18,6 +18,7 @@ final class DebugControl {
     /// Set by the chat view so the benchmark can drive its scroll position.
     var scroller: ((ScrollPosition) -> Void)?
     var contentHeight: CGFloat = 0
+    var offsetY: CGFloat = 0
     var viewportHeight: CGFloat = 0
     private var observer: NSObjectProtocol?
 
@@ -116,6 +117,8 @@ final class DebugControl {
                 }
                 if let root = w.contentView?.superview { dump(root, 0) }
             }
+        case "fps":
+            if cmd["action"] == "stop" { stopFrames() } else { startFrames() }
         case "bench":
             bench()
         case "snapshot":
@@ -123,7 +126,7 @@ final class DebugControl {
         case "state":
             log("hosts: " + app.hosts.map { "\($0.name)=\($0.state) projects=\($0.projects.count) agents=\($0.agents.count)" }.joined(separator: ", "))
             if let chat {
-                log("chat: items=\(chat.items.count) start=\(chat.historyStart ?? -1) status=\(chat.status.rawValue) permissions=\(chat.permissions.count) questions=\(chat.questions.count) draft=\(chat.draft?.text.count ?? 0) error=\(chat.error ?? "-")")
+                log("chat: items=\(chat.items.count) window=\(chat.windowStart) offset=\(Int(offsetY))/\(Int(contentHeight)) start=\(chat.historyStart ?? -1) status=\(chat.status.rawValue) permissions=\(chat.permissions.count) questions=\(chat.questions.count) draft=\(chat.draft?.text.count ?? 0) error=\(chat.error ?? "-")")
             }
         default:
             log("unknown command \(cmd)")
@@ -187,6 +190,40 @@ final class DebugControl {
                    name, costs.count, costs.reduce(0, +) / Double(costs.count), p(0.5), p(0.95), p(0.99), sorted.last!, over8, over16))
     }
 
+    // MARK: Frame recorder
+
+    private var link: CADisplayLink?
+    private var frames: [(timestamp: CFTimeInterval, expected: CFTimeInterval)] = []
+
+    /// Records display-link callbacks while real input scrolls the transcript. A frame whose
+    /// interval exceeds 1.5× the refresh interval means at least one dropped frame.
+    private func startFrames() {
+        frames = []
+        link?.invalidate()
+        guard let screen = NSApp.windows.first(where: \.isVisible)?.screen ?? NSScreen.main else { return }
+        let link = screen.displayLink(target: FrameTarget.shared, selector: #selector(FrameTarget.tick(_:)))
+        FrameTarget.shared.onTick = { [weak self] l in self?.frames.append((l.timestamp, l.targetTimestamp - l.timestamp)) }
+        link.add(to: .main, forMode: .common)
+        self.link = link
+        log("fps: recording")
+    }
+
+    private func stopFrames() {
+        link?.invalidate()
+        link = nil
+        guard frames.count > 2 else { return log("fps: no frames") }
+        let intervals = zip(frames.dropFirst(), frames).map { ($0.timestamp - $1.timestamp) * 1000 }
+        let expected = (frames.map(\.expected).sorted()[frames.count / 2]) * 1000
+        let dropped = intervals.reduce(0) { $0 + max(0, Int(($1 / expected).rounded()) - 1) }
+        let hitches = intervals.filter { $0 > expected * 1.5 }
+        let sorted = intervals.sorted()
+        let total = intervals.reduce(0, +)
+        log(String(format: "fps: %d frames over %.0f ms at %.1f Hz refresh: %.1f fps, %d dropped (%.1f%%), %d hitches, p95 %.1f ms, max %.1f ms",
+                   intervals.count, total, 1000 / expected, Double(intervals.count) * 1000 / total, dropped,
+                   Double(dropped) * 100 / Double(intervals.count + dropped), hitches.count,
+                   sorted[Int(Double(sorted.count) * 0.95)], sorted.last!))
+    }
+
     // MARK: Snapshot
 
     private static func descendants(of view: NSView) -> [NSView] {
@@ -229,5 +266,12 @@ final class DebugControl {
             log("snapshot failed: \(error.localizedDescription)")
         }
     }
+}
+
+@MainActor
+final class FrameTarget: NSObject {
+    static let shared = FrameTarget()
+    var onTick: ((CADisplayLink) -> Void)?
+    @objc func tick(_ link: CADisplayLink) { onTick?(link) }
 }
 #endif

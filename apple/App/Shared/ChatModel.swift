@@ -32,6 +32,14 @@ final class ChatModel {
     }
 
     static let pageSize = 100
+    /// Rows rendered when (re)entering the bottom of the transcript, and how many more each
+    /// scroll to the top reveals. Everything loaded stays in `items`; only the window is rendered.
+    static let window = Exp.noWindow ? Int.max / 2 : Exp.int("CASM_WINDOW") ?? 60
+    static let windowStep = Exp.int("CASM_STEP") ?? 40
+
+    /// Index into `items` of the first rendered row.
+    private(set) var windowStart = 0
+    var visibleItems: ArraySlice<Item> { items[min(windowStart, items.count)...] }
 
     init(host: HostModel?, agentId: String) {
         self.host = host
@@ -40,7 +48,23 @@ final class ChatModel {
 
     var agent: Agent? { host?.agent(agentId) }
     var status: AgentStatus { agent?.status ?? .idle }
-    var canLoadOlder: Bool { (historyStart ?? 0) > 0 }
+    var canLoadOlder: Bool { windowStart > 0 || (historyStart ?? 0) > 0 }
+
+    /// Called when the top of the rendered window scrolls into view: reveal more loaded rows,
+    /// or fetch the previous history page once all loaded rows are shown.
+    func revealOlder() async {
+        if windowStart > 0 {
+            windowStart = max(0, windowStart - Self.windowStep)
+        } else {
+            await loadOlder()
+        }
+    }
+
+    /// Back at the bottom: shrink the window so the view only lays out recent rows again.
+    func trimWindow() {
+        let start = max(0, items.count - Self.window)
+        if start > windowStart { windowStart = start }
+    }
 
     // MARK: Lifecycle
 
@@ -168,7 +192,10 @@ final class ChatModel {
     }
 
     private func setItems(_ new: [Item]) {
+        // Keep the same newest rows in view: the window is anchored to the end.
+        let shown = items.count - windowStart
         items = new
+        windowStart = max(0, new.count - max(shown, Self.window))
         index = Dictionary(new.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { _, last in last })
     }
 

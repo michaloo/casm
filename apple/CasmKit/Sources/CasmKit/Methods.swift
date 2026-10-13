@@ -15,6 +15,56 @@ public struct ServerInfo: Codable, Sendable, Hashable {
 }
 
 public struct ProjectList: Codable, Sendable { public var projects: [Project] }
+
+/// A slash command or skill; send it as text ("/name args").
+public struct SlashCommand: Codable, Sendable, Hashable, Identifiable {
+    public enum Kind: String, Codable, Sendable { case command, skill }
+    public var name: String
+    public var description: String?
+    public var argumentHint: String?
+    public var kind: Kind?
+    public var id: String { name }
+}
+
+struct CommandList: Codable, Sendable { var commands: [SlashCommand] }
+struct UsageResult: Codable, Sendable { var usage: Usage? }
+
+public struct FileEntry: Codable, Sendable, Hashable, Identifiable {
+    public enum Kind: String, Codable, Sendable { case file, dir }
+    /// Relative to the search root.
+    public var path: String
+    public var kind: Kind
+    public var id: String { path }
+}
+
+public struct FileSearchResult: Codable, Sendable {
+    public var root: String
+    public var entries: [FileEntry]
+}
+
+struct FileSearchParams: Codable, Sendable {
+    var agentId: String?
+    var cwd: String?
+    var query: String
+    var limit: Int?
+}
+
+struct ShellParams: Codable, Sendable {
+    var id: String
+    var command: String
+}
+
+/// A server this one can call (configured with `casm peer add` on the server; read-only here).
+public struct Peer: Codable, Sendable, Hashable, Identifiable {
+    public var name: String
+    public var url: String
+    public var serverId: String?
+    public var reachable: Bool?
+    public var id: String { name }
+}
+
+struct PeerList: Codable, Sendable { var peers: [Peer] }
+struct PeerListParams: Codable, Sendable { var probe: Bool? }
 public struct AgentList: Codable, Sendable { public var agents: [Agent] }
 
 public struct CreateProjectParams: Codable, Sendable {
@@ -39,6 +89,7 @@ public struct CreateAgentParams: Codable, Sendable {
     public var config: AgentConfig?
     public var tags: [String]?
     public var prompt: String?
+    public var images: [ImageData]?
 
     public init(projectId: String, provider: ProviderID, name: String? = nil, cwd: String? = nil,
                 config: AgentConfig? = nil, tags: [String]? = nil, prompt: String? = nil) {
@@ -158,6 +209,28 @@ public extension RPCClient {
         try await call("agent.create", params)
     }
 
+    func usage(agentId: String) async throws -> Usage? {
+        try await (call("agent.usage", ByID(id: agentId)) as UsageResult).usage
+    }
+
+    func commands(agentId: String) async throws -> [SlashCommand] {
+        try await (call("agent.commands", ByID(id: agentId)) as CommandList).commands
+    }
+
+    /// Files and directories for @-mentions, under the agent's cwd or `cwd`.
+    func searchFiles(agentId: String? = nil, cwd: String? = nil, query: String, limit: Int? = 50) async throws -> FileSearchResult {
+        try await call("fs.search", FileSearchParams(agentId: agentId, cwd: cwd, query: query, limit: limit))
+    }
+
+    /// Runs "!command" as its own turn. Fails with code 1002 while a turn runs.
+    func shell(agentId: String, command: String) async throws {
+        let _: OK = try await call("agent.shell", ShellParams(id: agentId, command: command))
+    }
+
+    func peers(probe: Bool = false) async throws -> [Peer] {
+        try await (call("peer.list", PeerListParams(probe: probe ? true : nil)) as PeerList).peers
+    }
+
     func updateAgent(_ params: UpdateAgentParams) async throws -> Agent {
         try await call("agent.update", params)
     }
@@ -175,8 +248,8 @@ public extension RPCClient {
     }
 
     @discardableResult
-    func send(agentId: String, text: String, whenBusy: WhenBusy? = nil) async throws -> SendResult {
-        try await call("agent.send", SendParams(id: agentId, text: text, images: nil, whenBusy: whenBusy))
+    func send(agentId: String, text: String, images: [ImageData] = [], whenBusy: WhenBusy? = nil) async throws -> SendResult {
+        try await call("agent.send", SendParams(id: agentId, text: text, images: images.isEmpty ? nil : images, whenBusy: whenBusy))
     }
 
     func interrupt(agentId: String) async throws {

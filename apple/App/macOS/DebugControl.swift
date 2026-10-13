@@ -93,6 +93,15 @@ final class DebugControl {
             let t0 = CACurrentMediaTime()
             scroller?(ScrollPosition(edge: cmd["to"] == "top" ? .top : .bottom))
             afterIdle { self.log(String(format: "scroll to %@: %.1f ms", cmd["to"] ?? "bottom", (CACurrentMediaTime() - t0) * 1000)) }
+        case "views":
+            for w in NSApp.windows {
+                log("window \(type(of: w)) visible=\(w.isVisible) frame=\(w.frame)")
+                func dump(_ v: NSView, _ d: Int) {
+                    if d < 14 { log(String(repeating: " ", count: d) + "\(type(of: v)) \(v.frame) layer=\(v.layer.map { "\(type(of: $0))" } ?? "-")") }
+                    v.subviews.forEach { dump($0, d + 1) }
+                }
+                if let root = w.contentView?.superview { dump(root, 0) }
+            }
         case "bench":
             bench()
         case "snapshot":
@@ -163,6 +172,10 @@ final class DebugControl {
 
     // MARK: Snapshot
 
+    private static func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap(descendants)
+    }
+
     /// Renders the key window (including the toolbar) to a PNG. Works without screen-recording
     /// permission and while the screen is locked, unlike `screencapture`.
     private func snapshot(to path: String) {
@@ -172,6 +185,26 @@ final class DebugControl {
         let target = window.attachedSheet?.contentView?.superview ?? view
         guard let rep = target.bitmapImageRepForCachingDisplay(in: target.bounds) else { return log("snapshot failed") }
         target.cacheDisplay(in: target.bounds, to: rep)
+        // cacheDisplay skips views hosted in glass containers (the macOS 26 sidebar); draw table
+        // and outline views individually on top, at their place in the window.
+        if let ctx = NSGraphicsContext(bitmapImageRep: rep) {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = ctx
+            for case let table as NSTableView in Self.descendants(of: target) {
+                for row in 0..<table.numberOfRows {
+                    guard let rowView = table.rowView(atRow: row, makeIfNecessary: false) else { continue }
+                    for cell in [rowView] + rowView.subviews {
+                        guard let piece = cell.bitmapImageRepForCachingDisplay(in: cell.bounds) else { continue }
+                        cell.cacheDisplay(in: cell.bounds, to: piece)
+                        let frame = cell.convert(cell.bounds, to: target)
+                        let rect = NSRect(x: frame.minX, y: target.isFlipped ? target.bounds.height - frame.maxY : frame.minY,
+                                          width: frame.width, height: frame.height)
+                        piece.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+                    }
+                }
+            }
+            NSGraphicsContext.restoreGraphicsState()
+        }
         do {
             try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
             log("snapshot \(path)")

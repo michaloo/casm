@@ -67,7 +67,7 @@ struct ChatView: View {
                 ForEach(chat.items) { item in
                     ItemRow(item: item, expanded: $chat.expanded)
                 }
-                if let draft = chat.draft {
+                if let draft = chat.draft, !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     DraftRow(draft: draft)
                 } else if chat.status == .running {
                     ProgressView().controlSize(.small).padding(.leading, 4)
@@ -124,6 +124,9 @@ struct ItemRow: View {
 
     var body: some View {
         switch item {
+        case .user(_, let text) where text.hasPrefix("[Request interrupted"):
+            // Claude stores the interrupt marker as a user message.
+            Text("Interrupted").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
         case .user(_, let text):
             UserBubble(text: text)
         case .assistant(let id, let text):

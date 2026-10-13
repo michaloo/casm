@@ -12,6 +12,7 @@
 //   uictl screen <path>                screenshot the whole screen
 //   uictl closewins <app> <title>      close windows whose title contains <title>
 //   uictl minimize <app> <title>       minimize windows whose title contains <title>
+//   uictl scroll <app> <element> <dy> <n> <ms>  trackpad-style scroll over an element
 //   uictl front <app>                  activate the app
 //   uictl trust                        prompt for Accessibility permission
 import AppKit
@@ -170,6 +171,23 @@ case "minimize":
     let el = root(args[1])
     for w in attr(el, kAXWindowsAttribute) as? [AXUIElement] ?? [] where (attr(w, kAXTitleAttribute) as? String ?? "").contains(args[2]) {
         AXUIElementSetAttributeValue(w, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+    }
+case "scroll":
+    // scroll <app> <title-of-element-to-scroll-over> <dy per event> <events> <interval ms>
+    // Continuous (trackpad-like) pixel scrolling through the normal event path. Positive dy scrolls up.
+    requireFront(args[1])
+    guard let el = find(root(args[1]), args[2]), let f = frame(el) else { fail("no element \(args[2])") }
+    let p = CGPoint(x: f.midX, y: f.midY)
+    CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
+    let dy = Int32(args[3])!, n = Int(args[4])!, interval = useconds_t(Int(args[5])! * 1000)
+    for i in 0..<n {
+        let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0)
+        e?.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        // Trackpad phases: began, changed…, ended.
+        e?.setIntegerValueField(.scrollWheelEventScrollPhase, value: i == 0 ? 1 : (i == n - 1 ? 4 : 2))
+        e?.location = p
+        e?.post(tap: .cghidEventTap)
+        usleep(interval)
     }
 case "screen":
     let p = Process()

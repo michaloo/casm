@@ -17,22 +17,22 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 | Codex (app-server) | codex-cli 0.160.1 | 225 | 60 | 113 | 52 | 0 | 54% |
 | OpenCode (serve) | opencode 1.19.0 | 147 | 33 | 66 | 48 | 0 | 41% |
 | pi (RPC mode) | pi-coding-agent 1.1.0 | 102 | 53 | 26 | 23 | 0 | 70% |
-| ACP (Agent Client Protocol) | @agentclientprotocol/sdk 1.8.0 | 68 | 27 | 24 | 17 | 0 | 61% |
+| ACP (Agent Client Protocol) | @agentclientprotocol/sdk 1.8.0 | 68 | 33 | 24 | 11 | 0 | 75% |
 
 ## Gaps by theme
 
 | Theme | Gaps |
 |---|--:|
-| Agent extras (commands, skills, MCP, hooks, subagents) | 44 |
+| Agent extras (commands, skills, MCP, hooks, subagents) | 43 |
 | Session control (fork, rewind, compact, rename, list) | 43 |
-| Rich tool content (diffs, terminals, streaming output) | 20 |
-| Input content (images, files, mentions) | 17 |
+| Rich tool content (diffs, terminals, streaming output) | 19 |
+| Input content (images, files, mentions) | 16 |
 | Interaction (permissions, questions, dialogs) | 14 |
 | Status, retries, warnings and errors | 12 |
 | Live config changes (model, mode, effort mid-session) | 12 |
-| Usage, cost and context window | 7 |
-| Plans and todos | 4 |
+| Usage, cost and context window | 6 |
 | Rich assistant output (images, files, citations) | 2 |
+| Plans and todos | 2 |
 
 ### Agent extras (commands, skills, MCP, hooks, subagents)
 
@@ -78,7 +78,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **opencode** `part:agent`: @agent mentions are not shown.
 - **opencode** `part:subtask`: Subagent tasks are not shown (the task tool call itself is).
 - **pi** `ui:setWidget`: Extension widgets are dropped.
-- **acp** `update:available_commands_update`: No slash-command list.
 - **acp** `update:subagent_update`: Subagents aren't modelled (casm has parent links only for casm-created agents).
 
 ### Session control (fork, rewind, compact, rename, list)
@@ -148,7 +147,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **pi** `assistantEvent:toolcall_end`: The tool appears only when the assistant message ends.
 - **pi** `assistantEvent:toolcall_start`: The tool appears only when the assistant message ends, not when the call starts.
 - **acp** `toolContent:diff`: No structured diff; Codex puts diffs into the output text.
-- **acp** `toolContent:terminal`: No live terminal output.
 
 ### Input content (images, files, mentions)
 
@@ -166,7 +164,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **opencode** `input:agent`: agent.send is text only: no structured @agent mentions.
 - **pi** `ui:set_editor_text`: Extensions can't prefill the client's composer.
 - **acp** `content:audio`: Item and agent.send are text only.
-- **acp** `content:image`: Item and agent.send are text only.
 - **acp** `content:resource`: No embedded resources (file contents attached to a prompt).
 - **acp** `content:resource_link`: No resource links (file references attached to a prompt).
 
@@ -225,19 +222,16 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **codex** `request:account/usage/read`: Rate limits / usage are not exposed.
 - **opencode** `event:session.next.context.updated`: Context window usage is not surfaced.
 - **acp** `update:compaction_summary_chunk`: The compaction summary isn't carried.
-- **acp** `update:usage_update`: No context-window or cost data.
-
-### Plans and todos
-
-- **codex** `notification:item/plan/delta`: Plan text isn't streamed; the plan item arrives on completion.
-- **acp** `update:plan`: No plan/todo concept.
-- **acp** `update:plan_removed`: No plan/todo concept (unstable in ACP).
-- **acp** `update:plan_update`: No plan/todo concept (unstable in ACP).
 
 ### Rich assistant output (images, files, citations)
 
 - **claude** `streamdelta:citations_delta`: Citations are dropped.
 - **codex** `item:imageGeneration`: Falls through to a generic tool item; the generated image is not shown.
+
+### Plans and todos
+
+- **codex** `notification:item/plan/delta`: Plan text isn't streamed; the plan item arrives on completion.
+- **acp** `update:plan_removed`: No plan/todo concept (unstable in ACP).
 
 ## Per source
 
@@ -306,8 +300,8 @@ pi-coding-agent 1.1.0, from pi-coding-agent/docs (rpc-commands, json, rpc-extens
 |---|--:|--:|--:|--:|--:|
 | agentMethod | 11 | 16 | 1 | 0 | 92% |
 | clientMethod | 3 | 8 | 1 | 0 | 75% |
-| contentBlock | 1 | 0 | 4 | 0 | 20% |
+| contentBlock | 2 | 0 | 3 | 0 | 40% |
 | protocolMethod | 0 | 0 | 1 | 0 | 0% |
-| sessionUpdate | 11 | 0 | 8 | 0 | 58% |
-| toolCallContent | 1 | 0 | 2 | 0 | 33% |
-| **total** | **27** | **24** | **17** | **0** | **61%** |
+| sessionUpdate | 15 | 0 | 4 | 0 | 79% |
+| toolCallContent | 2 | 0 | 1 | 0 | 67% |
+| **total** | **33** | **24** | **11** | **0** | **75%** |

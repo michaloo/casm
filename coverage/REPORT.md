@@ -13,31 +13,31 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 
 | Source | Version | Ids | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|---|--:|--:|--:|--:|--:|--:|
-| Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 31 | 60 | 51 | 0 | 38% |
-| Codex (app-server) | codex-cli 0.160.1 | 225 | 40 | 114 | 71 | 0 | 36% |
-| OpenCode (serve) | opencode 1.19.0 | 147 | 25 | 60 | 62 | 0 | 29% |
-| pi (RPC mode) | pi-coding-agent 1.1.0 | 102 | 34 | 26 | 42 | 0 | 45% |
+| Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 43 | 64 | 35 | 0 | 55% |
+| Codex (app-server) | codex-cli 0.160.1 | 225 | 59 | 113 | 53 | 0 | 53% |
+| OpenCode (serve) | opencode 1.19.0 | 147 | 32 | 66 | 49 | 0 | 40% |
+| pi (RPC mode) | pi-coding-agent 1.1.0 | 102 | 50 | 26 | 26 | 0 | 66% |
 | ACP (Agent Client Protocol) | @agentclientprotocol/sdk 1.8.0 | 68 | 27 | 24 | 17 | 0 | 61% |
 
 ## Gaps by theme
 
 | Theme | Gaps |
 |---|--:|
-| Agent extras (commands, skills, MCP, hooks, subagents) | 61 |
-| Session control (fork, rewind, compact, rename, list) | 44 |
-| Status, retries, warnings and errors | 33 |
-| Rich tool content (diffs, terminals, streaming output) | 24 |
-| Input content (images, files, mentions) | 24 |
-| Usage, cost and context window | 21 |
-| Interaction (permissions, questions, dialogs) | 15 |
+| Agent extras (commands, skills, MCP, hooks, subagents) | 49 |
+| Session control (fork, rewind, compact, rename, list) | 43 |
+| Rich tool content (diffs, terminals, streaming output) | 20 |
+| Input content (images, files, mentions) | 17 |
+| Interaction (permissions, questions, dialogs) | 14 |
+| Status, retries, warnings and errors | 12 |
 | Live config changes (model, mode, effort mid-session) | 12 |
-| Plans and todos | 7 |
+| Usage, cost and context window | 7 |
+| Plans and todos | 4 |
 | Rich assistant output (images, files, citations) | 2 |
 
 ### Agent extras (commands, skills, MCP, hooks, subagents)
 
 - **claude** `query:backgroundTasks`: Background tasks (shells, subagents) are not listed or controllable.
-- **claude** `query:initializationResult`: Slash commands, agents, output styles and account info from init are not exposed.
+- **claude** `query:initializationResult`: Agents, output styles and account info from init are not exposed; commands come from supportedCommands().
 - **claude** `query:mcpServerStatus`: No MCP server status in the protocol.
 - **claude** `query:readMcpResource`: MCP resources/widgets are not exposed.
 - **claude** `query:reconnectMcpServer`: No MCP server control.
@@ -45,12 +45,10 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **claude** `query:setMcpPermissionModeOverride`: No per-MCP-server permission override.
 - **claude** `query:stopTask`: Background tasks can't be stopped individually.
 - **claude** `query:supportedAgents`: Subagent list not exposed.
-- **claude** `query:supportedCommands`: Slash commands/skills are not listed for clients (no autocomplete).
 - **claude** `query:toggleMcpServer`: No MCP server control.
 - **claude** `sdkmessage:prompt_suggestion`: Predicted next prompt (opt-in promptSuggestions, not enabled).
 - **claude** `sdkmessage:system/background_tasks_changed`: Background task list is not surfaced.
-- **claude** `sdkmessage:system/commands_changed`: Slash command list is not surfaced.
-- **claude** `sdkmessage:system/local_command_output`: Slash-command output (e.g. /usage) is dropped.
+- **claude** `sdkmessage:system/commands_changed`: Not pushed to clients; agent.commands re-reads the list on demand.
 - **claude** `sdkmessage:system/memory_recall`: "Recalled from memory" is not shown.
 - **claude** `sdkmessage:system/task_notification`: Background task/subagent completion is not shown.
 - **claude** `sdkmessage:system/task_progress`: Subagent progress is not shown; subagent messages are skipped.
@@ -59,20 +57,16 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **codex** `item:hookPrompt`: Hook-injected prompts are dropped from the transcript.
 - **codex** `notification:mcpServer/event/stream/notification`: MCP server event streams are not exposed.
 - **codex** `notification:mcpServer/startupStatus/updated`: MCP server startup status is not shown.
-- **codex** `notification:skills/changed`: Skill list changes are not surfaced.
 - **codex** `notification:thread/goal/cleared`: Thread goals are not exposed.
 - **codex** `notification:thread/goal/updated`: Thread goals are not exposed.
 - **codex** `request:mcpServer/resource/read`: MCP resources are not exposed.
 - **codex** `request:mcpServer/tool/call`: Clients can't call MCP tools directly.
 - **codex** `request:mcpServerStatus/list`: No MCP server status.
-- **codex** `request:review/start`: Code review mode (/review) can't be started.
-- **codex** `request:skills/list`: Skills are not listed for clients (no autocomplete).
 - **codex** `request:thread/goal/clear`: Thread goals are not exposed.
 - **codex** `request:thread/goal/get`: Thread goals are not exposed.
 - **codex** `request:thread/goal/set`: Thread goals are not exposed.
 - **codex** `request:thread/inject_items`: Injecting history items without a turn is not supported.
 - **codex** `request:thread/shellCommand`: User shell commands (the TUI's ! prefix) are not supported.
-- **opencode** `event:command.executed`: Slash command runs are not shown.
 - **opencode** `event:lsp.updated`: LSP status is not shown.
 - **opencode** `event:mcp.tools.changed`: MCP tool changes are not shown.
 - **opencode** `event:reference.updated`: Reference (context source) changes are not surfaced.
@@ -80,20 +74,14 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **opencode** `event:session.next.shell.started`: User shell commands are not supported.
 - **opencode** `event:vcs.branch.updated`: Git branch changes are not shown.
 - **opencode** `input:subtask`: Clients can't start a subagent task directly.
-- **opencode** `op:app.skills`: Skills are not listed for clients.
-- **opencode** `op:command.list`: Slash commands are not listed for clients.
 - **opencode** `op:session.children`: Subagent sessions are not exposed.
-- **opencode** `op:session.command`: Slash commands can't be run.
 - **opencode** `op:session.init`: /init (AGENTS.md generation) can't be run.
 - **opencode** `op:session.shell`: User shell commands are not supported.
 - **opencode** `part:agent`: @agent mentions are not shown.
 - **opencode** `part:subtask`: Subagent tasks are not shown (the task tool call itself is).
 - **pi** `command:abort_bash`: User shell commands are not supported.
 - **pi** `command:bash`: User shell commands (the TUI's ! prefix) are not supported.
-- **pi** `command:get_commands`: Slash commands, prompt templates and skills are not listed for clients.
-- **pi** `entry:custom_message`: Extension messages stored as custom_message entries are skipped by parseSession, even when display is true.
 - **pi** `event:bash_execution_update`: Only for the bash command, which casm doesn't support.
-- **pi** `event:entry_appended`: Extension entries are not shown.
 - **pi** `ui:setWidget`: Extension widgets are dropped.
 - **acp** `update:available_commands_update`: No slash-command list.
 - **acp** `update:subagent_update`: Subagents aren't modelled (casm has parent links only for casm-created agents).
@@ -104,7 +92,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **codex** `notification:thread/name/updated`: Thread titles are not surfaced (Agent.name is casm's own).
 - **codex** `notification:thread/reverted`: Reverts made elsewhere are not reflected until history is re-read.
 - **codex** `request:thread/archive`: agent.update archived doesn't archive the native thread.
-- **codex** `request:thread/compact/start`: No manual compaction.
 - **codex** `request:thread/delete`: agent.delete doesn't delete the native thread.
 - **codex** `request:thread/fork`: No fork.
 - **codex** `request:thread/list`: Native threads can't be listed or imported as agents.
@@ -145,42 +132,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **acp** `protocol:$/cancel_request`: casm's JSON-RPC has no request cancellation (e.g. for a long agent.wait).
 - **acp** `update:session_info_update`: Agent.name is user-set; agent-generated titles aren't carried.
 
-### Status, retries, warnings and errors
-
-- **claude** `block:fallback`: Model fallback marker is dropped; the user doesn't see that another model answered.
-- **claude** `sdkmessage:system/api_retry`: API retries are invisible; the turn just looks slow.
-- **claude** `sdkmessage:system/informational`: Status banners (hook block reasons, command output) could be Item.notice but are dropped.
-- **claude** `sdkmessage:system/model_refusal_fallback`: Refusal + fallback model retry is not shown.
-- **claude** `sdkmessage:system/model_refusal_no_fallback`: Refusal is not shown beyond the result.
-- **claude** `sdkmessage:system/notification`: Loop notifications are dropped.
-- **claude** `sdkmessage:system/session_state_changed`: casm derives idle from result; background work after result isn't reflected in AgentStatus.
-- **claude** `sdkmessage:system/status`: Status lines (e.g. compacting) are dropped.
-- **claude** `sdkmessage:system/thinking_tokens`: Live thinking progress estimate is dropped.
-- **codex** `notification:configWarning`: Config warnings are dropped.
-- **codex** `notification:deprecationNotice`: Deprecation notices are dropped.
-- **codex** `notification:error`: Error notifications (including willRetry retries) are dropped; only the failed turn's error is shown.
-- **codex** `notification:guardianWarning`: Guardian warnings are dropped.
-- **codex** `notification:model/rerouted`: Model reroutes are not shown.
-- **codex** `notification:model/safetyBuffering/updated`: Safety buffering state is not shown.
-- **codex** `notification:model/verification`: Model verification notices are not shown.
-- **codex** `notification:thread/closed`: casm only notices a closed thread when the process exits.
-- **codex** `notification:thread/status/changed`: Thread status (active, waiting on approval, system error) is not used; casm derives status itself.
-- **codex** `notification:turn/moderationMetadata`: Moderation metadata is not shown.
-- **codex** `notification:warning`: Warnings are dropped.
-- **opencode** `event:global.disposed`: Server/instance disposal is not handled; only the stream ending closes sessions.
-- **opencode** `event:server.instance.disposed`: Server/instance disposal is not handled; only the stream ending closes sessions.
-- **opencode** `event:session.next.retried`: Retries are not shown.
-- **opencode** `part:retry`: Retry attempts are not shown.
-- **pi** `command:abort_retry`: A pending retry can't be cancelled on its own (only via agent.interrupt).
-- **pi** `event:auto_retry_end`: Retries are invisible; the final error still ends the turn.
-- **pi** `event:auto_retry_start`: Retries are invisible; the turn just looks slow.
-- **pi** `event:extension_error`: Extension errors are dropped.
-- **pi** `event:summarization_retry_attempt_start`: Summarization retries are invisible.
-- **pi** `event:summarization_retry_finished`: Summarization retries are invisible.
-- **pi** `event:summarization_retry_scheduled`: Summarization retries are invisible.
-- **pi** `ui:notify`: Extension notifications are dropped.
-- **pi** `ui:setStatus`: Extension status lines are dropped.
-
 ### Rich tool content (diffs, terminals, streaming output)
 
 - **claude** `block:advisor_tool_result`: Server-tool result block; normalize() only reads text/thinking/tool_use, so it is dropped.
@@ -189,14 +140,11 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **claude** `block:tool_search_tool_result`: Server tool-search result block is dropped.
 - **claude** `block:web_fetch_tool_result`: Server web-fetch result is dropped.
 - **claude** `block:web_search_tool_result`: Server web-search result is dropped.
-- **claude** `sdkmessage:tool_progress`: Long-running tool progress (elapsed time) is not shown.
+- **claude** `sdkmessage:tool_progress`: Carries only elapsed time; Claude Code doesn't stream Bash/tool output to SDK hosts, so there is no AgentEvent.toolOutput for Claude.
 - **claude** `sdkmessage:tool_use_summary`: Tool-batch summaries are dropped.
 - **claude** `streamdelta:input_json_delta`: Tool input isn't streamed; the tool appears when the assistant message completes.
-- **codex** `notification:item/commandExecution/outputDelta`: Command output isn't streamed; it arrives with item/completed.
 - **codex** `notification:item/commandExecution/terminalInteraction`: Interactive terminal input to running commands is not shown.
-- **codex** `notification:item/fileChange/outputDelta`: File-change output isn't streamed.
 - **codex** `notification:item/fileChange/patchUpdated`: Patch updates while editing are not streamed.
-- **codex** `notification:item/mcpToolCall/progress`: MCP tool progress is not shown.
 - **codex** `notification:turn/diff/updated`: The aggregated turn diff is not surfaced (only per-item diffs in tool output).
 - **opencode** `event:session.diff`: The session's file diff is not surfaced.
 - **opencode** `op:session.diff`: The session diff is not exposed.
@@ -204,20 +152,15 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **pi** `assistantEvent:toolcall_delta`: Tool arguments aren't streamed.
 - **pi** `assistantEvent:toolcall_end`: The tool appears only when the assistant message ends.
 - **pi** `assistantEvent:toolcall_start`: The tool appears only when the assistant message ends, not when the call starts.
-- **pi** `event:tool_execution_update`: Partial tool output (e.g. streaming bash output) is not shown.
 - **acp** `toolContent:diff`: No structured diff; Codex puts diffs into the output text.
 - **acp** `toolContent:terminal`: No live terminal output.
 
 ### Input content (images, files, mentions)
 
 - **claude** `block:document`: PDF/document input is not representable: Item.user is text only and agent.send takes text only.
-- **claude** `block:image`: User images become the text "[image]"; tool_result images become "[image]". No image content in Item or agent.send.
 - **codex** `input:audio`: agent.send is text only.
-- **codex** `input:image`: agent.send is text only.
 - **codex** `input:localAudio`: agent.send is text only.
-- **codex** `input:localImage`: agent.send is text only.
 - **codex** `input:mention`: agent.send is text only; no structured @mentions (history shows @name).
-- **codex** `input:skill`: agent.send is text only; no structured skill invocation (history shows @name).
 - **codex** `notification:fuzzyFileSearch/sessionCompleted`: Results of fuzzyFileSearch sessions, which casm doesn't start.
 - **codex** `notification:fuzzyFileSearch/sessionUpdated`: Results of fuzzyFileSearch sessions, which casm doesn't start.
 - **codex** `notification:thread/attachment/updated`: Attachments are not supported.
@@ -226,43 +169,15 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **codex** `request:thread/attachment/list`: Attachments can't be sent or listed; agent.send is text only.
 - **codex** `request:thread/attachment/remove`: Attachments can't be sent or listed; agent.send is text only.
 - **opencode** `input:agent`: agent.send is text only: no structured @agent mentions.
-- **opencode** `input:file`: agent.send is text only: no images or file attachments.
-- **opencode** `part:file`: File/image parts (user attachments, tool outputs) are dropped.
-- **pi** `content:image`: Images become the text [image] (user prompts and tool results); agent.send is text only.
 - **pi** `ui:set_editor_text`: Extensions can't prefill the client's composer.
 - **acp** `content:audio`: Item and agent.send are text only.
 - **acp** `content:image`: Item and agent.send are text only.
 - **acp** `content:resource`: No embedded resources (file contents attached to a prompt).
 - **acp** `content:resource_link`: No resource links (file references attached to a prompt).
 
-### Usage, cost and context window
-
-- **claude** `block:compaction`: Compaction summary block is dropped; no notice like Codex/pi get.
-- **claude** `query:getContextUsage`: No context-window usage in the protocol.
-- **claude** `query:usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`: Experimental usage API; no usage in the protocol.
-- **claude** `sdkmessage:rate_limit_event`: Rate-limit state is not surfaced.
-- **claude** `sdkmessage:system/compact_boundary`: No compaction notice (Codex and pi produce Item.notice).
-- **claude** `streamdelta:compaction_delta`: Streaming compaction summary is dropped.
-- **claude** `streamevent:message_delta`: Carries live usage and stop_reason; dropped.
-- **codex** `notification:account/rateLimits/updated`: Rate limits are not surfaced.
-- **codex** `notification:thread/tokenUsage/updated`: Token usage and context window are not surfaced.
-- **codex** `request:account/rateLimits/read`: Rate limits / usage are not exposed.
-- **codex** `request:account/usage/read`: Rate limits / usage are not exposed.
-- **opencode** `event:session.compacted`: No compaction notice (Codex and pi produce Item.notice).
-- **opencode** `event:session.next.context.updated`: Context window usage is not surfaced.
-- **opencode** `part:compaction`: Compaction markers are dropped (no notice).
-- **opencode** `part:step-finish`: Per-step tokens and cost are dropped.
-- **pi** `command:get_session_stats`: Token/cost stats are not exposed.
-- **pi** `entry:usage`: Usage entries are not surfaced.
-- **pi** `event:compaction_end`: Compaction is not shown live (history shows the compaction entry as a notice).
-- **pi** `event:compaction_start`: Compaction is not shown live (history shows the compaction entry as a notice).
-- **acp** `update:compaction_summary_chunk`: The compaction summary isn't carried.
-- **acp** `update:usage_update`: No context-window or cost data.
-
 ### Interaction (permissions, questions, dialogs)
 
 - **claude** `sdkmessage:system/elicitation_complete`: URL-mode elicitation completion doesn't resolve the pending question; the user must confirm by hand.
-- **claude** `sdkmessage:system/permission_denied`: Auto-denials (rules, auto/dontAsk mode) are not shown as such; the tool item just ends in error.
 - **codex** `notification:autoApprovalReview/strictReviewRequired`: Guardian strict-review requirement is not shown.
 - **codex** `notification:item/autoApprovalReview/completed`: Guardian auto-review of approvals is not shown.
 - **codex** `notification:item/autoApprovalReview/started`: Guardian auto-review of approvals is not shown.
@@ -276,6 +191,21 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **opencode** `event:question.v2.rejected`: v2 question rejections are not handled.
 - **opencode** `event:question.v2.replied`: v2 question replies are not handled.
 - **acp** `client:elicitation/complete`: URL-mode elicitation completion can't resolve a pending question.
+
+### Status, retries, warnings and errors
+
+- **claude** `block:fallback`: Model fallback marker is dropped; the user doesn't see that another model answered.
+- **claude** `sdkmessage:system/session_state_changed`: casm derives idle from result; background work after result isn't reflected in AgentStatus.
+- **claude** `sdkmessage:system/thinking_tokens`: Live thinking progress estimate is dropped.
+- **codex** `notification:model/safetyBuffering/updated`: Safety buffering state is not shown.
+- **codex** `notification:model/verification`: Model verification notices are not shown.
+- **codex** `notification:thread/closed`: casm only notices a closed thread when the process exits.
+- **codex** `notification:thread/status/changed`: Thread status (active, waiting on approval, system error) is not used; casm derives status itself.
+- **codex** `notification:turn/moderationMetadata`: Moderation metadata is not shown.
+- **opencode** `event:global.disposed`: Server/instance disposal is not handled; only the stream ending closes sessions.
+- **opencode** `event:server.instance.disposed`: Server/instance disposal is not handled; only the stream ending closes sessions.
+- **pi** `command:abort_retry`: A pending retry can't be cancelled on its own (only via agent.interrupt).
+- **pi** `ui:setStatus`: Extension status lines are dropped.
 
 ### Live config changes (model, mode, effort mid-session)
 
@@ -292,12 +222,19 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **pi** `entry:thinking_level_change`: Thinking-level changes are not shown or reflected in AgentConfig.
 - **pi** `event:thinking_level_changed`: Changes made by pi/extensions aren't reflected in AgentConfig.
 
+### Usage, cost and context window
+
+- **claude** `streamdelta:compaction_delta`: Streaming compaction summary is dropped.
+- **codex** `notification:account/rateLimits/updated`: Rate limits are not surfaced.
+- **codex** `request:account/rateLimits/read`: Rate limits / usage are not exposed.
+- **codex** `request:account/usage/read`: Rate limits / usage are not exposed.
+- **opencode** `event:session.next.context.updated`: Context window usage is not surfaced.
+- **acp** `update:compaction_summary_chunk`: The compaction summary isn't carried.
+- **acp** `update:usage_update`: No context-window or cost data.
+
 ### Plans and todos
 
-- **codex** `notification:item/plan/delta`: Plan text isn't streamed; the plan item arrives as Item.assistant on completion.
-- **codex** `notification:turn/plan/updated`: The live plan/todo list is not surfaced.
-- **opencode** `event:todo.updated`: The todo list is not surfaced.
-- **opencode** `op:session.todo`: The todo list is not exposed.
+- **codex** `notification:item/plan/delta`: Plan text isn't streamed; the plan item arrives on completion.
 - **acp** `update:plan`: No plan/todo concept.
 - **acp** `update:plan_removed`: No plan/todo concept (unstable in ACP).
 - **acp** `update:plan_update`: No plan/todo concept (unstable in ACP).
@@ -315,14 +252,14 @@ claude-agent-sdk 0.3.296, from node_modules/@anthropic-ai/claude-agent-sdk/sdk.d
 
 | Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|--:|--:|--:|--:|--:|
-| block | 4 | 8 | 10 | 0 | 29% |
+| block | 5 | 9 | 8 | 0 | 38% |
 | callback | 3 | 0 | 0 | 0 | 100% |
 | hook | 0 | 33 | 0 | 0 | - |
-| query | 11 | 5 | 14 | 0 | 44% |
-| sdkmessage | 10 | 9 | 23 | 0 | 30% |
+| query | 12 | 7 | 11 | 0 | 52% |
+| sdkmessage | 20 | 9 | 13 | 0 | 61% |
 | streamdelta | 2 | 1 | 3 | 0 | 40% |
-| streamevent | 1 | 4 | 1 | 0 | 50% |
-| **total** | **31** | **60** | **51** | **0** | **38%** |
+| streamevent | 1 | 5 | 0 | 0 | 100% |
+| **total** | **43** | **64** | **35** | **0** | **55%** |
 
 ### Codex (app-server)
 
@@ -331,12 +268,12 @@ codex-cli 0.160.1, from codex app-server generate-json-schema. Classified by rea
 | Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|--:|--:|--:|--:|--:|
 | clientNotification | 1 | 0 | 0 | 0 | 100% |
-| clientRequest | 8 | 68 | 28 | 0 | 22% |
-| serverNotification | 8 | 40 | 35 | 0 | 19% |
+| clientRequest | 12 | 67 | 25 | 0 | 32% |
+| serverNotification | 20 | 40 | 23 | 0 | 47% |
 | serverRequest | 5 | 6 | 0 | 0 | 100% |
 | threadItem | 17 | 0 | 2 | 0 | 89% |
-| userInput | 1 | 0 | 6 | 0 | 14% |
-| **total** | **40** | **114** | **71** | **0** | **36%** |
+| userInput | 4 | 0 | 3 | 0 | 57% |
+| **total** | **59** | **113** | **53** | **0** | **53%** |
 
 ### OpenCode (serve)
 
@@ -344,12 +281,12 @@ opencode 1.19.0, from opencode serve: GET /doc (OpenAPI). Classified by reading 
 
 | Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|--:|--:|--:|--:|--:|
-| endpoint | 11 | 10 | 19 | 0 | 37% |
-| event | 8 | 48 | 33 | 0 | 20% |
-| inputPart | 1 | 0 | 3 | 0 | 25% |
+| endpoint | 13 | 12 | 15 | 0 | 46% |
+| event | 9 | 51 | 29 | 0 | 24% |
+| inputPart | 2 | 0 | 2 | 0 | 50% |
 | message | 2 | 0 | 0 | 0 | 100% |
-| part | 3 | 2 | 7 | 0 | 30% |
-| **total** | **25** | **60** | **62** | **0** | **29%** |
+| part | 6 | 3 | 3 | 0 | 67% |
+| **total** | **32** | **66** | **49** | **0** | **40%** |
 
 ### pi (RPC mode)
 
@@ -358,13 +295,13 @@ pi-coding-agent 1.1.0, from pi-coding-agent/docs (rpc-commands, json, rpc-extens
 | Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|--:|--:|--:|--:|--:|
 | assistantMessageEvent | 2 | 7 | 3 | 0 | 40% |
-| command | 11 | 8 | 14 | 0 | 44% |
-| content | 3 | 0 | 1 | 0 | 75% |
-| event | 3 | 8 | 13 | 0 | 19% |
-| extensionUi | 4 | 0 | 5 | 0 | 44% |
+| command | 13 | 8 | 12 | 0 | 52% |
+| content | 4 | 0 | 0 | 0 | 100% |
+| event | 12 | 9 | 3 | 0 | 80% |
+| extensionUi | 5 | 0 | 4 | 0 | 56% |
 | message | 7 | 1 | 0 | 0 | 100% |
-| sessionEntry | 4 | 2 | 6 | 0 | 40% |
-| **total** | **34** | **26** | **42** | **0** | **45%** |
+| sessionEntry | 7 | 1 | 4 | 0 | 64% |
+| **total** | **50** | **26** | **26** | **0** | **66%** |
 
 ### ACP (Agent Client Protocol)
 

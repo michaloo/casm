@@ -175,6 +175,7 @@ final class ChatModel {
             if !questions.contains(where: { $0.id == request.id }) { questions.append(request) }
         case .questionResolved(let requestId):
             questions.removeAll { $0.id == requestId }
+            Drafts.shared.clearAnswers(requestId)
         case .toolOutput(let itemId, let text):
             if let i = index[itemId], case .tool(var call) = items[i] {
                 call.output = (call.output ?? "") + text
@@ -303,7 +304,10 @@ final class ChatModel {
     /// `answers == nil` dismisses the question.
     func answer(_ request: QuestionRequest, _ answers: [String: AnswerValue]?) async {
         await perform { try await $0.answerQuestion(agentId: self.agentId, requestId: request.id, answers: answers) }
-        if error == nil { questions.removeAll { $0.id == request.id } }
+        if error == nil {
+            questions.removeAll { $0.id == request.id }
+            Drafts.shared.clearAnswers(request.id)
+        }
     }
 
     /// Merges a config change on the server ("" clears a field). The server applies it when the

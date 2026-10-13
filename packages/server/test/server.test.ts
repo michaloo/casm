@@ -57,6 +57,13 @@ class FakeSession implements ProviderSession {
       this.opts.emit({ type: "turnEnded", outcome: "completed" });
     })();
   }
+  shell(command: string, itemId: string) {
+    const item = { kind: "tool" as const, id: itemId, name: "shell", input: { command } };
+    this.opts.emit({ type: "item", item: { ...item, status: "running" } });
+    this.opts.emit({ type: "toolOutput", itemId, text: "out\n" });
+    this.opts.emit({ type: "item", item: { ...item, status: "done", output: "out\n" } });
+    this.opts.emit({ type: "turnEnded", outcome: "completed" });
+  }
   async interrupt() {
     this.abort.abort();
   }
@@ -298,4 +305,23 @@ test("fs.search finds files under the agent's cwd", async () => {
   const all = await client.call("fs.search", { cwd: root, query: "" });
   assert.ok(all.entries.some((e) => e.path === "src" && e.kind === "dir"));
   await assert.rejects(client.call("fs.search", { cwd: "relative", query: "x" }));
+});
+
+test("agent.shell runs as its own turn and is refused while busy", async () => {
+  const p = await client.call("project.create", { name: "P11" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const events: AgentEvent[] = [];
+  client.on("agent.event", (n) => n.agentId === a.id && events.push(n.event));
+  await client.call("agent.subscribe", { id: a.id });
+  await client.call("agent.shell", { id: a.id, command: "ls" });
+  await client.call("agent.wait", { id: a.id });
+  assert.deepEqual(
+    events.map((e) => e.type),
+    ["turnStarted", "item", "toolOutput", "item", "turnEnded"],
+  );
+  await client.call("agent.send", { id: a.id, text: "slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  await assert.rejects(client.call("agent.shell", { id: a.id, command: "ls" }), (e: CasmError) => e.code === 1002);
+  await client.call("agent.interrupt", { id: a.id });
+  await client.call("agent.wait", { id: a.id });
 });

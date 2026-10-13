@@ -187,6 +187,20 @@ export class AgentManager {
     return { queued: false };
   }
 
+  shell(id: string, command: string) {
+    const a = this.agent(id);
+    if (a.archivedAt) throw new RpcError(1003, "agent is archived");
+    const l = this.liveFor(id);
+    if (l.turnId) throw new RpcError(1002, "the agent is busy; run the command when it is idle");
+    this.openSession(a, l);
+    l.turnId = randomUUID();
+    l.turn = [];
+    l.lastReply = null;
+    this.emit(id, { type: "turnStarted", turnId: l.turnId });
+    this.statusChanged(id);
+    l.session!.shell(command, randomUUID());
+  }
+
   private sendToSession(id: string, l: Live, prompt: Prompt) {
     const itemId = randomUUID();
     const images = prompt.images?.length ? prompt.images : undefined;
@@ -195,6 +209,16 @@ export class AgentManager {
   }
 
   private startTurn(a: StoredAgent, l: Live, prompt: Prompt) {
+    this.openSession(a, l);
+    l.turnId = randomUUID();
+    l.turn = [];
+    l.lastReply = null;
+    this.emit(a.id, { type: "turnStarted", turnId: l.turnId });
+    this.statusChanged(a.id);
+    this.sendToSession(a.id, l, prompt);
+  }
+
+  private openSession(a: StoredAgent, l: Live) {
     if (!l.session) {
       const gen = ++l.generation;
       l.session = this.provider(a.provider).open({
@@ -208,12 +232,6 @@ export class AgentManager {
           gen === l.generation ? this.askQuestion(a.id, l, req, signal) : Promise.reject(new Error("session replaced")),
       });
     }
-    l.turnId = randomUUID();
-    l.turn = [];
-    l.lastReply = null;
-    this.emit(a.id, { type: "turnStarted", turnId: l.turnId });
-    this.statusChanged(a.id);
-    this.sendToSession(a.id, l, prompt);
   }
 
   private onProviderEvent(id: string, l: Live, e: ProviderEvent) {

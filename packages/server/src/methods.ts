@@ -133,6 +133,10 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     "agent.send": (p) => agents.send(p.id, { text: p.text, images: p.images }, p.whenBusy),
     "agent.usage": async (p) => ({ usage: await agents.usage(p.id) }),
     "agent.commands": async (p) => ({ commands: await agents.commands(p.id) }),
+    "agent.shell": (p) => {
+      agents.shell(p.id, p.command);
+      return { ok: true };
+    },
     "agent.interrupt": async (p) => {
       await agents.interrupt(p.id);
       return { ok: true };

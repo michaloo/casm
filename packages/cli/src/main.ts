@@ -57,6 +57,7 @@ agents:
   models [--provider p] [--refresh]  models and modes each agent offers on the host
   approve <agent> <request> [--always]
   deny <agent> <request> [--message text]
+  shell <agent> <command>            run a command in the agent's directory (like "!cmd")
   interrupt | reload | restart | archive | rm <agent>
 
 <project> and <agent> accept an id, an id prefix or an exact name.
@@ -230,8 +231,25 @@ async function waitAndPrint(c: CasmClient, id: string) {
 
 async function run(c: CasmClient) {
   switch (cmd) {
-    case "info":
-      return out(await c.call("server.info", {}), () => {});
+    case "info": {
+      const i = await c.call("server.info", {});
+      return out(i, () => console.log(`${i.name}  casm ${i.version}  protocol ${i.protocol}  id ${i.id}\nagents: ${i.providers.join(", ")}`));
+    }
+
+    case "shell": {
+      const a = await agentRef(c, args[0]);
+      const command = args.slice(1).join(" ");
+      if (!command) fail("shell needs a command");
+      c.on("agent.event", ({ agentId, event }) => {
+        if (agentId !== a.id) return;
+        if (event.type === "toolOutput") process.stdout.write(event.text);
+      });
+      await c.call("agent.subscribe", { id: a.id });
+      await c.call("agent.shell", { id: a.id, command });
+      const r = await c.call("agent.wait", { id: a.id });
+      if (r.status !== "idle") process.exitCode = 3;
+      return;
+    }
 
     case "projects": {
       const list = await projects(c);

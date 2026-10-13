@@ -178,26 +178,26 @@ struct ProjectDetailsSheet: View {
         }
     }
 
-    /// Saves the draft. Unless `force`, first checks that the file still matches what was loaded
-    /// (the protocol has no versioned write, so this narrows the window rather than closing it).
+    /// Saves the draft. Unless `force`, the server rejects it (1003) when the file changed since it
+    /// was loaded; then the conflict alert offers to overwrite or take the host's version.
     @discardableResult
     private func save(force: Bool) async -> Bool {
         guard let text = draft else { return false }
         saving = true
         defer { saving = false }
         do {
-            if !force {
-                let current = try await host.client.agentsMd(projectId: projectId)
-                if current.content != file?.content {
-                    conflict = current
-                    return false
-                }
-            }
-            let saved = try await host.client.setAgentsMd(projectId: projectId, content: text)
+            // The server writes only if the file still has the hash we read (nil: still absent).
+            _ = try await host.client.setAgentsMd(projectId: projectId, content: text,
+                                                   expectedSha256: file?.sha256, force: force)
+            // Re-read for the new hash, so the next save is checked against this version.
+            let saved = try await host.client.agentsMd(projectId: projectId)
             file = saved
             draft = saved.content
             error = nil
             return true
+        } catch RPCError.server(1003, _) {
+            conflict = try? await host.client.agentsMd(projectId: projectId)
+            return false
         } catch {
             self.error = error.localizedDescription
             return false

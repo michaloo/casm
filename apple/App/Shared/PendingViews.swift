@@ -92,7 +92,6 @@ struct PendingRow: View {
         switch message.reason {
         case .queued: return nil
         case .limit: return "When the usage limit resets" + (when.map { " · \($0)" } ?? "")
-        case .scheduled: return when.map { "Scheduled · \($0)" } ?? "Scheduled"
         case .unknown(let raw): return raw
         }
     }

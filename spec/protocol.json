@@ -614,9 +614,6 @@
                 "location": {
                   "type": "string"
                 },
-                "readOnly": {
-                  "type": "boolean"
-                },
                 "entries": {
                   "type": "array",
                   "items": {
@@ -653,101 +650,6 @@
         },
         "required": [
           "agents"
-        ]
-      }
-    },
-    "project.updateMemory": {
-      "params": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string",
-            "enum": [
-              "claude",
-              "codex",
-              "pi",
-              "opencode"
-            ]
-          },
-          "entryId": {
-            "type": "string"
-          },
-          "text": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "provider",
-          "entryId",
-          "text"
-        ]
-      },
-      "result": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "text": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "text"
-        ]
-      }
-    },
-    "project.deleteMemory": {
-      "params": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string",
-            "enum": [
-              "claude",
-              "codex",
-              "pi",
-              "opencode"
-            ]
-          },
-          "entryId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "provider",
-          "entryId"
-        ]
-      },
-      "result": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "const": true
-          }
-        },
-        "required": [
-          "ok"
         ]
       }
     },

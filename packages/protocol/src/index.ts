@@ -209,12 +209,11 @@ export type MemoryEntry = z.infer<typeof MemoryEntry>;
 
 // The memories one agent keeps that apply to a project folder. "project"
 // stores are keyed by the folder (Claude Code); "global" ones apply to every
-// folder (Codex). `readOnly` stores can't be edited through casm.
+// folder (Codex). Memories are read-only in casm; only AGENTS.md is editable.
 export const AgentMemories = z.object({
   provider: ProviderId,
   scope: z.enum(["project", "global"]),
   location: z.string(),
-  readOnly: z.boolean().optional(),
   entries: z.array(MemoryEntry),
 });
 export type AgentMemories = z.infer<typeof AgentMemories>;
@@ -305,12 +304,6 @@ export const methods = {
   // Each installed agent's memories that apply to the project folder. Agents
   // with no memory store (or nothing stored) are left out.
   "project.memories": method(ById, z.object({ agents: z.array(AgentMemories) })),
-  // Edit or remove one entry; rejected for read-only stores.
-  "project.updateMemory": method(
-    z.object({ id: z.string(), provider: ProviderId, entryId: z.string(), text: z.string() }),
-    MemoryEntry,
-  ),
-  "project.deleteMemory": method(z.object({ id: z.string(), provider: ProviderId, entryId: z.string() }), Ok),
 
   "agent.list": method(
     z.object({ projectId: z.string().optional(), includeArchived: z.boolean().optional() }),

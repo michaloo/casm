@@ -1,6 +1,6 @@
 import { basename, isAbsolute } from "node:path";
 import { homedir } from "node:os";
-import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type Result } from "@casm/protocol";
+import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
 import { searchFiles } from "./fs-search.ts";
@@ -23,6 +23,15 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     const a = store.getAgent(id);
     if (!a) throw new RpcError(ErrorCode.NotFound, `agent ${id} not found`);
     return agents.withStatus(a);
+  };
+  // Mode ids are a fixed per-agent list, so a wrong one (say Claude's "default"
+  // sent to Codex) is rejected. Models aren't checked: agents accept ids beyond
+  // their catalog (full Claude model ids, OpenCode provider/model pairs).
+  const checkMode = async (provider: ProviderId, mode: string | undefined) => {
+    if (!mode) return;
+    const modes = await agents.catalog(provider).then((c) => c.modes, () => null);
+    if (modes && !modes.some((m) => m.id === mode))
+      throw new RpcError(ErrorCode.InvalidParams, `unknown ${provider} mode "${mode}" (modes: ${modes.map((m) => m.id).join(", ") || "none"})`);
   };
   const changed = (id: string) => {
     const agent = getAgent(id);
@@ -77,7 +86,8 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     "project.memories": async (p) => ({ agents: await listMemories(agents.installedProviders(), getProject(p.id).path) }),
     "agent.list": (p) => ({ agents: store.listAgents(p).map((a) => agents.withStatus(a)) }),
     "agent.get": (p) => getAgent(p.id),
-    "agent.create": (p) => {
+    "agent.create": async (p) => {
+      await checkMode(p.provider, p.config?.mode);
       const cwd = getProject(p.projectId).path;
       const stored = store.createAgent({
         projectId: p.projectId,
@@ -92,8 +102,9 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
       if (p.prompt || p.images?.length) agents.send(stored.id, { text: p.prompt ?? "", images: p.images });
       return getAgent(stored.id);
     },
-    "agent.update": (p) => {
+    "agent.update": async (p) => {
       const current = getAgent(p.id);
+      await checkMode(current.provider, p.config?.mode);
       // Config fields merge; an empty string clears a field.
       const config = p.config
         ? Object.fromEntries(Object.entries({ ...current.config, ...p.config }).filter(([, v]) => v !== "" && v !== undefined))

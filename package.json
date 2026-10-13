@@ -8,7 +8,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test 'packages/*/test/*.test.ts'",
-    "dev:server": "node packages/cli/src/main.ts serve",
+    "dev": "node scripts/dev.ts",
+    "dev:server": "node scripts/dev.ts serve",
     "schema": "node packages/protocol/scripts/export-schema.ts",
     "coverage": "node scripts/coverage/run.ts",
     "setup": "scripts/install.sh",

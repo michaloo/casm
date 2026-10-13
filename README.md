@@ -110,6 +110,10 @@ Example: `casm --json agents | jq '.[] | select(.status=="waiting")'`.
 
 ## Development
 
+For developing casm through its own agents, use the [stable/development workflow](docs/development.md).
+`npm run dev -- init` creates isolated checkout-local state; `npm run dev:server` serves it on
+loopback port 7474. Use `npm run dev -- <command>` to target that instance from the CLI.
+
 ```sh
 npm run typecheck
 npm test            # fake-provider end-to-end tests; no agent CLI needed

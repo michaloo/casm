@@ -12,6 +12,7 @@ struct ChatView: View {
     /// Follow the bottom as content grows. Only the reader changes this: scrolling away unpins,
     /// scrolling back to the bottom (or Jump to bottom) pins again.
     @State private var pinned = true
+    @State private var shortChat = false
     @State private var scrolling = false
     @State private var width: CGFloat = 0
     /// Largest vertical offset, i.e. "scrolled to the bottom".
@@ -101,7 +102,7 @@ struct ChatView: View {
         #endif
     }
 
-    private var margin: CGFloat { max(20, (width - 900) / 2) }
+    private var margin: CGFloat { max(Theme.sideMargin, (width - Theme.columnWidth) / 2) }
 
     /// "34k / 200k context" from the latest `usage` event.
     private var contextText: String? {
@@ -138,7 +139,7 @@ struct ChatView: View {
 
     private var transcript: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 14) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 if chat.canLoadOlder {
                     ProgressView()
                         .controlSize(.small)
@@ -165,6 +166,7 @@ struct ChatView: View {
                 }
                 ForEach(chat.visibleItems) { item in
                     ItemRow(item: item, expanded: $chat.expanded)
+                        .padding(.top, item.gap(after: chat.previous(of: item)))
                         .modifier(HoverSelectable(scrolling: scrolling))
                         .modifier(Column(margin: margin))
                 }
@@ -188,9 +190,14 @@ struct ChatView: View {
         // Keeps the bottom in place when content grows, so prepending older pages doesn't jump
         // and streaming text stays in view.
         .defaultScrollAnchor(Exp.noAnchor ? nil : .bottom)
+        // A chat shorter than the view starts at the top (bottom alignment pushed its end behind
+        // the banners and composer). Only while short: for long ones it blanked the first jump.
+        .defaultScrollAnchor(shortChat ? .top : .bottom, for: .alignment)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentSize.height < $0.containerSize.height } action: { _, short in
+            shortChat = short
+        }
         // A chat shorter than the view starts at the top: bottom alignment added an inset larger
         // than the view and pushed short transcripts behind the composer (macOS 26).
-        .defaultScrollAnchor(.top, for: .alignment)
         .onScrollGeometryChange(for: CGFloat.self) { geo in
             max(0, geo.contentSize.height + geo.contentInsets.top + geo.contentInsets.bottom - geo.containerSize.height) - geo.contentInsets.top
         } action: { _, y in
@@ -214,7 +221,15 @@ struct ChatView: View {
         // Only content growth: scrolling while the view itself resized (composer growing, chips,
         // banners) left the lazy rows blank; the bottom scroll anchor handles resizes.
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height } action: { old, new in
-            if new > old, pinned, !scrolling { position.scrollTo(edge: .bottom) }
+            // Shrinking counts too: estimated row heights get corrected after a jump, which left
+            // the view past the real end (blank) until the next scroll.
+            if new != old, pinned, !scrolling { position.scrollTo(edge: .bottom) }
+        }
+        // The viewport shrinking (banners, pending strip, a taller composer) must not hide the end
+        // either. Deferred one runloop: scrolling inside the resize pass blanked lazy rows.
+        .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height } action: { old, new in
+            guard new != old, pinned else { return }
+            Task { @MainActor in position.scrollTo(edge: .bottom) }
         }
         #if DEBUG && os(macOS)
         .onScrollGeometryChange(for: CGRect.self) { geo in
@@ -299,12 +314,16 @@ struct UserBubble: View {
         }
     }
 
+    /// Paseo's bubble: neutral surface, 16 pt radius with a 2 pt "tail" corner top right.
     private var bubble: some View {
         Text(Markdown.inline(text))
+            .font(.system(size: Theme.proseSize))
+            .lineSpacing(Theme.proseLineSpacing)
             .modifier(Selectable())
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Theme.surface3, in: UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 16,
+                                                                   bottomTrailingRadius: 16, topTrailingRadius: 2))
     }
 }
 
@@ -402,21 +421,24 @@ struct ToolRow: View {
     @Binding var expanded: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Paseo's tool row: plain (no box) while collapsed, muted 14 pt label; expanded it gets a
+        // surface and an outline.
+        VStack(alignment: .leading, spacing: 8) {
             Button {
                 expanded.toggle()
             } label: {
-                HStack(spacing: 6) {
-                    statusIcon.frame(width: 14)
-                    Text(call.name).fontWeight(.medium)
-                    Text(summary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                HStack(spacing: 4) {
+                    statusIcon.font(.system(size: 11, weight: .semibold)).frame(width: 22, height: 22)
+                    Text(call.name).foregroundStyle(expanded ? Color.primary : Theme.muted)
+                    Text(summary).foregroundStyle(Theme.muted.opacity(0.8)).lineLimit(1).truncationMode(.middle)
+                        .padding(.leading, 4)
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.right")
-                        .font(.caption2)
+                        .font(.system(size: 10, weight: .semibold))
                         .rotationEffect(.degrees(expanded ? 90 : 0))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Theme.muted.opacity(0.6))
                 }
-                .font(.callout)
+                .font(.system(size: Theme.toolSize))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -430,15 +452,18 @@ struct ToolRow: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(expanded ? Theme.surface1 : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(expanded ? Theme.border : .clear))
+        // Pull the row out so its icon lines up with the prose.
+        .padding(.horizontal, -8)
     }
 
     @ViewBuilder private var statusIcon: some View {
         switch call.status {
         case .running: ProgressView().controlSize(.mini)
-        case .done: Image(systemName: "checkmark").foregroundStyle(.green)
+        case .done: Image(systemName: "checkmark").foregroundStyle(Theme.muted)
         case .error: Image(systemName: "xmark").foregroundStyle(.red)
         case .unknown: Image(systemName: "questionmark").foregroundStyle(.secondary)
         }

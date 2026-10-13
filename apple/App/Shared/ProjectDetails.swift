@@ -16,6 +16,10 @@ struct ProjectDetailsSheet: View {
     @State private var memories: [AgentMemories]?
     @State private var saving = false
     @State private var error: String?
+    /// M2: Done with unsaved edits asks first.
+    @State private var confirmDiscard = false
+    /// M2: the file changed on the host since it was loaded; holds the host's version.
+    @State private var conflict: AgentsMd?
 
     private var project: Project? { host.project(projectId) }
     private var dirty: Bool { draft != nil && draft != file?.content }
@@ -46,11 +50,11 @@ struct ProjectDetailsSheet: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Done") { dismiss() }
+                Button("Done") { if dirty { confirmDiscard = true } else { dismiss() } }
             }
             if tab == .agentsMd && draft != nil {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(file?.content == nil ? "Create" : "Save") { Task { await save() } }
+                    Button(file?.content == nil ? "Create" : "Save") { Task { await save(force: false) } }
                         .disabled(!dirty || saving)
                         .keyboardShortcut("s")
                 }
@@ -58,6 +62,23 @@ struct ProjectDetailsSheet: View {
         }
         .sheetSize(minWidth: 680, minHeight: 600)
         .task { await load() }
+        .interactiveDismissDisabled(dirty)
+        .confirmationDialog("Discard your changes to AGENTS.md?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+            Button("Save") { Task { if await save(force: false) { dismiss() } } }
+            Button("Discard Changes", role: .destructive) { dismiss() }
+            Button("Keep Editing", role: .cancel) {}
+        }
+        .alert("AGENTS.md changed on the host", isPresented: Binding(get: { conflict != nil }, set: { if !$0 { conflict = nil } })) {
+            Button("Overwrite with Mine", role: .destructive) { Task { await save(force: true) } }
+            Button("Use the Host's Version") {
+                file = conflict
+                draft = conflict?.content
+                conflict = nil
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Someone (or an agent) edited it after you opened it. Saving now would replace their changes.")
+        }
     }
 
     @ViewBuilder private var header: some View {
@@ -157,17 +178,29 @@ struct ProjectDetailsSheet: View {
         }
     }
 
-    private func save() async {
-        guard let text = draft else { return }
+    /// Saves the draft. Unless `force`, first checks that the file still matches what was loaded
+    /// (the protocol has no versioned write, so this narrows the window rather than closing it).
+    @discardableResult
+    private func save(force: Bool) async -> Bool {
+        guard let text = draft else { return false }
         saving = true
         defer { saving = false }
         do {
+            if !force {
+                let current = try await host.client.agentsMd(projectId: projectId)
+                if current.content != file?.content {
+                    conflict = current
+                    return false
+                }
+            }
             let saved = try await host.client.setAgentsMd(projectId: projectId, content: text)
             file = saved
             draft = saved.content
             error = nil
+            return true
         } catch {
             self.error = error.localizedDescription
+            return false
         }
     }
 }

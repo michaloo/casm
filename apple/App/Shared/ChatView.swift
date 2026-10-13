@@ -623,8 +623,8 @@ struct StatusBadge: View {
 
     private var label: String {
         switch status {
-        case .running: "Running"
-        case .waiting: "Waiting for you"
+        case .running: "Working"
+        case .waiting: "Needs you"
         case .idle: "Idle"
         case .unknown(let raw): raw
         }

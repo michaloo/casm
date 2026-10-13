@@ -13,7 +13,7 @@ struct MenuBarContent: View {
         let waiting = all.filter { $0.1.status == .waiting }
         let running = all.filter { $0.1.status == .running }
         let idle = all.filter { $0.1.status == .idle }
-        Text("\(running.count) running · \(waiting.count) waiting · \(idle.count) idle")
+        Text("\(running.count) working · \(waiting.count) need you · \(idle.count) idle")
         if !offline.isEmpty {
             Text("Offline: " + offline.map(\.name).joined(separator: ", "))
         }
@@ -21,7 +21,7 @@ struct MenuBarContent: View {
             Section("Needs you") { rows(waiting) }
         }
         if !running.isEmpty {
-            Section("Running") { rows(running) }
+            Section("Working") { rows(running) }
         }
         if !idle.isEmpty {
             Section("Idle") { rows(Array(idle.prefix(12))) }
@@ -62,11 +62,11 @@ struct MenuBarLabel: View {
         HStack(spacing: 3) {
             Image(nsImage: Self.glyph)
             if waiting > 0 {
-                Text("\(waiting) waiting")
+                Text("\(waiting) need you")
             } else if running > 0 {
                 Text("\(running)")
             }
         }
-        .accessibilityLabel("casm: \(running) running, \(waiting) waiting")
+        .accessibilityLabel("casm: \(running) working, \(waiting) need you")
     }
 }

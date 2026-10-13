@@ -252,7 +252,7 @@ test("provider catalog is cached until refreshed", async () => {
 
 test("config changes merge and reload the session, after the turn if one is running", async () => {
   const p = await client.call("project.create", { name: "P8", path: "/tmp" });
-  const a = await client.call("agent.create", { projectId: p.id, provider: "claude", config: { model: "m1", mode: "plan" }, prompt: "hi" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude", config: { model: "m1", mode: "default" }, prompt: "hi" });
   await client.call("agent.wait", { id: a.id });
   const opened = fake.opened.length;
 
@@ -333,4 +333,14 @@ test("a provider that throws while starting work leaves the agent idle", async (
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   await assert.rejects(client.call("agent.shell", { id: a.id, command: "explode" }), /boom/);
   assert.equal((await client.call("agent.get", { id: a.id })).status, "idle");
+});
+
+test("modes must come from the agent's catalog", async () => {
+  const p = await client.call("project.create", { name: "P13", path: "/tmp" });
+  await assert.rejects(
+    client.call("agent.create", { projectId: p.id, provider: "claude", config: { mode: "plan" } }),
+    (e: CasmError) => e.code === -32602 && /unknown claude mode "plan"/.test(e.message),
+  );
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude", config: { mode: "default", model: "anything" } });
+  await assert.rejects(client.call("agent.update", { id: a.id, config: { mode: "full-access" } }), (e: CasmError) => e.code === -32602);
 });

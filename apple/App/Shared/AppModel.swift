@@ -242,7 +242,11 @@ final class HostModel: Identifiable {
             catalogLoads.insert(provider)
             Task {
                 defer { catalogLoads.remove(provider) }
-                if let catalog = try? await client.catalog(provider: provider) { catalogs[provider] = catalog }
+                do { catalogs[provider] = try await client.catalog(provider: provider) } catch {
+                    #if DEBUG && os(macOS)
+                    DebugControl.shared.log("catalog \(provider.rawValue) on \(name) failed: \(error)")
+                    #endif
+                }
             }
         }
         return catalogs[provider]

@@ -169,8 +169,6 @@ final class HostModel: Identifiable {
     /// Latest subscription limits per provider on this host (provider.limits + live notifications).
     private(set) var limits: [ProviderID: ProviderLimits] = [:]
     @ObservationIgnored private var catalogLoads: Set<ProviderID> = []
-    /// Bumped after a failed catalog load so views ask again.
-    private var catalogRetry = 0
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
 
     nonisolated var id: UUID { entry.id }
@@ -246,17 +244,19 @@ final class HostModel: Identifiable {
 
     /// Models and modes for a provider; loaded on first use and cached for the connection.
     func catalog(for provider: ProviderID) -> Catalog? {
-        _ = catalogRetry
         if catalogs[provider] == nil, isOnline, !catalogLoads.contains(provider) {
             catalogLoads.insert(provider)
             Task {
                 defer { catalogLoads.remove(provider) }
-                do {
-                    catalogs[provider] = try await client.catalog(provider: provider)
-                } catch {
-                    // m2: try again shortly; a view re-reading the catalog starts the next attempt.
-                    try? await Task.sleep(for: .seconds(3))
-                    catalogRetry += 1
+                // m2: retry a few times (a load right after connecting can fail); the views
+                // update when it lands because `catalogs` is observed.
+                for attempt in 0..<5 {
+                    if let catalog = try? await client.catalog(provider: provider) {
+                        catalogs[provider] = catalog
+                        return
+                    }
+                    try? await Task.sleep(for: .seconds(Double(1 << attempt)))
+                    guard isOnline else { return }
                 }
             }
         }

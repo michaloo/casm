@@ -25,6 +25,7 @@ struct Composer: View {
     @State private var dropTargeted = false
     #if os(iOS)
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var pickingPhotos = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     private var compactWidth: Bool { sizeClass == .compact }
     #else
@@ -176,10 +177,16 @@ struct Composer: View {
 
     @ViewBuilder private var attachButton: some View {
         #if os(iOS)
-        PhotosPicker(selection: $photoItems, maxSelectionCount: 6, matching: .images) {
+        // An iPhone text field can't take a pasted image, so pasting is a menu item here.
+        Menu {
+            Button("Photo Library", systemImage: "photo.on.rectangle") { pickingPhotos = true }
+            Button("Paste Image", systemImage: "doc.on.clipboard") { pasteImages() }
+                .disabled(!UIPasteboard.general.hasImages)
+        } label: {
             Image(systemName: "plus").accessibilityLabel("Attach images")
         }
         .disabled(shellMode)
+        .photosPicker(isPresented: $pickingPhotos, selection: $photoItems, maxSelectionCount: 6, matching: .images)
         .onChange(of: photoItems) {
             let items = photoItems
             photoItems = []
@@ -307,6 +314,17 @@ struct Composer: View {
             }
         }
     }
+
+    #if os(iOS)
+    /// Images on the clipboard (iOS asks the user to allow the paste the first time).
+    private func pasteImages() {
+        let board = UIPasteboard.general
+        // Prefer the original PNG bytes; fall back to the decoded images (photos, screenshots).
+        let datas = board.data(forPasteboardType: UTType.png.identifier).map { [$0] }
+            ?? (board.images ?? []).compactMap { $0.pngData() }
+        attachments += datas.compactMap { ImageEncoding.encode($0) }.map { Attachment(image: $0) }
+    }
+    #endif
 
     #if os(macOS)
     /// ⌘V with an image (or image files) on the pasteboard attaches it instead of pasting text.

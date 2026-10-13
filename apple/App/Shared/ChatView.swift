@@ -9,6 +9,9 @@ struct ChatView: View {
     // the content margins and shifted the transcript sideways.
     @State private var position = ScrollPosition()
     @State private var nearBottom = true
+    /// Follow the bottom as content grows. Only the reader changes this: scrolling away unpins,
+    /// scrolling back to the bottom (or Jump to bottom) pins again.
+    @State private var pinned = true
     @State private var scrolling = false
     @State private var width: CGFloat = 0
     /// Largest vertical offset, i.e. "scrolled to the bottom".
@@ -93,6 +96,7 @@ struct ChatView: View {
     }
 
     private func scrollToBottom() {
+        pinned = true
         position.scrollTo(y: bottomOffset)
         // Content may still grow this frame (first load); settle once more on the next one.
         Task { @MainActor in position.scrollTo(y: bottomOffset) }
@@ -177,6 +181,19 @@ struct ChatView: View {
             nearBottom = near
             if near { chat.trimWindow() }
         }
+        // The reader scrolled: the offset moved while the content kept its height. Wheel scrolling
+        // reports no scroll phases, so this is what tells us whether to keep following.
+        .onScrollGeometryChange(for: ScrollSpot.self) { geo in
+            ScrollSpot(offset: geo.contentOffset.y, height: geo.contentSize.height,
+                       atBottom: geo.contentSize.height - geo.visibleRect.maxY < 80)
+        } action: { old, new in
+            if old.height == new.height, old.offset != new.offset { pinned = new.atBottom }
+        }
+        // While pinned, follow every change of the bottom: new items, streaming text, growing
+        // tool output, banners taking space from the transcript.
+        .onChange(of: bottomOffset) {
+            if pinned && !scrolling { position.scrollTo(y: bottomOffset) }
+        }
         #if DEBUG && os(macOS)
         .onScrollGeometryChange(for: CGRect.self) { geo in
             CGRect(x: geo.contentOffset.y, y: 0, width: geo.contentSize.height, height: geo.containerSize.height)
@@ -202,10 +219,6 @@ struct ChatView: View {
         }
         .onChange(of: chat.scrollToBottomRequest) {
             scrollToBottom()
-        }
-        // Follow new items (and growing tool output) while the reader is at the bottom.
-        .onChange(of: chat.items.last) {
-            if nearBottom { scrollToBottom() }
         }
     }
 }
@@ -578,4 +591,10 @@ private struct Column: ViewModifier {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, margin)
     }
+}
+
+private struct ScrollSpot: Equatable {
+    var offset: CGFloat
+    var height: CGFloat
+    var atBottom: Bool
 }

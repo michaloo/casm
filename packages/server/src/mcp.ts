@@ -252,6 +252,9 @@ export function createMcp(ctx: McpContext) {
       const t = target(a.host);
       const agent = await findAgent(t, a.agent);
       const r = await t.call("agent.wait", { id: agent.id, timeoutMs: (a.timeout_s ?? DEFAULT_WAIT_S) * 1000 });
+      // A usage limit leaves it idle with the prompt deferred until the reset.
+      const { deferred } = await t.call("agent.get", { id: agent.id });
+      if (deferred) return { ...r, deferred, note: "This agent's provider hit a usage limit; its prompt will be retried automatically at `deferred.until`. Consider another provider or host (get_limits)." };
       if (r.status !== "waiting") return r;
       const s = await t.call("agent.subscribe", { id: agent.id });
       await t.call("agent.unsubscribe", { id: agent.id });

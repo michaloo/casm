@@ -215,3 +215,25 @@ It prints added/removed ids and exits 1 while any are unclassified. Classify new
 when they are installed, and uses the checked-in inventory for OpenCode, which needs a running server.
 When a provider starts handling something, flip its entry from `gap` to `mapped`; a test checks that
 every `to` names a real protocol element.
+
+## Usage limits
+
+casm tracks each provider's subscription limits and copes with running out:
+
+- **Reporting.** `casm limits` (protocol `provider.limits`, MCP `get_limits`, and in `list_hosts`) shows
+  each provider's windows (Claude's 5-hour and weekly windows, Codex's usage limit) with used %,
+  reset time and status. Claude reports them as it runs; Codex reports exhaustion when a turn fails.
+  `casm usage <agent>` and `casm agents --usage` show each agent's context and cost.
+- **Detection.** A turn that fails on a usage or rate limit ends with `turnEnded.limit`
+  `{message, resetsAt}`. The reset time is taken from the provider or parsed from its message
+  ("try again at 6:31 PM", "in 2 hours", ISO times). The provider is then marked exhausted, so
+  its other agents wait too. A successful turn clears the mark.
+- **Queueing.** The prompt that hit the limit is deferred (stored in the server database, so it
+  survives restarts) and resent a minute after the reset, or with backoff (15 min, doubling, up
+  to 3 h) when no time is known. Messages sent meanwhile are queued behind it
+  (`agent.send` returns `deferredUntil`) unless the caller passes `whenLimited: "fail"`
+  (`casm send --fail-if-limited`), which fails with error code 1004. The agent shows
+  `deferred: {until, reason}`. `casm interrupt` (or `agent.interrupt`) drops deferred prompts.
+- **For scripts and coordinating agents.** `casm wait` exits 4 when the agent was deferred by a
+  limit (3 = still running or waiting for you). The MCP `wait` tool returns `deferred` with a
+  hint to pick another provider or host.

@@ -22,6 +22,7 @@ import type {
 import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from "./providers/types.ts";
 import { casmMcpEntry } from "./mcp.ts";
+import { limitFromText, retryAt, type LimitHit } from "./limits.ts";
 
 // What sessions are told about the server that runs them.
 export type SessionContext = { serverId: string; serverName: string; mcpUrl: string | null };
@@ -54,6 +55,10 @@ type Live = {
   reloadAfterTurn: boolean;
   lastReply: string | null;
   lastUsage: Usage | null;
+  // The prompt that started the running turn, kept to retry it after a limit.
+  prompt: Prompt | null;
+  // When the running turn started, to tell fresh limit reports from old ones.
+  turnStartedAt: number;
   statusWaiters: Set<() => void>;
 };
 
@@ -75,10 +80,17 @@ export class AgentManager {
   private providers: Map<ProviderId, Provider>;
   private notify: Notify;
 
+  private deferTimer: ReturnType<typeof setInterval>;
+  // Retries already made for an agent's deferred prompt, for backoff.
+  private retryAttempts = new Map<string, number>();
+
   constructor(store: Store, providers: Map<ProviderId, Provider>, notify: Notify) {
     this.store = store;
     this.providers = providers;
     this.notify = notify;
+    // Deferred prompts survive restarts; check for due ones every 30 s.
+    this.deferTimer = setInterval(() => this.runDueDeferred(), 30_000);
+    this.deferTimer.unref();
   }
 
   setContext(ctx: SessionContext) {
@@ -129,7 +141,8 @@ export class AgentManager {
   }
 
   withStatus(a: StoredAgent): Agent {
-    return { ...a, status: this.status(a.id) };
+    const d = this.store.getDeferred(a.id);
+    return { ...a, status: this.status(a.id), deferred: d ? { until: d.retryAt, reason: d.reason } : null };
   }
 
   private provider(id: ProviderId): Provider {
@@ -147,7 +160,7 @@ export class AgentManager {
   private liveFor(id: string): Live {
     let l = this.live.get(id);
     if (!l) {
-      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), queue: [], reloadAfterTurn: false, lastReply: null, lastUsage: null, statusWaiters: new Set() };
+      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), queue: [], reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, statusWaiters: new Set() };
       this.live.set(id, l);
     }
     return l;
@@ -177,10 +190,24 @@ export class AgentManager {
 
   // --- turns
 
-  send(id: string, prompt: Prompt, whenBusy: "queue" | "steer" = "queue"): { queued: boolean } {
+  send(
+    id: string,
+    prompt: Prompt,
+    whenBusy: "queue" | "steer" = "queue",
+    whenLimited: "queue" | "fail" = "queue",
+  ): { queued: boolean; deferredUntil?: string } {
     const a = this.agent(id);
     if (a.archivedAt) throw new RpcError(1003, "agent is archived");
     if (!prompt.text.trim() && !prompt.images?.length) throw new RpcError(-32602, "nothing to send");
+    // Already deferred, or the provider is known to be over its limit: wait.
+    const waiting = this.store.getDeferred(id);
+    const blocked = waiting ? null : this.exhaustedUntil(a.provider);
+    if (waiting || blocked) {
+      const reason = waiting?.reason ?? `${a.provider} is over its usage limit`;
+      if (whenLimited === "fail") throw new RpcError(1004, `${reason}; resets ${waiting?.retryAt ?? blocked}`);
+      const until = this.defer(a, prompt, { message: reason, resetsAt: blocked ?? undefined }, false);
+      return { queued: true, deferredUntil: until };
+    }
     const l = this.liveFor(id);
     if (l.turnId) {
       if (whenBusy === "queue") {
@@ -230,6 +257,8 @@ export class AgentManager {
     l.turnId = randomUUID();
     l.turn = [];
     l.lastReply = null;
+    l.prompt = prompt;
+    l.turnStartedAt = Date.now();
     this.emit(a.id, { type: "turnStarted", turnId: l.turnId });
     this.statusChanged(a.id);
     this.sendToSession(a.id, l, prompt);
@@ -281,7 +310,7 @@ export class AgentManager {
         this.emit(id, { type: "usage", usage: l.lastUsage });
         return;
       case "turnEnded":
-        this.endTurn(id, l, e.outcome, e.error);
+        this.endTurn(id, l, e.outcome, e.error, e.outcome === "failed" ? this.limitHit(id, l, e.error) : null);
         return;
       case "closed":
         l.session = null;
@@ -291,16 +320,37 @@ export class AgentManager {
     }
   }
 
-  private endTurn(id: string, l: Live, outcome: "completed" | "interrupted" | "failed", error?: string) {
+  private endTurn(
+    id: string,
+    l: Live,
+    outcome: "completed" | "interrupted" | "failed",
+    error?: string,
+    limit: LimitHit | null = null,
+  ) {
     if (!l.turnId) return;
     const turnId = l.turnId;
     for (const p of l.pending.values()) p.reject(new Error("turn ended"));
     l.pending.clear();
-    this.emit(id, { type: "turnEnded", turnId, outcome, error });
+    this.emit(id, { type: "turnEnded", turnId, outcome, error, limit: limit ?? undefined });
     l.turnId = null;
     l.turn = [];
     if (l.reloadAfterTurn) this.dropSession(l);
+    const a = this.store.getAgent(id);
+    if (limit && a) {
+      // Retry the prompt that hit the limit, then whatever was queued behind it.
+      if (l.prompt) this.defer(a, l.prompt, limit, true);
+      for (const p of l.queue.splice(0)) this.defer(a, p, limit, false);
+    }
+    l.prompt = null;
     this.statusChanged(id);
+    if (limit) return;
+    this.retryAttempts.delete(id);
+    // A turn that went through means the limit has lifted, whatever was announced.
+    if (outcome === "completed" && a) {
+      const seen = this.limitsSeen.get(a.provider);
+      const blocked = seen?.windows.filter((w) => w.status === "exhausted") ?? [];
+      if (blocked.length) this.recordLimits(a.provider, { windows: blocked.map((w) => ({ ...w, status: "ok" as const })) });
+    }
     const next = l.queue.shift();
     if (next !== undefined) {
       const a = this.store.getAgent(id);
@@ -363,6 +413,11 @@ export class AgentManager {
   }
 
   async interrupt(id: string) {
+    // Interrupt also drops prompts waiting for a limit reset.
+    if (this.store.clearDeferred(id)) {
+      const a = this.store.getAgent(id);
+      if (a) this.notify("agent.changed", { agent: this.withStatus(a) });
+    }
     const l = this.live.get(id);
     if (!l?.turnId || !l.session) return;
     l.queue = [];
@@ -424,6 +479,79 @@ export class AgentManager {
       permissions: l ? [...l.pending.values()].flatMap((p) => (p.kind === "permission" ? [p.req] : [])) : [],
       questions: l ? [...l.pending.values()].flatMap((p) => (p.kind === "question" ? [p.req] : [])) : [],
     };
+  }
+
+  // --- usage limits: detection, deferral, retry
+
+  // The turn failed on a limit if the provider said so structurally during the
+  // turn (an exhausted window) or the error text says so.
+  private limitHit(id: string, l: Live, error?: string): LimitHit | null {
+    const a = this.store.getAgent(id);
+    // Error notices often carry the reset time the final error text lacks.
+    const hits = [
+      error,
+      ...l.turn.flatMap((e) => (e.type === "item" && e.item.kind === "notice" && e.item.level === "error" ? [e.item.text] : [])),
+    ].flatMap((t) => limitFromText(t) ?? []);
+    const fromText = hits.find((h) => h.resetsAt) ?? hits[0] ?? null;
+    const seen = a ? this.limitsSeen.get(a.provider) : undefined;
+    const exhausted =
+      seen && Date.parse(seen.updatedAt) >= l.turnStartedAt - 1000 ? seen.windows.find((w) => w.status === "exhausted") : undefined;
+    if (!fromText && !exhausted) return null;
+    const hit: LimitHit = {
+      message: fromText?.message ?? `${a?.provider} ${exhausted?.label ?? exhausted?.id} limit reached`,
+      resetsAt: exhausted?.resetsAt ?? fromText?.resetsAt,
+    };
+    // Record it so other agents of this provider wait too.
+    if (a && !exhausted)
+      this.recordLimits(a.provider, { windows: [{ id: "limit", label: "usage limit", status: "exhausted", resetsAt: hit.resetsAt }] });
+    return hit;
+  }
+
+  // When the provider's limits say it's blocked, the time it resets (or a guess).
+  private exhaustedUntil(provider: ProviderId): string | null {
+    const seen = this.limitsSeen.get(provider);
+    const w = seen?.windows.find((x) => x.status === "exhausted");
+    if (!w) return null;
+    const reset = w.resetsAt ? Date.parse(w.resetsAt) : Date.parse(seen!.updatedAt) + 15 * 60_000;
+    return reset > Date.now() ? new Date(reset).toISOString() : null;
+  }
+
+  private defer(a: StoredAgent, prompt: Prompt, hit: LimitHit, front: boolean): string {
+    const prev = this.store.getDeferred(a.id);
+    const attempts = prev?.attempts ?? this.retryAttempts.get(a.id) ?? 0;
+    const at = prev?.retryAt ?? retryAt(hit, attempts).toISOString();
+    const prompts = prev ? (front ? [prompt, ...prev.prompts] : [...prev.prompts, prompt]) : [prompt];
+    this.store.setDeferred({ agentId: a.id, prompts, retryAt: at, reason: hit.message, attempts });
+    this.notify("agent.changed", { agent: this.withStatus(a) });
+    return at;
+  }
+
+  // Sends the first due deferred prompt per idle agent; the rest follow via the
+  // normal queue. A turn that hits the limit again re-defers with more backoff.
+  runDueDeferred(now = Date.now()) {
+    for (const d of this.store.listDeferred()) {
+      if (Date.parse(d.retryAt) > now) continue;
+      const a = this.store.getAgent(d.agentId);
+      if (!a || a.archivedAt) {
+        this.store.clearDeferred(d.agentId);
+        continue;
+      }
+      const l = this.liveFor(a.id);
+      if (l.turnId) continue;
+      this.store.clearDeferred(a.id);
+      const [first, ...rest] = d.prompts;
+      l.queue.push(...rest);
+      try {
+        this.startTurn(a, l, first);
+      } catch {
+        // Couldn't start (e.g. provider gone): keep it for later with backoff.
+        this.store.setDeferred({ ...d, attempts: d.attempts + 1, retryAt: retryAt({ message: d.reason }, d.attempts + 1).toISOString() });
+        continue;
+      }
+      // If this retry hits the limit again, back off further.
+      this.retryAttempts.set(a.id, d.attempts + 1);
+      this.notify("agent.changed", { agent: this.withStatus(a) });
+    }
   }
 
   private recordLimits(provider: ProviderId, update: Omit<ProviderLimits, "provider" | "updatedAt">) {
@@ -510,6 +638,7 @@ export class AgentManager {
   }
 
   async shutdown() {
+    clearInterval(this.deferTimer);
     await Promise.all([...this.live.values()].map((l) => l.session?.close().catch(() => {})));
   }
 }

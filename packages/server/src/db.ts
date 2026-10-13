@@ -3,9 +3,27 @@
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import type { Agent, AgentConfig, AgentParent, Project, ProviderId } from "@casm/protocol";
+import type { Agent, AgentConfig, AgentParent, ImageData, Project, ProviderId } from "@casm/protocol";
 
-export type StoredAgent = Omit<Agent, "status">;
+export type StoredAgent = Omit<Agent, "status" | "deferred">;
+
+export type Deferred = {
+  agentId: string;
+  prompts: { text: string; images?: ImageData[] }[];
+  retryAt: string;
+  reason: string;
+  attempts: number;
+};
+
+function toDeferred(r: Row): Deferred {
+  return {
+    agentId: r.agent_id as string,
+    prompts: JSON.parse(r.prompts as string),
+    retryAt: r.retry_at as string,
+    reason: r.reason as string,
+    attempts: r.attempts as number,
+  };
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -31,6 +49,13 @@ CREATE TABLE IF NOT EXISTS agents (
   archived_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS deferred (
+  agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
+  prompts TEXT NOT NULL,
+  retry_at TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
@@ -239,6 +264,27 @@ export class Store {
 
   deleteAgent(id: string): boolean {
     return this.db.prepare("DELETE FROM agents WHERE id = ?").run(id).changes > 0;
+  }
+
+  // --- prompts waiting for a provider limit to reset (one row per agent)
+
+  getDeferred(agentId: string): Deferred | undefined {
+    const r = this.db.prepare("SELECT * FROM deferred WHERE agent_id = ?").get(agentId) as Row | undefined;
+    return r && toDeferred(r);
+  }
+
+  listDeferred(): Deferred[] {
+    return (this.db.prepare("SELECT * FROM deferred ORDER BY retry_at").all() as Row[]).map(toDeferred);
+  }
+
+  setDeferred(d: Deferred) {
+    this.db
+      .prepare("INSERT OR REPLACE INTO deferred (agent_id, prompts, retry_at, reason, attempts) VALUES (?, ?, ?, ?, ?)")
+      .run(d.agentId, JSON.stringify(d.prompts), d.retryAt, d.reason, d.attempts);
+  }
+
+  clearDeferred(agentId: string): boolean {
+    return this.db.prepare("DELETE FROM deferred WHERE agent_id = ?").run(agentId).changes > 0;
   }
 
   // A stable id for this server, created on first use.

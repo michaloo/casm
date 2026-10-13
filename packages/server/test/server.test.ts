@@ -27,6 +27,11 @@ class FakeSession implements ProviderSession {
         await new Promise((r) => this.abort.signal.addEventListener("abort", r, { once: true }));
         return this.opts.emit({ type: "turnEnded", outcome: "interrupted" });
       }
+      if (text.includes("hit-limit") && !fake.limitHit) {
+        fake.limitHit = true;
+        this.opts.emit({ type: "item", item: { kind: "notice", id: `e-${text}`, text: "You've hit your usage limit. Try again in 2 hours.", level: "error" } });
+        return this.opts.emit({ type: "turnEnded", outcome: "failed", error: "usage limit" });
+      }
       if (text.includes("limits")) {
         this.opts.emit({ type: "limits", limits: { windows: [{ id: "five_hour", usedPercent: 80, status: "warning" }] } });
         this.opts.emit({ type: "item", item: { kind: "subagent", id: "sa1", title: "Explore repo", status: "done", summary: "found 3 files" } });
@@ -84,6 +89,7 @@ const fake = {
   opened: [] as OpenOptions[],
   history: new Map<string, Item[]>(),
   catalogCalls: 0,
+  limitHit: false,
 };
 
 const provider: Provider = {
@@ -362,4 +368,42 @@ test("limits reported by sessions are merged, cached and broadcast", async () =>
   assert.deepEqual(seen, [1]);
   assert.deepEqual(await client.call("agent.subagentHistory", { id: a.id, subagentId: "sa1" }), { items: [] });
   off();
+});
+
+test("a turn that hits a usage limit is deferred, blocks further sends and retries later", async () => {
+  const p = await client.call("project.create", { name: "P15", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const ended: AgentEvent[] = [];
+  client.on("agent.event", (n) => n.agentId === a.id && n.event.type === "turnEnded" && ended.push(n.event));
+  await client.call("agent.subscribe", { id: a.id });
+  await client.call("agent.send", { id: a.id, text: "please hit-limit" });
+  await client.call("agent.wait", { id: a.id });
+
+  const turn = ended.at(-1);
+  assert.ok(turn?.type === "turnEnded" && turn.limit?.resetsAt, "turnEnded carries the limit");
+  const agent = await client.call("agent.get", { id: a.id });
+  assert.ok(agent.deferred && Date.parse(agent.deferred.until) > Date.now() + 3600_000);
+  const { limits } = await client.call("provider.limits", { provider: "claude" });
+  assert.ok(limits[0].windows.some((w) => w.status === "exhausted"));
+
+  // While limited: queue by default, or fail fast.
+  const q = await client.call("agent.send", { id: a.id, text: "later" });
+  assert.equal(q.queued, true);
+  assert.equal(q.deferredUntil, agent.deferred!.until);
+  await assert.rejects(client.call("agent.send", { id: a.id, text: "now", whenLimited: "fail" }), (e: CasmError) => e.code === 1004);
+  // Another agent of the same provider waits too.
+  const b = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  assert.equal((await client.call("agent.send", { id: b.id, text: "hello" })).queued, true);
+
+  // After the reset the first deferred prompt runs; the rest follows.
+  server.agents.runDueDeferred(Date.now() + 3 * 3600_000);
+  assert.equal((await client.call("agent.get", { id: a.id })).deferred, null);
+  await client.call("agent.wait", { id: a.id });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal((await client.call("agent.wait", { id: a.id })).lastReply, "echo: later");
+  assert.equal((await client.call("agent.get", { id: a.id })).deferred, null);
+
+  // Interrupt drops a deferred prompt.
+  await client.call("agent.interrupt", { id: b.id });
+  assert.equal((await client.call("agent.get", { id: b.id })).deferred, null);
 });

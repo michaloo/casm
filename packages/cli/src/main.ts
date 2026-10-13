@@ -50,7 +50,7 @@ agents:
   agents [--project p] [--all] [--usage]
   run --project p [--provider claude] [--name n] [--model m] [--mode m]
       [--parent serverId/agentId] [--casm-tools] [--wait] <prompt>
-  send <agent> <text> [--steer] [--wait]
+  send <agent> <text> [--steer] [--wait] [--fail-if-limited]
   wait <agent> [--timeout seconds]
   history <agent> [-n count]
   watch <agent>                      stream live events
@@ -100,6 +100,7 @@ const { values: opt, positionals } = parseArgs({
     group: { type: "string" },
     refresh: { type: "boolean" },
     usage: { type: "boolean" },
+    "fail-if-limited": { type: "boolean" },
     "casm-tools": { type: "boolean" },
     edit: { type: "boolean" },
   },
@@ -243,12 +244,17 @@ async function agentRef(c: CasmClient, ref: string | undefined): Promise<Agent> 
 async function waitAndPrint(c: CasmClient, id: string) {
   const timeoutMs = opt.timeout ? Number(opt.timeout) * 1000 : undefined;
   const r = await c.call("agent.wait", { id, timeoutMs });
-  out(r, () => {
+  // A turn that hit a usage limit ends idle with its prompt deferred.
+  const { deferred } = await c.call("agent.get", { id });
+  out({ ...r, deferred }, () => {
     if (r.status === "waiting") console.error(`agent is waiting for you: casm permissions ${shortId(id)} / casm questions ${shortId(id)}`);
     if (r.timedOut) console.error("timed out; the agent is still running");
-    if (r.lastReply) console.log(r.lastReply);
+    if (deferred) console.error(`usage limit: ${deferred.reason}\nqueued; retries ${new Date(deferred.until).toLocaleString()}`);
+    else if (r.lastReply) console.log(r.lastReply);
   });
+  // Exit codes: 3 still running or waiting for you, 4 deferred by a usage limit.
   if (r.status !== "idle") process.exitCode = 3;
+  else if (deferred) process.exitCode = 4;
 }
 
 async function run(c: CasmClient) {
@@ -345,7 +351,7 @@ async function run(c: CasmClient) {
       return out(rows, () => {
         for (const a of agents)
           console.log(
-            `${shortId(a.id)}  ${a.status.padEnd(7)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}${opt.usage ? `  ${usage.get(a.id) ? formatUsage(usage.get(a.id)!) : "-"}` : ""}`,
+            `${shortId(a.id)}  ${a.status.padEnd(7)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}${a.deferred ? `  limited, retries ${new Date(a.deferred.until).toLocaleTimeString()}` : ""}${opt.usage ? `  ${usage.get(a.id) ? formatUsage(usage.get(a.id)!) : "-"}` : ""}`,
           );
       });
     }
@@ -371,7 +377,16 @@ async function run(c: CasmClient) {
       const a = await agentRef(c, args[0]);
       const text = args.slice(1).join(" ");
       if (!text) fail("send needs text");
-      const r = await c.call("agent.send", { id: a.id, text, whenBusy: opt.steer ? "steer" : "queue" });
+      const r = await c.call("agent.send", {
+        id: a.id,
+        text,
+        whenBusy: opt.steer ? "steer" : "queue",
+        whenLimited: opt["fail-if-limited"] ? "fail" : "queue",
+      });
+      if (r.deferredUntil) {
+        out(r, () => console.error(`${a.provider} is over its usage limit; queued until ${new Date(r.deferredUntil!).toLocaleString()}`));
+        return;
+      }
       if (opt.wait) return waitAndPrint(c, a.id);
       return out(r, () => r.queued && console.error("queued behind the running turn"));
     }

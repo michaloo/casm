@@ -25,6 +25,8 @@ import type {
 } from "@casm/protocol";
 import type { OpenOptions, PermissionAnswer, Provider, ProviderSession } from "./types.ts";
 import { codexMemories } from "./codex-memory.ts";
+import { limitFromText } from "../limits.ts";
+
 
 const MAX_TOOL_OUTPUT = 8000;
 // History drops image bytes above this (decoded) size; the item keeps the media type.
@@ -735,9 +737,19 @@ class CodexSession implements ProviderSession {
     const { emit } = this.opts;
     if (p.threadId != null && p.threadId !== this.threadId) return; // subagent threads
     switch (method) {
-      case "error":
+      case "error": {
         emit({ type: "item", item: errorNotice(p) });
+        const err = rec(p.error);
+        const info = err.codexErrorInfo;
+        if (!p.willRetry && (info === "usageLimitExceeded" || info === "rateLimitExceeded")) {
+          const hit = limitFromText(str(err.message));
+          emit({
+            type: "limits",
+            limits: { windows: [{ id: "usage", label: info === "usageLimitExceeded" ? "usage limit" : "rate limit", status: "exhausted", resetsAt: hit?.resetsAt }] },
+          });
+        }
         return;
+      }
       case "warning":
       case "guardianWarning":
       case "configWarning":

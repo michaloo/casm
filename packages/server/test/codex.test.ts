@@ -108,7 +108,7 @@ test("command executions become shell tools updated in place", () => {
   assert.equal(declined?.kind === "tool" && declined.output, "Declined by the user.");
 });
 
-test("file changes, MCP, web search and collab calls map to tools", () => {
+test("file changes, MCP and web search map to tools", () => {
   assert.deepEqual(normalize(fx.fileChange), {
     kind: "tool",
     id: "exec-4",
@@ -121,11 +121,11 @@ test("file changes, MCP, web search and collab calls map to tools", () => {
   assert.deepEqual(normalize(fx.mcpFailed), { kind: "tool", id: "call_b", name: "mcp__paseo__speak", input: {}, status: "error", output: "review failed" });
   const tool = (i: CodexItem, live = false) => normalize(i, live) as { name: string; status: string };
   assert.deepEqual([tool(fx.webSearch).name, tool(fx.webSearch).status, tool(fx.webSearch, true).status], ["web_search", "done", "running"]);
-  assert.equal(tool(fx.collab).name, "agent.wait");
+  assert.equal(normalize(fx.collab), null);
 });
 
 test("bookkeeping items become notices", () => {
-  assert.deepEqual(normalize(fx.subAgent), { kind: "notice", id: "call_d", text: "Subagent /root/feasibility started", level: "info" });
+  assert.deepEqual(normalize(fx.subAgent), { kind: "subagent", id: "t2", title: "/root/feasibility", status: "running" });
   assert.deepEqual(normalize(fx.compaction), { kind: "notice", id: "c1", text: "Context compacted", level: "info" });
 });
 

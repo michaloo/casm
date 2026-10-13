@@ -80,6 +80,18 @@ final class SnapshotTests: XCTestCase {
         }
     }
 
+    func testProviderIcons() throws {
+        for dark in [false, true] {
+            try render("providers-\(dark ? "dark" : "light")", width: 260, dark: dark) {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach([ProviderID.claude, .codex, .opencode, .pi], id: \.self) { p in
+                        Label { Text(p.rawValue) } icon: { ProviderIcon(provider: p) }
+                    }
+                }
+            }
+        }
+    }
+
     func testSubtitlePaths() {
         XCTAssertEqual(ChatView.abbreviate("/Users/michal/Projects/casm"), "~/Projects/casm")
         XCTAssertEqual(ChatView.abbreviate("/home/me"), "~")

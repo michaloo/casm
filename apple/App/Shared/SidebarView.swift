@@ -380,22 +380,31 @@ struct AgentRow: View {
     }
 }
 
-/// The coding agent behind an agent: Claude Code, Codex, pi or OpenCode.
+/// The bundle holding this code (the app, or the snapshot test bundle).
+private final class BundleToken {}
+
+/// The coding agent behind an agent: its own mark (template image), Claude in its orange.
+/// Marks: App/Shared/Providers.xcassets.
 struct ProviderIcon: View {
     let provider: ProviderID
+    var size: CGFloat = 15
 
     var body: some View {
         switch provider {
-        case .claude:
-            Image(systemName: "asterisk").fontWeight(.bold).foregroundStyle(Color(red: 0.85, green: 0.47, blue: 0.34))
-        case .codex:
-            Image(systemName: "chevron.left.forwardslash.chevron.right").foregroundStyle(.primary)
-        case .pi:
-            Text("π").fontWeight(.semibold).foregroundStyle(.purple)
-        case .opencode:
-            Image(systemName: "curlybraces").foregroundStyle(.teal)
-        case .unknown:
-            Image(systemName: "cpu").foregroundStyle(.secondary)
+        case .claude: mark("provider-claude").foregroundStyle(Color(red: 0.85, green: 0.47, blue: 0.34))
+        case .codex: mark("provider-codex").foregroundStyle(.primary)
+        case .pi: mark("provider-pi").foregroundStyle(.primary)
+        case .opencode: mark("provider-opencode").foregroundStyle(.primary)
+        case .unknown: Image(systemName: "cpu").foregroundStyle(.secondary)
         }
+    }
+
+    private func mark(_ name: String) -> some View {
+        Image(name, bundle: Bundle(for: BundleToken.self))
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityLabel(provider.rawValue)
     }
 }

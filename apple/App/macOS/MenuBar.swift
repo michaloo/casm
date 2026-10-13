@@ -39,6 +39,15 @@ struct MenuBarContent: View {
 struct MenuBarLabel: View {
     @Environment(AppModel.self) private var app
 
+    /// Menu bar extra labels ignore SwiftUI sizing (a resizable Image came out at the SVG's
+    /// 784 pt), so hand over an NSImage that already has menu bar size and is a template.
+    static let glyph: NSImage = {
+        let image = (NSImage(named: "MenuBarGlyph")?.copy() as? NSImage) ?? NSImage()
+        image.size = NSSize(width: 16, height: 16)
+        image.isTemplate = true
+        return image
+    }()
+
     /// The casm glyph (a template image, so it follows the menu bar's colour) with the number of
     /// agents that need you, or else the number running.
     var body: some View {
@@ -46,11 +55,7 @@ struct MenuBarLabel: View {
         let waiting = agents.count { $0.status == .waiting }
         let running = agents.count { $0.status == .running }
         HStack(spacing: 3) {
-            Image("MenuBarGlyph")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 16, height: 16)
+            Image(nsImage: Self.glyph)
             if waiting > 0 {
                 Text("\(waiting) waiting")
             } else if running > 0 {

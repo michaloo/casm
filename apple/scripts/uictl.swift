@@ -14,6 +14,8 @@
 //   uictl closewins <app> <title>      close windows whose title contains <title>
 //   uictl minimize <app> <title>       minimize windows whose title contains <title>
 //   uictl scroll <app> <element> <dy> <n> <ms>  trackpad-style scroll over an element
+//   uictl move <x> <y>                 move the pointer (no click)
+//   uictl extras <app>                 list the app's menu bar extras
 //   uictl front <app>                  activate the app
 //   uictl trust                        prompt for Accessibility permission
 import AppKit
@@ -216,6 +218,15 @@ case "scroll":
         e?.post(tap: .cghidEventTap)
         usleep(interval)
     }
+case "move":
+    // Moves the pointer without clicking (e.g. to reveal an auto-hiding Dock).
+    CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: Double(args[1])!, y: Double(args[2])!), mouseButton: .left)?.post(tap: .cghidEventTap)
+case "extras":
+    // Status items (menu bar extras) of an app: title, description, frame.
+    guard let a = app(args[1]) else { fail("no app") }
+    let el = AXUIElementCreateApplication(a.processIdentifier)
+    guard let bar = attr(el, "AXExtrasMenuBar") else { print("no extras menu bar"); exit(0) }
+    for k in children(bar as! AXUIElement) { print(label(k), frame(k).map { "\($0)" } ?? "-") }
 case "screen":
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")

@@ -1,0 +1,22 @@
+{
+  "name": "casm-ng",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test 'packages/*/test/*.test.ts'",
+    "dev:server": "node packages/cli/src/main.ts serve",
+    "schema": "node packages/protocol/scripts/export-schema.ts"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
+    "typescript": "^7.0.2"
+  }
+}

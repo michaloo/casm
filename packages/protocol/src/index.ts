@@ -339,6 +339,10 @@ export const methods = {
   "agent.usage": method(ById, z.object({ usage: Usage.nullable() })),
   // Slash commands and skills the agent accepts. Send them as text ("/name args").
   "agent.commands": method(ById, z.object({ commands: z.array(Command) })),
+  // Runs a shell command in the agent's cwd as the user ("!cmd"). It shows as a
+  // tool item with streamed output, and lands in the agent's own history and
+  // context the way the agent does it natively. Rejected while a turn runs.
+  "agent.shell": method(z.object({ id: z.string(), command: z.string().min(1) }), Ok),
   "agent.interrupt": method(ById, Ok),
   // Reload: new process, same native session. Restart: next turn starts a new session.
   "agent.reload": method(ById, Ok),

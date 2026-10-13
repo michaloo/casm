@@ -43,6 +43,10 @@ export type OpenOptions = {
 export interface ProviderSession {
   // Starts a turn, or folds the text into the running turn (steer).
   send(text: string, itemId: string, images?: ImageData[]): void;
+  // Runs a user shell command as its own turn: emit a tool item with id
+  // `itemId` (name "shell", input {command}), toolOutput while it runs, the
+  // finished item, then turnEnded. Record it in the agent's history/context.
+  shell(command: string, itemId: string): void;
   interrupt(): Promise<void>;
   close(): Promise<void>;
 }

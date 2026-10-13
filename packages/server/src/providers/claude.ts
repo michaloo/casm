@@ -18,6 +18,7 @@ import {
   type PermissionMode,
   type PermissionResult,
   type SDKMessage,
+  type SDKPartialAssistantMessage,
   type SDKRateLimitInfo,
   type SDKUserMessage,
   type SlashCommand,
@@ -38,8 +39,10 @@ import type {
 } from "@casm/protocol";
 import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
 import { claudeMemories } from "./claude-memory.ts";
+import { ClaudeTasks } from "./claude-tasks.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
+const MAX_TOOL_INPUT_PREVIEW = 8000;
 // History drops image bytes above this (base64 length of ~1 MB of data).
 const MAX_HISTORY_IMAGE_B64 = Math.ceil((1024 * 1024 * 4) / 3);
 const CATALOG_TIMEOUT_MS = 30_000;
@@ -153,6 +156,9 @@ const PLAN_STATUS = new Set(["pending", "in_progress", "completed"]);
 // so callers upsert by id.
 export class Normalizer {
   readonly tools = new Map<string, ToolItem>();
+  private inputStreams = new Map<number, { id: string; json: string; truncated: boolean; emitted: number }>();
+  private draftingTools = new Set<string>();
+  private readonly backgroundTasks = new ClaudeTasks();
   private calls = new Map<string, TaskCall>();
   private plan: PlanItem | null = null;
   private tasks = new Map<string, { text: string; status: PlanEntry["status"] }>();
@@ -161,7 +167,7 @@ export class Normalizer {
   // A bash-mode command whose result is in a later message.
   private bash: ToolItem | null = null;
 
-  entry(e: Entry): Item[] {
+  entry<E extends Entry>(e: E): Item[] {
     if (e.type === "system") return this.system(e);
     const m = e.message as { role?: string; content?: unknown; model?: string } | undefined;
     if (!m || !e.uuid) return [];
@@ -181,6 +187,11 @@ export class Normalizer {
   private system(e: Entry): Item[] {
     const id = e.uuid ?? randomUUID();
     switch (e.subtype) {
+      case "task_started":
+      case "task_updated":
+      case "task_progress":
+      case "task_notification":
+        return this.backgroundTasks.observe(e);
       case "compact_boundary": {
         const c = e.compactMetadata;
         const s = e.compact_metadata;
@@ -223,8 +234,68 @@ export class Normalizer {
     return { kind: "notice", id: this.retryId, level: "warning", text };
   }
 
-  endTurn() {
+  // Partial JSON is display-only text until it parses. Never invent missing
+  // argument values or expose plan bookkeeping as a second raw tool card.
+  stream(event: SDKPartialAssistantMessage["event"]): ToolItem[] {
+    if (event.type === "message_start" || event.type === "message_stop") {
+      this.inputStreams.clear();
+      return [];
+    }
+    if (event.type === "content_block_start") {
+      this.inputStreams.delete(event.index);
+      const b = event.content_block;
+      if (b.type !== "tool_use" || PLAN_TOOLS.has(b.name) || this.tools.has(b.id)) return [];
+      const item: ToolItem = { kind: "tool", id: b.id, name: b.name, input: b.input ?? {}, status: "running" };
+      this.tools.set(item.id, item);
+      this.draftingTools.add(item.id);
+      this.inputStreams.set(event.index, { id: item.id, json: "", truncated: false, emitted: 0 });
+      return [item];
+    }
+    if (event.type !== "content_block_delta" && event.type !== "content_block_stop") return [];
+    const s = this.inputStreams.get(event.index);
+    if (!s) return [];
+    const item = this.tools.get(s.id);
+    if (!item || item.status !== "running" || !this.draftingTools.has(s.id)) return [];
+    if (event.type === "content_block_stop") this.inputStreams.delete(event.index);
+    else {
+      if (event.delta.type !== "input_json_delta" || !event.delta.partial_json || s.truncated) return [];
+      const remaining = MAX_TOOL_INPUT_PREVIEW - s.json.length;
+      s.json += event.delta.partial_json.slice(0, remaining);
+      s.truncated = event.delta.partial_json.length > remaining;
+      // Bound cumulative snapshots in the manager's in-flight event buffer.
+      // Show the first fragment, then every 128 characters; flush on block stop.
+      if (s.emitted && s.json.length - s.emitted < 128 && !s.truncated) return [];
+    }
+    if (!s.json || (s.json.length === s.emitted && !s.truncated)) return [];
+    let input: unknown = s.json;
+    if (s.truncated) input += "\n…(input preview truncated)";
+    else {
+      try { input = JSON.parse(s.json); } catch { /* Incomplete JSON stays visible as text. */ }
+    }
+    s.emitted = s.json.length;
+    const updated: ToolItem = { ...item, input };
+    this.tools.set(item.id, updated);
+    return [updated];
+  }
+
+  private finishInput(id: string) {
+    this.draftingTools.delete(id);
+    for (const [index, stream] of this.inputStreams) if (stream.id === id) this.inputStreams.delete(index);
+  }
+
+  endTurn(): ToolItem[] {
     this.retryId = null;
+    const interrupted: ToolItem[] = [];
+    for (const id of this.draftingTools) {
+      const item = this.tools.get(id);
+      if (item?.status !== "running") continue;
+      const ended: ToolItem = { ...item, status: "error", output: "Tool input generation ended before execution." };
+      this.tools.set(id, ended);
+      interrupted.push(ended);
+    }
+    this.draftingTools.clear();
+    this.inputStreams.clear();
+    return interrupted;
   }
 
   private assistant(uuid: string, bs: Block[]): Item[] {
@@ -234,6 +305,7 @@ export class Normalizer {
       if (b.type === "text" && String(b.text).trim()) out.push({ kind: "assistant", id, text: String(b.text) });
       else if (b.type === "thinking" && String(b.thinking ?? "").trim()) out.push({ kind: "reasoning", id, text: String(b.thinking) });
       else if (b.type === "tool_use") {
+        this.finishInput(String(b.id));
         const name = String(b.name);
         const input = (b.input ?? {}) as Record<string, unknown>;
         if (PLAN_TOOLS.has(name)) {
@@ -242,7 +314,9 @@ export class Normalizer {
           if (name === "TodoWrite") out.push(...this.todoWrite(String(b.id), input));
           return;
         }
-        const item: ToolItem = { kind: "tool", id: String(b.id), name, input: b.input, status: "running" };
+        const previous = this.tools.get(String(b.id));
+        const item: ToolItem = { kind: "tool", id: String(b.id), name, input: b.input, status: previous?.status ?? "running",
+          ...(previous?.output !== undefined ? { output: previous.output } : {}) };
         this.tools.set(item.id, item);
         out.push(item);
       }
@@ -299,6 +373,7 @@ export class Normalizer {
 
   private toolResult(b: Block, structured: unknown): Item[] {
     const id = String(b.tool_use_id);
+    this.finishInput(id);
     const call = this.calls.get(id);
     if (call && !b.is_error) {
       this.calls.delete(id);
@@ -752,8 +827,10 @@ class ClaudeSession implements ProviderSession {
     try {
       await this.ready;
       for await (const m of this.q) this.handle(m);
+      for (const item of this.n.endTurn()) this.item(item);
       emit({ type: "closed" });
     } catch (e) {
+      for (const item of this.n.endTurn()) this.item(item);
       emit({ type: "closed", error: e instanceof Error ? e.message : String(e) });
     }
   }
@@ -770,12 +847,14 @@ class ClaudeSession implements ProviderSession {
         this.system(m);
         return;
       case "conversation_reset":
+        for (const item of this.n.endTurn()) this.item(item);
         // /clear or leaving plan mode moves Claude to a new transcript.
         emit({ type: "sessionId", id: m.new_conversation_id });
         this.item({ kind: "notice", id: m.uuid, text: `Conversation reset${m.trigger ? ` (${m.trigger})` : ""}` });
         return;
       case "stream_event": {
         const ev = m.event;
+        for (const item of this.n.stream(ev)) this.item(item);
         if (ev.type === "content_block_delta") {
           if (ev.delta.type === "text_delta") emit({ type: "delta", kind: "assistant", text: ev.delta.text });
           else if (ev.delta.type === "thinking_delta" && ev.delta.thinking.trim())
@@ -817,7 +896,7 @@ class ClaudeSession implements ProviderSession {
         }
         const interrupted = this.interrupted;
         this.interrupted = false;
-        this.n.endTurn();
+        for (const item of this.n.endTurn()) this.item(item);
         this.resultUsage(m.total_cost_usd, m.modelUsage);
         if (m.subtype === "success") emit({ type: "turnEnded", outcome: m.is_error ? "failed" : "completed", error: m.is_error ? m.result : undefined });
         else emit({ type: "turnEnded", outcome: interrupted ? "interrupted" : "failed", error: interrupted ? undefined : (m.errors ?? []).join("; ") || m.subtype });
@@ -861,6 +940,10 @@ class ClaudeSession implements ProviderSession {
       case "informational":
       case "model_refusal_fallback":
       case "model_refusal_no_fallback":
+      case "task_started":
+      case "task_updated":
+      case "task_progress":
+      case "task_notification":
         for (const item of this.n.entry(m as Entry)) this.item(item);
         return;
       case "local_command_output":

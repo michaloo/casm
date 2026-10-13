@@ -13,8 +13,8 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 
 | Source | Version | Ids | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|---|--:|--:|--:|--:|--:|--:|
-| Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 43 | 64 | 35 | 0 | 55% |
-| Codex (app-server) | codex-cli 0.160.1 | 225 | 60 | 113 | 52 | 0 | 54% |
+| Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 49 | 62 | 31 | 0 | 61% |
+| Codex (app-server) | codex-cli 0.160.1 | 225 | 61 | 113 | 51 | 0 | 54% |
 | OpenCode (serve) | opencode 1.19.0 | 147 | 33 | 66 | 48 | 0 | 41% |
 | pi (RPC mode) | pi-coding-agent 1.1.0 | 102 | 53 | 26 | 23 | 0 | 70% |
 | ACP (Agent Client Protocol) | @agentclientprotocol/sdk 1.8.0 | 68 | 33 | 24 | 11 | 0 | 75% |
@@ -23,62 +23,16 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 
 | Theme | Gaps |
 |---|--:|
-| Agent extras (commands, skills, MCP, hooks, subagents) | 43 |
 | Session control (fork, rewind, compact, rename, list) | 43 |
-| Rich tool content (diffs, terminals, streaming output) | 19 |
+| Agent extras (commands, skills, MCP, hooks, subagents) | 39 |
+| Rich tool content (diffs, terminals, streaming output) | 17 |
 | Input content (images, files, mentions) | 16 |
-| Interaction (permissions, questions, dialogs) | 14 |
+| Interaction (permissions, questions, dialogs) | 15 |
 | Status, retries, warnings and errors | 12 |
 | Live config changes (model, mode, effort mid-session) | 12 |
 | Usage, cost and context window | 6 |
 | Rich assistant output (images, files, citations) | 2 |
 | Plans and todos | 2 |
-
-### Agent extras (commands, skills, MCP, hooks, subagents)
-
-- **claude** `query:backgroundTasks`: Background tasks (shells, subagents) are not listed or controllable.
-- **claude** `query:initializationResult`: Agents, output styles and account info from init are not exposed; commands come from supportedCommands().
-- **claude** `query:mcpServerStatus`: No MCP server status in the protocol.
-- **claude** `query:readMcpResource`: MCP resources/widgets are not exposed.
-- **claude** `query:reconnectMcpServer`: No MCP server control.
-- **claude** `query:reinitialize`: Fresh init result (commands, models) not exposed; see initializationResult.
-- **claude** `query:setMcpPermissionModeOverride`: No per-MCP-server permission override.
-- **claude** `query:stopTask`: Background tasks can't be stopped individually.
-- **claude** `query:supportedAgents`: Subagent list not exposed.
-- **claude** `query:toggleMcpServer`: No MCP server control.
-- **claude** `sdkmessage:prompt_suggestion`: Predicted next prompt (opt-in promptSuggestions, not enabled).
-- **claude** `sdkmessage:system/background_tasks_changed`: Background task list is not surfaced.
-- **claude** `sdkmessage:system/commands_changed`: Not pushed to clients; agent.commands re-reads the list on demand.
-- **claude** `sdkmessage:system/memory_recall`: "Recalled from memory" is not shown.
-- **claude** `sdkmessage:system/task_notification`: Background task/subagent completion is not shown.
-- **claude** `sdkmessage:system/task_progress`: Subagent progress is not shown; subagent messages are skipped.
-- **claude** `sdkmessage:system/task_started`: Background task start is not shown.
-- **claude** `sdkmessage:system/task_updated`: Background task updates are not shown.
-- **codex** `item:hookPrompt`: Hook-injected prompts are dropped from the transcript.
-- **codex** `notification:mcpServer/event/stream/notification`: MCP server event streams are not exposed.
-- **codex** `notification:mcpServer/startupStatus/updated`: MCP server startup status is not shown.
-- **codex** `notification:thread/goal/cleared`: Thread goals are not exposed.
-- **codex** `notification:thread/goal/updated`: Thread goals are not exposed.
-- **codex** `request:mcpServer/resource/read`: MCP resources are not exposed.
-- **codex** `request:mcpServer/tool/call`: Clients can't call MCP tools directly.
-- **codex** `request:mcpServerStatus/list`: No MCP server status.
-- **codex** `request:thread/goal/clear`: Thread goals are not exposed.
-- **codex** `request:thread/goal/get`: Thread goals are not exposed.
-- **codex** `request:thread/goal/set`: Thread goals are not exposed.
-- **codex** `request:thread/inject_items`: Injecting history items without a turn is not supported.
-- **opencode** `event:lsp.updated`: LSP status is not shown.
-- **opencode** `event:mcp.tools.changed`: MCP tool changes are not shown.
-- **opencode** `event:reference.updated`: Reference (context source) changes are not surfaced.
-- **opencode** `event:session.next.shell.ended`: User shell commands are not supported.
-- **opencode** `event:session.next.shell.started`: User shell commands are not supported.
-- **opencode** `event:vcs.branch.updated`: Git branch changes are not shown.
-- **opencode** `input:subtask`: Clients can't start a subagent task directly.
-- **opencode** `op:session.children`: Subagent sessions are not exposed.
-- **opencode** `op:session.init`: /init (AGENTS.md generation) can't be run.
-- **opencode** `part:agent`: @agent mentions are not shown.
-- **opencode** `part:subtask`: Subagent tasks are not shown (the task tool call itself is).
-- **pi** `ui:setWidget`: Extension widgets are dropped.
-- **acp** `update:subagent_update`: Subagents aren't modelled (casm has parent links only for casm-created agents).
 
 ### Session control (fork, rewind, compact, rename, list)
 
@@ -126,6 +80,48 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **acp** `protocol:$/cancel_request`: casm's JSON-RPC has no request cancellation (e.g. for a long agent.wait).
 - **acp** `update:session_info_update`: Agent.name is user-set; agent-generated titles aren't carried.
 
+### Agent extras (commands, skills, MCP, hooks, subagents)
+
+- **claude** `query:backgroundTasks`: Background tasks (shells, subagents) are not listed or controllable.
+- **claude** `query:initializationResult`: Agents, output styles and account info from init are not exposed; commands come from supportedCommands().
+- **claude** `query:mcpServerStatus`: No MCP server status in the protocol.
+- **claude** `query:readMcpResource`: MCP resources/widgets are not exposed.
+- **claude** `query:reconnectMcpServer`: No MCP server control.
+- **claude** `query:reinitialize`: Fresh init result (commands, models) not exposed; see initializationResult.
+- **claude** `query:setMcpPermissionModeOverride`: No per-MCP-server permission override.
+- **claude** `query:stopTask`: Background tasks can't be stopped individually.
+- **claude** `query:supportedAgents`: Subagent list not exposed.
+- **claude** `query:toggleMcpServer`: No MCP server control.
+- **claude** `sdkmessage:prompt_suggestion`: Predicted next prompt (opt-in promptSuggestions, not enabled).
+- **claude** `sdkmessage:system/background_tasks_changed`: Background task list is not surfaced.
+- **claude** `sdkmessage:system/commands_changed`: Not pushed to clients; agent.commands re-reads the list on demand.
+- **claude** `sdkmessage:system/memory_recall`: "Recalled from memory" is not shown.
+- **codex** `item:hookPrompt`: Hook-injected prompts are dropped from the transcript.
+- **codex** `notification:mcpServer/event/stream/notification`: MCP server event streams are not exposed.
+- **codex** `notification:mcpServer/startupStatus/updated`: MCP server startup status is not shown.
+- **codex** `notification:thread/goal/cleared`: Thread goals are not exposed.
+- **codex** `notification:thread/goal/updated`: Thread goals are not exposed.
+- **codex** `request:mcpServer/resource/read`: MCP resources are not exposed.
+- **codex** `request:mcpServer/tool/call`: Clients can't call MCP tools directly.
+- **codex** `request:mcpServerStatus/list`: No MCP server status.
+- **codex** `request:thread/goal/clear`: Thread goals are not exposed.
+- **codex** `request:thread/goal/get`: Thread goals are not exposed.
+- **codex** `request:thread/goal/set`: Thread goals are not exposed.
+- **codex** `request:thread/inject_items`: Injecting history items without a turn is not supported.
+- **opencode** `event:lsp.updated`: LSP status is not shown.
+- **opencode** `event:mcp.tools.changed`: MCP tool changes are not shown.
+- **opencode** `event:reference.updated`: Reference (context source) changes are not surfaced.
+- **opencode** `event:session.next.shell.ended`: User shell commands are not supported.
+- **opencode** `event:session.next.shell.started`: User shell commands are not supported.
+- **opencode** `event:vcs.branch.updated`: Git branch changes are not shown.
+- **opencode** `input:subtask`: Clients can't start a subagent task directly.
+- **opencode** `op:session.children`: Subagent sessions are not exposed.
+- **opencode** `op:session.init`: /init (AGENTS.md generation) can't be run.
+- **opencode** `part:agent`: @agent mentions are not shown.
+- **opencode** `part:subtask`: Subagent tasks are not shown (the task tool call itself is).
+- **pi** `ui:setWidget`: Extension widgets are dropped.
+- **acp** `update:subagent_update`: Subagents aren't modelled (casm has parent links only for casm-created agents).
+
 ### Rich tool content (diffs, terminals, streaming output)
 
 - **claude** `block:advisor_tool_result`: Server-tool result block; normalize() only reads text/thinking/tool_use, so it is dropped.
@@ -136,8 +132,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **claude** `block:web_search_tool_result`: Server web-search result is dropped.
 - **claude** `sdkmessage:tool_progress`: Carries only elapsed time; Claude Code doesn't stream Bash/tool output to SDK hosts, so there is no AgentEvent.toolOutput for Claude.
 - **claude** `sdkmessage:tool_use_summary`: Tool-batch summaries are dropped.
-- **claude** `streamdelta:input_json_delta`: Tool input isn't streamed; the tool appears when the assistant message completes.
-- **codex** `notification:item/commandExecution/terminalInteraction`: Interactive terminal input to running commands is not shown.
 - **codex** `notification:item/fileChange/patchUpdated`: Patch updates while editing are not streamed.
 - **codex** `notification:turn/diff/updated`: The aggregated turn diff is not surfaced (only per-item diffs in tool output).
 - **opencode** `event:session.diff`: The session's file diff is not surfaced.
@@ -169,6 +163,7 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 
 ### Interaction (permissions, questions, dialogs)
 
+- **claude** `callback:onUserDialog`: The SDK onUserDialog callback is not wired into the provider options yet. Previously counted prospectively as mapped; restore mapped once implemented and tested.
 - **claude** `sdkmessage:system/elicitation_complete`: URL-mode elicitation completion doesn't resolve the pending question; the user must confirm by hand.
 - **codex** `notification:autoApprovalReview/strictReviewRequired`: Guardian strict-review requirement is not shown.
 - **codex** `notification:item/autoApprovalReview/completed`: Guardian auto-review of approvals is not shown.
@@ -242,13 +237,13 @@ claude-agent-sdk 0.3.296, from node_modules/@anthropic-ai/claude-agent-sdk/sdk.d
 | Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|--:|--:|--:|--:|--:|
 | block | 5 | 9 | 8 | 0 | 38% |
-| callback | 3 | 0 | 0 | 0 | 100% |
+| callback | 2 | 0 | 1 | 0 | 67% |
 | hook | 0 | 33 | 0 | 0 | - |
 | query | 12 | 7 | 11 | 0 | 52% |
-| sdkmessage | 20 | 9 | 13 | 0 | 61% |
-| streamdelta | 2 | 1 | 3 | 0 | 40% |
-| streamevent | 1 | 5 | 0 | 0 | 100% |
-| **total** | **43** | **64** | **35** | **0** | **55%** |
+| sdkmessage | 24 | 9 | 9 | 0 | 73% |
+| streamdelta | 3 | 1 | 2 | 0 | 60% |
+| streamevent | 3 | 3 | 0 | 0 | 100% |
+| **total** | **49** | **62** | **31** | **0** | **61%** |
 
 ### Codex (app-server)
 
@@ -258,11 +253,11 @@ codex-cli 0.160.1, from codex app-server generate-json-schema. Classified by rea
 |---|--:|--:|--:|--:|--:|
 | clientNotification | 1 | 0 | 0 | 0 | 100% |
 | clientRequest | 13 | 67 | 24 | 0 | 35% |
-| serverNotification | 20 | 40 | 23 | 0 | 47% |
+| serverNotification | 21 | 40 | 22 | 0 | 49% |
 | serverRequest | 5 | 6 | 0 | 0 | 100% |
 | threadItem | 17 | 0 | 2 | 0 | 89% |
 | userInput | 4 | 0 | 3 | 0 | 57% |
-| **total** | **60** | **113** | **52** | **0** | **54%** |
+| **total** | **61** | **113** | **51** | **0** | **54%** |
 
 ### OpenCode (serve)
 

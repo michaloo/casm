@@ -51,7 +51,7 @@
     "notification:item/autoApprovalReview/completed": {"status": "gap", "theme": "interaction", "note": "Guardian auto-review of approvals is not shown."},
     "notification:item/autoApprovalReview/started": {"status": "gap", "theme": "interaction", "note": "Guardian auto-review of approvals is not shown."},
     "notification:item/commandExecution/outputDelta": {"status": "mapped", "to": "AgentEvent.toolOutput", "note": "Unified exec's first output chunk can precede item/started and is not sent as a delta; the final tool item has it."},
-    "notification:item/commandExecution/terminalInteraction": {"status": "gap", "theme": "tool-content", "note": "Interactive terminal input to running commands is not shown."},
+    "notification:item/commandExecution/terminalInteraction": {"status": "mapped", "to": "Item.tool", "note": "Each live PTY input notification creates a bounded terminal card with process/item IDs, stdin and the command when known. Repeated input is preserved; other threads and ended turns are ignored. It does not complete the owning shell command, provide terminal controls, or add native-history replay."},
     "notification:item/completed": {"status": "mapped", "to": "AgentEvent.item"},
     "notification:item/fileChange/outputDelta": {"status": "mapped", "to": "AgentEvent.toolOutput", "note": "Deprecated; Codex no longer emits it."},
     "notification:item/fileChange/patchUpdated": {"status": "gap", "theme": "tool-content", "note": "Patch updates while editing are not streamed."},

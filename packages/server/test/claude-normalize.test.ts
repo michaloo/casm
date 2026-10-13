@@ -1,7 +1,88 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { SlashCommand } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKTaskStartedMessage, SlashCommand } from "@anthropic-ai/claude-agent-sdk";
 import { Normalizer, bashRecord, bashResult, chain, historyItems, parseCommands, parseLines, promptContent, usageFromLines, type Entry } from "../src/providers/claude.ts";
+
+// Task_* frames from SDK 0.3.296. A background task can outlive the
+// foreground result and a resumed task reuses task_id with a newer run_id.
+const taskStart = {
+  type: "system", subtype: "task_started", task_id: "child-1", run_id: "run-001",
+  description: "Review authentication", subagent_type: "Explore", task_type: "local_agent",
+  is_backgrounded: false,
+  uuid: "00000000-0000-0000-0000-000000000001", session_id: "session-1",
+} satisfies SDKTaskStartedMessage;
+
+test("Claude task lifecycle upserts one notice and survives foreground turn completion", () => {
+  const n = new Normalizer();
+  const start = n.entry(taskStart);
+  assert.deepEqual(start, [{ kind: "notice", id: "claude-task:child-1", level: "info", text: "Subagent (Explore) running: Review authentication" }]);
+  const update = n.entry({ ...taskStart, subtype: "task_updated", patch: { is_backgrounded: true } });
+  assert.match((update[0] as { text: string }).text, /running \(background\)/);
+  n.endTurn();
+  const progress = n.entry({
+    ...taskStart, subtype: "task_progress", is_backgrounded: true, last_tool_name: "Grep",
+    summary: "Checking token validation", usage: { total_tokens: 1234, tool_uses: 3, duration_ms: 2500 },
+  });
+  assert.equal(progress[0]?.id, start[0]?.id);
+  assert.match((progress[0] as { text: string }).text, /Checking token validation\n3 tool uses · 1234 tokens · 3s · last tool: Grep/);
+  const done = n.entry({
+    type: "system", subtype: "task_notification", task_id: "child-1", run_id: "run-001",
+    status: "completed", summary: "No authentication issues found", output_file: "/unused/result",
+  });
+  assert.deepEqual(done, [{
+    kind: "notice", id: "claude-task:child-1", level: "info",
+    text: "Subagent (Explore) completed: Review authentication\nNo authentication issues found\n3 tool uses · 1234 tokens · 3s",
+  }]);
+});
+
+test("Claude tasks reject stale frames and permit a new run of the same task", () => {
+  const n = new Normalizer();
+  n.entry(taskStart);
+  const done = { ...taskStart, subtype: "task_notification", status: "completed", summary: "First run done" };
+  n.entry(done);
+  assert.deepEqual(n.entry(done), []); // Duplicate notification.
+  assert.deepEqual(n.entry(taskStart), []); // Late start cannot revive a finished run.
+  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "running" } }), []);
+  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_progress", usage: { total_tokens: 1, tool_uses: 1, duration_ms: 1 } }), []);
+  const resumed = n.entry({ ...taskStart, run_id: "run-002", is_backgrounded: true });
+  assert.equal(resumed[0]?.id, "claude-task:child-1");
+  assert.match((resumed[0] as { text: string }).text, /running \(background\)/);
+  assert.deepEqual(n.entry(done), []); // Late completion of the older run.
+  assert.deepEqual(n.entry({ ...done, run_id: undefined }), []); // Unversioned frame cannot override a versioned run.
+});
+
+test("Claude hides ambient tasks and does not materialize unknown progress or patches", () => {
+  const n = new Normalizer();
+  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_progress", usage: { total_tokens: 0, tool_uses: 0, duration_ms: 0 } }), []);
+  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "running" } }), []);
+  assert.deepEqual(n.entry({ ...taskStart, ambient: true }), []);
+  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_progress", usage: { total_tokens: 8, tool_uses: 1, duration_ms: 20 } }), []);
+  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_notification", status: "completed", summary: "Housekeeping done" }), []);
+  assert.deepEqual(n.entry({ ...taskStart, task_id: "hidden", skip_transcript: true }), []);
+  assert.deepEqual(n.entry({ ...taskStart, task_id: "hidden", subtype: "task_notification", status: "failed" }), []);
+});
+
+test("Claude task pauses, failures and standalone completion remain visible with useful severity", () => {
+  const n = new Normalizer();
+  n.entry(taskStart);
+  const paused = n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "paused" } });
+  assert.match((paused[0] as { text: string }).text, /paused/);
+  const failed = n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "failed", error: "Model unavailable" } });
+  assert.deepEqual(failed, [{ kind: "notice", id: "claude-task:child-1", level: "error", text: "Subagent (Explore) failed: Review authentication\nModel unavailable" }]);
+  const stopped = n.entry({ type: "system", subtype: "task_notification", task_id: "older-task", status: "stopped", summary: "Worker restarted" });
+  assert.deepEqual(stopped, [{ kind: "notice", id: "claude-task:older-task", level: "warning", text: "Task stopped: older-task\nWorker restarted" }]);
+  const enriched = n.entry({ ...taskStart, subtype: "task_notification", status: "failed", summary: "Final failure details" });
+  assert.match((enriched[0] as { text: string }).text, /Final failure details/);
+});
+
+test("Claude task notices are bounded and malformed records are ignored", () => {
+  const n = new Normalizer();
+  const item = n.entry({ ...taskStart, description: "x".repeat(9000) })[0];
+  assert.equal((item as { text: string }).text.length, 8000);
+  assert.deepEqual(n.entry({ ...taskStart, task_id: "" }), []);
+  assert.deepEqual(n.entry({ ...taskStart, task_id: 42 }), []);
+  assert.deepEqual(n.entry({ ...taskStart, subtype: "task_updated", patch: { status: "made-up" } }), []);
+});
 
 test("normalizes a tool call and completes it from the tool result", () => {
   const n = new Normalizer();

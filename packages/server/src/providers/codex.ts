@@ -198,6 +198,17 @@ export function normalize(item: CodexItem, live = false): Item | null {
 
 // --- notices, plans, usage (live notifications)
 
+// This records input sent to a PTY, not the completion of its owning command.
+// Each notification gets its own ID: sending the same keystroke twice is valid.
+export function terminalInteraction(p: Record<string, unknown>, id: string, command?: string): ToolItem | null {
+  if (typeof p.processId !== "string" || !p.processId || typeof p.itemId !== "string" || !p.itemId || typeof p.stdin !== "string") return null;
+  return {
+    kind: "tool", id, name: "terminal", status: "done",
+    input: { processId: p.processId, itemId: p.itemId, stdin: truncate(p.stdin), ...(command ? { command: truncate(command) } : {}) },
+    ...(p.stdin === "" ? { output: "No input sent." } : {}),
+  };
+}
+
 const shortHash = (s: string) => createHash("sha1").update(s).digest("hex").slice(0, 12);
 
 // Codex wraps API errors as JSON text: show the inner message.
@@ -657,6 +668,9 @@ class CodexSession implements ProviderSession {
   private approvals = new Map<string, AbortController>();
   // Tool items seen in this turn, so approvals can show what they approve.
   private tools = new Map<string, Item>();
+  // PTYs can span turns. Retain a bounded command lookup for their input cards.
+  private terminalCommands = new Map<string, string>();
+  private terminalSequence = 0;
   private closing = false;
   // For "/skill" prompts; refreshed on skills/changed.
   private skills: Skill[] = [];
@@ -753,6 +767,12 @@ class CodexSession implements ProviderSession {
       case "item/fileChange/outputDelta":
         if (str(p.delta)) emit({ type: "toolOutput", itemId: str(p.itemId), text: str(p.delta) });
         return;
+      case "item/commandExecution/terminalInteraction": {
+        if (!this.turnId || p.turnId !== this.turnId || this.ended.has(this.turnId)) return;
+        const item = terminalInteraction(p, `terminal:${this.turnId}:${++this.terminalSequence}`, this.terminalCommands.get(str(p.processId)));
+        if (item) emit({ type: "item", item });
+        return;
+      }
       case "item/mcpToolCall/progress":
         if (str(p.message)) emit({ type: "toolOutput", itemId: str(p.itemId), text: `${str(p.message)}\n` });
         return;
@@ -773,6 +793,10 @@ class CodexSession implements ProviderSession {
       case "item/completed": {
         const raw = rec(p.item) as CodexItem;
         if (raw.type === "userMessage") return; // the manager emits our prompts
+        if (raw.type === "commandExecution" && typeof raw.processId === "string" && raw.processId && typeof raw.command === "string") {
+          this.terminalCommands.set(raw.processId, unwrapShell(raw.command));
+          if (this.terminalCommands.size > 256) this.terminalCommands.delete(this.terminalCommands.keys().next().value!);
+        }
         const item = normalize(raw, method === "item/started");
         if (!item) return;
         if (item.kind === "tool") this.tools.set(item.id, item);

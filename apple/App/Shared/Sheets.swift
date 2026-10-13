@@ -49,7 +49,7 @@ struct AddHostSheet: View {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) { Button("Add", action: add).disabled(!valid) }
         }
-        .frame(minWidth: 420)
+        .sheetSize(minWidth: 420)
     }
 
     private var parsedURL: URL? {
@@ -136,7 +136,7 @@ struct NewProjectSheet: View {
                     .disabled(!path.hasPrefix("/") || host?.isOnline != true || busy)
             }
         }
-        .frame(minWidth: 460)
+        .sheetSize(minWidth: 460)
         .onAppear { if hostID == nil { hostID = app.hosts.first(where: \.isOnline)?.id ?? app.hosts.first?.id } }
     }
 
@@ -298,7 +298,7 @@ struct NewAgentSheet: View {
                     .disabled(projectId == nil || host?.isOnline != true || busy)
             }
         }
-        .frame(minWidth: 460, minHeight: 520)
+        .sheetSize(minWidth: 460, minHeight: 520)
         .onAppear { if hostID == nil { hostID = app.hosts.first(where: \.isOnline)?.id ?? app.hosts.first?.id } }
     }
 
@@ -384,9 +384,21 @@ struct HostInfoSheet: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
         }
-        .frame(minWidth: 460, minHeight: 420)
+        .sheetSize(minWidth: 460, minHeight: 420)
         .task {
             do { peers = try await host.client.peers(probe: true) } catch { self.error = error.localizedDescription }
         }
+    }
+}
+
+extension View {
+    /// A minimum size for sheets on macOS, where they'd otherwise shrink to fit. On iOS sheets
+    /// already fill the screen, and a fixed width would push them past an iPhone's edges.
+    func sheetSize(minWidth: CGFloat, minHeight: CGFloat? = nil) -> some View {
+        #if os(macOS)
+        frame(minWidth: minWidth, minHeight: minHeight)
+        #else
+        self
+        #endif
     }
 }

@@ -58,6 +58,7 @@ class FakeSession implements ProviderSession {
     })();
   }
   shell(command: string, itemId: string) {
+    if (command === "explode") throw new Error("boom");
     const item = { kind: "tool" as const, id: itemId, name: "shell", input: { command } };
     this.opts.emit({ type: "item", item: { ...item, status: "running" } });
     this.opts.emit({ type: "toolOutput", itemId, text: "out\n" });
@@ -325,4 +326,11 @@ test("agent.shell runs as its own turn and is refused while busy", async () => {
   await assert.rejects(client.call("agent.shell", { id: a.id, command: "ls" }), (e: CasmError) => e.code === 1002);
   await client.call("agent.interrupt", { id: a.id });
   await client.call("agent.wait", { id: a.id });
+});
+
+test("a provider that throws while starting work leaves the agent idle", async () => {
+  const p = await client.call("project.create", { name: "P12", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  await assert.rejects(client.call("agent.shell", { id: a.id, command: "explode" }), /boom/);
+  assert.equal((await client.call("agent.get", { id: a.id })).status, "idle");
 });

@@ -198,14 +198,24 @@ export class AgentManager {
     l.lastReply = null;
     this.emit(id, { type: "turnStarted", turnId: l.turnId });
     this.statusChanged(id);
-    l.session!.shell(command, randomUUID());
+    this.guard(id, l, () => l.session!.shell(command, randomUUID()));
+  }
+
+  // A provider that throws while starting work must not leave the agent "running".
+  private guard(id: string, l: Live, start: () => void) {
+    try {
+      start();
+    } catch (e) {
+      if (l.turnId) this.endTurn(id, l, "failed", e instanceof Error ? e.message : String(e));
+      throw new RpcError(-32603, e instanceof Error ? e.message : String(e));
+    }
   }
 
   private sendToSession(id: string, l: Live, prompt: Prompt) {
     const itemId = randomUUID();
     const images = prompt.images?.length ? prompt.images : undefined;
     this.emit(id, { type: "item", item: { kind: "user", id: itemId, text: prompt.text, images } });
-    l.session!.send(prompt.text, itemId, images);
+    this.guard(id, l, () => l.session!.send(prompt.text, itemId, images));
   }
 
   private startTurn(a: StoredAgent, l: Live, prompt: Prompt) {

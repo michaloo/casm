@@ -19,57 +19,36 @@ enum ISOTime {
     }
 }
 
-/// Messages waiting to be sent to this agent, above the composer (B2): why each waits, and Edit /
-/// cancel for each.
+/// Messages waiting to be sent, above the composer, the way Paseo shows its queue: one quiet row
+/// per message with Edit and Send now; cancel is in the row's context menu.
 struct PendingStrip: View {
     let chat: ChatModel
     #if os(iOS)
-    /// On iPhone the strip is one summary line until tapped: the composer area is short.
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var expanded = false
-    private var collapsed: Bool { sizeClass == .compact && !expanded }
+    @State private var showAll = false
+    /// iPhone: the composer area is short, so show two and a "more" line.
+    private var limit: Int { sizeClass == .compact && !showAll ? 2 : .max }
     #else
-    private let collapsed = false
+    private let limit = Int.max
     #endif
-
-    private var summary: String {
-        let next = chat.pending.compactMap { ISOTime.parse($0.notBefore) }.min()
-        return "\(chat.pending.count) pending" + (next.map { " · next \(ISOTime.describe($0))" } ?? "")
-    }
 
     var body: some View {
         if !chat.pending.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Label(collapsed ? summary : "\(chat.pending.count) pending", systemImage: "tray.full")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer()
-                    #if os(iOS)
-                    if sizeClass == .compact {
-                        Button(expanded ? "Hide" : "Show") { withAnimation { expanded.toggle() } }
-                            .buttonStyle(.borderless)
-                            .font(.caption)
-                    }
-                    #endif
-                    if chat.pending.count > 1 {
-                        Button("Cancel All") { Task { await chat.cancelPending(nil) } }
-                            .buttonStyle(.borderless)
-                            .font(.caption)
-                    }
-                }
-                if !collapsed {
-                ForEach(chat.pending) { message in
+            VStack(alignment: .trailing, spacing: 6) {
+                ForEach(chat.pending.prefix(limit)) { message in
                     PendingRow(message: message,
                                edit: { Task { await chat.editPending(message) } },
+                               sendNow: { Task { await chat.sendPendingNow(message) } },
                                cancel: { Task { await chat.cancelPending(message) } })
                 }
+                #if os(iOS)
+                if chat.pending.count > limit {
+                    Button("\(chat.pending.count - limit) more pending") { withAnimation { showAll = true } }
+                        .font(.caption)
+                        .buttonStyle(.borderless)
                 }
+                #endif
             }
-            .padding(10)
-            .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.18)))
         }
     }
 }
@@ -77,54 +56,68 @@ struct PendingStrip: View {
 struct PendingRow: View {
     let message: PendingMessage
     let edit: () -> Void
+    let sendNow: () -> Void
     let cancel: () -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: icon).foregroundStyle(tint).frame(width: 16)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(message.text.isEmpty ? "(images only)" : message.text)
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message.text.isEmpty ? "Image" : message.text)
+                    .font(.system(size: 14))
                     .lineLimit(2)
-                    .truncationMode(.tail)
-                Text(caption).font(.caption).foregroundStyle(.secondary)
+                if let caption {
+                    Text(caption).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                }
             }
             Spacer(minLength: 8)
-            Button("Edit", systemImage: "pencil", action: edit)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .help("Take it back into the composer")
-            Button("Cancel Message", systemImage: "xmark", action: cancel)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .help("Don't send it")
+            RoundIconButton(label: "Edit", systemImage: "pencil", fill: Theme.surface2, tint: .primary, action: edit)
+            RoundIconButton(label: "Send now", systemImage: "arrow.up", fill: .accentColor, tint: .white, action: sendNow)
         }
-        .font(.callout)
-        .frame(minHeight: 28)
-    }
-
-    private var icon: String {
-        switch message.reason {
-        case .queued: "arrow.turn.down.right"
-        case .limit: "hourglass"
-        case .scheduled: "clock"
-        case .unknown: "tray"
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .background(Theme.surface1, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+        .contextMenu {
+            Button("Send Now", action: sendNow)
+            Button("Edit", action: edit)
+            Divider()
+            Button("Cancel Message", role: .destructive, action: cancel)
         }
     }
 
-    private var tint: Color { message.reason == .limit ? .orange : .secondary }
-
-    private var caption: String {
-        var parts: [String] = []
+    /// Only when it isn't simply "after the current turn".
+    private var caption: String? {
+        let when = ISOTime.parse(message.notBefore).map { ISOTime.describe($0) }
         switch message.reason {
-        case .queued: parts.append("After the current turn")
-        case .limit: parts.append("When the usage limit resets")
-        case .scheduled: parts.append("Scheduled")
-        case .unknown(let raw): parts.append(raw)
+        case .queued: return nil
+        case .limit: return "When the usage limit resets" + (when.map { " · \($0)" } ?? "")
+        case .scheduled: return when.map { "Scheduled · \($0)" } ?? "Scheduled"
+        case .unknown(let raw): return raw
         }
-        if let date = ISOTime.parse(message.notBefore) { parts.append(ISOTime.describe(date)) }
-        if let images = message.imageCount, images > 0 { parts.append("\(images) image\(images == 1 ? "" : "s")") }
-        if let note = message.note { parts.append(note) }
-        return parts.joined(separator: " · ")
+    }
+}
+
+/// A 28 pt circular icon button with a 44 pt hit area on iOS.
+struct RoundIconButton: View {
+    let label: String
+    let systemImage: String
+    let fill: Color
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(fill, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+        .modifier(TapTarget())
     }
 }
 
@@ -132,21 +125,23 @@ struct PendingRow: View {
 struct LimitBanner: View {
     let chat: ChatModel
 
+    /// A single quiet line; orange only when work is actually held back.
     var body: some View {
         if let text {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "hourglass").foregroundStyle(.orange).font(.title3)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(text.title).fontWeight(.semibold)
-                    Text(text.detail).font(.callout).foregroundStyle(.secondary)
-                }
-                Spacer()
+            HStack(spacing: 6) {
+                Image(systemName: "hourglass")
+                Text(text.title).fontWeight(.medium)
+                Text(text.detail).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 0)
             }
-            .padding(12)
-            .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.orange.opacity(0.3)))
+            .font(.system(size: 12))
+            .foregroundStyle(blocking ? Color.orange : Theme.muted)
+            .padding(.horizontal, 4)
+            .help(text.detail)
         }
     }
+
+    private var blocking: Bool { chat.agent?.deferred != nil || chat.limit != nil }
 
     private var text: (title: String, detail: String)? {
         let agent = chat.agent
@@ -155,14 +150,14 @@ struct LimitBanner: View {
             let when = resets.map { "Resumes at \(ISOTime.describe($0))" } ?? "Resumes when the limit resets"
             let reason = agent?.deferred?.reason ?? chat.limit?.message
             let waiting = chat.pending.isEmpty ? "" : " · \(chat.pending.count) waiting"
-            return ("Usage limit reached", [when + waiting, reason].compactMap { $0 }.joined(separator: "\n"))
+            return ("Usage limit reached", [when + waiting, reason].compactMap { $0 }.joined(separator: " · "))
         }
         // No failure yet, but a subscription window is nearly used up.
         if let provider = agent?.provider, let limits = chat.host?.limits[provider],
            let window = limits.windows.first(where: { $0.status == .exhausted || $0.status == .warning }) {
             let used = window.usedPercent.map { "\(Int($0.rounded()))% used" } ?? (window.status == .exhausted ? "Used up" : "Nearly used up")
             let reset = ISOTime.parse(window.resetsAt).map { " · resets \(ISOTime.describe($0))" } ?? ""
-            return ("\(window.label ?? "Usage") limit: \(used)", "\(MemoryGroupView.providerName(provider))\(reset)")
+            return ("\(window.label ?? "Usage") limit \(used)", "\(MemoryGroupView.providerName(provider))\(reset)")
         }
         return nil
     }

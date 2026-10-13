@@ -301,6 +301,23 @@ final class ChatModel {
         await refreshPending()
     }
 
+    /// Sends a pending message now: into the running turn (steer) if busy, else as the next turn.
+    func sendPendingNow(_ message: PendingMessage) async {
+        guard let host else { return }
+        do {
+            // 0 means it was sent meanwhile.
+            guard try await host.client.cancelPending(agentId: agentId, messageId: message.id) > 0 else {
+                await refreshPending()
+                return
+            }
+            try await host.client.send(agentId: agentId, text: message.text, whenBusy: status.isBusy ? .steer : nil)
+            scrollToBottomRequest += 1
+        } catch {
+            self.error = error.localizedDescription
+        }
+        await refreshPending()
+    }
+
     /// Takes a pending message back into the composer to change it.
     func editPending(_ message: PendingMessage) async {
         guard let host else { return }

@@ -62,3 +62,26 @@ Each host offers the agents installed on it (`casm info` lists them). Each one u
 | OpenCode | one shared `opencode serve` per host (HTTP + SSE) | session id | permission asks; mode = OpenCode agent (`build`, `plan`, …) |
 
 Override a binary with `CASM_CLAUDE_PATH`, `CASM_CODEX_PATH`, `CASM_PI_PATH` or `CASM_OPENCODE_PATH`.
+
+## Protocol coverage
+
+[coverage/REPORT.md](coverage/REPORT.md) measures how much of each agent's native protocol, and of
+ACP, casm covers. Inventories in `coverage/inventory/` are extracted from each agent's own source of
+truth (Claude SDK `sdk.d.ts`, `codex app-server generate-json-schema`, OpenCode's OpenAPI `/doc`,
+pi's RPC docs, the ACP npm schema) by `scripts/coverage/<source>.ts`. Every id is classified by hand
+in `coverage/<source>.json` as `mapped` (with the casm element it maps to), `ignored` (with a reason)
+or `gap` (with a theme and a note).
+
+After upgrading an agent (or the Claude SDK):
+
+```sh
+npm run coverage            # re-extract all inventories, rewrite coverage/REPORT.md
+npm run coverage -- codex   # just one source; --offline skips the ACP npm download
+```
+
+It prints added/removed ids and exits 1 while any are unclassified. Classify new ids in
+`coverage/<source>.json` by reading the provider code, delete ids the agent dropped, and run it again.
+`npm test` fails on the same drift: it re-extracts Claude, Codex, pi and ACP (from the `/tmp` cache)
+when they are installed, and uses the checked-in inventory for OpenCode, which needs a running server.
+When a provider starts handling something, flip its entry from `gap` to `mapped`; a test checks that
+every `to` names a real protocol element.

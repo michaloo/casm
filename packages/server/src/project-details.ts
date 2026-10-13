@@ -38,18 +38,3 @@ export async function listMemories(providers: Provider[], folder: string, log?: 
   );
   return found.filter((m): m is AgentMemories => m !== null);
 }
-
-function editable(providers: Provider[], id: ProviderId, op: "updateMemory" | "deleteMemory"): Provider {
-  const p = providers.find((x) => x.id === id);
-  if (!p) throw new RpcError(ErrorCode.Conflict, `provider "${id}" is not available on this host`);
-  if (!p[op]) throw new RpcError(ErrorCode.Conflict, `${id} memories are read-only`);
-  return p;
-}
-
-export function updateMemory(providers: Provider[], folder: string, id: ProviderId, entryId: string, text: string): Promise<MemoryEntry> {
-  return editable(providers, id, "updateMemory").updateMemory!(folder, entryId, text);
-}
-
-export function deleteMemory(providers: Provider[], folder: string, id: ProviderId, entryId: string): Promise<void> {
-  return editable(providers, id, "deleteMemory").deleteMemory!(folder, entryId);
-}

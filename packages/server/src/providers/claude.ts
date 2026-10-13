@@ -37,7 +37,7 @@ import type {
   Usage,
 } from "@casm/protocol";
 import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
-import { claudeDeleteMemory, claudeMemories, claudeUpdateMemory } from "./claude-memory.ts";
+import { claudeMemories } from "./claude-memory.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
 // History drops image bytes above this (base64 length of ~1 MB of data).
@@ -1083,7 +1083,5 @@ export function claudeProvider(): Provider {
       return usageFromLines(await readLines(sessionId, cwd), windows);
     },
     memories: claudeMemories,
-    updateMemory: claudeUpdateMemory,
-    deleteMemory: claudeDeleteMemory,
   };
 }

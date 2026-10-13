@@ -9,7 +9,7 @@ import { CasmClient, CasmError } from "@casm/client";
 import { Store } from "../src/db.ts";
 import { startServer, type RunningServer } from "../src/server.ts";
 import type { Provider } from "../src/providers/types.ts";
-import { claudeDeleteMemory, claudeMemories, claudeUpdateMemory, encodeProjectPath, memoryDir, memoryRoot } from "../src/providers/claude-memory.ts";
+import { claudeMemories, encodeProjectPath, memoryDir, memoryRoot } from "../src/providers/claude-memory.ts";
 import { appliesTo, codexMemories, parseBlocks } from "../src/providers/codex-memory.ts";
 
 const root = mkdtempSync(join(tmpdir(), "casm-details-"));
@@ -113,21 +113,6 @@ test("claude: lists the index, then notes in index order, titled from the index"
   assert.ok(m.entries[1].updatedAt);
 });
 
-test("claude: update rewrites a note; delete drops it from MEMORY.md", async () => {
-  const dir = claudeFixture();
-  const e = await claudeUpdateMemory(project, "deploy.md", "---\nname: deploy\n---\n\nfly deploy from release.\n");
-  assert.equal(e.title, "Deploy");
-  assert.match(readFileSync(join(dir, "deploy.md"), "utf8"), /release/);
-
-  await claudeDeleteMemory(project, "branches.md");
-  assert.equal(existsSync(join(dir, "branches.md")), false);
-  assert.equal(readFileSync(join(dir, "MEMORY.md"), "utf8"), "- [Deploy](deploy.md) — fly deploy from main\n");
-
-  await assert.rejects(claudeUpdateMemory(project, "nope.md", "x"), /not found/);
-  await assert.rejects(claudeUpdateMemory(project, "../../../escape.md", "x"), /invalid memory entry/);
-  await assert.rejects(claudeDeleteMemory(project, "MEMORY.md"), /index/);
-});
-
 test("claude: autoMemoryDirectory moves the store and makes it global", async () => {
   const custom = join(root, "custom-memory");
   mkdirSync(custom, { recursive: true });
@@ -161,12 +146,11 @@ test("codex: cwd tags decide which handbook blocks apply", () => {
   );
 });
 
-test("codex: global, read-only store filtered to the project", async () => {
+test("codex: global store filtered to the project", async () => {
   assert.equal(await codexMemories(project), null);
   codexFixture();
   const m = (await codexMemories(project))!;
   assert.equal(m.scope, "global");
-  assert.equal(m.readOnly, true);
   assert.deepEqual(
     m.entries.map((e) => [e.id, e.title]),
     [
@@ -200,7 +184,7 @@ before(async () => {
   store = new Store(join(mkdtempSync(join(tmpdir(), "casm-test-")), "casm.db"));
   const token = store.createToken("test");
   const providers = [
-    memoryProvider("claude", { memories: claudeMemories, updateMemory: claudeUpdateMemory, deleteMemory: claudeDeleteMemory }),
+    memoryProvider("claude", { memories: claudeMemories }),
     memoryProvider("codex", { memories: codexMemories }),
   ];
   server = await startServer({ store, providers, host: "127.0.0.1", port: 0, version: "test" });
@@ -222,30 +206,18 @@ test("project.agentsMd reads and writes <project>/AGENTS.md", async () => {
   assert.equal((await client.call("project.agentsMd", { id: p.id })).content, "# Rules\n- be brief\n");
 });
 
-test("project.memories lists each agent's store; edits go to editable ones", async () => {
-  const dir = claudeFixture();
+test("project.memories lists each agent's store, read-only", async () => {
+  claudeFixture();
   codexFixture();
   const p = await client.call("project.create", { path: project, name: "memories" });
   const { agents } = await client.call("project.memories", { id: p.id });
   assert.deepEqual(
-    agents.map((a) => [a.provider, a.scope, a.readOnly ?? false]),
+    agents.map((a) => [a.provider, a.scope]),
     [
-      ["claude", "project", false],
-      ["codex", "global", true],
+      ["claude", "project"],
+      ["codex", "global"],
     ],
   );
-
-  const e = await client.call("project.updateMemory", { id: p.id, provider: "claude", entryId: "loose.md", text: "updated\n" });
-  assert.equal(e.text, "updated\n");
-  await client.call("project.deleteMemory", { id: p.id, provider: "claude", entryId: "loose.md" });
-  assert.equal(existsSync(join(dir, "loose.md")), false);
-
-  await assert.rejects(
-    client.call("project.updateMemory", { id: p.id, provider: "codex", entryId: "MEMORY.md#1", text: "x" }),
-    (err: CasmError) => err.code === 1003 && /read-only/.test(err.message),
-  );
-  await assert.rejects(
-    client.call("project.deleteMemory", { id: p.id, provider: "claude", entryId: "missing.md" }),
-    (err: CasmError) => err.code === 1001,
-  );
+  await assert.rejects(client.call("project.updateMemory" as "project.memories", { id: p.id }), (err: CasmError) => err.code === -32601);
 });
+

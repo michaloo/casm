@@ -310,7 +310,7 @@ async function run(c: CasmClient) {
         return out(res, () => {
           if (!res.agents.length) console.log("no memories");
           for (const a of res.agents) {
-            console.log(`${a.provider} (${a.scope}${a.readOnly ? ", read-only" : ""})  ${a.location}`);
+            console.log(`${a.provider} (${a.scope})  ${a.location}`);
             for (const e of a.entries) console.log(`  ${e.id}${e.title ? `  ${e.title}` : ""}${e.updatedAt ? `  ${e.updatedAt.slice(0, 10)}` : ""}`);
           }
         });

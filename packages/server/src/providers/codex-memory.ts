@@ -76,5 +76,5 @@ export async function codexMemories(cwd: string): Promise<ProviderMemories | nul
     if (appliesTo(tag, cwd)) entries.push({ id: `rollout_summaries/${f}`, title: f.replace(/\.md$/, ""), ...r });
   }
 
-  return entries.length ? { scope: "global", location: dir, readOnly: true, entries } : null;
+  return entries.length ? { scope: "global", location: dir, entries } : null;
 }

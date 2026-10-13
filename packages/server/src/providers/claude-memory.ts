@@ -123,24 +123,3 @@ function notePath(dir: string, id: string): string {
   return file;
 }
 
-export async function claudeUpdateMemory(cwd: string, id: string, text: string): Promise<MemoryEntry> {
-  const { dir } = memoryDir(cwd);
-  await writeFile(notePath(dir, id), text);
-  const titles = existsSync(join(dir, INDEX)) ? indexTitles(await readFile(join(dir, INDEX), "utf8")) : new Map<string, string>();
-  return entry(dir, relative(dir, resolve(dir, id)).split(sep).join("/"), titles);
-}
-
-// Deleting a note also drops the MEMORY.md lines that link to it.
-export async function claudeDeleteMemory(cwd: string, id: string): Promise<void> {
-  const { dir } = memoryDir(cwd);
-  const file = notePath(dir, id);
-  const rel = relative(dir, file).split(sep).join("/");
-  if (rel === INDEX) throw new RpcError(ErrorCode.InvalidParams, `${INDEX} is the index; edit it instead of deleting it`);
-  await rm(file);
-  const indexFile = join(dir, INDEX);
-  if (!existsSync(indexFile)) return;
-  const index = await readFile(indexFile, "utf8");
-  const links = new Set([rel, `./${rel}`]);
-  const kept = index.split("\n").filter((line) => ![...line.matchAll(/\]\(([^)\s]+)\)/g)].some((m) => links.has(m[1])));
-  if (kept.length !== index.split("\n").length) await writeFile(indexFile, kept.join("\n"));
-}

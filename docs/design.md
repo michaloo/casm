@@ -62,23 +62,21 @@ Host (client-side: name, url, token)
   show subagents under their caller.
 
 ### Project details: AGENTS.md and memories
-casm doesn't keep project instructions or memories itself. It reads and edits what the agents
-already use, keyed by the project folder:
+casm doesn't keep project instructions or memories itself. It shows what the agents already use,
+keyed by the project folder. AGENTS.md is editable; memories are read-only (the agents own them):
 
 - **AGENTS.md** (`project.agentsMd`, `project.setAgentsMd`): `<path>/AGENTS.md`, which Codex,
   OpenCode, pi and Claude Code all read. `content` is null when the file doesn't exist.
 - **Memories** (`project.memories`): one block per installed agent with something stored,
-  `{provider, scope: project|global, location, readOnly?, entries[{id, title?, text, updatedAt?}]}`.
-  Each provider implements the optional `memories(cwd)` / `updateMemory` / `deleteMemory`.
+  `{provider, scope: project|global, location, entries[{id, title?, text, updatedAt?}]}`.
+  Each provider implements the optional `memories(cwd)`.
   - **Claude Code:** `<CLAUDE_CONFIG_DIR or ~/.claude>/projects/<folder>/memory/`, where `<folder>` is
     the main checkout of the git repo containing the path (worktrees share it), else the path, with
     every non-alphanumeric character replaced by `-` (over 200 chars: cut and suffixed with a hash).
     The user setting `autoMemoryDirectory` replaces it with one global dir. Entries are `MEMORY.md`
-    (the index loaded into every session) and each note file, titled from the index link. Editable:
-    `project.updateMemory` rewrites a file; `project.deleteMemory` removes a note and its index lines.
+    (the index loaded into every session) and each note file, titled from the index link.
   - **Codex** (`[features] memories = true`): one global store, `$CODEX_HOME/memories/`, generated
-    in the background from idle threads and rewritten on each consolidation, so it is read-only in
-    casm. Entries: `memory_summary.md` (injected into every session), the `MEMORY.md` "Task Group"
+    in the background from idle threads and rewritten on each consolidation. Entries: `memory_summary.md` (injected into every session), the `MEMORY.md` "Task Group"
     blocks whose `applies_to: cwd=` tag covers the folder (or names no path), and the
     `rollout_summaries/*.md` whose `cwd:` header does.
   - **OpenCode, pi:** no memory store by default, so nothing is listed.

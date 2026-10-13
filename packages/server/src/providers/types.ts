@@ -66,14 +66,10 @@ export interface Provider {
   // Memories that apply to `cwd`; null when the agent has none. Agents without
   // a memory store leave these out.
   memories?(cwd: string): Promise<ProviderMemories | null>;
-  // Throw RpcError NotFound for an unknown entry. Left out for read-only stores.
-  updateMemory?(cwd: string, entryId: string, text: string): Promise<MemoryEntry>;
-  deleteMemory?(cwd: string, entryId: string): Promise<void>;
 }
 
 export type ProviderMemories = {
   scope: "project" | "global";
   location: string;
-  readOnly?: boolean;
   entries: MemoryEntry[];
 };

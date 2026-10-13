@@ -26,6 +26,18 @@ struct MenuBarContent: View {
         if !idle.isEmpty {
             Section("Idle") { rows(Array(idle.prefix(12))) }
         }
+        let usage = app.hosts.filter(\.isOnline).flatMap { host in
+            host.limits.values.filter { !$0.windows.isEmpty }.sorted { $0.provider.rawValue < $1.provider.rawValue }.map { (host, $0) }
+        }
+        if !usage.isEmpty {
+            Section("Usage") {
+                ForEach(Array(usage.enumerated()), id: \.offset) { _, entry in
+                    let (host, limits) = entry
+                    let name = MemoryGroupView.providerName(limits.provider)
+                    Text("\(app.hosts.count > 1 ? "\(name) on \(host.name)" : name): \(limits.summary)")
+                }
+            }
+        }
         Divider()
         Button("Open casm") { app.bringToFront() }
         Button("Quit casm") { NSApp.terminate(nil) }.keyboardShortcut("q")

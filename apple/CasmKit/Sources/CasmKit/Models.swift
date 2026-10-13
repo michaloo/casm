@@ -388,6 +388,13 @@ public struct ProviderLimits: Codable, Sendable, Hashable {
     public var plan: String?
     public var windows: [LimitWindow]
     public var updatedAt: String
+
+    public init(provider: ProviderID, plan: String? = nil, windows: [LimitWindow], updatedAt: String) {
+        self.provider = provider
+        self.plan = plan
+        self.windows = windows
+        self.updatedAt = updatedAt
+    }
 }
 
 public struct SubagentRun: Codable, Sendable, Hashable {

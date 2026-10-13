@@ -22,6 +22,7 @@ import type {
   QuestionPrompt,
   QuestionRequest,
   Usage,
+  ProviderLimits,
 } from "@casm/protocol";
 import type { OpenOptions, PermissionAnswer, Provider, ProviderSession } from "./types.ts";
 import { codexMemories } from "./codex-memory.ts";
@@ -171,11 +172,9 @@ export function normalize(item: CodexItem, live = false): Item | null {
     }
     case "dynamicToolCall":
       return tool(item, str(item.tool), item.arguments, status, contentText(item.contentItems));
-    case "collabAgentToolCall": {
-      const states = rec(item.agentsStates);
-      const output = Object.keys(states).length ? JSON.stringify(states) : "";
-      return tool(item, `agent.${str(item.tool)}`, { prompt: item.prompt, model: item.model, receivers: item.receiverThreadIds }, status, output);
-    }
+    case "collabAgentToolCall":
+    case "subAgentActivity":
+      return subagentItems(item)[0] ?? null;
     case "functionCallOutput":
       return tool(item, str(item.name) || "tool", undefined, "done", typeof item.output === "string" ? item.output : contentText(item.output));
     case "webSearch":
@@ -184,8 +183,6 @@ export function normalize(item: CodexItem, live = false): Item | null {
       return tool(item, "view_image", { path: item.path }, status);
     case "contextCompaction":
       return { kind: "notice", id, text: "Context compacted", level: "info" };
-    case "subAgentActivity":
-      return { kind: "notice", id, text: `Subagent ${str(item.agentPath)} ${str(item.kind)}`, level: "info" };
     case "enteredReviewMode":
     case "exitedReviewMode":
       return { kind: "notice", id, text: `${item.type === "enteredReviewMode" ? "Review started" : "Review finished"}: ${str(item.review)}`, level: "info" };
@@ -195,6 +192,81 @@ export function normalize(item: CodexItem, live = false): Item | null {
       const { type, id: _id, status: _s, ...rest } = item;
       return tool(item, type, rest, status);
     }
+  }
+}
+
+type SubagentItem = Extract<Item, { kind: "subagent" }>;
+
+function childStatus(status: unknown): SubagentItem["status"] {
+  if (["errored", "interrupted", "notFound", "failed"].includes(str(status))) return "error";
+  return status === "completed" || status === "shutdown" ? "done" : "running";
+}
+
+// Calls can address several children. Never use the call/notice id as a child id.
+export function subagentItems(raw: CodexItem, known = new Map<string, SubagentItem>()): SubagentItem[] {
+  if (raw.type !== "collabAgentToolCall" && raw.type !== "subAgentActivity") return [];
+  const states = rec(raw.agentsStates);
+  const ids = raw.type === "subAgentActivity" ? [str(raw.agentThreadId)] : [...arr(raw.receiverThreadIds).map(str), ...Object.keys(states)];
+  return [...new Set(ids)].filter(Boolean).map((id) => {
+    const previous = known.get(id);
+    const state = rec(states[id]);
+    const nativeStatus = raw.type === "subAgentActivity" ? raw.kind : state.status;
+    const item: SubagentItem = {
+      kind: "subagent", id, title: previous?.title ?? (str(raw.agentPath) || str(raw.prompt) || "Subagent"),
+      ...previous,
+      status: nativeStatus ? childStatus(nativeStatus) : previous?.status ?? "running",
+    };
+    if (raw.agentPath) item.title = str(raw.agentPath);
+    if (state.message) item.summary = truncate(str(state.message));
+    return item;
+  });
+}
+
+// The reducer is shared by paginated history and live collaboration snapshots.
+function normalizeItems(raw: CodexItem, known: Map<string, SubagentItem>, live = false): Item[] {
+  if (raw.type === "collabAgentToolCall" || raw.type === "subAgentActivity") {
+    const items = subagentItems(raw, known);
+    for (const item of items) known.set(item.id, item);
+    return items;
+  }
+  const item = normalize(raw, live);
+  return item ? [item] : [];
+}
+
+type Limits = Omit<ProviderLimits, "provider" | "updatedAt">;
+
+export function rateLimits(snapshot: unknown): Limits {
+  const s = rec(snapshot);
+  const windows: Limits["windows"] = [];
+  for (const id of ["primary", "secondary"]) {
+    if (!s[id]) continue;
+    const w = rec(s[id]);
+    const minutes = typeof w.windowDurationMins === "number" ? w.windowDurationMins : undefined;
+    const used = typeof w.usedPercent === "number" ? w.usedPercent : undefined;
+    const label = minutes === 10080 ? "weekly" : minutes === 1440 ? "daily" : minutes && minutes % 60 === 0 ? `${minutes / 60}-hour` : minutes ? `${minutes}-minute` : id;
+    windows.push({ id: s.limitId ? `${str(s.limitId)}:${id}` : id, label,
+      ...(used !== undefined ? { usedPercent: used } : {}),
+      ...(minutes !== undefined ? { windowMinutes: minutes } : {}),
+      ...(typeof w.resetsAt === "number" && Number.isFinite(w.resetsAt) ? { resetsAt: new Date(w.resetsAt * 1000).toISOString() } : {}),
+      status: s.rateLimitReachedType || (used ?? 0) >= 100 ? "exhausted" : (used ?? 0) >= 80 ? "warning" : "ok",
+    });
+  }
+  if (!windows.length && s.rateLimitReachedType) windows.push({ id: str(s.limitId) || "usage", status: "exhausted" });
+  return { ...(s.planType ? { plan: str(s.planType) } : {}), windows };
+}
+
+export async function readLimits(): Promise<Limits> {
+  const rpc = new Rpc(homedir(), process.env as Record<string, string>);
+  try {
+    await rpc.initialize();
+    const response = await rpc.request("account/rateLimits/read", {});
+    const buckets = Object.entries(rec(response.rateLimitsByLimitId)).filter(([, value]) => value != null);
+    if (!buckets.length) return rateLimits(response.rateLimits);
+    const mapped = buckets.map(([id, value]) => rateLimits({ ...rec(value), limitId: rec(value).limitId ?? id }));
+    const plan = rateLimits(response.rateLimits).plan ?? mapped.find((limits) => limits.plan)?.plan;
+    return { ...(plan ? { plan } : {}), windows: mapped.flatMap((limits) => limits.windows) };
+  } finally {
+    rpc.kill();
   }
 }
 
@@ -674,6 +746,8 @@ class CodexSession implements ProviderSession {
   private terminalCommands = new Map<string, string>();
   private terminalSequence = 0;
   private closing = false;
+  private subagents = new Map<string, SubagentItem>();
+  private limitSnapshots = new Map<string, Record<string, unknown>>();
   // For "/skill" prompts; refreshed on skills/changed.
   private skills: Skill[] = [];
   private model = "";
@@ -699,6 +773,9 @@ class CodexSession implements ProviderSession {
   private async start() {
     const { cwd, config, resumeId } = this.opts;
     await this.rpc.initialize();
+    if (resumeId) {
+      for (const item of await readHistory(resumeId, cwd)) if (item.kind === "subagent") this.subagents.set(item.id, item);
+    }
     const mode = config.mode ? MODES[config.mode] : undefined;
     const params = {
       cwd,
@@ -735,7 +812,37 @@ class CodexSession implements ProviderSession {
 
   private onNotification(method: string, p: Record<string, unknown>) {
     const { emit } = this.opts;
-    if (p.threadId != null && p.threadId !== this.threadId) return; // subagent threads
+    if (method === "account/rateLimits/updated") {
+      // Rolling updates are sparse: null metadata does not clear known values.
+      const update = rec(p.rateLimits);
+      const bucket = str(update.limitId);
+      const snapshot = this.limitSnapshots.get(bucket) ?? {};
+      for (const [key, value] of Object.entries(update)) {
+        if (value == null) continue;
+        snapshot[key] = key === "primary" || key === "secondary"
+          ? { ...rec(snapshot[key]), ...Object.fromEntries(Object.entries(rec(value)).filter(([, v]) => v != null)) }
+          : value;
+      }
+      if ("rateLimitReachedType" in update) snapshot.rateLimitReachedType = update.rateLimitReachedType;
+      this.limitSnapshots.set(bucket, snapshot);
+      const mapped = [...this.limitSnapshots.values()].map(rateLimits);
+      const plan = mapped.find((limits) => limits.plan)?.plan;
+      emit({ type: "limits", limits: { ...(plan ? { plan } : {}), windows: mapped.flatMap((limits) => limits.windows) } });
+      return;
+    }
+    if (method === "thread/started") {
+      const thread = rec(p.thread);
+      if (this.threadId && thread.parentThreadId === this.threadId && thread.id) {
+        const id = str(thread.id);
+        this.publishChild({ kind: "subagent", id, title: str(thread.agentNickname) || "Subagent", status: "running",
+          ...(thread.agentRole ? { agentType: str(thread.agentRole) } : {}), ...this.subagents.get(id) });
+      }
+      return;
+    }
+    if (p.threadId != null && p.threadId !== this.threadId) {
+      this.childNotification(method, p);
+      return;
+    }
     switch (method) {
       case "error": {
         emit({ type: "item", item: errorNotice(p) });
@@ -809,11 +916,11 @@ class CodexSession implements ProviderSession {
           this.terminalCommands.set(raw.processId, unwrapShell(raw.command));
           if (this.terminalCommands.size > 256) this.terminalCommands.delete(this.terminalCommands.keys().next().value!);
         }
-        const item = normalize(raw, method === "item/started");
-        if (!item) return;
-        if (item.kind === "tool") this.tools.set(item.id, item);
-        // Text arrives as deltas; the full item lands on completion.
-        if (method === "item/completed" || item.kind === "tool" || item.kind === "notice") emit({ type: "item", item });
+        for (const item of normalizeItems(raw, this.subagents, method === "item/started")) {
+          if (item.kind === "tool") this.tools.set(item.id, item);
+          // Text arrives as deltas; the full item lands on completion.
+          if (method === "item/completed" || item.kind === "tool" || item.kind === "notice" || item.kind === "subagent") emit({ type: "item", item });
+        }
         return;
       }
       case "serverRequest/resolved":
@@ -837,6 +944,28 @@ class CodexSession implements ProviderSession {
         return;
       }
     }
+  }
+
+  private publishChild(item: SubagentItem) {
+    this.subagents.set(item.id, item);
+    this.opts.emit({ type: "item", item });
+  }
+
+  private childNotification(method: string, p: Record<string, unknown>) {
+    const previous = this.subagents.get(str(p.threadId));
+    if (!previous) return; // Unrelated threads must not enter this transcript.
+    const item = { ...previous };
+    if (method === "turn/started") item.status = "running";
+    else if (method === "turn/completed") item.status = childStatus(rec(p.turn).status);
+    else if (method === "error" && !p.willRetry) { item.status = "error"; item.summary = errorMessage(p.error); }
+    else if (method === "thread/tokenUsage/updated") item.usage = tokenUsage(p.tokenUsage);
+    else if (method === "item/started" || method === "item/completed") {
+      const raw = rec(p.item) as CodexItem;
+      const normalized = normalize(raw, method === "item/started");
+      item.activity = normalized?.kind === "tool" ? normalized.name : raw.type;
+      if (method === "item/completed" && raw.type === "agentMessage") item.summary = truncate(str(raw.text));
+    } else return;
+    this.publishChild(item);
   }
 
   private abortApprovals() {
@@ -1022,6 +1151,7 @@ export async function readHistory(sessionId: string, cwd: string): Promise<Item[
   try {
     await rpc.initialize();
     const byId = new Map<string, Item>();
+    const subagents = new Map<string, SubagentItem>();
     // Last item id of each turn, to place a failed turn's error after it.
     const lastOfTurn = new Map<string, string>();
     let cursor: string | null = null;
@@ -1032,10 +1162,10 @@ export async function readHistory(sessionId: string, cwd: string): Promise<Item[
         limit: 500,
       });
       for (const { item, turnId } of page.data) {
-        const it = normalize(item);
-        if (!it) continue;
-        byId.set(it.id, it);
-        if (turnId) lastOfTurn.set(turnId, it.id);
+        for (const it of normalizeItems(item, subagents)) {
+          byId.set(it.id, it);
+          if (turnId) lastOfTurn.set(turnId, it.id);
+        }
       }
       cursor = page.nextCursor;
     } while (cursor);
@@ -1070,6 +1200,12 @@ export function codexProvider(): Provider {
     open: (opts) => new CodexSession(opts),
     history: readHistory,
     catalog: readCatalog,
+    limits: readLimits,
+    subagentHistory: async (sessionId, cwd, subagentId) => {
+      const parent = await readHistory(sessionId, cwd);
+      if (!parent.some((item) => item.kind === "subagent" && item.id === subagentId)) throw new Error("Unknown Codex subagent");
+      return readHistory(subagentId, cwd);
+    },
     usage: (sessionId) => readUsage(sessionId),
     commands: readCommands,
     // Read-only: Codex regenerates its memory files itself.

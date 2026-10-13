@@ -92,6 +92,37 @@ final class SnapshotTests: XCTestCase {
         }
     }
 
+    func testTables() throws {
+        for width in [560, 345] {
+        try render(width == 560 ? "table" : "table-narrow", width: CGFloat(width)) {
+            MarkdownView(blocks: Markdown.parse("""
+            Results after the fix:
+
+            | Test | Before | After | Notes |
+            |:-----|:------:|------:|-------|
+            | history pages | ✔ | ✔ | `npm test` |
+            | permission flow | ✘ | **✔** | waits for the answer first |
+            | reconnect | ✘ | ✔ | resubscribes before reading history, so no events are lost |
+            """))
+        }
+        }
+    }
+
+    func testBannersLineUpWithComposer() throws {
+        let request = try JSONDecoder().decode(PermissionRequest.self, from: Data(#"""
+        {"id": "p", "toolName": "Write", "input": {"file_path": "notes.md"}, "title": "notes.md", "canAlwaysAllow": true}
+        """#.utf8))
+        try render("banner-column", width: 1200) {
+            VStack(spacing: 0) {
+                PermissionBanner(request: request) { _ in }.modifier(ComposerColumn())
+                // Stand-in for the composer box, which needs a live chat.
+                RoundedRectangle(cornerRadius: 18).strokeBorder(Color.secondary.opacity(0.3))
+                    .frame(height: 70)
+                    .modifier(ComposerColumn())
+            }
+        }
+    }
+
     func testSubtitlePaths() {
         XCTAssertEqual(ChatView.abbreviate("~/code/casm"), "~/Projects/casm")
         XCTAssertEqual(ChatView.abbreviate("/home/me"), "~")

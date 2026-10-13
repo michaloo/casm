@@ -26,6 +26,9 @@ struct Composer: View {
     #if os(iOS)
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var pickingPhotos = false
+    /// The clipboard holds an image we haven't pasted yet (UIPasteboard.changeCount when last pasted).
+    @State private var clipboardHasImage = false
+    @State private var pastedChangeCount = -1
     @Environment(\.horizontalSizeClass) private var sizeClass
     private var compactWidth: Bool { sizeClass == .compact }
     #else
@@ -66,6 +69,18 @@ struct Composer: View {
                     SuggestionList(suggestions: suggestions, highlighted: highlighted, choose: accept)
                     Divider()
                 }
+                #if os(iOS)
+                if clipboardHasImage && !shellMode {
+                    Button { pasteImages() } label: {
+                        Label("Paste image from clipboard", systemImage: "doc.on.clipboard")
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                }
+                #endif
                 if !attachments.isEmpty && !shellMode {
                     AttachmentStrip(attachments: attachments) { a in attachments.removeAll { $0.id == a.id } }
                 }
@@ -136,16 +151,17 @@ struct Composer: View {
             }
         }
         #if os(iOS)
-        .padding(.horizontal, 10)
         .padding(.bottom, 8)
         #else
-        .padding(.horizontal, 20)
         .padding(.bottom, 14)
         #endif
-        .padding(.top, 6)
-        .frame(maxWidth: 900)
-        .frame(maxWidth: .infinity)
+        .modifier(ComposerColumn())
         .task(id: context) { await refreshSuggestions() }
+        #if os(iOS)
+        .onAppear(perform: checkClipboard)
+        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in checkClipboard() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in checkClipboard() }
+        #endif
         .onChange(of: chat.focusComposerRequest) { focused = true }
         .fileImporter(isPresented: $pickingFiles, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
@@ -180,8 +196,8 @@ struct Composer: View {
         // An iPhone text field can't take a pasted image, so pasting is a menu item here.
         Menu {
             Button("Photo Library", systemImage: "photo.on.rectangle") { pickingPhotos = true }
+            // Not disabled: the menu is built before the user copies something.
             Button("Paste Image", systemImage: "doc.on.clipboard") { pasteImages() }
-                .disabled(!UIPasteboard.general.hasImages)
         } label: {
             Image(systemName: "plus").accessibilityLabel("Attach images")
         }
@@ -322,7 +338,20 @@ struct Composer: View {
         // Prefer the original PNG bytes; fall back to the decoded images (photos, screenshots).
         let datas = board.data(forPasteboardType: UTType.png.identifier).map { [$0] }
             ?? (board.images ?? []).compactMap { $0.pngData() }
-        attachments += datas.compactMap { ImageEncoding.encode($0) }.map { Attachment(image: $0) }
+        let images = datas.compactMap { ImageEncoding.encode($0) }
+        if images.isEmpty {
+            chat.error = "There's no image on the clipboard."
+        } else {
+            attachments += images.map { Attachment(image: $0) }
+            pastedChangeCount = board.changeCount
+            clipboardHasImage = false
+        }
+    }
+
+    /// `hasImages` doesn't read the clipboard, so it doesn't trigger the paste permission prompt.
+    private func checkClipboard() {
+        let board = UIPasteboard.general
+        clipboardHasImage = board.hasImages && board.changeCount != pastedChangeCount
     }
     #endif
 
@@ -347,6 +376,22 @@ struct Composer: View {
         }
     }
     #endif
+}
+
+/// The centred column the composer sits in (900 pt max, same side margins); banners and cards
+/// above it use it too so their edges line up with the input box.
+struct ComposerColumn: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            #if os(iOS)
+            .padding(.horizontal, 10)
+            #else
+            .padding(.horizontal, 20)
+            #endif
+            .padding(.top, 6)
+            .frame(maxWidth: 900)
+            .frame(maxWidth: .infinity)
+    }
 }
 
 struct ActivityPill: View {

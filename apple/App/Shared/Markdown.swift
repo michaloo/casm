@@ -2,13 +2,22 @@ import Foundation
 import SwiftUI
 
 /// Block-level markdown, split by hand so SwiftUI `Text` only has to render inline markdown.
-/// Code fences and tables become monospaced blocks; everything else is inline-parsed text.
+/// Code fences become monospaced blocks, GFM tables become grids; everything else is inline-parsed text.
 enum MarkdownBlock: Hashable {
     case paragraph(AttributedString)
     case heading(level: Int, AttributedString)
     case code(language: String?, String)
     case quote(AttributedString)
     case rule
+    case table(MarkdownTable)
+}
+
+/// A GitHub-flavoured markdown table; every row has as many cells as the header.
+struct MarkdownTable: Hashable {
+    enum Alignment: Hashable { case leading, center, trailing }
+    var header: [AttributedString]
+    var alignments: [Alignment]
+    var rows: [[AttributedString]]
 }
 
 enum Markdown {
@@ -52,7 +61,11 @@ enum Markdown {
         }
         func flushAll() { flushParagraph(); flushTable(); flushQuote() }
 
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        var index = 0
+        while index < lines.count {
+            let line = lines[index]
+            index += 1
             let trimmed = line.drop(while: { $0 == " " })
             if var open = fence {
                 if trimmed.hasPrefix(open.marker) && trimmed.allSatisfy({ $0 == open.marker.first }) {
@@ -71,7 +84,25 @@ enum Markdown {
                 fence = (marker, language.isEmpty ? nil : language, [])
             } else if trimmed.isEmpty {
                 flushAll()
+            } else if trimmed.contains("|"), index < lines.count, let alignments = delimiterRow(lines[index]) {
+                // A header row followed by |---|:--:| starts a table; it runs while lines have pipes.
+                flushAll()
+                index += 1
+                var rows: [[AttributedString]] = []
+                while index < lines.count, lines[index].contains("|"),
+                      !lines[index].trimmingCharacters(in: .whitespaces).isEmpty {
+                    rows.append(cells(lines[index]).map(inline))
+                    index += 1
+                }
+                let header = cells(line).map(inline)
+                let width = header.count
+                func fit(_ row: [AttributedString]) -> [AttributedString] {
+                    Array((row + Array(repeating: AttributedString(), count: max(0, width - row.count))).prefix(width))
+                }
+                let aligns = Array((alignments + Array(repeating: MarkdownTable.Alignment.leading, count: max(0, width - alignments.count))).prefix(width))
+                blocks.append(.table(MarkdownTable(header: header, alignments: aligns, rows: rows.map(fit))))
             } else if trimmed.hasPrefix("|") {
+                // Pipe lines without a delimiter row (ASCII art, broken tables): keep them monospaced.
                 flushParagraph(); flushQuote()
                 table.append(trimmed)
             } else if trimmed.hasPrefix(">") {
@@ -91,6 +122,54 @@ enum Markdown {
         if let open = fence { blocks.append(.code(language: open.language, open.lines.joined(separator: "\n"))) }
         flushAll()
         return blocks
+    }
+
+    /// `| :--- | :---: | ---: |` → alignments, or nil if the line isn't a delimiter row.
+    static func delimiterRow(_ line: Substring) -> [MarkdownTable.Alignment]? {
+        let parts = cells(line)
+        guard !parts.isEmpty else { return nil }
+        var out: [MarkdownTable.Alignment] = []
+        for part in parts {
+            let p = part.trimmingCharacters(in: .whitespaces)
+            let dashes = p.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+            guard !dashes.isEmpty, dashes.allSatisfy({ $0 == "-" }) else { return nil }
+            switch (p.hasPrefix(":"), p.hasSuffix(":")) {
+            case (true, true): out.append(.center)
+            case (false, true): out.append(.trailing)
+            default: out.append(.leading)
+            }
+        }
+        return out
+    }
+
+    /// Splits a table row on unescaped pipes outside `code`, dropping the outer pipes.
+    static func cells(_ line: Substring) -> [String] {
+        var row = line.trimmingCharacters(in: .whitespaces)
+        if row.hasPrefix("|") { row.removeFirst() }
+        if row.hasSuffix("|") && !row.hasSuffix("\\|") { row.removeLast() }
+        var cells: [String] = []
+        var current = ""
+        var inCode = false
+        var escaped = false
+        for ch in row {
+            if escaped {
+                current.append(ch == "|" ? "|" : "\\\(ch)")
+                escaped = false
+            } else if ch == "\\" {
+                escaped = true
+            } else if ch == "`" {
+                inCode.toggle()
+                current.append(ch)
+            } else if ch == "|" && !inCode {
+                cells.append(current.trimmingCharacters(in: .whitespaces))
+                current = ""
+            } else {
+                current.append(ch)
+            }
+        }
+        if escaped { current.append("\\") }
+        cells.append(current.trimmingCharacters(in: .whitespaces))
+        return cells
     }
 
     static func inline(_ text: String) -> AttributedString {
@@ -141,10 +220,119 @@ struct MarkdownView: View {
                         .overlay(alignment: .leading) { Rectangle().fill(.quaternary).frame(width: 3) }
                 case .rule:
                     Divider()
+                case .table(let table):
+                    MarkdownTableView(table: table)
                 }
             }
         }
         .modifier(Selectable())
+    }
+}
+
+struct MarkdownTableView: View {
+    let table: MarkdownTable
+
+    var body: some View {
+        let columns = table.header.count
+        let rows = [table.header] + table.rows
+        TableLayout(columns: columns, minColumnWidth: 64) {
+            ForEach(rows.indices, id: \.self) { r in
+                ForEach(0..<columns, id: \.self) { c in
+                    cell(rows[r][c], column: c, header: r == 0, last: r == rows.count - 1)
+                }
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.25)))
+    }
+
+    private func cell(_ text: AttributedString, column: Int, header: Bool, last: Bool) -> some View {
+        let alignment = table.alignments[column]
+        let horizontal: HorizontalAlignment = alignment == .center ? .center : alignment == .trailing ? .trailing : .leading
+        return Text(text)
+            .font(.callout)
+            .fontWeight(header ? .semibold : nil)
+            .multilineTextAlignment(alignment == .center ? .center : alignment == .trailing ? .trailing : .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Alignment(horizontal: horizontal, vertical: .top))
+            .overlay(alignment: .bottom) {
+                if !last { Rectangle().fill(Color.secondary.opacity(header ? 0.35 : 0.18)).frame(height: 1) }
+            }
+    }
+}
+
+/// Lays out cells (row-major, `columns` per row) like an HTML table: columns get their natural
+/// width when everything fits; otherwise narrow columns keep theirs and the wide ones share the
+/// rest and wrap.
+/// Rows are as tall as their tallest cell.
+struct TableLayout: Layout {
+    let columns: Int
+    let minColumnWidth: CGFloat
+
+    struct Cache {
+        var widths: [CGFloat] = []
+        var heights: [CGFloat] = []
+    }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    private func rows(_ subviews: Subviews) -> Int { columns == 0 ? 0 : (subviews.count + columns - 1) / columns }
+
+    private func columnWidths(_ subviews: Subviews, available: CGFloat?) -> [CGFloat] {
+        var ideal = Array(repeating: CGFloat(0), count: columns)
+        for (i, view) in subviews.enumerated() {
+            ideal[i % columns] = max(ideal[i % columns], ceil(view.sizeThatFits(.unspecified).width))
+        }
+        guard let available, ideal.reduce(0, +) > available else { return ideal }
+        // Narrow columns that fit in an equal share keep their natural width; the wide ones split
+        // what's left (never below minColumnWidth, so very tight tables may still overflow).
+        var widths = ideal
+        var remaining = available
+        var open = Array(ideal.indices)
+        for index in ideal.indices.sorted(by: { ideal[$0] < ideal[$1] }) {
+            let share = remaining / CGFloat(open.count)
+            let width = ideal[index] <= share ? ideal[index] : max(minColumnWidth, floor(share))
+            widths[index] = min(ideal[index], width)
+            remaining -= widths[index]
+            open.removeAll { $0 == index }
+        }
+        return widths
+    }
+
+    private func rowHeights(_ subviews: Subviews, widths: [CGFloat]) -> [CGFloat] {
+        var heights = Array(repeating: CGFloat(0), count: rows(subviews))
+        for (i, view) in subviews.enumerated() {
+            let h = view.sizeThatFits(ProposedViewSize(width: widths[i % columns], height: nil)).height
+            heights[i / columns] = max(heights[i / columns], ceil(h))
+        }
+        return heights
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        guard columns > 0 else { return .zero }
+        cache.widths = columnWidths(subviews, available: proposal.width)
+        cache.heights = rowHeights(subviews, widths: cache.widths)
+        return CGSize(width: cache.widths.reduce(0, +), height: cache.heights.reduce(0, +))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        guard columns > 0 else { return }
+        if cache.widths.count != columns {
+            cache.widths = columnWidths(subviews, available: bounds.width)
+            cache.heights = rowHeights(subviews, widths: cache.widths)
+        }
+        var y = bounds.minY
+        for row in 0..<rows(subviews) {
+            var x = bounds.minX
+            for column in 0..<columns {
+                let index = row * columns + column
+                guard index < subviews.count else { break }
+                subviews[index].place(at: CGPoint(x: x, y: y), anchor: .topLeading,
+                                      proposal: ProposedViewSize(width: cache.widths[column], height: cache.heights[row]))
+                x += cache.widths[column]
+            }
+            y += cache.heights[row]
+        }
     }
 }
 

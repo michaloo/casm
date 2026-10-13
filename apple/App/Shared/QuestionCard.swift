@@ -32,7 +32,8 @@ struct QuestionCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.blue.opacity(0.07))
+        .background(Color.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.blue.opacity(0.25)))
     }
 
     private var prompts: some View {

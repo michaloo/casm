@@ -4,7 +4,10 @@ import SwiftUI
 /// A question from the agent, shown above the composer like the permission banner.
 struct QuestionCard: View {
     let request: QuestionRequest
+    /// m6: the card that takes ⌘Return (only when no permission banner claims it).
+    var takesShortcut = false
     let submit: ([String: AnswerValue]?) -> Void
+    @State private var confirmDismiss = false
 
     @State private var picked: [String: Set<String>] = [:]
     @State private var other: [String: String] = [:]
@@ -37,10 +40,15 @@ struct QuestionCard: View {
             }
             HStack {
                 Spacer()
-                Button("Dismiss") { submit(nil) }
+                // m6: dismissing can't be undone, so it's quiet and asks first.
+                Button("Dismiss") { confirmDismiss = true }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
                 Button("Submit") { submit(answers) }
                     .buttonStyle(.borderedProminent)
                     .disabled(!complete)
+                    .keyboardShortcut(takesShortcut ? KeyboardShortcut(.return, modifiers: .command) : nil)
+                    .help(takesShortcut ? "Submit (⌘Return)" : "Submit")
             }
         }
         .padding(14)
@@ -48,6 +56,12 @@ struct QuestionCard: View {
         .background(Color.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.blue.opacity(0.25)))
         .onAppear(perform: restoreDraft)
+        .confirmationDialog("Dismiss the question?", isPresented: $confirmDismiss, titleVisibility: .visible) {
+            Button("Dismiss Without Answering", role: .destructive) { submit(nil) }
+            Button("Keep", role: .cancel) {}
+        } message: {
+            Text("The agent continues without your answer.")
+        }
         .onChange(of: draft) { Drafts.shared.save(request.id, answers: draft) }
     }
 

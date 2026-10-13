@@ -1,0 +1,13 @@
+[
+  {"type": "turnStarted", "turnId": "t1"},
+  {"type": "item", "item": {"kind": "assistant", "id": "a1:0", "text": "Hi"}},
+  {"type": "delta", "kind": "assistant", "text": "Hel"},
+  {"type": "delta", "kind": "reasoning", "text": "Hmm"},
+  {"type": "permission", "request": {"id": "toolu_1", "toolName": "Write", "input": {"file_path": "/tmp/x"}, "title": "/tmp/x", "canAlwaysAllow": true}},
+  {"type": "permission", "request": {"id": "toolu_2", "toolName": "Bash", "input": {"command": "rm -rf /"}, "canAlwaysAllow": false}},
+  {"type": "permissionResolved", "requestId": "toolu_1"},
+  {"type": "turnEnded", "turnId": "t1", "outcome": "completed"},
+  {"type": "turnEnded", "turnId": "t2", "outcome": "failed", "error": "agent process exited"},
+  {"type": "turnEnded", "turnId": "t3", "outcome": "timedOut"},
+  {"type": "compacted", "turnId": "t4"}
+]

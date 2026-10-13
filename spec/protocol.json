@@ -1936,6 +1936,15 @@
                         },
                         "costUsd": {
                           "type": "number"
+                        },
+                        "totalTokens": {
+                          "type": "number"
+                        },
+                        "toolUses": {
+                          "type": "number"
+                        },
+                        "durationMs": {
+                          "type": "number"
                         }
                       }
                     }
@@ -2247,6 +2256,15 @@
                                 },
                                 "costUsd": {
                                   "type": "number"
+                                },
+                                "totalTokens": {
+                                  "type": "number"
+                                },
+                                "toolUses": {
+                                  "type": "number"
+                                },
+                                "durationMs": {
+                                  "type": "number"
                                 }
                               }
                             }
@@ -2404,6 +2422,15 @@
                           "type": "number"
                         },
                         "costUsd": {
+                          "type": "number"
+                        },
+                        "totalTokens": {
+                          "type": "number"
+                        },
+                        "toolUses": {
+                          "type": "number"
+                        },
+                        "durationMs": {
                           "type": "number"
                         }
                       }
@@ -2872,6 +2899,15 @@
                   },
                   "costUsd": {
                     "type": "number"
+                  },
+                  "totalTokens": {
+                    "type": "number"
+                  },
+                  "toolUses": {
+                    "type": "number"
+                  },
+                  "durationMs": {
+                    "type": "number"
                   }
                 }
               },
@@ -3074,6 +3110,15 @@
                           "type": "number"
                         },
                         "costUsd": {
+                          "type": "number"
+                        },
+                        "totalTokens": {
+                          "type": "number"
+                        },
+                        "toolUses": {
+                          "type": "number"
+                        },
+                        "durationMs": {
                           "type": "number"
                         }
                       }
@@ -3760,6 +3805,15 @@
                             },
                             "costUsd": {
                               "type": "number"
+                            },
+                            "totalTokens": {
+                              "type": "number"
+                            },
+                            "toolUses": {
+                              "type": "number"
+                            },
+                            "durationMs": {
+                              "type": "number"
                             }
                           }
                         }
@@ -3917,6 +3971,15 @@
                       "type": "number"
                     },
                     "costUsd": {
+                      "type": "number"
+                    },
+                    "totalTokens": {
+                      "type": "number"
+                    },
+                    "toolUses": {
+                      "type": "number"
+                    },
+                    "durationMs": {
                       "type": "number"
                     }
                   }

@@ -14,8 +14,8 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 | Source | Version | Ids | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|---|--:|--:|--:|--:|--:|--:|
 | Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 49 | 62 | 31 | 0 | 61% |
-| Codex (app-server) | codex-cli 0.160.1 | 225 | 61 | 113 | 51 | 0 | 54% |
-| OpenCode (serve) | opencode 1.19.0 | 147 | 33 | 66 | 48 | 0 | 41% |
+| Codex (app-server) | codex-cli 0.160.1 | 225 | 64 | 112 | 49 | 0 | 57% |
+| OpenCode (serve) | opencode 1.19.0 | 147 | 35 | 66 | 46 | 0 | 43% |
 | pi (RPC mode) | pi-coding-agent 1.1.0 | 102 | 53 | 26 | 23 | 0 | 70% |
 | ACP (Agent Client Protocol) | @agentclientprotocol/sdk 1.8.0 | 68 | 33 | 24 | 11 | 0 | 75% |
 
@@ -23,14 +23,14 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 
 | Theme | Gaps |
 |---|--:|
-| Session control (fork, rewind, compact, rename, list) | 43 |
-| Agent extras (commands, skills, MCP, hooks, subagents) | 39 |
+| Session control (fork, rewind, compact, rename, list) | 42 |
+| Agent extras (commands, skills, MCP, hooks, subagents) | 38 |
 | Rich tool content (diffs, terminals, streaming output) | 17 |
 | Input content (images, files, mentions) | 16 |
 | Interaction (permissions, questions, dialogs) | 15 |
 | Status, retries, warnings and errors | 12 |
 | Live config changes (model, mode, effort mid-session) | 12 |
-| Usage, cost and context window | 6 |
+| Usage, cost and context window | 4 |
 | Rich assistant output (images, files, citations) | 2 |
 | Plans and todos | 2 |
 
@@ -59,7 +59,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **opencode** `op:session.delete`: agent.delete doesn't delete the native session.
 - **opencode** `op:session.deleteMessage`: Messages can't be deleted.
 - **opencode** `op:session.fork`: No fork.
-- **opencode** `op:session.get`: Session info (title, revert state) is not exposed.
 - **opencode** `op:session.list`: Native sessions can't be listed or imported as agents.
 - **opencode** `op:session.revert`: No revert/undo.
 - **opencode** `op:session.summarize`: No manual compaction.
@@ -115,10 +114,9 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **opencode** `event:session.next.shell.started`: User shell commands are not supported.
 - **opencode** `event:vcs.branch.updated`: Git branch changes are not shown.
 - **opencode** `input:subtask`: Clients can't start a subagent task directly.
-- **opencode** `op:session.children`: Subagent sessions are not exposed.
 - **opencode** `op:session.init`: /init (AGENTS.md generation) can't be run.
 - **opencode** `part:agent`: @agent mentions are not shown.
-- **opencode** `part:subtask`: Subagent tasks are not shown (the task tool call itself is).
+- **opencode** `part:subtask`: Native subtask prompt parts are not shown; task tool parts map to Item.subagent.
 - **pi** `ui:setWidget`: Extension widgets are dropped.
 - **acp** `update:subagent_update`: Subagents aren't modelled (casm has parent links only for casm-created agents).
 
@@ -212,8 +210,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 ### Usage, cost and context window
 
 - **claude** `streamdelta:compaction_delta`: Streaming compaction summary is dropped.
-- **codex** `notification:account/rateLimits/updated`: Rate limits are not surfaced.
-- **codex** `request:account/rateLimits/read`: Rate limits / usage are not exposed.
 - **codex** `request:account/usage/read`: Rate limits / usage are not exposed.
 - **opencode** `event:session.next.context.updated`: Context window usage is not surfaced.
 - **acp** `update:compaction_summary_chunk`: The compaction summary isn't carried.
@@ -252,12 +248,12 @@ codex-cli 0.160.1, from codex app-server generate-json-schema. Classified by rea
 | Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|--:|--:|--:|--:|--:|
 | clientNotification | 1 | 0 | 0 | 0 | 100% |
-| clientRequest | 13 | 67 | 24 | 0 | 35% |
-| serverNotification | 21 | 40 | 22 | 0 | 49% |
+| clientRequest | 14 | 67 | 23 | 0 | 38% |
+| serverNotification | 23 | 39 | 21 | 0 | 52% |
 | serverRequest | 5 | 6 | 0 | 0 | 100% |
 | threadItem | 17 | 0 | 2 | 0 | 89% |
 | userInput | 4 | 0 | 3 | 0 | 57% |
-| **total** | **61** | **113** | **51** | **0** | **54%** |
+| **total** | **64** | **112** | **49** | **0** | **57%** |
 
 ### OpenCode (serve)
 
@@ -265,12 +261,12 @@ opencode 1.19.0, from opencode serve: GET /doc (OpenAPI). Classified by reading 
 
 | Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|--:|--:|--:|--:|--:|
-| endpoint | 14 | 12 | 14 | 0 | 50% |
-| event | 9 | 51 | 29 | 0 | 24% |
+| endpoint | 15 | 13 | 12 | 0 | 56% |
+| event | 10 | 50 | 29 | 0 | 26% |
 | inputPart | 2 | 0 | 2 | 0 | 50% |
 | message | 2 | 0 | 0 | 0 | 100% |
 | part | 6 | 3 | 3 | 0 | 67% |
-| **total** | **33** | **66** | **48** | **0** | **41%** |
+| **total** | **35** | **66** | **46** | **0** | **43%** |
 
 ### pi (RPC mode)
 

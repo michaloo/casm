@@ -505,3 +505,15 @@ test("skill invocations read back as the slash command that was typed", () => {
   };
   assert.deepEqual(normalize(item), { kind: "user", id: "casm-1", text: "/openai-docs what is the name of this skill? one line" });
 });
+
+test("only userShell command executions carry user origin, live and completed", () => {
+  for (const running of [true, false]) {
+    const raw = { ...fx.cmdStarted, source: "userShell" };
+    const item = normalize(raw, running);
+    assert.ok(item?.kind === "tool");
+    assert.equal(item.origin, "user");
+    const agent = normalize({ ...raw, source: "agent" }, running);
+    assert.ok(agent?.kind === "tool");
+    assert.equal(agent.origin, undefined);
+  }
+});

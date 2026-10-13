@@ -89,6 +89,16 @@ casm project memories Explorations           # each agent's memories for the fol
 casm --json project memories Explorations    # with the full text of each entry
 ```
 
+The protocol's `project.agentsMd` returns a SHA-256 content hash (`null` when missing).
+Pass it as `expectedSha256` to `project.setAgentsMd` to reject stale saves with
+1003 (Conflict); `null` requires a missing file. Omitting it preserves unconditional
+saves. Writes use an atomic rename.
+
+`agent.commands` caches commands per provider and working directory for five minutes,
+warms on session open, and accepts `refresh: true`. Concurrent lookups share one request.
+Tool items from user `agent.shell` commands carry `origin: "user"`, including history;
+the optional origin field distinguishes them from the agent's own shell calls.
+
 Memories are read-only in casm; AGENTS.md is the one thing you edit. Claude Code memories live in
 `~/.claude/projects/<folder>/memory/`. Codex memories are one global store (`~/.codex/memories/`)
 that Codex regenerates itself; casm lists the parts that apply to the folder. OpenCode and pi have no memory store by default. See docs/design.md.

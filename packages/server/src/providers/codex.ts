@@ -158,7 +158,7 @@ export function normalize(item: CodexItem, live = false): Item | null {
     case "commandExecution": {
       let output = str(item.aggregatedOutput);
       if (item.status === "declined" && !output) output = "Declined by the user.";
-      return tool(item, "shell", { command: unwrapShell(str(item.command)), cwd: item.cwd }, status, output);
+      return { ...tool(item, "shell", { command: unwrapShell(str(item.command)), cwd: item.cwd }, status, output), ...(item.source === "userShell" ? { origin: "user" as const } : {}) };
     }
     case "fileChange": {
       const changes = arr(item.changes).map(rec);

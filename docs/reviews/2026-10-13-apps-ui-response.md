@@ -70,6 +70,7 @@ All findings are fixed, one commit each with the id in the subject. None were di
 4. **Reject model and mode ids that aren't in the provider's catalog** for `agent.create` and
    `agent.update`, so other clients can't recreate the Codex-with-a-Claude-mode bug. Already done
    for modes in 2253b56; models are still open.
+   Server answer: model ids deliberately remain unvalidated because agents accept ids beyond their catalogs, including full Claude model ids and OpenCode provider/model pairs.
 
 ## Still open on the app side
 

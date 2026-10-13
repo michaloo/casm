@@ -1,7 +1,8 @@
 // End-to-end over a real WebSocket, with a scripted fake provider.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CasmClient, CasmError } from "@casm/client";
@@ -68,7 +69,7 @@ class FakeSession implements ProviderSession {
   }
   shell(command: string, itemId: string) {
     if (command === "explode") throw new Error("boom");
-    const item = { kind: "tool" as const, id: itemId, name: "shell", input: { command } };
+    const item = { kind: "tool" as const, id: itemId, name: "shell", origin: "user" as const, input: { command } };
     this.opts.emit({ type: "item", item: { ...item, status: "running" } });
     this.opts.emit({ type: "toolOutput", itemId, text: "out\n" });
     this.opts.emit({ type: "item", item: { ...item, status: "done", output: "out\n" } });
@@ -89,6 +90,8 @@ const fake = {
   opened: [] as OpenOptions[],
   history: new Map<string, Item[]>(),
   catalogCalls: 0,
+  commandCalls: [] as string[],
+  commandFailure: false,
   limitHit: false,
 };
 
@@ -104,7 +107,10 @@ const provider: Provider = {
   async usage(sessionId) {
     return sessionId === "native-usage" ? { contextTokens: 1000, contextWindow: 200000 } : null;
   },
-  async commands() {
+  async commands(cwd) {
+    fake.commandCalls.push(cwd);
+    await new Promise((r) => setTimeout(r, 20));
+    if (fake.commandFailure) throw new Error("commands unavailable");
     return [{ name: "review", description: "Review changes", kind: "command" as const }];
   },
   async catalog() {
@@ -327,6 +333,9 @@ test("agent.shell runs as its own turn and is refused while busy", async () => {
   await client.call("agent.subscribe", { id: a.id });
   await client.call("agent.shell", { id: a.id, command: "ls" });
   await client.call("agent.wait", { id: a.id });
+  const tools = events.flatMap((e) => e.type === "item" && e.item.kind === "tool" ? [e.item] : []);
+  assert.equal(tools.length, 2);
+  assert.ok(tools.every((item) => item.origin === "user"));
   assert.deepEqual(
     events.map((e) => e.type),
     ["turnStarted", "item", "toolOutput", "item", "turnEnded"],
@@ -435,4 +444,68 @@ test("pending messages are listed, scheduled and cancellable", async () => {
   server.agents.runDuePending(Date.now() + 2 * 3600_000);
   assert.equal((await client.call("agent.wait", { id: b.id })).lastReply, "echo: in an hour");
   assert.deepEqual((await client.call("agent.pending", { id: b.id })).messages, []);
+});
+
+test("commands share cache by provider and cwd, warm on open, refresh, expire and retry failures", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "casm-commands-"));
+  const p = await client.call("project.create", { path: root });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const b = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const calls = () => fake.commandCalls.filter((cwd) => cwd === root).length;
+  await client.call("agent.send", { id: a.id, text: "hello" });
+  assert.equal(calls(), 1); // Opening the session starts warming before any lookup.
+  await Promise.all([client.call("agent.commands", { id: a.id }), client.call("agent.commands", { id: b.id })]);
+  assert.equal(calls(), 1);
+  await client.call("agent.wait", { id: a.id });
+  await client.call("agent.commands", { id: b.id });
+  assert.equal(calls(), 1);
+  await Promise.all([a, b].map((agent) => client.call("agent.commands", { id: agent.id, refresh: true })));
+  assert.equal(calls(), 2);
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now + 5 * 60_000 + 1);
+  await client.call("agent.commands", { id: a.id });
+  assert.equal(calls(), 3);
+  t.mock.restoreAll();
+  fake.commandFailure = true;
+  try {
+    await assert.rejects(client.call("agent.commands", { id: a.id, refresh: true }), /commands unavailable/);
+  } finally {
+    fake.commandFailure = false;
+  }
+  await client.call("agent.commands", { id: b.id });
+  assert.equal(calls(), 5);
+  const otherProject = await client.call("project.create", { path: "/tmp" });
+  const other = await client.call("agent.create", { projectId: otherProject.id, provider: "claude" });
+  await client.call("agent.commands", { id: other.id, refresh: true });
+  assert.equal(calls(), 5);
+});
+
+test("AGENTS.md versioned writes reject stale and concurrent saves and remain atomic", async () => {
+  const root = mkdtempSync(join(tmpdir(), "casm-agents-md-"));
+  const p = await client.call("project.create", { path: root });
+  const path = join(root, "AGENTS.md");
+  const read = () => client.call("project.agentsMd", { id: p.id });
+  const save = (content: string, expectedSha256?: string | null) =>
+    client.call("project.setAgentsMd", { id: p.id, content, expectedSha256 });
+  const conflict = (e: CasmError) => e.code === 1003 && /changed/.test(e.message);
+  assert.equal((await read()).sha256, null);
+  await save("first", null);
+  const first = (await read()).sha256!;
+  assert.equal(first, createHash("sha256").update("first").digest("hex"));
+  await assert.rejects(save("wrong", null), conflict);
+  writeFileSync(path, "external edit");
+  await assert.rejects(save("wrong", first), conflict);
+  assert.equal(readFileSync(path, "utf8"), "external edit");
+  const current = (await read()).sha256!;
+  const results = await Promise.allSettled([save("winner A", current), save("winner B", current)]);
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+  const rejected = results.find((r) => r.status === "rejected");
+  assert.ok(rejected?.status === "rejected" && conflict(rejected.reason));
+  assert.match(readFileSync(path, "utf8"), /^winner [AB]$/);
+  assert.deepEqual(readdirSync(root), ["AGENTS.md"]);
+  await save(""); // Legacy unconditional saves still work.
+  assert.equal((await read()).sha256, createHash("sha256").update("").digest("hex"));
+  unlinkSync(path);
+  await assert.rejects(save("wrong", first), conflict);
+  await save("recreated", null);
 });

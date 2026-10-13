@@ -456,11 +456,27 @@ struct ToolRow: View {
 struct ToolSection: View {
     let title: String
     let text: String
+    /// m7: long output is cut for speed; Show all expands it, Copy always takes all of it.
+    @State private var showAll = false
+    private static let limit = 4000
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption2).foregroundStyle(.secondary)
-            Text(text.count > 4000 ? text.prefix(4000) + "\n…" : text)
+            HStack(spacing: 8) {
+                Text(title).font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                if text.count > Self.limit {
+                    Button(showAll ? "Show less" : "Show all (\(text.count.formatted()) characters)") { showAll.toggle() }
+                        .buttonStyle(.borderless)
+                        .font(.caption2)
+                }
+                Button("Copy", systemImage: "doc.on.doc") { Clipboard.copy(text) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .font(.caption2)
+                    .help("Copy \(title.lowercased())")
+            }
+            Text(text.count > Self.limit && !showAll ? text.prefix(Self.limit) + "\n…" : text)
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

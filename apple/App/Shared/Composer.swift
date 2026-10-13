@@ -161,6 +161,12 @@ struct Composer: View {
             text = Drafts.shared.text(draftKey)
             attachments = Drafts.shared.images(draftKey).map { Attachment(image: $0) }
         }
+        #if os(iOS)
+        // A card that needs an answer gets the screen: the keyboard would squeeze it (iPhone mini).
+        .onChange(of: chat.permissions.count + chat.questions.count) { old, new in
+            if new > old { focused = false }
+        }
+        #endif
         .onChange(of: chat.composerTakeover) {
             guard let taken = chat.composerTakeover else { return }
             chat.composerTakeover = nil

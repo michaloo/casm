@@ -15,6 +15,7 @@ final class FlowTests: XCTestCase {
         app.launchEnvironment["CASM_DEV_URL"] = env["CASM_URL"] ?? "ws://127.0.0.1:7373"
         app.launchEnvironment["CASM_DEV_TOKEN"] = env["CASM_TOKEN"] ?? ""
         app.launchEnvironment["CASM_DEV_NAME"] = env["CASM_HOST_NAME"] ?? "macbook"
+        app.launchEnvironment["CASM_DEV_REPLACE"] = "1"
         app.launchEnvironment["CASM_EXP"] = env["CASM_EXP"] ?? ""
         app.launch()
     }
@@ -94,7 +95,13 @@ final class FlowTests: XCTestCase {
         app.activate()
         XCTAssertTrue(element("Paste image from clipboard").waitForExistence(timeout: 5), "paste chip")
         shot("ios-07-paste-chip")
+        // iOS asks before an app reads another app's clipboard.
+        addUIInterruptionMonitor(withDescription: "Allow Paste") { alert in
+            alert.buttons["Allow Paste"].exists ? (alert.buttons["Allow Paste"].tap(), true).1 : false
+        }
         element("Paste image from clipboard").tap()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        if springboard.buttons["Allow Paste"].waitForExistence(timeout: 3) { springboard.buttons["Allow Paste"].tap() }
         XCTAssertTrue(app.buttons["Remove image"].waitForExistence(timeout: 5), "thumbnail attached")
         shot("ios-08-attached")
         app.buttons["Remove image"].tap()

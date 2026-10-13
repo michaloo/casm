@@ -338,11 +338,16 @@ export function parseModels(data: unknown[]): ModelInfo[] {
   });
 }
 
-const MODE_INFO: ModeInfo[] = [
-  { id: "read-only", name: "Read only", description: "Read-only sandbox; asks before anything else" },
-  { id: "auto", name: "Auto", description: "Edits and runs commands in the workspace; asks to go beyond it" },
-  { id: "untrusted", name: "Untrusted", description: "Asks before any command that is not known to be safe" },
-  { id: "full-access", name: "Full access", description: "No sandbox and no approvals" },
+// Paseo's Codex modes plus Plan. Same order as the catalog.
+export const MODE_INFO: ModeInfo[] = [
+  { id: "plan", name: "Plan mode", description: "Codex's Plan collaboration mode: explores and asks questions, then proposes a plan without editing files." },
+  { id: "auto", name: "Default permissions", description: "Edit files and run commands with Codex's default approval flow." },
+  {
+    id: "auto-review",
+    name: "Auto-review",
+    description: "Same workspace-write permissions as Default, but eligible on-request approvals are routed through the auto-reviewer subagent.",
+  },
+  { id: "full-access", name: "Full access", description: "Edit files, run commands, and access the network without additional prompts." },
 ];
 
 export async function readCatalog(): Promise<Catalog> {
@@ -364,13 +369,42 @@ export async function readCatalog(): Promise<Catalog> {
 
 // --- session
 
-// casm mode -> Codex approval policy + sandbox. Unknown modes keep Codex's own config.
-const MODES: Record<string, { approvalPolicy: string; sandbox: string }> = {
-  "read-only": { approvalPolicy: "on-request", sandbox: "read-only" },
-  auto: { approvalPolicy: "on-request", sandbox: "workspace-write" },
-  untrusted: { approvalPolicy: "untrusted", sandbox: "workspace-write" },
-  "full-access": { approvalPolicy: "never", sandbox: "danger-full-access" },
+// casm mode -> Codex permissions + collaboration mode. Plan keeps Default's
+// permissions (as Paseo's plan toggle and the Codex CLI do); Codex's Plan
+// instructions keep it from editing. An unset or unknown mode is Default
+// collaboration with the user's own config.toml permissions.
+type ModePreset = { approvalPolicy: string; sandbox: string; approvalsReviewer: "user" | "auto_review"; collaboration: "plan" | "default" };
+export const MODES: Record<string, ModePreset> = {
+  plan: { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "user", collaboration: "plan" },
+  auto: { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "user", collaboration: "default" },
+  "auto-review": { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "auto_review", collaboration: "default" },
+  "full-access": { approvalPolicy: "never", sandbox: "danger-full-access", approvalsReviewer: "user", collaboration: "default" },
 };
+
+// A `collaborationMode/list` preset (CollaborationModeMask).
+export type CollaborationPreset = { name: string; mode: string | null; model: string | null; reasoning_effort: string | null };
+
+// `turn/start` collaborationMode. It takes precedence over the turn's model and
+// effort, so it carries the agent's (or else the thread's) model and effort; the
+// preset's effort applies when the agent sets none (Plan: medium). Null
+// developer_instructions keeps Codex's built-in instructions for the mode; the
+// agent's systemPrompt goes in as the thread's developerInstructions.
+export function collaborationMode(
+  kind: "plan" | "default",
+  presets: CollaborationPreset[],
+  agent: { model?: string; effort?: string },
+  thread: { model: string; effort: string | null },
+): { mode: "plan" | "default"; settings: { model: string; reasoning_effort: string | null; developer_instructions: null } } {
+  const preset = presets.find((p) => p.mode === kind) ?? presets.find((p) => p.name.toLowerCase() === kind);
+  return {
+    mode: kind,
+    settings: {
+      model: agent.model || preset?.model || thread.model,
+      reasoning_effort: agent.effort || preset?.reasoning_effort || thread.effort,
+      developer_instructions: null,
+    },
+  };
+}
 
 type Decision = "accept" | "acceptForSession" | "decline" | "cancel" | Record<string, unknown>;
 
@@ -378,6 +412,8 @@ class CodexSession implements ProviderSession {
   private rpc: Rpc;
   private opts: OpenOptions;
   private threadId: string | null = null;
+  private thread = { model: "", effort: null as string | null };
+  private presets: CollaborationPreset[] = [];
   private turnId: string | null = null;
   private ended = new Set<string>();
   // Serializes startup, turn/start, steer and interrupt.
@@ -412,14 +448,21 @@ class CodexSession implements ProviderSession {
       model: config.model,
       approvalPolicy: mode?.approvalPolicy,
       sandbox: mode?.sandbox,
+      approvalsReviewer: mode?.approvalsReviewer,
       developerInstructions: config.systemPrompt,
-      // request_user_input is otherwise only offered in Plan mode.
-      config: { features: { default_mode_request_user_input: true }, ...(config.mcpServers ? { mcp_servers: config.mcpServers } : {}) },
+      config: config.mcpServers ? { mcp_servers: config.mcpServers } : undefined,
     };
+    type ThreadResponse = { thread: { id: string }; model: string; reasoningEffort: string | null };
     const res = resumeId
-      ? await this.rpc.request<{ thread: { id: string } }>("thread/resume", { ...params, threadId: resumeId, excludeTurns: true })
-      : await this.rpc.request<{ thread: { id: string } }>("thread/start", params);
+      ? await this.rpc.request<ThreadResponse>("thread/resume", { ...params, threadId: resumeId, excludeTurns: true })
+      : await this.rpc.request<ThreadResponse>("thread/start", params);
     this.threadId = res.thread.id;
+    this.thread = { model: str(res.model), effort: res.reasoningEffort ?? null };
+    try {
+      this.presets = (await this.rpc.request<{ data: CollaborationPreset[] }>("collaborationMode/list", {})).data;
+    } catch {
+      // Older Codex: fall back to the bare mode kinds.
+    }
     this.opts.emit({ type: "sessionId", id: res.thread.id });
   }
 
@@ -574,6 +617,8 @@ class CodexSession implements ProviderSession {
         clientUserMessageId: itemId,
         model: config.model,
         effort: config.effort,
+        // Sent on every turn: a resumed thread keeps whatever mode it last ran in.
+        collaborationMode: collaborationMode(MODES[config.mode ?? ""]?.collaboration ?? "default", this.presets, config, this.thread),
       });
       if (res.turn.status === "inProgress" && !this.ended.has(res.turn.id)) this.turnId = res.turn.id;
     });

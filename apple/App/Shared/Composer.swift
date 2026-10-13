@@ -214,6 +214,8 @@ struct Composer: View {
             Button("Paste Image", systemImage: "doc.on.clipboard") { pasteImages() }
         } label: {
             Image(systemName: "plus").accessibilityLabel("Attach images")
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
         }
         .disabled(shellMode)
         .photosPicker(isPresented: $pickingPhotos, selection: $photoItems, maxSelectionCount: 6, matching: .images)
@@ -246,6 +248,7 @@ struct Composer: View {
                 .foregroundStyle(.white)
                 .frame(width: 26, height: 26)
                 .background(Color.primary.opacity(0.8), in: Circle())
+                .modifier(TapTarget())
                 .help("Interrupt the running turn (⌘.). Enter still queues a message.")
         } else {
             Button(shellMode ? "Run" : "Send", systemImage: shellMode ? "return" : "arrow.up", action: submit)
@@ -254,6 +257,7 @@ struct Composer: View {
                 .foregroundStyle(.white)
                 .frame(width: 26, height: 26)
                 .background(canSend ? (shellMode ? Color.green : Color.accentColor) : Color.secondary.opacity(0.35), in: Circle())
+                .modifier(TapTarget())
                 .disabled(!canSend)
                 .help(shellMode ? "Run in the agent's folder (Enter)"
                       : busy ? "Queue: sends after the current turn (Enter). ⌘. interrupts."
@@ -419,6 +423,17 @@ struct ComposerColumn: ViewModifier {
     }
 }
 
+/// M6: a 44 pt hit area around small round buttons on iOS (the drawn button stays 26 pt).
+struct TapTarget: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.padding(9).contentShape(Rectangle())
+        #else
+        content
+        #endif
+    }
+}
+
 struct ActivityPill: View {
     let count: Int
 
@@ -462,7 +477,9 @@ struct ConfigPickers: View {
                     }
                 }
             } label: {
-                PickerLabel(icon: Image(systemName: "asterisk"), title: modelName)
+                // "Haiku 4.5" → "Haiku" on iPhone, so the model is always visible.
+                PickerLabel(icon: Image(systemName: "asterisk"), title: modelName,
+                            compactTitle: modelName.split(separator: " ").first.map(String.init))
             }
             .menuStyle(.button)
             .menuIndicator(.hidden)
@@ -618,15 +635,21 @@ extension EnvironmentValues {
 private struct PickerLabel<Icon: View>: View {
     let icon: Icon
     let title: String
+    /// M6: what to show on iPhone-width screens (nil: icon only).
+    var compactTitle: String? = nil
     @Environment(\.compactPickers) private var compact
 
     var body: some View {
         HStack(spacing: 5) {
             icon
-            if !compact { Text(title).lineLimit(1) }
+            if !compact { Text(title).lineLimit(1) } else if let compactTitle { Text(compactTitle).lineLimit(1) }
             Image(systemName: "chevron.down").font(.caption2)
         }
         .foregroundStyle(.secondary)
+        #if os(iOS)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+        #endif
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
     }

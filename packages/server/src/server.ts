@@ -7,7 +7,9 @@ import {
   ErrorCode,
   PROTOCOL_VERSION,
   methods,
+  type Agent,
   type MethodName,
+  type Params,
   type NotificationName,
   type NotificationParams,
   type RpcRequest,
@@ -16,6 +18,7 @@ import {
 import { AgentManager, RpcError, type Notify } from "./agents.ts";
 import { Store } from "./db.ts";
 import { createHandlers, type Conn } from "./methods.ts";
+import { Scheduler } from "./schedules.ts";
 import { createMcp } from "./mcp.ts";
 import { PeerPool } from "./peers.ts";
 import type { Provider } from "./providers/types.ts";
@@ -37,6 +40,7 @@ export type RunningServer = {
   http: Server;
   port: number;
   agents: AgentManager;
+  scheduler: Scheduler;
   close: () => Promise<void>;
 };
 
@@ -54,7 +58,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const agents = new AgentManager(opts.store, new Map(opts.providers.map((p) => [p.id, p])), notify);
   const identity = { id: opts.store.serverId(), name: opts.name ?? hostname(), version: opts.version };
   const peers = new PeerPool(opts.store, opts.peerTimeoutMs);
-  const handlers = createHandlers(opts.store, agents, notify, identity, peers);
+  let scheduler: Scheduler | undefined;
+  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!);
+  scheduler = new Scheduler(opts.store, agents, notify, (p) =>
+    (handlers["agent.create"] as (p: Params<"agent.create">, c: Conn) => Promise<Agent>)(p, { subscriptions: new Set() }),
+  );
   const mcp = createMcp({ identity, agents, handlers, peers });
 
   const http = createServer((req, res) => {
@@ -138,7 +146,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     http,
     port,
     agents,
+    scheduler,
     async close() {
+      scheduler?.stop();
       await agents.shutdown();
       peers.close();
       for (const c of clients) c.ws.close();

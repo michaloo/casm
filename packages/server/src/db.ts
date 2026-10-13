@@ -3,14 +3,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import type { Agent, AgentConfig, AgentParent, ImageData, Project, ProviderId } from "@casm/protocol";
+import type { Agent, AgentConfig, AgentParent, ImageData, Project, ProviderId, Schedule } from "@casm/protocol";
 
 export type StoredAgent = Omit<Agent, "status" | "deferred" | "pending">;
 
-export type PendingReason = "queued" | "limit" | "scheduled";
+export type PendingReason = "queued" | "limit";
 
-// A message waiting to be sent to an agent: behind a running turn ("queued"),
-// until a usage limit resets ("limit"), or at a chosen time ("scheduled").
+// A message waiting for its agent: behind a running turn ("queued") or until a
+// usage limit resets ("limit").
 export type Pending = {
   id: string;
   agentId: string;
@@ -23,6 +23,20 @@ export type Pending = {
   attempts: number;
   createdAt: string;
 };
+
+function toSchedule(r: Row): Schedule {
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    enabled: r.enabled === 1,
+    cadence: JSON.parse(r.cadence as string),
+    target: JSON.parse(r.target as string),
+    prompt: r.prompt as string,
+    nextRunAt: (r.next_run_at as string | null) ?? null,
+    lastRun: r.last_run ? JSON.parse(r.last_run as string) : null,
+    createdAt: r.created_at as string,
+  };
+}
 
 function toPending(r: Row): Pending {
   return {
@@ -63,6 +77,17 @@ CREATE TABLE IF NOT EXISTS agents (
   archived_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS schedules (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  cadence TEXT NOT NULL,
+  target TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  next_run_at TEXT,
+  last_run TEXT,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pending (
   id TEXT PRIMARY KEY,
@@ -144,6 +169,7 @@ export class Store {
     this.migrate();
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec(SCHEMA);
+    this.migrateScheduledPending();
   }
 
   // Projects used to nest (parent_id, optional path); now they are flat folders
@@ -284,6 +310,59 @@ export class Store {
 
   deleteAgent(id: string): boolean {
     return this.db.prepare("DELETE FROM agents WHERE id = ?").run(id).changes > 0;
+  }
+
+  // --- schedules
+
+  listSchedules(): Schedule[] {
+    return (this.db.prepare("SELECT * FROM schedules ORDER BY created_at").all() as Row[]).map(toSchedule);
+  }
+
+  getSchedule(id: string): Schedule | undefined {
+    const r = this.db.prepare("SELECT * FROM schedules WHERE id = ?").get(id) as Row | undefined;
+    return r && toSchedule(r);
+  }
+
+  saveSchedule(x: Schedule) {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO schedules (id, name, enabled, cadence, target, prompt, next_run_at, last_run, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        x.id,
+        x.name,
+        x.enabled ? 1 : 0,
+        JSON.stringify(x.cadence),
+        JSON.stringify(x.target),
+        x.prompt,
+        x.nextRunAt,
+        x.lastRun ? JSON.stringify(x.lastRun) : null,
+        x.createdAt,
+      );
+  }
+
+  deleteSchedule(id: string): boolean {
+    return this.db.prepare("DELETE FROM schedules WHERE id = ?").run(id).changes > 0;
+  }
+
+  // Time-based sends used to be "scheduled" pending messages; they are one-off schedules now.
+  migrateScheduledPending() {
+    const rows = this.db.prepare("SELECT * FROM pending WHERE reason = 'scheduled'").all() as Row[];
+    for (const r of rows) {
+      this.saveSchedule({
+        id: randomUUID(),
+        name: "Send later",
+        enabled: true,
+        cadence: { type: "once", at: (r.not_before as string) ?? now() },
+        target: { type: "agent", agentId: r.agent_id as string },
+        prompt: r.text as string,
+        nextRunAt: (r.not_before as string) ?? now(),
+        lastRun: null,
+        createdAt: r.created_at as string,
+      });
+      this.db.prepare("DELETE FROM pending WHERE id = ?").run(r.id as string);
+    }
   }
 
   // --- pending messages, in send order (seq) per agent

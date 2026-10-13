@@ -76,8 +76,8 @@ export const Agent = z.object({
   status: AgentStatus,
   // A prompt waiting for a provider limit to reset; the server sends it then.
   deferred: z.object({ until: z.string(), reason: z.string() }).nullable().optional(),
-  // Messages waiting to be sent (see agent.pending): how many, and the
-  // earliest time one is due when they are waiting for a time.
+  // Messages waiting to be sent (see agent.pending): how many, and when the
+  // next one is due if they wait for a limit reset.
   pending: z.object({ count: z.number(), next: z.string().optional() }).optional(),
 });
 export type Agent = z.infer<typeof Agent>;
@@ -112,20 +112,70 @@ export const Usage = z.object({
 });
 export type Usage = z.infer<typeof Usage>;
 
-// A message the server will send to an agent later: behind a running turn
-// ("queued"), when a usage limit resets ("limit"), or at a set time
-// ("scheduled"). Sent in order; a waiting "limit" entry holds back the rest.
+// A message waiting for its agent to become available: behind a running turn
+// ("queued") or until a usage limit resets ("limit"). Sent in order; a waiting
+// "limit" entry holds back the rest. Time-based sends are schedules.
 export const PendingMessage = z.object({
   id: z.string(),
   agentId: z.string(),
   text: z.string(),
   imageCount: z.number().optional(),
-  reason: z.enum(["queued", "limit", "scheduled"]),
+  reason: z.enum(["queued", "limit"]),
   notBefore: z.string().optional(),
   note: z.string().optional(),
   createdAt: z.string(),
 });
 export type PendingMessage = z.infer<typeof PendingMessage>;
+
+// A host-level job: on a cadence, message an existing agent or start a new
+// agent from a preset. A message to a busy or limited agent becomes pending.
+export const ScheduleCadence = z.discriminatedUnion("type", [
+  // 5-field cron in the server's local time.
+  z.object({ type: z.literal("cron"), expr: z.string() }),
+  z.object({ type: z.literal("every"), minutes: z.number().int().positive() }),
+  // One run at a time (ISO); the schedule disables itself afterwards.
+  z.object({ type: z.literal("once"), at: z.string() }),
+]);
+export type ScheduleCadence = z.infer<typeof ScheduleCadence>;
+
+export const ScheduleTarget = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("agent"),
+    agentId: z.string(),
+    // When the agent is busy or limited: queue the message (default) or skip this run.
+    whenBusy: z.enum(["queue", "skip"]).optional(),
+  }),
+  z.object({
+    type: z.literal("newAgent"),
+    projectId: z.string(),
+    provider: ProviderId,
+    config: AgentConfig.optional(),
+    // Name for the new agents; the run time is appended.
+    name: z.string().optional(),
+  }),
+]);
+export type ScheduleTarget = z.infer<typeof ScheduleTarget>;
+
+export const ScheduleRun = z.object({
+  at: z.string(),
+  outcome: z.enum(["sent", "queued", "skipped", "created", "failed"]),
+  agentId: z.string().optional(),
+  error: z.string().optional(),
+});
+export type ScheduleRun = z.infer<typeof ScheduleRun>;
+
+export const Schedule = z.object({
+  id: z.string(),
+  name: z.string(),
+  enabled: z.boolean(),
+  cadence: ScheduleCadence,
+  target: ScheduleTarget,
+  prompt: z.string(),
+  nextRunAt: z.string().nullable(),
+  lastRun: ScheduleRun.nullable(),
+  createdAt: z.string(),
+});
+export type Schedule = z.infer<typeof Schedule>;
 
 export const Item = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), id: z.string(), text: z.string(), images: z.array(ImageData).optional() }),
@@ -326,6 +376,26 @@ export const methods = {
 
   // Models and modes the agent offers on this host. Cached; `refresh` re-reads.
   "provider.catalog": method(z.object({ provider: ProviderId, refresh: z.boolean().optional() }), Catalog),
+  "schedule.list": method(z.object({ agentId: z.string().optional() }), z.object({ schedules: z.array(Schedule) })),
+  "schedule.create": method(
+    z.object({ name: z.string().min(1).optional(), cadence: ScheduleCadence, target: ScheduleTarget, prompt: z.string().min(1), enabled: z.boolean().optional() }),
+    Schedule,
+  ),
+  "schedule.update": method(
+    z.object({
+      id: z.string(),
+      name: z.string().min(1).optional(),
+      cadence: ScheduleCadence.optional(),
+      target: ScheduleTarget.optional(),
+      prompt: z.string().min(1).optional(),
+      enabled: z.boolean().optional(),
+    }),
+    Schedule,
+  ),
+  "schedule.delete": method(ById, Ok),
+  // Runs it now, without changing its cadence.
+  "schedule.runNow": method(ById, ScheduleRun),
+
   // Everything waiting on this server: pending messages of every agent, and
   // agents blocked on a permission prompt or a question.
   "pending.list": method(
@@ -445,8 +515,6 @@ export const methods = {
       // While the provider is known to be over its limit: "queue" (default)
       // defers the prompt until the reset; "fail" rejects with code 1004.
       whenLimited: z.enum(["queue", "fail"]).optional(),
-      // Send at this time (ISO) instead of now; it waits as a "scheduled" pending message.
-      at: z.string().optional(),
     }),
     z.object({ queued: z.boolean(), deferredUntil: z.string().optional(), pendingId: z.string().optional() }),
   ),
@@ -468,8 +536,7 @@ export const methods = {
   "agent.pending": method(ById, z.object({ messages: z.array(PendingMessage) })),
   // Cancels one pending message, or all of them when `messageId` is omitted.
   "agent.cancelPending": method(z.object({ id: z.string(), messageId: z.string().optional() }), z.object({ cancelled: z.number() })),
-  // Interrupts the running turn and drops queued and limit-deferred messages
-  // (scheduled ones stay; cancel them with agent.cancelPending).
+  // Interrupts the running turn and drops its pending messages.
   "agent.interrupt": method(ById, Ok),
   // Reload: new process, same native session. Restart: next turn starts a new session.
   "agent.reload": method(ById, Ok),
@@ -499,6 +566,8 @@ export const notifications = {
   "agent.removed": z.object({ agentId: z.string() }),
   "project.changed": z.object({ project: Project }),
   "provider.limits": z.object({ limits: ProviderLimits }),
+  "schedule.changed": z.object({ schedule: Schedule }),
+  "schedule.removed": z.object({ scheduleId: z.string() }),
   "project.removed": z.object({ projectId: z.string() }),
 } as const;
 

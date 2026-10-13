@@ -242,20 +242,10 @@ export class AgentManager {
     prompt: Prompt,
     whenBusy: "queue" | "steer" = "queue",
     whenLimited: "queue" | "fail" = "queue",
-    at?: string,
   ): { queued: boolean; deferredUntil?: string; pendingId?: string } {
     const a = this.agent(id);
     if (a.archivedAt) throw new RpcError(1003, "agent is archived");
     if (!prompt.text.trim() && !prompt.images?.length) throw new RpcError(-32602, "nothing to send");
-    if (at !== undefined) {
-      const t = Date.parse(at);
-      if (Number.isNaN(t)) throw new RpcError(-32602, `invalid time "${at}"`);
-      if (t > Date.now()) {
-        const m = this.store.addPending({ agentId: id, ...prompt, reason: "scheduled", notBefore: new Date(t).toISOString(), note: null });
-        this.changed(id);
-        return { queued: true, pendingId: m.id };
-      }
-    }
     // A message already waiting on a limit, or the provider known to be over it: wait too.
     const waiting = this.store.listPending(id).find((m) => m.reason === "limit");
     const blocked = waiting ? null : this.exhaustedUntil(a.provider);
@@ -479,8 +469,8 @@ export class AgentManager {
   }
 
   async interrupt(id: string) {
-    // Interrupt also drops queued and limit-deferred messages (not scheduled ones).
-    if (this.store.clearPending(id, ["queued", "limit"])) this.changed(id);
+    // Interrupt also drops the agent's pending messages.
+    if (this.store.clearPending(id)) this.changed(id);
     const l = this.live.get(id);
     if (!l?.turnId || !l.session) return;
     // Cancel open prompts first: an agent can't stop a tool that waits on one.
@@ -577,9 +567,8 @@ export class AgentManager {
     return reset > Date.now() ? new Date(reset).toISOString() : null;
   }
 
-  // Sends the next due pending message when the agent is idle. A "limit"
-  // message that isn't due yet holds back everything behind it; scheduled ones
-  // only hold themselves.
+  // Sends the next pending message when the agent is idle. A "limit" message
+  // that isn't due yet holds back everything behind it.
   private runNext(id: string, now = Date.now()) {
     const a = this.store.getAgent(id);
     const l = this.liveFor(id);

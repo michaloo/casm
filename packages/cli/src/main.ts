@@ -51,8 +51,14 @@ agents:
   run --project p [--provider claude] [--name n] [--model m] [--mode m]
       [--parent serverId/agentId] [--casm-tools] [--wait] <prompt>
   send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--at 18:30|"in 2h"|ISO]
-  pending [agent]                    everything waiting: queued, limit-deferred and scheduled
-                                     messages, and agents waiting for a permission or answer
+  pending [agent]                    messages waiting for their agent (busy or over a limit),
+                                     and agents waiting for a permission or answer
+
+schedules (run on the host; messages to busy or limited agents become pending):
+  schedules [--agent a]
+  schedule add (--cron "0 9 * * 1-5" | --every 30m | --at 18:30) <prompt>
+               (--agent a [--skip-if-busy] | --project p --provider claude [--model m] [--mode m] [--name n])
+  schedule run | enable | disable | rm <schedule>
   cancel <agent> [message-id|--all]  cancel pending messages
   wait <agent> [--timeout seconds]
   history <agent> [-n count]
@@ -105,6 +111,10 @@ const { values: opt, positionals } = parseArgs({
     usage: { type: "boolean" },
     "fail-if-limited": { type: "boolean" },
     at: { type: "string" },
+    cron: { type: "string" },
+    every: { type: "string" },
+    agent: { type: "string" },
+    "skip-if-busy": { type: "boolean" },
     "casm-tools": { type: "boolean" },
     edit: { type: "boolean" },
   },
@@ -397,14 +407,22 @@ async function run(c: CasmClient) {
       const a = await agentRef(c, args[0]);
       const text = args.slice(1).join(" ");
       if (!text) fail("send needs text");
+      // --at is shorthand for a one-off schedule on this agent.
+      if (opt.at) {
+        const x = await c.call("schedule.create", {
+          name: "Send later",
+          cadence: { type: "once", at: parseWhen(opt.at) },
+          target: { type: "agent", agentId: a.id },
+          prompt: text,
+        });
+        return out(x, () => console.error(`scheduled for ${new Date(x.nextRunAt!).toLocaleString()} (schedule ${shortId(x.id)})`));
+      }
       const r = await c.call("agent.send", {
         id: a.id,
         text,
         whenBusy: opt.steer ? "steer" : "queue",
         whenLimited: opt["fail-if-limited"] ? "fail" : "queue",
-        at: opt.at ? parseWhen(opt.at) : undefined,
       });
-      if (opt.at) return out(r, () => console.error(`scheduled for ${new Date(parseWhen(opt.at!)).toLocaleString()} (${r.pendingId?.slice(0, 8)})`));
       if (r.deferredUntil) {
         out(r, () => console.error(`${a.provider} is over its usage limit; queued until ${new Date(r.deferredUntil!).toLocaleString()}`));
         return;
@@ -504,6 +522,63 @@ async function run(c: CasmClient) {
           }
         }
       });
+    }
+
+    case "schedules": {
+      const agentId = opt.agent ? (await agentRef(c, opt.agent)).id : undefined;
+      const { schedules } = await c.call("schedule.list", { agentId });
+      const names = new Map((await c.call("agent.list", { includeArchived: true })).agents.map((x) => [x.id, x.name]));
+      return out(schedules, () => {
+        if (!schedules.length) console.log("no schedules");
+        for (const x of schedules) {
+          const cad = x.cadence.type === "cron" ? `cron ${x.cadence.expr}` : x.cadence.type === "every" ? `every ${x.cadence.minutes}m` : `once ${new Date(x.cadence.at).toLocaleString()}`;
+          const tgt = x.target.type === "agent" ? `→ ${names.get(x.target.agentId) ?? shortId(x.target.agentId)}` : `new ${x.target.provider} agent`;
+          const next = x.enabled && x.nextRunAt ? `next ${new Date(x.nextRunAt).toLocaleString()}` : "disabled";
+          const last = x.lastRun ? `  last ${x.lastRun.outcome}${x.lastRun.error ? `: ${x.lastRun.error}` : ""}` : "";
+          console.log(`${shortId(x.id)}  ${x.name}  ${cad}  ${tgt}  ${next}${last}`);
+        }
+      });
+    }
+
+    case "schedule": {
+      const [sub2, ref] = args;
+      const pickSchedule = async (r?: string) => {
+        if (!r) fail("missing <schedule>");
+        const { schedules } = await c.call("schedule.list", {});
+        return pick(schedules, r, "schedule");
+      };
+      if (sub2 === "add") {
+        const prompt = args.slice(1).join(" ");
+        if (!prompt) fail("schedule add needs a prompt");
+        const cadence = opt.cron
+          ? { type: "cron" as const, expr: opt.cron }
+          : opt.every
+            ? { type: "every" as const, minutes: Math.max(1, Math.round((Date.parse(parseWhen(opt.every)) - Date.now()) / 60_000)) }
+            : opt.at
+              ? { type: "once" as const, at: parseWhen(opt.at) }
+              : fail("schedule add needs --cron, --every or --at");
+        const target = opt.agent
+          ? { type: "agent" as const, agentId: (await agentRef(c, opt.agent)).id, whenBusy: opt["skip-if-busy"] ? ("skip" as const) : ("queue" as const) }
+          : opt.project
+            ? {
+                type: "newAgent" as const,
+                projectId: pick(await projects(c), opt.project, "project").id,
+                provider: (opt.provider ?? "claude") as ProviderId,
+                config: { model: opt.model, mode: opt.mode },
+                name: opt.name,
+              }
+            : fail("schedule add needs --agent, or --project and --provider");
+        const x = await c.call("schedule.create", { name: opt.name, cadence, target, prompt });
+        return out(x, () => console.log(`${x.id}  next ${x.nextRunAt ? new Date(x.nextRunAt).toLocaleString() : "-"}`));
+      }
+      const x = await pickSchedule(ref);
+      if (sub2 === "rm") return void (await c.call("schedule.delete", { id: x.id }));
+      if (sub2 === "enable" || sub2 === "disable") return void (await c.call("schedule.update", { id: x.id, enabled: sub2 === "enable" }));
+      if (sub2 === "run") {
+        const r = await c.call("schedule.runNow", { id: x.id });
+        return out(r, () => console.log(`${r.outcome}${r.agentId ? `  agent ${shortId(r.agentId)}` : ""}${r.error ? `: ${r.error}` : ""}`));
+      }
+      fail("usage: casm schedule add|run|enable|disable|rm");
     }
 
     case "pending": {

@@ -417,34 +417,71 @@ test("a turn that hits a usage limit is deferred, blocks further sends and retri
   assert.equal((await client.call("agent.get", { id: b.id })).deferred, null);
 });
 
-test("pending messages are listed, scheduled and cancellable", async () => {
+test("pending messages are listed and cancellable", async () => {
   const p = await client.call("project.create", { name: "P16", path: "/tmp" });
   const b = await client.call("agent.create", { projectId: p.id, provider: "claude" });
-  // Busy: a queued message is visible and cancellable.
   await client.call("agent.send", { id: b.id, text: "slow" });
   await new Promise((r) => setTimeout(r, 30));
-  const q = await client.call("agent.send", { id: b.id, text: "after slow" });
-  const later = new Date(Date.now() + 3600_000).toISOString();
-  const s = await client.call("agent.send", { id: b.id, text: "in an hour", at: later });
+  const q1 = await client.call("agent.send", { id: b.id, text: "after slow" });
+  const q2 = await client.call("agent.send", { id: b.id, text: "and then this" });
   const { messages } = await client.call("agent.pending", { id: b.id });
-  assert.deepEqual(messages.map((m) => [m.reason, m.text]), [["queued", "after slow"], ["scheduled", "in an hour"]]);
-  assert.equal(messages[1].notBefore, later);
-  const agent = await client.call("agent.get", { id: b.id });
-  assert.deepEqual(agent.pending, { count: 2, next: later });
-  const all = await client.call("pending.list", {});
-  assert.ok(all.messages.some((m) => m.id === q.pendingId));
-
-  assert.deepEqual(await client.call("agent.cancelPending", { id: b.id, messageId: q.pendingId! }), { cancelled: 1 });
-  await assert.rejects(client.call("agent.cancelPending", { id: b.id, messageId: q.pendingId! }), (e: CasmError) => e.code === 1001);
-  // Interrupt keeps scheduled messages.
+  assert.deepEqual(messages.map((m) => [m.reason, m.text]), [["queued", "after slow"], ["queued", "and then this"]]);
+  assert.deepEqual((await client.call("agent.get", { id: b.id })).pending, { count: 2 });
+  assert.ok((await client.call("pending.list", {})).messages.some((m) => m.id === q1.pendingId));
+  assert.deepEqual(await client.call("agent.cancelPending", { id: b.id, messageId: q1.pendingId! }), { cancelled: 1 });
+  await assert.rejects(client.call("agent.cancelPending", { id: b.id, messageId: q1.pendingId! }), (e: CasmError) => e.code === 1001);
+  // Interrupt drops the rest.
   await client.call("agent.interrupt", { id: b.id });
   await client.call("agent.wait", { id: b.id });
-  assert.deepEqual((await client.call("agent.pending", { id: b.id })).messages.map((m) => m.id), [s.pendingId]);
-  // When due, the scheduled message is sent.
-  server.agents.runDuePending(Date.now() + 2 * 3600_000);
-  assert.equal((await client.call("agent.wait", { id: b.id })).lastReply, "echo: in an hour");
   assert.deepEqual((await client.call("agent.pending", { id: b.id })).messages, []);
+  assert.ok(q2.pendingId);
 });
+
+test("schedules message an agent or create one, and busy agents get pending messages", async () => {
+  const p = await client.call("project.create", { name: "P17", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const every = await client.call("schedule.create", { cadence: { type: "every", minutes: 30 }, target: { type: "agent", agentId: a.id }, prompt: "status?" });
+  assert.ok(Date.parse(every.nextRunAt!) > Date.now() + 29 * 60_000);
+  await assert.rejects(client.call("schedule.create", { cadence: { type: "cron", expr: "nope" }, target: { type: "agent", agentId: a.id }, prompt: "x" }), (e: CasmError) => e.code === -32602);
+
+  // Due: the agent gets the message.
+  await server.scheduler.tick(new Date(Date.now() + 31 * 60_000));
+  assert.equal((await client.call("agent.wait", { id: a.id })).lastReply, "echo: status?");
+  const after = (await client.call("schedule.list", { agentId: a.id })).schedules[0];
+  assert.equal(after.lastRun?.outcome, "sent");
+  assert.ok(Date.parse(after.nextRunAt!) > Date.now() + 59 * 60_000);
+
+  // Busy agent: queued as a pending message, or skipped when asked.
+  await client.call("agent.send", { id: a.id, text: "slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal((await client.call("schedule.runNow", { id: every.id })).outcome, "queued");
+  const skip = await client.call("schedule.create", { cadence: { type: "every", minutes: 5 }, target: { type: "agent", agentId: a.id, whenBusy: "skip" }, prompt: "ping" });
+  assert.equal((await client.call("schedule.runNow", { id: skip.id })).outcome, "skipped");
+  await client.call("agent.interrupt", { id: a.id });
+  await client.call("agent.wait", { id: a.id });
+
+  // A once schedule creating a new agent from a preset disables itself after running.
+  const at = new Date(Date.now() + 3600_000).toISOString();
+  const once = await client.call("schedule.create", {
+    name: "nightly",
+    cadence: { type: "once", at },
+    target: { type: "newAgent", projectId: p.id, provider: "claude", config: { mode: "default" } },
+    prompt: "do the nightly",
+  });
+  await server.scheduler.tick(new Date(Date.now() + 2 * 3600_000));
+  const ran = (await client.call("schedule.list", {})).schedules.find((x) => x.id === once.id)!;
+  assert.equal(ran.lastRun?.outcome, "created");
+  assert.equal(ran.enabled, false);
+  assert.equal(ran.nextRunAt, null);
+  const created = await client.call("agent.get", { id: ran.lastRun!.agentId! });
+  assert.match(created.name, /^nightly · /);
+  assert.equal((await client.call("agent.wait", { id: created.id })).lastReply, "echo: do the nightly");
+
+  // Deleting the agent removes its schedules.
+  await client.call("agent.delete", { id: a.id });
+  assert.deepEqual((await client.call("schedule.list", { agentId: a.id })).schedules, []);
+});
+
 
 test("commands share cache by provider and cwd, warm on open, refresh, expire and retry failures", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "casm-commands-"));

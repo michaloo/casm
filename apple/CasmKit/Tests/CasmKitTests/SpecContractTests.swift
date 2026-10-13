@@ -119,7 +119,7 @@ import Testing
             ("provider.catalog", CatalogParams(provider: .claude, refresh: true)),
             ("project.create", CreateProjectParams(path: "/x", name: "n", group: "g", tags: ["t"])),
             ("project.update", UpdateProjectParams(id: "p", group: .clear, tags: ["t"], sort: 1, archived: false)),
-            ("agent.create", CreateAgentParams(projectId: "p", provider: .claude, name: "n", cwd: "/", config: AgentConfig(model: "m", mode: "default", effort: "low"), tags: [], prompt: "hi")),
+            ("agent.create", CreateAgentParams(projectId: "p", provider: .claude, name: "n", config: AgentConfig(model: "m", mode: "default", effort: "low"), tags: [], prompt: "hi")),
             ("agent.update", UpdateAgentParams(id: "a", config: AgentConfig(model: "m"))),
             ("agent.history", HistoryParams(id: "a", before: 1, limit: 2)),
             ("agent.send", SendParams(id: "a", text: "t", images: [ImageData(mediaType: "image/png", data: "AA==")], whenBusy: .queue)),

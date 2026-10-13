@@ -104,7 +104,7 @@ struct NewProjectSheet: View {
             HostPicker(hostID: $hostID)
             Section {
                 if let host {
-                    PathField(host: host, root: nil, path: $path, prompt: "/Users/me/Projects/app")
+                    PathField(host: host, path: $path, prompt: "/Users/me/Projects/app")
                 }
             } header: {
                 Text("Folder")
@@ -162,12 +162,10 @@ struct NewProjectSheet: View {
     }
 }
 
-/// A folder path on a host, with directory suggestions from `fs.search` and, on macOS when the
-/// host is this Mac, a folder picker.
+/// An absolute folder path on a host, with directory suggestions from `fs.search` (under the
+/// typed path's parent) and, on macOS when the host is this Mac, a folder picker.
 struct PathField: View {
     let host: HostModel
-    /// Suggestions come from under this folder; nil means the parent of the typed absolute path.
-    let root: String?
     @Binding var path: String
     var prompt: String
     @State private var suggestions: [String] = []
@@ -213,21 +211,13 @@ struct PathField: View {
     private func suggest() async {
         try? await Task.sleep(for: .milliseconds(150))
         guard !Task.isCancelled, host.isOnline else { return }
-        let base: String, query: String
-        if let root, path.hasPrefix(root) {
-            base = root
-            query = String(path.dropFirst(root.count)).trimmingPrefix("/").description
-        } else if path.hasPrefix("/") {
-            let parent = path.hasSuffix("/") ? path : (path as NSString).deletingLastPathComponent
-            base = parent.isEmpty ? "/" : parent
-            query = path.hasSuffix("/") ? "" : (path as NSString).lastPathComponent
-        } else if let root {
-            base = root
-            query = path
-        } else {
+        guard path.hasPrefix("/") else {
             suggestions = []
             return
         }
+        let parent = path.hasSuffix("/") ? path : (path as NSString).deletingLastPathComponent
+        let base = parent.isEmpty ? "/" : parent
+        let query = path.hasSuffix("/") ? "" : (path as NSString).lastPathComponent
         let entries = (try? await host.client.searchFiles(cwd: base, query: query, limit: 20).entries) ?? []
         let dirs = entries.filter { $0.kind == .dir }.prefix(6).map { (base as NSString).appendingPathComponent($0.path) }
         suggestions = dirs.filter { $0 != path.trimmingSuffix("/") }
@@ -251,7 +241,6 @@ struct NewAgentSheet: View {
     @State private var model = ""
     @State private var effort = ""
     @State private var mode = "default"
-    @State private var cwd = ""
     @State private var prompt = ""
     @State private var error: String?
     @State private var busy = false
@@ -267,13 +256,11 @@ struct NewAgentSheet: View {
                     Text(p.group.map { "\($0) › \(p.name)" } ?? p.name).tag(Optional(p.id))
                 }
             }
-            if let host, let project {
-                Section {
-                    PathField(host: host, root: project.path, path: $cwd, prompt: project.path)
-                } header: {
-                    Text("Working directory")
-                } footer: {
-                    Text("Defaults to the project folder.").font(.caption).foregroundStyle(.secondary)
+            if let project {
+                // Agents always work in their project's folder.
+                LabeledContent("Folder") {
+                    Text(project.path).font(.callout.monospaced()).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.head)
                 }
             }
             Picker("Provider", selection: $provider) {
@@ -313,7 +300,6 @@ struct NewAgentSheet: View {
         }
         .frame(minWidth: 460, minHeight: 520)
         .onAppear { if hostID == nil { hostID = app.hosts.first(where: \.isOnline)?.id ?? app.hosts.first?.id } }
-        .onChange(of: projectId, initial: true) { cwd = project?.path ?? "" }
     }
 
     private func create(_ host: HostModel?, _ project: Project?) async {
@@ -322,14 +308,12 @@ struct NewAgentSheet: View {
         defer { busy = false }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedCwd = cwd.trimmingCharacters(in: .whitespaces)
         let efforts = host.catalog(for: provider)?.models.first { $0.id == model }?.efforts ?? []
         let config = AgentConfig(model: model.isEmpty ? nil : model,
                                  mode: mode, effort: efforts.contains(effort) ? effort : nil)
         do {
             try await app.createAgent(on: host, CreateAgentParams(
                 projectId: project.id, provider: provider, name: trimmedName.isEmpty ? nil : trimmedName,
-                cwd: trimmedCwd.isEmpty || trimmedCwd == project.path ? nil : trimmedCwd,
                 config: config, prompt: trimmedPrompt.isEmpty ? nil : trimmedPrompt))
             dismiss()
         } catch {

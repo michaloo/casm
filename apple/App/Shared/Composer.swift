@@ -65,10 +65,6 @@ struct Composer: View {
                 ActivityPill(count: working)
             }
             VStack(alignment: .leading, spacing: 10) {
-                if showSuggestions {
-                    SuggestionList(suggestions: suggestions, highlighted: highlighted, choose: accept)
-                    Divider()
-                }
                 #if os(iOS)
                 if clipboardHasImage && !shellMode {
                     Button { pasteImages() } label: {
@@ -143,6 +139,18 @@ struct Composer: View {
             .contentShape(RoundedRectangle(cornerRadius: 18))
             .onTapGesture { focused = true }
             #endif
+            // Suggestions float above the box: opening them must not resize the transcript (that
+            // relayout left its lazy rows blank until the next scroll).
+            .overlay(alignment: .top) {
+                if showSuggestions {
+                    SuggestionList(suggestions: suggestions, highlighted: highlighted, choose: accept)
+                        .padding(6)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.secondary.opacity(0.2)))
+                        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+                        .alignmentGuide(.top) { $0[.bottom] + 8 }
+                }
+            }
             .onDrop(of: [.fileURL, .image], isTargeted: $dropTargeted) { providers in
                 // NSItemProvider isn't Sendable; the providers are only read by the loading task.
                 nonisolated(unsafe) let dropped = providers
@@ -292,17 +300,25 @@ struct Composer: View {
         guard let context else { suggestions = []; return }
         switch context.kind {
         case .command:
+            if chat.commands.isEmpty {
+                // agent.commands can take seconds (the agent scans its skills); say so meanwhile.
+                suggestions = [Suggestion(id: "loading", icon: "hourglass", title: "Loading commands…", insert: "/")]
+            }
             await chat.loadCommands()
+            // A newer keystroke replaced this lookup while it waited; its result is stale.
+            guard !Task.isCancelled else { return }
             suggestions = Array(Suggestion.commands(chat.commands, matching: context.query).prefix(30))
         case .mention:
             try? await Task.sleep(for: .milliseconds(120)) // debounce typing
             guard !Task.isCancelled else { return }
-            suggestions = Suggestion.files(await chat.searchFiles(context.query))
+            let files = await chat.searchFiles(context.query)
+            guard !Task.isCancelled else { return }
+            suggestions = Suggestion.files(files)
         }
     }
 
     private func accept(_ suggestion: Suggestion) {
-        guard let context else { return }
+        guard let context, suggestion.id != "loading" else { return }
         replace(context.range, with: suggestion.insert)
         suggestions = []
         focused = true

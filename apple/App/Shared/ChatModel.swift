@@ -99,6 +99,8 @@ final class ChatModel {
             let first = historyStart == nil
             try await loadLatest()
             if let usage = try? await host.client.usage(agentId: agentId) { self.usage = usage }
+            // Slow on the server (seconds); start early so "/" has them ready.
+            Task { await loadCommands() }
             if first { scrollToBottomRequest += 1 }
             error = nil
         } catch {
@@ -249,12 +251,18 @@ final class ChatModel {
 
     /// Slash commands and skills; loaded once per open chat.
     private(set) var commands: [SlashCommand] = []
-    @ObservationIgnored private var commandsLoaded = false
+    /// One shared load, so callers that arrive while it runs wait for the same result.
+    @ObservationIgnored private var commandsLoad: Task<Void, Never>?
 
     func loadCommands() async {
-        guard let host, !commandsLoaded else { return }
-        commandsLoaded = true
-        do { commands = try await host.client.commands(agentId: agentId) } catch { commandsLoaded = false }
+        guard let host else { return }
+        if commandsLoad == nil {
+            let client = host.client, id = agentId
+            commandsLoad = Task {
+                do { commands = try await client.commands(agentId: id) } catch { commandsLoad = nil }
+            }
+        }
+        await commandsLoad?.value
     }
 
     /// Files and directories under the agent's cwd for "@" mentions.

@@ -98,6 +98,7 @@ final class ChatModel {
             for event in sub.turn { apply(event) }
             let first = historyStart == nil
             try await loadLatest()
+            if let usage = try? await host.client.usage(agentId: agentId) { self.usage = usage }
             if first { scrollToBottomRequest += 1 }
             error = nil
         } catch {
@@ -210,17 +211,60 @@ final class ChatModel {
 
     // MARK: Actions
 
-    func send(_ text: String) async {
+    /// Returns false when sending failed, so the composer can keep the draft.
+    @discardableResult
+    func send(_ text: String, images: [ImageData] = []) async -> Bool {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let host, !text.isEmpty else { return }
+        guard let host, !text.isEmpty || !images.isEmpty else { return false }
         do {
-            let result = try await host.client.send(agentId: agentId, text: text)
+            let result = try await host.client.send(agentId: agentId, text: text, images: images)
             if result.queued { upsert(.notice(id: "queued-\(UUID().uuidString)", text: "Queued: runs after the current turn.")) }
             scrollToBottomRequest += 1
+            return true
         } catch {
             self.error = error.localizedDescription
+            return false
         }
     }
+
+    /// "!command": runs in the agent's cwd as its own turn. The server refuses it while a turn runs.
+    @discardableResult
+    func shell(_ command: String) async -> Bool {
+        let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let host, !command.isEmpty else { return false }
+        do {
+            try await host.client.shell(agentId: agentId, command: command)
+            scrollToBottomRequest += 1
+            return true
+        } catch RPCError.server(1002, _) {
+            error = "The agent is busy; run the command when it is idle."
+            return false
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    // MARK: Composer data
+
+    /// Slash commands and skills; loaded once per open chat.
+    private(set) var commands: [SlashCommand] = []
+    @ObservationIgnored private var commandsLoaded = false
+
+    func loadCommands() async {
+        guard let host, !commandsLoaded else { return }
+        commandsLoaded = true
+        do { commands = try await host.client.commands(agentId: agentId) } catch { commandsLoaded = false }
+    }
+
+    /// Files and directories under the agent's cwd for "@" mentions.
+    func searchFiles(_ query: String) async -> [FileEntry] {
+        guard let host else { return [] }
+        return (try? await host.client.searchFiles(agentId: agentId, query: query, limit: 30).entries) ?? []
+    }
+
+    /// Bumped by ⌘K so the composer takes focus.
+    var focusComposerRequest = 0
 
     func interrupt() async {
         await perform { try await $0.interrupt(agentId: self.agentId) }

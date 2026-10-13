@@ -24,6 +24,13 @@ public struct SlashCommand: Codable, Sendable, Hashable, Identifiable {
     public var argumentHint: String?
     public var kind: Kind?
     public var id: String { name }
+
+    public init(name: String, description: String? = nil, argumentHint: String? = nil, kind: Kind? = nil) {
+        self.name = name
+        self.description = description
+        self.argumentHint = argumentHint
+        self.kind = kind
+    }
 }
 
 struct CommandList: Codable, Sendable { var commands: [SlashCommand] }
@@ -35,6 +42,11 @@ public struct FileEntry: Codable, Sendable, Hashable, Identifiable {
     public var path: String
     public var kind: Kind
     public var id: String { path }
+
+    public init(path: String, kind: Kind) {
+        self.path = path
+        self.kind = kind
+    }
 }
 
 public struct FileSearchResult: Codable, Sendable {

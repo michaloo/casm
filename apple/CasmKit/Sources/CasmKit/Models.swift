@@ -242,6 +242,16 @@ public struct Usage: Codable, Sendable, Hashable {
     public var inputTokens: Double?
     public var outputTokens: Double?
     public var costUsd: Double?
+
+    public init(model: String? = nil, contextTokens: Double? = nil, contextWindow: Double? = nil,
+                inputTokens: Double? = nil, outputTokens: Double? = nil, costUsd: Double? = nil) {
+        self.model = model
+        self.contextTokens = contextTokens
+        self.contextWindow = contextWindow
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.costUsd = costUsd
+    }
 }
 
 public struct Agent: Codable, Sendable, Hashable, Identifiable {

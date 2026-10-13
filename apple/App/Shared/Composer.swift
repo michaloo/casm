@@ -1,8 +1,14 @@
 import CasmKit
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// The message box under the transcript: an activity pill, a rounded input, and a row of
-/// model / effort / mode pickers with the busy, voice and send controls.
+#if os(iOS)
+import PhotosUI
+#endif
+
+/// The message box under the transcript, Paseo-style: an activity pill, image thumbnails, a rounded
+/// input with "/" and "@" completion and a "!" shell mode, and a row with attach, model / effort / mode
+/// pickers, the context ring, and the busy, voice and send controls.
 struct Composer: View {
     let chat: ChatModel
     /// Running subagents of this agent, on any host.
@@ -10,16 +16,44 @@ struct Composer: View {
     @State private var text = ""
     @State private var selection: TextSelection?
     @FocusState private var focused: Bool
+    @State private var attachments: [Attachment] = []
+    @State private var suggestions: [Suggestion] = []
+    @State private var highlighted = 0
+    /// The completion the user dismissed with Esc; stays hidden until the context changes.
+    @State private var dismissedContext: CompletionContext?
+    @State private var pickingFiles = false
+    @State private var dropTargeted = false
     #if os(iOS)
+    @State private var photoItems: [PhotosPickerItem] = []
     @Environment(\.horizontalSizeClass) private var sizeClass
     private var compactWidth: Bool { sizeClass == .compact }
     #else
     private let compactWidth = false
+    @State private var pasteMonitor: Any?
     #endif
 
     private var busy: Bool { chat.status.isBusy }
     private var online: Bool { chat.host?.isOnline ?? false }
-    private var canSend: Bool { online && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// A leading "!" runs the rest as a shell command in the agent's cwd.
+    private var shellMode: Bool { text.hasPrefix("!") }
+    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var canSend: Bool {
+        guard online else { return false }
+        if shellMode { return trimmed.count > 1 && !busy }
+        return !trimmed.isEmpty || !attachments.isEmpty
+    }
+
+    private var caret: String.Index? {
+        if case .selection(let range) = selection?.indices, range.isEmpty { return range.upperBound }
+        return selection == nil ? text.endIndex : nil
+    }
+
+    private var context: CompletionContext? {
+        guard !shellMode, let caret else { return nil }
+        return CompletionContext.at(caret, in: text)
+    }
+
+    private var showSuggestions: Bool { !suggestions.isEmpty && context != nil && context != dismissedContext }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -27,20 +61,38 @@ struct Composer: View {
                 ActivityPill(count: working)
             }
             VStack(alignment: .leading, spacing: 10) {
+                if showSuggestions {
+                    SuggestionList(suggestions: suggestions, highlighted: highlighted, choose: accept)
+                    Divider()
+                }
+                if !attachments.isEmpty && !shellMode {
+                    AttachmentStrip(attachments: attachments) { a in attachments.removeAll { $0.id == a.id } }
+                }
+                if shellMode {
+                    Label("Shell command in \(ChatView.abbreviate(chat.agent?.cwd ?? "the agent's folder"))", systemImage: "terminal")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.green)
+                }
                 TextField("Message the agent", text: $text, selection: $selection, axis: .vertical)
                     .accessibilityLabel("Message")
                     .textFieldStyle(.plain)
+                    .font(shellMode ? .body.monospaced() : .body)
                     .lineLimit(2...10)
                     .focused($focused)
                     .onKeyPress(.return, phases: .down, action: handleReturn)
+                    .onKeyPress(.tab) { acceptHighlighted() }
+                    .onKeyPress(.upArrow) { moveHighlight(-1) }
+                    .onKeyPress(.downArrow) { moveHighlight(1) }
+                    .onKeyPress(.escape) {
+                        guard showSuggestions else { return .ignored }
+                        dismissedContext = context
+                        return .handled
+                    }
                     #if os(iOS)
                     .onSubmit(submit)
                     #endif
                 HStack(spacing: 14) {
-                    Button("Attach", systemImage: "plus") {}
-                        .labelStyle(.iconOnly)
-                        .disabled(true)
-                        .help("Attachments aren't supported yet")
+                    attachButton
                     if chat.agent != nil {
                         // Icons only on iPhone-width screens.
                         ConfigPickers(chat: chat).environment(\.compactPickers, compactWidth)
@@ -49,14 +101,17 @@ struct Composer: View {
                     if busy {
                         WorkingIndicator()
                     }
+                    ContextRing(usage: chat.usage)
                     Button("Dictate", systemImage: "mic") {}
                         .labelStyle(.iconOnly)
                         .disabled(true)
                         .help("Dictation comes with voice (phase 2)")
-                    Button("Voice mode", systemImage: "waveform") {}
-                        .labelStyle(.iconOnly)
-                        .disabled(true)
-                        .help("Voice mode comes in phase 2")
+                    if !compactWidth {
+                        Button("Voice mode", systemImage: "waveform") {}
+                            .labelStyle(.iconOnly)
+                            .disabled(true)
+                            .help("Voice mode comes in phase 2")
+                    }
                     sendOrInterrupt
                 }
                 .buttonStyle(.plain)
@@ -65,13 +120,19 @@ struct Composer: View {
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 10)
-            .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 18))
-            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.secondary.opacity(0.2)))
+            .background(boxFill, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(boxStroke, lineWidth: dropTargeted ? 2 : 1))
             #if os(macOS)
             // Clicking the padding focuses the field. On iOS this would swallow taps on the pickers.
             .contentShape(RoundedRectangle(cornerRadius: 18))
             .onTapGesture { focused = true }
             #endif
+            .onDrop(of: [.fileURL, .image], isTargeted: $dropTargeted) { providers in
+                // NSItemProvider isn't Sendable; the providers are only read by the loading task.
+                nonisolated(unsafe) let dropped = providers
+                Task { attachments += await ImageEncoding.load(from: dropped).map { Attachment(image: $0) } }
+                return true
+            }
         }
         #if os(iOS)
         .padding(.horizontal, 10)
@@ -83,13 +144,64 @@ struct Composer: View {
         .padding(.top, 6)
         .frame(maxWidth: 900)
         .frame(maxWidth: .infinity)
+        .task(id: context) { await refreshSuggestions() }
+        .onChange(of: chat.focusComposerRequest) { focused = true }
+        .fileImporter(isPresented: $pickingFiles, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
+            for url in urls {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                if let data = try? Data(contentsOf: url), let image = ImageEncoding.encode(data) {
+                    attachments.append(Attachment(image: image))
+                }
+            }
+        }
         #if os(macOS)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            installPasteMonitor()
+        }
+        .onDisappear {
+            if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }
+            pasteMonitor = nil
+        }
+        #endif
+    }
+
+    private var boxFill: Color { shellMode ? Color.green.opacity(0.06) : Color.secondary.opacity(0.05) }
+    private var boxStroke: Color {
+        if dropTargeted { return .accentColor }
+        return shellMode ? Color.green.opacity(0.45) : Color.secondary.opacity(0.2)
+    }
+
+    @ViewBuilder private var attachButton: some View {
+        #if os(iOS)
+        PhotosPicker(selection: $photoItems, maxSelectionCount: 6, matching: .images) {
+            Image(systemName: "plus").accessibilityLabel("Attach images")
+        }
+        .disabled(shellMode)
+        .onChange(of: photoItems) {
+            let items = photoItems
+            photoItems = []
+            Task {
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self), let image = ImageEncoding.encode(data) {
+                        attachments.append(Attachment(image: image))
+                    }
+                }
+            }
+        }
+        #else
+        Button("Attach images", systemImage: "plus") { pickingFiles = true }
+            .labelStyle(.iconOnly)
+            .disabled(shellMode)
+            .help("Attach images (or paste / drop them here)")
         #endif
     }
 
     @ViewBuilder private var sendOrInterrupt: some View {
-        if busy {
+        // While a turn runs the round button is Interrupt; Enter still queues a message.
+        if busy && !shellMode {
             Button("Interrupt", systemImage: "stop.fill") { Task { await chat.interrupt() } }
                 .labelStyle(.iconOnly)
                 .font(.caption)
@@ -99,46 +211,125 @@ struct Composer: View {
                 .keyboardShortcut(".", modifiers: .command)
                 .help("Interrupt the running turn (⌘.). Enter still queues a message.")
         } else {
-            Button("Send", systemImage: "arrow.up", action: submit)
+            Button(shellMode ? "Run" : "Send", systemImage: shellMode ? "return" : "arrow.up", action: submit)
                 .labelStyle(.iconOnly)
                 .fontWeight(.semibold)
                 .foregroundStyle(.white)
                 .frame(width: 26, height: 26)
-                .background(canSend ? Color.accentColor : Color.secondary.opacity(0.35), in: Circle())
+                .background(canSend ? (shellMode ? Color.green : Color.accentColor) : Color.secondary.opacity(0.35), in: Circle())
                 .disabled(!canSend)
-                .help("Send (Enter). Shift-Enter for a new line.")
+                .help(shellMode ? "Run in the agent's folder (Enter)" : "Send (Enter). Shift-Enter for a new line.")
         }
     }
 
-    /// Enter sends (or queues while busy); Shift-Enter inserts a newline.
+    // MARK: Keys
+
+    /// Enter accepts a suggestion or sends (queues while busy); Shift/Option-Enter inserts a newline.
     private func handleReturn(_ press: KeyPress) -> KeyPress.Result {
         if press.modifiers.contains(.shift) || press.modifiers.contains(.option) {
             insertNewline()
+        } else if showSuggestions {
+            _ = acceptHighlighted()
         } else {
             submit()
         }
         return .handled
     }
 
+    private func acceptHighlighted() -> KeyPress.Result {
+        guard showSuggestions, suggestions.indices.contains(highlighted) else { return .ignored }
+        accept(suggestions[highlighted])
+        return .handled
+    }
+
+    private func moveHighlight(_ delta: Int) -> KeyPress.Result {
+        guard showSuggestions else { return .ignored }
+        highlighted = (highlighted + delta + suggestions.count) % suggestions.count
+        return .handled
+    }
+
     private func insertNewline() {
-        if case .selection(let range) = selection?.indices {
-            text.replaceSubrange(range, with: "\n")
-            let caret = text.index(after: range.lowerBound)
-            selection = TextSelection(insertionPoint: caret)
-        } else {
-            text += "\n"
+        replace(caretRange ?? text.endIndex..<text.endIndex, with: "\n")
+    }
+
+    private var caretRange: Range<String.Index>? {
+        if case .selection(let range) = selection?.indices { return range }
+        return nil
+    }
+
+    private func replace(_ range: Range<String.Index>, with string: String) {
+        let offset = text.distance(from: text.startIndex, to: range.lowerBound) + string.count
+        text.replaceSubrange(range, with: string)
+        selection = TextSelection(insertionPoint: text.index(text.startIndex, offsetBy: offset))
+    }
+
+    // MARK: Completion
+
+    private func refreshSuggestions() async {
+        highlighted = 0
+        guard let context else { suggestions = []; return }
+        switch context.kind {
+        case .command:
+            await chat.loadCommands()
+            suggestions = Array(Suggestion.commands(chat.commands, matching: context.query).prefix(30))
+        case .mention:
+            try? await Task.sleep(for: .milliseconds(120)) // debounce typing
+            guard !Task.isCancelled else { return }
+            suggestions = Suggestion.files(await chat.searchFiles(context.query))
         }
     }
 
+    private func accept(_ suggestion: Suggestion) {
+        guard let context else { return }
+        replace(context.range, with: suggestion.insert)
+        suggestions = []
+        focused = true
+    }
+
+    // MARK: Send
+
     private func submit() {
-        let message = text
         guard canSend else { return }
+        let message = text
+        let images = attachments.map(\.image)
+        let shell = shellMode
         text = ""
+        attachments = []
+        suggestions = []
         #if os(iOS)
         focused = false
         #endif
-        Task { await chat.send(message) }
+        Task {
+            let ok = shell ? await chat.shell(String(message.dropFirst())) : await chat.send(message, images: images)
+            // Put the draft back if it didn't go through.
+            if !ok && text.isEmpty {
+                text = message
+                if !shell { attachments = images.map { Attachment(image: $0) } }
+            }
+        }
     }
+
+    #if os(macOS)
+    /// ⌘V with an image (or image files) on the pasteboard attaches it instead of pasting text.
+    private func installPasteMonitor() {
+        guard pasteMonitor == nil else { return }
+        pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard focused, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  event.charactersIgnoringModifiers == "v" else { return event }
+            let board = NSPasteboard.general
+            let urls = (board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])
+                .filter { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true }
+            var images = urls.compactMap { url in (try? Data(contentsOf: url)).flatMap { ImageEncoding.encode($0) } }
+            if images.isEmpty, board.string(forType: .string) == nil,
+               let data = board.data(forType: .png) ?? board.data(forType: .tiff), let image = ImageEncoding.encode(data) {
+                images = [image]
+            }
+            guard !images.isEmpty else { return event }
+            attachments += images.map { Attachment(image: $0) }
+            return nil
+        }
+    }
+    #endif
 }
 
 struct ActivityPill: View {

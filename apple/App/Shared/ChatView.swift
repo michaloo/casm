@@ -278,6 +278,7 @@ struct UserBubble: View {
 /// An image attached to a prompt; history may leave out the data of very large ones.
 struct ImageThumbnail: View {
     let image: ImageData
+    var size: CGFloat = 96
 
     var body: some View {
         Group {
@@ -287,7 +288,7 @@ struct ImageThumbnail: View {
                 Image(systemName: "photo").font(.title2).foregroundStyle(.secondary)
             }
         }
-        .frame(width: 96, height: 96)
+        .frame(width: size, height: size)
         .background(.quaternary)
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }

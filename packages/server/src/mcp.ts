@@ -46,8 +46,18 @@ const agentRef = z.string().describe("Agent id, id prefix or exact name");
 
 const tools = {
   list_hosts: {
-    description: "List this casm server and its peer servers (other machines you can run agents on), with reachability.",
+    description:
+      "List this casm server and its peer servers (other machines you can run agents on), with reachability, the agents each offers and their subscription limits (used % per window). Prefer providers with headroom for long work.",
     input: z.object({}),
+  },
+  get_limits: {
+    description:
+      "Subscription/account limits per agent provider on a host: each window's used %, reset time and status. Check before delegating long work; `refresh` queries providers that support it.",
+    input: z.object({ host, refresh: z.boolean().optional() }),
+  },
+  get_usage: {
+    description: "Context-window usage and cost of one agent (tokens used of the window, model).",
+    input: z.object({ host, agent: agentRef }),
   },
   list_projects: {
     description: "List projects on a host. Agents are created inside a project, which sets their working directory.",
@@ -130,6 +140,8 @@ function renderItem(i: Item): string {
       return `notice: ${i.text}`;
     case "plan":
       return `plan: ${i.entries.map((e) => `[${e.status}] ${e.text}`).join("; ")}`;
+    case "subagent":
+      return `subagent ${i.id} [${i.status}] ${i.title}${i.activity ? ` - ${i.activity}` : ""}${i.summary ? `\n${i.summary}` : ""}`;
   }
 }
 
@@ -160,18 +172,37 @@ export function createMcp(ctx: McpContext) {
 
   const run: { [T in ToolName]: (args: Args<T>, caller: string) => Promise<unknown> } = {
     async list_hosts() {
-      const here = { name: identity.name, serverId: identity.id, local: true, reachable: true, providers: ctx.agents.providerIds() };
+      const here = {
+        name: identity.name,
+        serverId: identity.id,
+        local: true,
+        reachable: true,
+        providers: ctx.agents.providerIds(),
+        limits: await ctx.agents.limits().catch(() => []),
+      };
       const others = await Promise.all(
         peers.list().map(async (p) => {
           try {
-            const info = await peers.caller(p)("server.info", {});
-            return { name: p.name, serverId: info.id, local: false, reachable: true, providers: info.providers };
+            const call = peers.caller(p);
+            const info = await call("server.info", {});
+            const limits = await call("provider.limits", {}).then((r) => r.limits, () => []);
+            return { name: p.name, serverId: info.id, local: false, reachable: true, providers: info.providers, limits };
           } catch (e) {
             return { name: p.name, serverId: p.serverId, local: false, reachable: false, error: (e as Error).message };
           }
         }),
       );
       return [here, ...others];
+    },
+
+    async get_limits(a) {
+      return (await target(a.host).call("provider.limits", { refresh: a.refresh })).limits;
+    },
+
+    async get_usage(a) {
+      const t = target(a.host);
+      const agent = await findAgent(t, a.agent);
+      return { agent: agent.id, ...(await t.call("agent.usage", { id: agent.id })) };
     },
 
     async list_projects(a) {

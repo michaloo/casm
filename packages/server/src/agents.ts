@@ -15,6 +15,7 @@ import type {
   NotificationParams,
   PermissionRequest,
   ProviderId,
+  ProviderLimits,
   QuestionRequest,
   Usage,
 } from "@casm/protocol";
@@ -63,6 +64,8 @@ export type Notify = <N extends NotificationName>(name: N, params: NotificationP
 export class AgentManager {
   private live = new Map<string, Live>();
   private catalogs = new Map<ProviderId, { at: number; catalog: Promise<Catalog> }>();
+  // Latest account limits per provider, as sessions or queries reported them.
+  private limitsSeen = new Map<ProviderId, ProviderLimits>();
   // Per-agent MCP bearer tokens, minted when a session opens. Memory only.
   private mcpTokens = new Map<string, string>();
   private mcpTokenOf = new Map<string, string>();
@@ -268,6 +271,11 @@ export class AgentManager {
       case "toolOutput":
         this.emit(id, { type: "toolOutput", itemId: e.itemId, text: e.text });
         return;
+      case "limits": {
+        const a = this.store.getAgent(id);
+        if (a) this.recordLimits(a.provider, e.limits);
+        return;
+      }
       case "usage":
         l.lastUsage = { ...l.lastUsage, ...e.usage };
         this.emit(id, { type: "usage", usage: l.lastUsage });
@@ -416,6 +424,43 @@ export class AgentManager {
       permissions: l ? [...l.pending.values()].flatMap((p) => (p.kind === "permission" ? [p.req] : [])) : [],
       questions: l ? [...l.pending.values()].flatMap((p) => (p.kind === "question" ? [p.req] : [])) : [],
     };
+  }
+
+  private recordLimits(provider: ProviderId, update: Omit<ProviderLimits, "provider" | "updatedAt">) {
+    const prev = this.limitsSeen.get(provider);
+    const windows = new Map((prev?.windows ?? []).map((w) => [w.id, w]));
+    for (const w of update.windows) windows.set(w.id, { ...windows.get(w.id), ...w });
+    const limits: ProviderLimits = {
+      provider,
+      plan: update.plan ?? prev?.plan,
+      windows: [...windows.values()],
+      updatedAt: new Date().toISOString(),
+    };
+    this.limitsSeen.set(provider, limits);
+    this.notify("provider.limits", { limits });
+    return limits;
+  }
+
+  async limits(only?: ProviderId, refresh = false): Promise<ProviderLimits[]> {
+    const ids = only ? [only] : this.providerIds();
+    const out: ProviderLimits[] = [];
+    for (const id of ids) {
+      const p = this.provider(id);
+      if ((refresh || !this.limitsSeen.has(id)) && p.limits) {
+        const fresh = await p.limits().catch(() => null);
+        if (fresh) this.recordLimits(id, fresh);
+      }
+      const seen = this.limitsSeen.get(id);
+      if (seen) out.push(seen);
+    }
+    return out;
+  }
+
+  async subagentHistory(id: string, subagentId: string, limit = 500): Promise<Item[]> {
+    const a = this.agent(id);
+    const p = this.provider(a.provider);
+    if (!a.nativeSessionId || !p.subagentHistory) return [];
+    return (await p.subagentHistory(a.nativeSessionId, a.cwd, subagentId)).slice(-limit);
   }
 
   async usage(id: string): Promise<Usage | null> {

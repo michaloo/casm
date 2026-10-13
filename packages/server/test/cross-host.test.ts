@@ -191,6 +191,8 @@ test("MCP initialize, notifications and tools/list", async () => {
     "answer_question",
     "create_agent",
     "get_history",
+    "get_limits",
+    "get_usage",
     "list_agents",
     "list_hosts",
     "list_projects",

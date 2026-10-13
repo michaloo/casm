@@ -1,0 +1,11 @@
+[
+  {"kind": "user", "id": "u1", "text": "Write hello.txt"},
+  {"kind": "assistant", "id": "a1:0", "text": "## Done\n\n- created `hello.txt`\n\n```bash\ncat hello.txt\n```"},
+  {"kind": "reasoning", "id": "a1:1", "text": "The user wants a file."},
+  {"kind": "tool", "id": "toolu_1", "name": "Write", "input": {"file_path": "/tmp/hello.txt", "content": "hi", "n": 2, "flags": [true, null]}, "status": "running"},
+  {"kind": "tool", "id": "toolu_1", "name": "Write", "input": {"file_path": "/tmp/hello.txt"}, "status": "done", "output": "File created"},
+  {"kind": "tool", "id": "toolu_2", "name": "Bash", "input": "ls", "status": "error", "output": "exit 1"},
+  {"kind": "tool", "id": "toolu_3", "name": "Mystery", "status": "running"},
+  {"kind": "notice", "id": "n1", "text": "Session resumed", "extra": "ignored"},
+  {"kind": "diff", "id": "d1", "patch": "--- a\n+++ b"}
+]

@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS agents (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS tokens (
   name TEXT PRIMARY KEY,
   hash TEXT NOT NULL UNIQUE,
@@ -208,6 +212,15 @@ export class Store {
 
   deleteAgent(id: string): boolean {
     return this.db.prepare("DELETE FROM agents WHERE id = ?").run(id).changes > 0;
+  }
+
+  // A stable id for this server, created on first use.
+  serverId(): string {
+    const r = this.db.prepare("SELECT value FROM meta WHERE key = 'server_id'").get() as Row | undefined;
+    if (r) return r.value as string;
+    const id = randomUUID();
+    this.db.prepare("INSERT INTO meta (key, value) VALUES ('server_id', ?)").run(id);
+    return id;
   }
 
   // --- tokens

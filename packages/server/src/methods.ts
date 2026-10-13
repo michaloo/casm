@@ -1,14 +1,17 @@
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type Result } from "@casm/protocol";
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
+import { searchFiles } from "./fs-search.ts";
 
 export type Conn = { subscriptions: Set<string> };
 
 type Handlers = { [M in MethodName]: (p: Params<M>, conn: Conn) => Result<M> | Promise<Result<M>> };
 
-export function createHandlers(store: Store, agents: AgentManager, notify: Notify, version: string): Handlers {
+export type Identity = { id: string; name: string; version: string };
+
+export function createHandlers(store: Store, agents: AgentManager, notify: Notify, identity: Identity): Handlers {
   const getProject = (id: string) => {
     const p = store.getProject(id);
     if (!p) throw new RpcError(ErrorCode.NotFound, `project ${id} not found`);
@@ -26,7 +29,13 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
   };
 
   return {
-    "server.info": () => ({ name: "casm", version, protocol: PROTOCOL_VERSION, providers: agents.providerIds() }),
+    "server.info": () => ({ ...identity, protocol: PROTOCOL_VERSION, providers: agents.providerIds() }),
+
+    "fs.search": async (p) => {
+      const root = p.agentId ? getAgent(p.agentId).cwd : p.cwd;
+      if (!root || !isAbsolute(root)) throw new RpcError(ErrorCode.InvalidParams, "give an agentId or an absolute cwd");
+      return { root, entries: await searchFiles(root, p.query, p.limit) };
+    },
 
     "provider.catalog": (p) => agents.catalog(p.provider, p.refresh),
 
@@ -78,7 +87,7 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
         tags: p.tags,
       });
       notify("agent.changed", { agent: agents.withStatus(stored) });
-      if (p.prompt) agents.send(stored.id, p.prompt);
+      if (p.prompt || p.images?.length) agents.send(stored.id, { text: p.prompt ?? "", images: p.images });
       return getAgent(stored.id);
     },
     "agent.update": (p) => {
@@ -109,7 +118,9 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
       conn.subscriptions.delete(p.id);
       return { ok: true };
     },
-    "agent.send": (p) => agents.send(p.id, p.text, p.whenBusy),
+    "agent.send": (p) => agents.send(p.id, { text: p.text, images: p.images }, p.whenBusy),
+    "agent.usage": async (p) => ({ usage: await agents.usage(p.id) }),
+    "agent.commands": async (p) => ({ commands: await agents.commands(p.id) }),
     "agent.interrupt": async (p) => {
       await agents.interrupt(p.id);
       return { ok: true };

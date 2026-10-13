@@ -33,7 +33,10 @@ export const AgentConfig = z.object({
 });
 export type AgentConfig = z.infer<typeof AgentConfig>;
 
-export const AgentParent = z.object({ host: z.string(), agentId: z.string() });
+// The agent that created this one, possibly on another server. `serverId`
+// matches `server.info` id, so clients can map it to one of their hosts;
+// `host` is only a display hint.
+export const AgentParent = z.object({ serverId: z.string(), agentId: z.string(), host: z.string().optional() });
 export type AgentParent = z.infer<typeof AgentParent>;
 
 // Derived from the live process, never stored.
@@ -59,8 +62,21 @@ export type Agent = z.infer<typeof Agent>;
 
 // One normalized transcript entry. History and live events use the same shape;
 // clients upsert by `id`.
+export const ImageData = z.object({
+  mediaType: z.string(),
+  // Base64. History may omit it for very large images.
+  data: z.string().optional(),
+});
+export type ImageData = z.infer<typeof ImageData>;
+
+export const PlanEntry = z.object({
+  text: z.string(),
+  status: z.enum(["pending", "in_progress", "completed"]),
+});
+export type PlanEntry = z.infer<typeof PlanEntry>;
+
 export const Item = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("user"), id: z.string(), text: z.string() }),
+  z.object({ kind: z.literal("user"), id: z.string(), text: z.string(), images: z.array(ImageData).optional() }),
   z.object({ kind: z.literal("assistant"), id: z.string(), text: z.string() }),
   z.object({ kind: z.literal("reasoning"), id: z.string(), text: z.string() }),
   z.object({
@@ -71,7 +87,11 @@ export const Item = z.discriminatedUnion("kind", [
     status: z.enum(["running", "done", "error"]),
     output: z.string().optional(),
   }),
-  z.object({ kind: z.literal("notice"), id: z.string(), text: z.string() }),
+  // Status lines: interrupts, retries, compaction, warnings. Upserted by id, so
+  // a retry notice can update its countdown.
+  z.object({ kind: z.literal("notice"), id: z.string(), text: z.string(), level: z.enum(["info", "warning", "error"]).optional() }),
+  // The agent's todo list / plan. Each update replaces the entries.
+  z.object({ kind: z.literal("plan"), id: z.string(), entries: z.array(PlanEntry) }),
 ]);
 export type Item = z.infer<typeof Item>;
 
@@ -137,6 +157,26 @@ export type ModeInfo = z.infer<typeof ModeInfo>;
 export const Catalog = z.object({ models: z.array(ModelInfo), modes: z.array(ModeInfo) });
 export type Catalog = z.infer<typeof Catalog>;
 
+// Context and cost, as far as the agent reports them.
+export const Usage = z.object({
+  model: z.string().optional(),
+  contextTokens: z.number().optional(),
+  contextWindow: z.number().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  costUsd: z.number().optional(),
+});
+export type Usage = z.infer<typeof Usage>;
+
+export const Command = z.object({
+  // Typed after "/" in the composer.
+  name: z.string(),
+  description: z.string().optional(),
+  argumentHint: z.string().optional(),
+  kind: z.enum(["command", "skill"]).optional(),
+});
+export type Command = z.infer<typeof Command>;
+
 export const TurnOutcome = z.enum(["completed", "interrupted", "failed"]);
 export type TurnOutcome = z.infer<typeof TurnOutcome>;
 
@@ -146,6 +186,9 @@ export const AgentEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("turnStarted"), turnId: z.string() }),
   z.object({ type: z.literal("item"), item: Item }),
   z.object({ type: z.literal("delta"), kind: z.enum(["assistant", "reasoning"]), text: z.string() }),
+  // Appends to a running tool item's output; the final tool item replaces it.
+  z.object({ type: z.literal("toolOutput"), itemId: z.string(), text: z.string() }),
+  z.object({ type: z.literal("usage"), usage: Usage }),
   z.object({ type: z.literal("permission"), request: PermissionRequest }),
   z.object({ type: z.literal("permissionResolved"), requestId: z.string() }),
   z.object({ type: z.literal("question"), request: QuestionRequest }),
@@ -173,11 +216,18 @@ function method<P extends z.ZodType, R extends z.ZodType>(params: P, result: R) 
 export const methods = {
   "server.info": method(
     Empty,
-    z.object({ name: z.string(), version: z.string(), protocol: z.number(), providers: z.array(ProviderId) }),
+    z.object({ id: z.string(), name: z.string(), version: z.string(), protocol: z.number(), providers: z.array(ProviderId) }),
   ),
 
   // Models and modes the agent offers on this host. Cached; `refresh` re-reads.
   "provider.catalog": method(z.object({ provider: ProviderId, refresh: z.boolean().optional() }), Catalog),
+
+  // Files and directories under `cwd` (or the agent's cwd) matching `query`,
+  // for @-mentions. Paths are relative; .gitignore is respected.
+  "fs.search": method(
+    z.object({ agentId: z.string().optional(), cwd: z.string().optional(), query: z.string(), limit: z.number().optional() }),
+    z.object({ root: z.string(), entries: z.array(z.object({ path: z.string(), kind: z.enum(["file", "dir"]) })) }),
+  ),
 
   "project.list": method(z.object({ includeArchived: z.boolean().optional() }), z.object({ projects: z.array(Project) })),
   "project.create": method(
@@ -218,6 +268,7 @@ export const methods = {
       parent: AgentParent.optional(),
       tags: z.array(z.string()).optional(),
       prompt: z.string().optional(),
+      images: z.array(ImageData).optional(),
     }),
     Agent,
   ),
@@ -255,9 +306,19 @@ export const methods = {
   "agent.unsubscribe": method(ById, Ok),
   // `queue` (default) runs after the current turn; `steer` injects into it.
   "agent.send": method(
-    z.object({ id: z.string(), text: z.string().min(1), whenBusy: z.enum(["queue", "steer"]).optional() }),
+    z.object({
+      id: z.string(),
+      text: z.string(),
+      images: z.array(ImageData).optional(),
+      whenBusy: z.enum(["queue", "steer"]).optional(),
+    }),
     z.object({ queued: z.boolean() }),
   ),
+  // Latest known context/cost: from the live session, else read from the
+  // provider's store. Null when the agent has not run yet.
+  "agent.usage": method(ById, z.object({ usage: Usage.nullable() })),
+  // Slash commands and skills the agent accepts. Send them as text ("/name args").
+  "agent.commands": method(ById, z.object({ commands: z.array(Command) })),
   "agent.interrupt": method(ById, Ok),
   // Reload: new process, same native session. Restart: next turn starts a new session.
   "agent.reload": method(ById, Ok),

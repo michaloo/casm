@@ -2,12 +2,15 @@ import type {
   AgentConfig,
   Answers,
   Catalog,
+  Command,
+  ImageData,
   Item,
   PermissionDecision,
   PermissionRequest,
   ProviderId,
   QuestionRequest,
   TurnOutcome,
+  Usage,
 } from "@casm/protocol";
 
 // What a provider reports while a session is open.
@@ -15,6 +18,10 @@ export type ProviderEvent =
   | { type: "sessionId"; id: string }
   | { type: "item"; item: Item }
   | { type: "delta"; kind: "assistant" | "reasoning"; text: string }
+  // Output of a running tool, appended to the tool item with that id.
+  | { type: "toolOutput"; itemId: string; text: string }
+  // Partial updates merge into the agent's last known usage.
+  | { type: "usage"; usage: Usage }
   | { type: "turnEnded"; outcome: TurnOutcome; error?: string }
   // The process is gone; the manager drops the session and reopens on next send.
   | { type: "closed"; error?: string };
@@ -35,7 +42,7 @@ export type OpenOptions = {
 // One live provider process bound to one native session.
 export interface ProviderSession {
   // Starts a turn, or folds the text into the running turn (steer).
-  send(text: string, itemId: string): void;
+  send(text: string, itemId: string, images?: ImageData[]): void;
   interrupt(): Promise<void>;
   close(): Promise<void>;
 }
@@ -47,4 +54,8 @@ export interface Provider {
   history(sessionId: string, cwd: string): Promise<Item[]>;
   // Models and modes available on this host. The manager caches the result.
   catalog(): Promise<Catalog>;
+  // Last known context/cost from the provider's store (for agents not running now).
+  usage(sessionId: string, cwd: string): Promise<Usage | null>;
+  // Slash commands and skills available in `cwd`.
+  commands(cwd: string): Promise<Command[]>;
 }

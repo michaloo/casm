@@ -6,6 +6,8 @@ import type {
   AgentEvent,
   Answers,
   Catalog,
+  Command,
+  ImageData,
   AgentStatus,
   Item,
   NotificationName,
@@ -13,6 +15,7 @@ import type {
   PermissionRequest,
   ProviderId,
   QuestionRequest,
+  Usage,
 } from "@casm/protocol";
 import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from "./providers/types.ts";
@@ -40,12 +43,15 @@ type Live = {
   // Events of the running turn, for clients that subscribe mid-turn.
   turn: AgentEvent[];
   pending: Map<string, Pending>;
-  queue: string[];
+  queue: Prompt[];
   // Config changed mid-turn: restart the process once the turn ends.
   reloadAfterTurn: boolean;
   lastReply: string | null;
+  lastUsage: Usage | null;
   statusWaiters: Set<() => void>;
 };
+
+export type Prompt = { text: string; images?: ImageData[] };
 
 export type Notify = <N extends NotificationName>(name: N, params: NotificationParams<N>, agentId?: string) => void;
 
@@ -92,7 +98,7 @@ export class AgentManager {
   private liveFor(id: string): Live {
     let l = this.live.get(id);
     if (!l) {
-      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), queue: [], reloadAfterTurn: false, lastReply: null, statusWaiters: new Set() };
+      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), queue: [], reloadAfterTurn: false, lastReply: null, lastUsage: null, statusWaiters: new Set() };
       this.live.set(id, l);
     }
     return l;
@@ -104,6 +110,11 @@ export class AgentManager {
       // Deltas are only a preview; drop them once the full item lands.
       if (event.type === "item" && (event.item.kind === "assistant" || event.item.kind === "reasoning"))
         l.turn = l.turn.filter((e) => e.type !== "delta");
+      // Streamed tool output is superseded by the finished tool item.
+      if (event.type === "item" && event.item.kind === "tool" && event.item.status !== "running") {
+        const done = event.item.id;
+        l.turn = l.turn.filter((e) => e.type !== "toolOutput" || e.itemId !== done);
+      }
       l.turn.push(event);
     }
     this.notify("agent.event", { agentId: id, event }, id);
@@ -117,25 +128,31 @@ export class AgentManager {
 
   // --- turns
 
-  send(id: string, text: string, whenBusy: "queue" | "steer" = "queue"): { queued: boolean } {
+  send(id: string, prompt: Prompt, whenBusy: "queue" | "steer" = "queue"): { queued: boolean } {
     const a = this.agent(id);
     if (a.archivedAt) throw new RpcError(1003, "agent is archived");
+    if (!prompt.text.trim() && !prompt.images?.length) throw new RpcError(-32602, "nothing to send");
     const l = this.liveFor(id);
     if (l.turnId) {
       if (whenBusy === "queue") {
-        l.queue.push(text);
+        l.queue.push(prompt);
         return { queued: true };
       }
-      const itemId = randomUUID();
-      this.emit(id, { type: "item", item: { kind: "user", id: itemId, text } });
-      l.session!.send(text, itemId);
+      this.sendToSession(id, l, prompt);
       return { queued: false };
     }
-    this.startTurn(a, l, text);
+    this.startTurn(a, l, prompt);
     return { queued: false };
   }
 
-  private startTurn(a: StoredAgent, l: Live, text: string) {
+  private sendToSession(id: string, l: Live, prompt: Prompt) {
+    const itemId = randomUUID();
+    const images = prompt.images?.length ? prompt.images : undefined;
+    this.emit(id, { type: "item", item: { kind: "user", id: itemId, text: prompt.text, images } });
+    l.session!.send(prompt.text, itemId, images);
+  }
+
+  private startTurn(a: StoredAgent, l: Live, prompt: Prompt) {
     if (!l.session) {
       const gen = ++l.generation;
       l.session = this.provider(a.provider).open({
@@ -153,10 +170,8 @@ export class AgentManager {
     l.turn = [];
     l.lastReply = null;
     this.emit(a.id, { type: "turnStarted", turnId: l.turnId });
-    const itemId = randomUUID();
-    this.emit(a.id, { type: "item", item: { kind: "user", id: itemId, text } });
     this.statusChanged(a.id);
-    l.session.send(text, itemId);
+    this.sendToSession(a.id, l, prompt);
   }
 
   private onProviderEvent(id: string, l: Live, e: ProviderEvent) {
@@ -175,6 +190,13 @@ export class AgentManager {
         return;
       case "delta":
         this.emit(id, { type: "delta", kind: e.kind, text: e.text });
+        return;
+      case "toolOutput":
+        this.emit(id, { type: "toolOutput", itemId: e.itemId, text: e.text });
+        return;
+      case "usage":
+        l.lastUsage = { ...l.lastUsage, ...e.usage };
+        this.emit(id, { type: "usage", usage: l.lastUsage });
         return;
       case "turnEnded":
         this.endTurn(id, l, e.outcome, e.error);
@@ -318,6 +340,19 @@ export class AgentManager {
       permissions: l ? [...l.pending.values()].flatMap((p) => (p.kind === "permission" ? [p.req] : [])) : [],
       questions: l ? [...l.pending.values()].flatMap((p) => (p.kind === "question" ? [p.req] : [])) : [],
     };
+  }
+
+  async usage(id: string): Promise<Usage | null> {
+    const a = this.agent(id);
+    const live = this.live.get(id)?.lastUsage;
+    if (live) return live;
+    if (!a.nativeSessionId) return null;
+    return this.provider(a.provider).usage(a.nativeSessionId, a.cwd);
+  }
+
+  commands(id: string): Promise<Command[]> {
+    const a = this.agent(id);
+    return this.provider(a.provider).commands(a.cwd);
   }
 
   async history(id: string, before?: number, limit = 200): Promise<{ items: Item[]; start: number; total: number }> {

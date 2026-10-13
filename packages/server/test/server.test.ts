@@ -1,11 +1,11 @@
 // End-to-end over a real WebSocket, with a scripted fake provider.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CasmClient, CasmError } from "@casm/client";
-import type { Item } from "@casm/protocol";
+import type { AgentEvent, Item } from "@casm/protocol";
 import { Store } from "../src/db.ts";
 import { startServer, type RunningServer } from "../src/server.ts";
 import type { OpenOptions, Provider, ProviderSession } from "../src/providers/types.ts";
@@ -45,6 +45,13 @@ class FakeSession implements ProviderSession {
           return this.opts.emit({ type: "turnEnded", outcome: "completed" });
         }
       }
+      if (text.includes("tool")) {
+        this.opts.emit({ type: "item", item: { kind: "tool", id: "t1", name: "Bash", input: {}, status: "running" } });
+        this.opts.emit({ type: "toolOutput", itemId: "t1", text: "line 1\n" });
+        this.opts.emit({ type: "usage", usage: { contextTokens: 500 } });
+        this.opts.emit({ type: "usage", usage: { contextWindow: 1000 } });
+        this.opts.emit({ type: "item", item: { kind: "tool", id: "t1", name: "Bash", input: {}, status: "done", output: "line 1\n" } });
+      }
       this.opts.emit({ type: "delta", kind: "assistant", text: "ec" });
       this.opts.emit({ type: "item", item: { kind: "assistant", id: `a-${text}`, text: `echo: ${text}` } });
       this.opts.emit({ type: "turnEnded", outcome: "completed" });
@@ -75,6 +82,12 @@ const provider: Provider = {
   },
   async history(sessionId) {
     return fake.history.get(sessionId) ?? [];
+  },
+  async usage(sessionId) {
+    return sessionId === "native-usage" ? { contextTokens: 1000, contextWindow: 200000 } : null;
+  },
+  async commands() {
+    return [{ name: "review", description: "Review changes", kind: "command" as const }];
   },
   async catalog() {
     fake.catalogCalls++;
@@ -194,7 +207,7 @@ test("restart clears the native session", async () => {
 
 test("invalid params are rejected with JSON-RPC errors", async () => {
   await assert.rejects(
-    client.call("agent.send", { id: "x", text: "" }),
+    client.call("agent.send", { id: "x", text: "hi", whenBusy: "later" as "queue" }),
     (e: CasmError) => e.code === -32602,
   );
   await assert.rejects(client.call("agent.get", { id: "missing" }), (e: CasmError) => e.code === 1001);
@@ -250,4 +263,39 @@ test("config changes merge and reload the session, after the turn if one is runn
   await client.call("agent.send", { id: a.id, text: "after" });
   await client.call("agent.wait", { id: a.id });
   assert.equal(fake.opened.at(-1)!.config.model, "m2");
+});
+
+test("server identity, images, tool output, usage and commands", async () => {
+  const info = await client.call("server.info", {});
+  assert.match(info.id, /^[0-9a-f-]{36}$/);
+  assert.equal((await client.call("server.info", {})).id, info.id);
+
+  const p = await client.call("project.create", { name: "P9" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const events: AgentEvent[] = [];
+  client.on("agent.event", (n) => n.agentId === a.id && events.push(n.event));
+  await client.call("agent.subscribe", { id: a.id });
+  await assert.rejects(client.call("agent.send", { id: a.id, text: " " }));
+  await client.call("agent.send", { id: a.id, text: "use a tool", images: [{ mediaType: "image/png", data: "iVBOR" }] });
+  await client.call("agent.wait", { id: a.id });
+  const user = events.find((e) => e.type === "item" && e.item.kind === "user");
+  assert.deepEqual(user?.type === "item" && user.item.kind === "user" && user.item.images, [{ mediaType: "image/png", data: "iVBOR" }]);
+  assert.ok(events.some((e) => e.type === "toolOutput"));
+  assert.deepEqual((await client.call("agent.usage", { id: a.id })).usage, { contextTokens: 500, contextWindow: 1000 });
+  assert.equal((await client.call("agent.commands", { id: a.id })).commands[0].name, "review");
+});
+
+test("fs.search finds files under the agent's cwd", async () => {
+  const root = mkdtempSync(join(tmpdir(), "casm-fs-"));
+  mkdirSync(join(root, "src"));
+  writeFileSync(join(root, "src", "main.ts"), "");
+  writeFileSync(join(root, "README.md"), "");
+  const p = await client.call("project.create", { name: "P10", path: root });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const r = await client.call("fs.search", { agentId: a.id, query: "main" });
+  assert.equal(r.root, root);
+  assert.deepEqual(r.entries[0], { path: "src/main.ts", kind: "file" });
+  const all = await client.call("fs.search", { cwd: root, query: "" });
+  assert.ok(all.entries.some((e) => e.path === "src" && e.kind === "dir"));
+  await assert.rejects(client.call("fs.search", { cwd: "relative", query: "x" }));
 });

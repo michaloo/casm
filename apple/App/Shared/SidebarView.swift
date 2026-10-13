@@ -215,6 +215,7 @@ struct ProjectNode: View {
                 Text(project.tags.joined(separator: " · ")).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
             }
             Spacer(minLength: 4)
+            #if os(macOS)
             Group {
                 Button("Details of \(project.name)", systemImage: "info.circle") {
                     app.sheet = .projectDetails(host, projectId: project.id)
@@ -229,11 +230,21 @@ struct ProjectNode: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            #if os(macOS)
             // Shown on hover so the tree stays quiet; still reachable via the context menu.
             .opacity(hovering ? 1 : 0)
             #endif
         }
+        #if os(iOS)
+        // m8: no permanent buttons on every iPhone row; swipe for them (or long-press for the menu).
+        .swipeActions(edge: .trailing) {
+            Button("Details", systemImage: "info.circle") { app.sheet = .projectDetails(host, projectId: project.id) }
+                .tint(.gray)
+            if !archived {
+                Button("New Agent", systemImage: "plus") { app.sheet = .newAgent(host, projectId: project.id) }
+                    .tint(.accentColor)
+            }
+        }
+        #endif
         #if os(macOS)
         .onHover { hovering = $0 }
         .draggable(ProjectDrag.payload(project, host: host.id))

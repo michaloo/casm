@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  collaborationMode,
   elicitationQuestion,
+  MODE_INFO,
+  MODES,
   elicitationResponse,
   normalize,
   parseModels,
@@ -251,4 +254,43 @@ test("model/list parses into catalog models", () => {
     { id: "gpt-6.1-sol", name: "GPT-6.1-Sol", description: "Latest workhorse model for coding and everyday work.", isDefault: true, efforts: ["low", "high"] },
     { id: "gpt-6-luna", name: "GPT-6-Luna", description: undefined, isDefault: false },
   ]);
+});
+
+test("catalog modes are Paseo's Codex modes plus Plan, in order", () => {
+  assert.deepEqual(
+    MODE_INFO.map((m) => [m.id, m.name]),
+    [
+      ["plan", "Plan mode"],
+      ["auto", "Default permissions"],
+      ["auto-review", "Auto-review"],
+      ["full-access", "Full access"],
+    ],
+  );
+  assert.deepEqual(Object.keys(MODES), MODE_INFO.map((m) => m.id));
+  assert.equal(MODES["auto-review"].approvalsReviewer, "auto_review");
+  assert.equal(MODES.auto.approvalsReviewer, "user");
+  assert.deepEqual(
+    Object.entries(MODES).filter(([, m]) => m.collaboration === "plan").map(([id]) => id),
+    ["plan"],
+  );
+});
+
+test("collaborationMode carries the agent's model and effort, else the preset's, else the thread's", () => {
+  // Real collaborationMode/list output (codex-cli 0.160.1).
+  const presets = [
+    { name: "Plan", mode: "plan", model: null, reasoning_effort: "medium" },
+    { name: "Default", mode: "default", model: null, reasoning_effort: null },
+  ];
+  const thread = { model: "gpt-6-luna", effort: "high" };
+  assert.deepEqual(collaborationMode("plan", presets, { model: "gpt-5.6-luna", effort: "low" }, thread), {
+    mode: "plan",
+    settings: { model: "gpt-5.6-luna", reasoning_effort: "low", developer_instructions: null },
+  });
+  assert.deepEqual(collaborationMode("plan", presets, {}, thread).settings, { model: "gpt-6-luna", reasoning_effort: "medium", developer_instructions: null });
+  assert.deepEqual(collaborationMode("default", presets, {}, thread), {
+    mode: "default",
+    settings: { model: "gpt-6-luna", reasoning_effort: "high", developer_instructions: null },
+  });
+  // No presets (list failed): the bare kind with the thread's settings.
+  assert.deepEqual(collaborationMode("plan", [], {}, { model: "m", effort: null }).settings, { model: "m", reasoning_effort: null, developer_instructions: null });
 });

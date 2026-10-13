@@ -204,13 +204,13 @@ export function elicitationResult(req: ElicitationRequest, answers: Answers | nu
 
 // --- catalog
 
+// Same names, order and set as Paseo.
 const MODES: (ModeInfo & { id: PermissionMode })[] = [
-  { id: "default", name: "Default", description: "Ask before edits and commands" },
-  { id: "acceptEdits", name: "Accept edits", description: "Edit files without asking; ask for commands" },
-  { id: "plan", name: "Plan", description: "Read-only planning; ask before leaving plan mode" },
-  { id: "auto", name: "Auto", description: "A classifier approves safe actions; asks when unsure" },
-  { id: "dontAsk", name: "Don't ask", description: "Deny anything not pre-approved" },
-  { id: "bypassPermissions", name: "Bypass permissions", description: "Run every tool without asking" },
+  { id: "plan", name: "Plan mode", description: "Analyze the codebase without executing tools or edits" },
+  { id: "default", name: "Always ask", description: "Prompts for permission the first time a tool is used" },
+  { id: "acceptEdits", name: "Accept file edits", description: "Automatically approves edit-focused tools without prompting" },
+  { id: "auto", name: "Auto mode", description: "Uses a model classifier to review permission prompts automatically" },
+  { id: "bypassPermissions", name: "Bypass", description: "Skip all permission prompts (use with caution)" },
 ];
 
 export function parseCatalog(models: SdkModelInfo[]): Catalog {
@@ -224,7 +224,7 @@ export function parseCatalog(models: SdkModelInfo[]): Catalog {
         efforts: m.supportedEffortLevels?.length ? [...m.supportedEffortLevels] : undefined,
       }),
     ),
-    modes: MODES.filter((mode) => mode.id !== "auto" || models.some((m) => m.supportsAutoMode)),
+    modes: MODES,
   };
 }
 

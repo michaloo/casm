@@ -167,7 +167,7 @@ test("parses the model catalog", () => {
   ]);
   assert.deepEqual(
     c.modes.map((m) => m.id),
-    ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"],
+    ["plan", "default", "acceptEdits", "auto", "bypassPermissions"],
   );
-  assert.ok(!parseCatalog(models.slice(2)).modes.some((m) => m.id === "auto"));
+  assert.equal(parseCatalog(models.slice(2)).modes.length, 5);
 });

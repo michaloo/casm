@@ -126,7 +126,7 @@ const shortId = (id: string) => id.slice(0, 8);
 function renderItem(i: Item): string {
   switch (i.kind) {
     case "user":
-      return `\n> ${i.text.replaceAll("\n", "\n> ")}`;
+      return `\n> ${i.text.replaceAll("\n", "\n> ")}${i.images?.length ? `\n> [${i.images.length} image(s)]` : ""}`;
     case "assistant":
       return `\n${i.text}`;
     case "reasoning":
@@ -138,6 +138,8 @@ function renderItem(i: Item): string {
     }
     case "notice":
       return `  [${i.text}]`;
+    case "plan":
+      return i.entries.map((e) => `  ${e.status === "completed" ? "[x]" : e.status === "in_progress" ? "[~]" : "[ ]"} ${e.text}`).join("\n");
   }
 }
 

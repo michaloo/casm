@@ -1,6 +1,7 @@
 // WebSocket + JSON-RPC 2.0 transport. Clients authenticate with
 // `Authorization: Bearer <token>` on the upgrade request.
 import { createServer, type Server } from "node:http";
+import { hostname } from "node:os";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   ErrorCode,
@@ -23,6 +24,8 @@ export type ServerOptions = {
   host: string;
   port: number;
   version: string;
+  // Display name for this server (defaults to the machine's hostname).
+  name?: string;
   log?: (msg: string) => void;
 };
 
@@ -45,13 +48,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   };
 
   const agents = new AgentManager(opts.store, new Map(opts.providers.map((p) => [p.id, p])), notify);
-  const handlers = createHandlers(opts.store, agents, notify, opts.version);
+  const identity = { id: opts.store.serverId(), name: opts.name ?? hostname(), version: opts.version };
+  const handlers = createHandlers(opts.store, agents, notify, identity);
 
   const http = createServer((req, res) => {
     // Unauthenticated, so clients can check compatibility before connecting.
     if (req.url === "/health") {
       res.writeHead(200, { "content-type": "application/json" }).end(
-        JSON.stringify({ name: "casm", version: opts.version, protocol: PROTOCOL_VERSION }),
+        JSON.stringify({ ...identity, protocol: PROTOCOL_VERSION }),
       );
       return;
     }

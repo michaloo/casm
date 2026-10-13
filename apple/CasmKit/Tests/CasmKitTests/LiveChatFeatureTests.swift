@@ -47,12 +47,38 @@ struct LiveChatFeatures {
         let project = try await client.createProject(CreateProjectParams(path: dir))
         let before = try await client.agentsMd(projectId: project.id)
         #expect(before.content == nil, "no AGENTS.md yet")
-        let written = try await client.setAgentsMd(projectId: project.id, content: "# Notes\n\nBe brief.\n")
+        let written = try await client.setAgentsMd(projectId: project.id, content: "# Notes\n\nBe brief.\n", expectedSha256: nil)
+        // A stale hash is rejected with Conflict (1003).
+        do {
+            _ = try await client.setAgentsMd(projectId: project.id, content: "clobber", expectedSha256: "stale")
+            Issue.record("stale write accepted")
+        } catch let RPCError.server(code, _) { #expect(code == 1003) }
+        let current = try await client.agentsMd(projectId: project.id)
+        #expect(current.sha256?.isEmpty == false)
         #expect(written.content == "# Notes\n\nBe brief.\n")
         #expect(try String(contentsOfFile: written.path, encoding: .utf8) == "# Notes\n\nBe brief.\n")
         #expect(try await client.agentsMd(projectId: project.id).content == written.content)
         let memories = try await client.memories(projectId: project.id)
         #expect(memories.allSatisfy { !$0.location.isEmpty })
+        await client.stop()
+    }
+
+    @Test func schedulesRoundTrip() async throws {
+        let client = try await connect()
+        let agent = try await makeAgent(client)
+        let at = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
+        let created = try await client.createSchedule(CreateScheduleParams(
+            name: "test", cadence: .once(at: at), target: .agent(agentId: agent.id, whenBusy: .queue), prompt: "hello"))
+        #expect(created.enabled && created.nextRunAt != nil)
+        #expect(try await client.schedules(agentId: agent.id).map(\.id) == [created.id])
+        let updated = try await client.updateSchedule(UpdateScheduleParams(id: created.id, cadence: .every(minutes: 30), enabled: false))
+        #expect(updated.cadence == .every(minutes: 30) && !updated.enabled)
+        let daily = try await client.createSchedule(CreateScheduleParams(cadence: .cron("0 9 * * 1-5"),
+            target: .agent(agentId: agent.id, whenBusy: .skip), prompt: "standup"))
+        #expect(daily.nextRunAt != nil)
+        try await client.deleteSchedule(id: created.id)
+        try await client.deleteSchedule(id: daily.id)
+        #expect(try await client.schedules(agentId: agent.id).isEmpty)
         await client.stop()
     }
 
@@ -78,7 +104,9 @@ struct LiveChatFeatures {
             guard case .agentEvent(agent.id, let event) = note else { continue }
             switch event {
             case .toolOutput(_, let text): output += text
-            case .item(.tool(let call)) where call.output != nil: output = call.output ?? output
+            case .item(.tool(let call)) where call.output != nil:
+                output = call.output ?? output
+                #expect(call.isUserCommand, "'!' commands carry origin: user")
             case .turnEnded: ended = true
             default: break
             }

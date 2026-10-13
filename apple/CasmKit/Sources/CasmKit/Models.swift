@@ -288,18 +288,20 @@ public struct Agent: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
-/// A message the server will send later: behind a running turn ("queued"), after a usage limit
-/// resets ("limit"), or at a set time ("scheduled"). Sent in order.
+/// A message waiting for its agent to become available: behind a running turn ("queued") or
+/// until a usage limit resets ("limit"). Sent in order. (Timed sends are schedules.)
 public struct PendingMessage: Codable, Sendable, Hashable, Identifiable {
     public enum Reason: OpenEnum {
-        case queued, limit, scheduled
+        /// Behind a running turn.
+        case queued
+        /// Waiting for a usage limit to reset.
+        case limit
         case unknown(String)
 
         public init?(rawValue: String) {
             switch rawValue {
             case "queued": self = .queued
             case "limit": self = .limit
-            case "scheduled": self = .scheduled
             default: self = .unknown(rawValue)
             }
         }
@@ -308,7 +310,6 @@ public struct PendingMessage: Codable, Sendable, Hashable, Identifiable {
             switch self {
             case .queued: "queued"
             case .limit: "limit"
-            case .scheduled: "scheduled"
             case .unknown(let raw): raw
             }
         }
@@ -440,13 +441,18 @@ public struct ToolCall: Codable, Sendable, Hashable {
     public var input: JSONValue?
     public var status: ToolStatus
     public var output: String?
+    /// "user" for the user's own "!" shell commands, "agent" (or nil) for the agent's tools.
+    public var origin: String?
 
-    public init(id: String, name: String, input: JSONValue?, status: ToolStatus, output: String? = nil) {
+    public var isUserCommand: Bool { origin == "user" }
+
+    public init(id: String, name: String, input: JSONValue?, status: ToolStatus, output: String? = nil, origin: String? = nil) {
         self.id = id
         self.name = name
         self.input = input
         self.status = status
         self.output = output
+        self.origin = origin
     }
 }
 
@@ -830,6 +836,8 @@ public enum ServerNotification: Sendable {
     case projectChanged(Project)
     case projectRemoved(projectId: String)
     case providerLimits(ProviderLimits)
+    case scheduleChanged(Schedule)
+    case scheduleRemoved(scheduleId: String)
     case unknown(method: String)
 
     private struct AgentEventParams: Decodable { var agentId: String; var event: AgentEvent }
@@ -839,6 +847,8 @@ public enum ServerNotification: Sendable {
     private struct ProjectParams: Decodable { var project: Project }
     private struct ProjectIDParams: Decodable { var projectId: String }
     private struct LimitsParams: Decodable { var limits: ProviderLimits }
+    private struct ScheduleParams: Decodable { var schedule: Schedule }
+    private struct ScheduleIDParams: Decodable { var scheduleId: String }
     private struct Envelope<P: Decodable>: Decodable { var params: P }
 
     /// Decodes the params of a notification envelope whose `method` is already known.
@@ -856,6 +866,8 @@ public enum ServerNotification: Sendable {
         case "project.changed": self = .projectChanged(try params(ProjectParams.self).project)
         case "project.removed": self = .projectRemoved(projectId: try params(ProjectIDParams.self).projectId)
         case "provider.limits": self = .providerLimits(try params(LimitsParams.self).limits)
+        case "schedule.changed": self = .scheduleChanged(try params(ScheduleParams.self).schedule)
+        case "schedule.removed": self = .scheduleRemoved(scheduleId: try params(ScheduleIDParams.self).scheduleId)
         default: self = .unknown(method: method)
         }
     }

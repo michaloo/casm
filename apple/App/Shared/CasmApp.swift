@@ -1,7 +1,44 @@
 import CasmKit
 import SwiftUI
 
+/// Entry point. `casm --seed-hosts <file.json>` writes the host list (UserDefaults) and tokens
+/// (Keychain, owned by this app) and exits before any UI starts, so installs can pre-configure
+/// the app without launching it. The file is `[{"name", "url", "token"}]`; it replaces the list.
 @main
+enum Launcher {
+    static func main() {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--seed-hosts"), i + 1 < args.count {
+            exit(HostSeeder.seed(from: args[i + 1]) ? 0 : 1)
+        }
+        CasmApp.main()
+    }
+}
+
+enum HostSeeder {
+    struct Entry: Decodable {
+        var name: String
+        var url: URL
+        var token: String
+    }
+
+    static func seed(from path: String) -> Bool {
+        let store = HostStore()
+        do {
+            let entries = try JSONDecoder().decode([Entry].self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+            for old in store.load() { store.remove(old.id) }
+            for entry in entries {
+                try store.upsert(HostEntry(name: entry.name, url: entry.url), token: entry.token)
+            }
+            print("seeded \(entries.count) host(s): \(store.load().map(\.name).joined(separator: ", "))")
+            return true
+        } catch {
+            FileHandle.standardError.write(Data("seed failed: \(error)\n".utf8))
+            return false
+        }
+    }
+}
+
 struct CasmApp: App {
     @State private var app = AppModel()
 

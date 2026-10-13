@@ -84,3 +84,34 @@ is in use. Toolbars, sheets and popovers need a real window and aren't covered, 
 ```sh
 xcodebuild -project Casm.xcodeproj -scheme CasmMac -derivedDataPath build/dd test
 ```
+
+## Release install (macOS)
+
+```sh
+xcodebuild -project Casm.xcodeproj -scheme CasmMac -configuration Release -derivedDataPath build/rel build
+ditto build/rel/Build/Products/Release/casm.app /Applications/casm.app
+# Optional: pre-configure hosts without opening the app. Replaces the host list; tokens go to the
+# Keychain owned by the app, so it won't ask for access later. Delete the file afterwards.
+/Applications/casm.app/Contents/MacOS/casm --seed-hosts hosts.json   # [{"name","url","token"}]
+```
+
+Debug and Release builds share the bundle id, so they share the host list.
+
+## Keyboard (macOS)
+
+⌘N new agent · ⌘⇧N new project · ⌘K focus the composer · ⌘. interrupt · ⌘R reload agent ·
+⌘1…9 switch agents (sidebar order) · Esc closes suggestions, sheets and dialogs.
+In the composer: Enter sends, Shift-Enter adds a line, "/" commands, "@" files, a leading "!" runs a
+shell command, ⌘V / drop attaches images.
+
+## Live tests
+
+`CasmKit` live tests need a server. A throwaway one:
+
+```sh
+export CASM_HOME=/tmp/casm-test-home
+node packages/cli/src/main.ts token create test        # → token
+node packages/cli/src/main.ts serve --listen 127.0.0.1:7474 &
+CASM_TEST_URL=ws://127.0.0.1:7474 CASM_TEST_TOKEN=<token> CASM_TEST_DIR=<dir with a README> swift test
+# add CASM_TEST_SHELL=1 once the provider implements agent.shell
+```

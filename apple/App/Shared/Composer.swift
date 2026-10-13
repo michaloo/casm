@@ -448,7 +448,7 @@ struct ActivityPill: View {
         HStack(spacing: 7) {
             Image(systemName: "smallcircle.filled.circle")
                 .foregroundStyle(.blue)
-                .symbolEffect(.pulse)
+                .modifier(PulseUnlessReduced())
             Text("\(count) working")
                 .foregroundStyle(.secondary)
         }

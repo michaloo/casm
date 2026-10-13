@@ -609,10 +609,23 @@ struct ActivityBadge: View {
 
 /// The animated "working" glyph, used in the toolbar and the composer.
 struct WorkingIndicator: View {
+    /// m10: no endless animation with Reduce Motion on.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         Image(systemName: "progress.indicator")
-            .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeat(.continuous))
+            .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeat(.continuous),
+                          isActive: !reduceMotion)
             .foregroundStyle(.secondary)
+    }
+}
+
+/// A gentle pulse, off with Reduce Motion (m10).
+struct PulseUnlessReduced: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.symbolEffect(.pulse, isActive: !reduceMotion)
     }
 }
 
@@ -624,7 +637,7 @@ struct StatusBadge: View {
         HStack(spacing: 4) {
             switch status {
             case .running:
-                Image(systemName: "circle.fill").foregroundStyle(.green).symbolEffect(.pulse)
+                Image(systemName: "circle.fill").foregroundStyle(.green).modifier(PulseUnlessReduced())
             case .waiting:
                 Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
             case .idle, .unknown:

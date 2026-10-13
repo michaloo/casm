@@ -11,6 +11,11 @@ enum Launcher {
         if let i = args.firstIndex(of: "--seed-hosts"), i + 1 < args.count {
             exit(HostSeeder.seed(from: args[i + 1]) ? 0 : 1)
         }
+        // The same list base64-encoded in the environment, for devices where a file path won't do
+        // (`xcrun devicectl device process launch --environment-variables '{"CASM_SEED_HOSTS_B64": …}'`).
+        if let b64 = ProcessInfo.processInfo.environment["CASM_SEED_HOSTS_B64"], let data = Data(base64Encoded: b64) {
+            exit(HostSeeder.seed(data: data) ? 0 : 1)
+        }
         CasmApp.main()
     }
 }
@@ -23,9 +28,17 @@ enum HostSeeder {
     }
 
     static func seed(from path: String) -> Bool {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+            FileHandle.standardError.write(Data("seed failed: can't read \(path)\n".utf8))
+            return false
+        }
+        return seed(data: data)
+    }
+
+    static func seed(data: Data) -> Bool {
         let store = HostStore()
         do {
-            let entries = try JSONDecoder().decode([Entry].self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+            let entries = try JSONDecoder().decode([Entry].self, from: data)
             for old in store.load() { store.remove(old.id) }
             for entry in entries {
                 try store.upsert(HostEntry(name: entry.name, url: entry.url), token: entry.token)

@@ -19,6 +19,7 @@ struct Composer: View {
     @State private var attachments: [Attachment] = []
     @State private var suggestions: [Suggestion] = []
     @State private var highlighted = 0
+    @State private var suggestionHeight: CGFloat = 0
     /// The completion the user dismissed with Esc; stays hidden until the context changes.
     @State private var dismissedContext: CompletionContext?
     @State private var pickingFiles = false
@@ -139,7 +140,8 @@ struct Composer: View {
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
                         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.secondary.opacity(0.2)))
                         .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
-                        .alignmentGuide(.top) { $0[.bottom] + 8 }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { suggestionHeight = $0 }
+                        .offset(y: -suggestionHeight - 8)
                 }
             }
             .onDrop(of: [.fileURL, .image], isTargeted: $dropTargeted) { providers in

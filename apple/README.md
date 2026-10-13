@@ -89,7 +89,9 @@ xcodebuild -project Casm.xcodeproj -scheme CasmMac -derivedDataPath build/dd tes
 
 ```sh
 xcodebuild -project Casm.xcodeproj -scheme CasmMac -configuration Release -derivedDataPath build/rel build
-ditto build/rel/Build/Products/Release/casm.app /Applications/casm.app
+ditto build/rel/Build/Products/Release/casm.app /Applications/casm.app   # quit casm first
+# Replacing the bundle in place doesn't tell Finder/Dock the icon changed; re-register it:
+touch /Applications/casm.app && /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f /Applications/casm.app
 # Optional: pre-configure hosts without opening the app. Replaces the host list; tokens go to the
 # Keychain owned by the app, so it won't ask for access later. Delete the file afterwards.
 /Applications/casm.app/Contents/MacOS/casm --seed-hosts hosts.json   # [{"name","url","token"}]

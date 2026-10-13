@@ -304,13 +304,21 @@ final class ChatModel {
     private(set) var commands: [SlashCommand] = []
     /// One shared load, so callers that arrive while it runs wait for the same result.
     @ObservationIgnored private var commandsLoad: Task<Void, Never>?
+    /// Why the last commands load failed (m3), shown in the "/" list.
+    private(set) var commandsError: String?
 
     func loadCommands() async {
         guard let host else { return }
         if commandsLoad == nil {
             let client = host.client, id = agentId
             commandsLoad = Task {
-                do { commands = try await client.commands(agentId: id) } catch { commandsLoad = nil }
+                do {
+                    commands = try await client.commands(agentId: id)
+                    commandsError = nil
+                } catch {
+                    commandsError = error.localizedDescription
+                    commandsLoad = nil
+                }
             }
         }
         await commandsLoad?.value

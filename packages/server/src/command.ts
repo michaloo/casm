@@ -96,7 +96,9 @@ export async function serverCommand(argv: string[]) {
     process.on("SIGINT", stop);
     process.on("SIGTERM", stop);
   } else if (cmd === "token" && sub === "create" && arg) {
-    console.log(store.createToken(arg));
+    if (store.listTokens().some((t) => t.name === arg))
+      (console.error(`a token named ${arg} already exists (casm token revoke ${arg} first, or pick another name)`), (process.exitCode = 1));
+    else console.log(store.createToken(arg));
   } else if (cmd === "token" && sub === "list") {
     for (const t of store.listTokens()) console.log(`${t.name}\t${t.createdAt}`);
   } else if (cmd === "token" && sub === "revoke" && arg) {

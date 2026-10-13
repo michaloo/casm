@@ -20,16 +20,45 @@ final class AppModel {
     private(set) var chat: ChatModel?
 
     enum Sheet: Identifiable {
-        case addHost, newProject(HostModel?), newAgent(HostModel?, projectId: String?)
+        case addHost
+        case newProject(HostModel?, group: String? = nil)
+        case newAgent(HostModel?, projectId: String?)
+        case hostInfo(HostModel)
         var id: String {
             switch self {
             case .addHost: "addHost"
             case .newProject: "newProject"
             case .newAgent: "newAgent"
+            case .hostInfo(let host): "hostInfo-\(host.id)"
             }
         }
     }
     var sheet: Sheet?
+
+    /// A one-field prompt (rename, tags, new group), shown as an alert.
+    struct TextPrompt: Identifiable {
+        let id = UUID()
+        var title: String
+        var message: String?
+        var placeholder: String = ""
+        var text: String = ""
+        var confirm: String = "Save"
+        var action: @MainActor (String) -> Void
+    }
+    var textPrompt: TextPrompt?
+
+    /// A destructive action that needs a second click.
+    struct Confirmation: Identifiable {
+        let id = UUID()
+        var title: String
+        var message: String
+        var confirm: String
+        var action: @MainActor () -> Void
+    }
+    var confirmation: Confirmation?
+
+    /// Shows archived projects and agents in the sidebar (dimmed, with Unarchive).
+    var showArchived = false
 
     init() {
         #if DEBUG
@@ -160,8 +189,9 @@ final class HostModel: Identifiable {
 
     func refresh() async {
         do {
-            async let projects = client.listProjects()
-            async let agents = client.listAgents()
+            // Archived ones too; the sidebar hides them unless "Show Archived" is on.
+            async let projects = client.listProjects(includeArchived: true)
+            async let agents = client.listAgents(includeArchived: true)
             (self.projects, self.agents) = try await (projects, agents)
             lastError = nil
         } catch {
@@ -215,14 +245,29 @@ final class HostModel: Identifiable {
 
     // MARK: Tree
 
-    func childProjects(of parent: String?) -> [Project] {
-        projects.filter { $0.parentId == parent && $0.archivedAt == nil }
+    /// Group labels in use, sorted. Projects are flat; a group is only a label for the sidebar.
+    func groups(includeArchived: Bool = false) -> [String] {
+        Set(projects.filter { includeArchived || $0.archivedAt == nil }.compactMap(\.group)).sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+    }
+
+    /// Projects with this group label (`nil`: ungrouped).
+    func projects(inGroup group: String?, includeArchived: Bool = false) -> [Project] {
+        projects.filter { $0.group == group && (includeArchived || $0.archivedAt == nil) }
             .sorted { ($0.sort, $0.name.localizedLowercase) < ($1.sort, $1.name.localizedLowercase) }
     }
 
+    /// All live projects, grouped first then ungrouped, for pickers.
+    func pickerProjects() -> [Project] {
+        groups().flatMap { projects(inGroup: $0) } + projects(inGroup: nil)
+    }
+
+    func project(_ id: String) -> Project? { projects.first { $0.id == id } }
+
     /// Top-level agents of a project; subagents whose caller is on this host are nested under it.
-    func agents(in project: String) -> [Agent] {
-        agents.filter { $0.projectId == project && $0.archivedAt == nil && !hasLocalParent($0) }
+    func agents(in project: String, includeArchived: Bool = false) -> [Agent] {
+        agents.filter { $0.projectId == project && (includeArchived || $0.archivedAt == nil) && !hasLocalParent($0) }
             .sorted { $0.createdAt < $1.createdAt }
     }
 
@@ -242,19 +287,107 @@ final class HostModel: Identifiable {
         return serverID == own
     }
 
-    /// Projects in tree order with their depth, for pickers.
-    func flatProjects() -> [(project: Project, depth: Int)] {
-        var out: [(Project, Int)] = []
-        func walk(_ parent: String?, _ depth: Int) {
-            for p in childProjects(of: parent) {
-                out.append((p, depth))
-                walk(p.id, depth + 1)
+    // MARK: Editing
+
+    private func upsert(_ project: Project) {
+        if let i = projects.firstIndex(where: { $0.id == project.id }) { projects[i] = project } else { projects.append(project) }
+    }
+
+    /// Runs an edit and reports failures in `lastError` (shown in the sidebar).
+    private func edit(_ action: () async throws -> Void) async {
+        do {
+            try await action()
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setGroup(_ project: Project, _ group: String?) async {
+        let change: UpdateProjectParams.GroupChange = group.map { .set($0) } ?? .clear
+        await edit { upsert(try await client.updateProject(UpdateProjectParams(id: project.id, group: change))) }
+    }
+
+    /// Renaming a group relabels its projects.
+    func renameGroup(_ old: String, to new: String) async {
+        let name = new.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, name != old else { return }
+        for project in projects where project.group == old {
+            await edit { upsert(try await client.updateProject(UpdateProjectParams(id: project.id, group: .set(name)))) }
+        }
+    }
+
+    func setTags(_ project: Project, _ tags: [String]) async {
+        await edit { upsert(try await client.updateProject(UpdateProjectParams(id: project.id, tags: tags))) }
+    }
+
+    func setArchived(_ project: Project, _ archived: Bool) async {
+        await edit { upsert(try await client.updateProject(UpdateProjectParams(id: project.id, archived: archived))) }
+    }
+
+    /// Removes the project and its agents from casm; the folder on disk is untouched.
+    func delete(_ project: Project) async {
+        await edit {
+            try await client.deleteProject(id: project.id)
+            projects.removeAll { $0.id == project.id }
+            agents.removeAll { $0.projectId == project.id }
+        }
+    }
+
+    func rename(_ agent: Agent, to name: String) async {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        await edit { upsert(try await client.updateAgent(UpdateAgentParams(id: agent.id, name: name))) }
+    }
+
+    func move(_ agent: Agent, to projectId: String) async {
+        await edit { upsert(try await client.updateAgent(UpdateAgentParams(id: agent.id, projectId: projectId))) }
+    }
+
+    func setArchived(_ agent: Agent, _ archived: Bool) async {
+        await edit { upsert(try await client.updateAgent(UpdateAgentParams(id: agent.id, archived: archived))) }
+    }
+
+    func delete(_ agent: Agent) async {
+        await edit {
+            try await client.deleteAgent(id: agent.id)
+            agents.removeAll { $0.id == agent.id }
+        }
+    }
+
+    #if os(macOS)
+    /// True when the host is this Mac, so local folder pickers make sense for its paths.
+    var isThisMac: Bool {
+        guard let name = entry.url.host()?.lowercased() else { return false }
+        return ["localhost", "127.0.0.1", "::1"].contains(name) || LocalAddresses.all.contains(name)
+    }
+    #else
+    let isThisMac = false
+    #endif
+}
+
+#if os(macOS)
+/// This machine's IP addresses (Tailscale and LAN included).
+enum LocalAddresses {
+    static let all: Set<String> = {
+        var out: Set<String> = []
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return out }
+        defer { freeifaddrs(list) }
+        for p in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            guard let addr = p.pointee.ifa_addr else { continue }
+            let family = Int32(addr.pointee.sa_family)
+            guard family == AF_INET || family == AF_INET6 else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            let len = socklen_t(family == AF_INET ? MemoryLayout<sockaddr_in>.size : MemoryLayout<sockaddr_in6>.size)
+            if getnameinfo(addr, len, &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                out.insert(String(cString: host).split(separator: "%").first.map(String.init) ?? "")
             }
         }
-        walk(nil, 0)
         return out
-    }
+    }()
 }
+#endif
 
 private struct WeakChat {
     weak var chat: ChatModel?

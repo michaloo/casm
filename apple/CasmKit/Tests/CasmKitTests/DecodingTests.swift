@@ -187,3 +187,12 @@ private func fixture(_ name: String) throws -> Data {
         #expect(new.serverId == "s1" && new.host == nil)
     }
 }
+
+@Suite struct ProjectUpdates {
+    @Test func groupChangeEncoding() throws {
+        func json(_ p: UpdateProjectParams) throws -> String { String(decoding: try JSONEncoder().encode(p), as: UTF8.self) }
+        #expect(try json(UpdateProjectParams(id: "p", group: .clear)).contains(#""group":null"#))
+        #expect(try json(UpdateProjectParams(id: "p", group: .set("Work"))).contains(#""group":"Work""#))
+        #expect(try !json(UpdateProjectParams(id: "p", archived: true)).contains("group"))
+    }
+}

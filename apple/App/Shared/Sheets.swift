@@ -2,8 +2,8 @@ import CasmKit
 import SwiftUI
 
 extension AppModel {
-    func createProject(on host: HostModel, name: String, path: String?, parentId: String?) async throws {
-        _ = try await host.client.createProject(CreateProjectParams(name: name, parentId: parentId, path: path))
+    func createProject(on host: HostModel, _ params: CreateProjectParams) async throws {
+        _ = try await host.client.createProject(params)
         await host.refresh()
     }
 
@@ -91,9 +91,10 @@ struct NewProjectSheet: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State var hostID: UUID?
-    @State private var name = ""
+    @State var group: String = ""
     @State private var path = ""
-    @State private var parentId: String?
+    @State private var name = ""
+    @State private var tags = ""
     @State private var error: String?
     @State private var busy = false
 
@@ -101,17 +102,29 @@ struct NewProjectSheet: View {
         let host = hostID.flatMap(app.host)
         Form {
             HostPicker(hostID: $hostID)
-            TextField("Name", text: $name)
+            Section {
+                if let host {
+                    PathField(host: host, root: nil, path: $path, prompt: "/Users/me/Projects/app")
+                }
+            } header: {
+                Text("Folder")
+            } footer: {
+                Text("A folder on \(host?.name ?? "the host"). It can't be changed later.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            TextField("Name", text: $name, prompt: Text(defaultName.isEmpty ? "Defaults to the folder name" : defaultName))
                 .accessibilityLabel("Project name")
-            TextField("Path", text: $path, prompt: Text("Optional; inherited from the parent"))
-                .accessibilityLabel("Project path")
-                .autocorrectionDisabled()
-            Picker("Parent", selection: $parentId) {
-                Text("None").tag(String?.none)
-                ForEach(host?.flatProjects() ?? [], id: \.project.id) { entry in
-                    Text(String(repeating: "    ", count: entry.depth) + entry.project.name).tag(Optional(entry.project.id))
+            HStack {
+                TextField("Group", text: $group, prompt: Text("Optional"))
+                    .accessibilityLabel("Group")
+                if let groups = host?.groups(), !groups.isEmpty {
+                    Menu("Groups") {
+                        ForEach(groups, id: \.self) { g in Button(g) { group = g } }
+                    }
+                    .fixedSize()
                 }
             }
+            TextField("Tags", text: $tags, prompt: Text("Comma-separated, optional"))
             if let error { Text(error).foregroundStyle(.red) }
         }
         .formStyle(.grouped)
@@ -120,25 +133,110 @@ struct NewProjectSheet: View {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Create") { Task { await create(host) } }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || host?.isOnline != true || busy)
+                    .disabled(!path.hasPrefix("/") || host?.isOnline != true || busy)
             }
         }
-        .frame(minWidth: 420)
+        .frame(minWidth: 460)
         .onAppear { if hostID == nil { hostID = app.hosts.first(where: \.isOnline)?.id ?? app.hosts.first?.id } }
+    }
+
+    private var defaultName: String {
+        path.split(separator: "/").last.map(String.init) ?? ""
     }
 
     private func create(_ host: HostModel?) async {
         guard let host else { return }
         busy = true
         defer { busy = false }
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let trimmedGroup = group.trimmingCharacters(in: .whitespaces)
+        let tagList = tags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         do {
-            let trimmed = path.trimmingCharacters(in: .whitespaces)
-            try await app.createProject(on: host, name: name.trimmingCharacters(in: .whitespaces),
-                                        path: trimmed.isEmpty ? nil : trimmed, parentId: parentId)
+            try await app.createProject(on: host, CreateProjectParams(
+                path: path.trimmingCharacters(in: .whitespaces), name: trimmedName.isEmpty ? nil : trimmedName,
+                group: trimmedGroup.isEmpty ? nil : trimmedGroup, tags: tagList.isEmpty ? nil : tagList))
             dismiss()
         } catch {
             self.error = error.localizedDescription
         }
+    }
+}
+
+/// A folder path on a host, with directory suggestions from `fs.search` and, on macOS when the
+/// host is this Mac, a folder picker.
+struct PathField: View {
+    let host: HostModel
+    /// Suggestions come from under this folder; nil means the parent of the typed absolute path.
+    let root: String?
+    @Binding var path: String
+    var prompt: String
+    @State private var suggestions: [String] = []
+    @State private var picking = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                TextField("Path", text: $path, prompt: Text(prompt))
+                    .font(.body.monospaced())
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                    .accessibilityLabel("Path")
+                #if os(macOS)
+                if host.isThisMac {
+                    Button("Choose…") { picking = true }
+                }
+                #endif
+            }
+            ForEach(suggestions, id: \.self) { suggestion in
+                Button {
+                    path = suggestion
+                } label: {
+                    Label(suggestion, systemImage: "folder")
+                        .font(.callout.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .task(id: path) { await suggest() }
+        .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result { path = url.path(percentEncoded: false).trimmingSuffix("/") }
+        }
+    }
+
+    private func suggest() async {
+        try? await Task.sleep(for: .milliseconds(150))
+        guard !Task.isCancelled, host.isOnline else { return }
+        let base: String, query: String
+        if let root, path.hasPrefix(root) {
+            base = root
+            query = String(path.dropFirst(root.count)).trimmingPrefix("/").description
+        } else if path.hasPrefix("/") {
+            let parent = path.hasSuffix("/") ? path : (path as NSString).deletingLastPathComponent
+            base = parent.isEmpty ? "/" : parent
+            query = path.hasSuffix("/") ? "" : (path as NSString).lastPathComponent
+        } else if let root {
+            base = root
+            query = path
+        } else {
+            suggestions = []
+            return
+        }
+        let entries = (try? await host.client.searchFiles(cwd: base, query: query, limit: 20).entries) ?? []
+        let dirs = entries.filter { $0.kind == .dir }.prefix(6).map { (base as NSString).appendingPathComponent($0.path) }
+        suggestions = dirs.filter { $0 != path.trimmingSuffix("/") }
+    }
+}
+
+private extension String {
+    func trimmingSuffix(_ suffix: String) -> String {
+        hasSuffix(suffix) && count > 1 ? String(dropLast(suffix.count)) : self
     }
 }
 
@@ -153,18 +251,29 @@ struct NewAgentSheet: View {
     @State private var model = ""
     @State private var effort = ""
     @State private var mode = "default"
+    @State private var cwd = ""
     @State private var prompt = ""
     @State private var error: String?
     @State private var busy = false
 
     var body: some View {
         let host = hostID.flatMap(app.host)
+        let project = projectId.flatMap { host?.project($0) }
         Form {
             HostPicker(hostID: $hostID)
             Picker("Project", selection: $projectId) {
                 if projectId == nil { Text("Choose…").tag(String?.none) }
-                ForEach(host?.flatProjects() ?? [], id: \.project.id) { entry in
-                    Text(String(repeating: "    ", count: entry.depth) + entry.project.name).tag(Optional(entry.project.id))
+                ForEach(host?.pickerProjects() ?? []) { p in
+                    Text(p.group.map { "\($0) › \(p.name)" } ?? p.name).tag(Optional(p.id))
+                }
+            }
+            if let host, let project {
+                Section {
+                    PathField(host: host, root: project.path, path: $cwd, prompt: project.path)
+                } header: {
+                    Text("Working directory")
+                } footer: {
+                    Text("Defaults to the project folder.").font(.caption).foregroundStyle(.secondary)
                 }
             }
             Picker("Provider", selection: $provider) {
@@ -198,30 +307,102 @@ struct NewAgentSheet: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Create") { Task { await create(host) } }
+                Button("Create") { Task { await create(host, project) } }
                     .disabled(projectId == nil || host?.isOnline != true || busy)
             }
         }
-        .frame(minWidth: 460, minHeight: 460)
+        .frame(minWidth: 460, minHeight: 520)
         .onAppear { if hostID == nil { hostID = app.hosts.first(where: \.isOnline)?.id ?? app.hosts.first?.id } }
+        .onChange(of: projectId, initial: true) { cwd = project?.path ?? "" }
     }
 
-    private func create(_ host: HostModel?) async {
-        guard let host, let projectId else { return }
+    private func create(_ host: HostModel?, _ project: Project?) async {
+        guard let host, let project else { return }
         busy = true
         defer { busy = false }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCwd = cwd.trimmingCharacters(in: .whitespaces)
         let efforts = host.catalog(for: provider)?.models.first { $0.id == model }?.efforts ?? []
         let config = AgentConfig(model: model.isEmpty ? nil : model,
                                  mode: mode, effort: efforts.contains(effort) ? effort : nil)
         do {
             try await app.createAgent(on: host, CreateAgentParams(
-                projectId: projectId, provider: provider, name: trimmedName.isEmpty ? nil : trimmedName,
+                projectId: project.id, provider: provider, name: trimmedName.isEmpty ? nil : trimmedName,
+                cwd: trimmedCwd.isEmpty || trimmedCwd == project.path ? nil : trimmedCwd,
                 config: config, prompt: trimmedPrompt.isEmpty ? nil : trimmedPrompt))
             dismiss()
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+}
+
+/// A host's server identity and its peers. Read-only: peers are configured on the server
+/// (`casm peer add`), never from the app.
+struct HostInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let host: HostModel
+    @State private var peers: [Peer]?
+    @State private var error: String?
+
+    var body: some View {
+        Form {
+            Section("Connection") {
+                LabeledContent("Name in this app", value: host.name)
+                LabeledContent("URL", value: host.entry.url.absoluteString)
+                LabeledContent("State", value: host.isOnline ? "Connected" : "Offline")
+            }
+            if let info = host.info {
+                Section("Server") {
+                    LabeledContent("Name", value: info.name)
+                    LabeledContent("Version", value: "casm \(info.version) · protocol \(info.protocol)")
+                    if let id = info.id {
+                        LabeledContent("Server ID") {
+                            HStack {
+                                Text(id).font(.callout.monospaced()).textSelection(.enabled)
+                                Button("Copy", systemImage: "doc.on.doc") { Clipboard.copy(id) }.labelStyle(.iconOnly)
+                            }
+                        }
+                    }
+                    LabeledContent("Providers", value: info.providers.map(\.rawValue).joined(separator: ", "))
+                }
+            }
+            Section {
+                if let peers {
+                    if peers.isEmpty {
+                        Text("No peers").foregroundStyle(.secondary)
+                    }
+                    ForEach(peers) { peer in
+                        HStack {
+                            Circle().fill(peer.reachable == true ? Color.green : peer.reachable == false ? .red : .secondary)
+                                .frame(width: 7, height: 7)
+                            VStack(alignment: .leading) {
+                                Text(peer.name)
+                                Text(peer.url).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } else if let error {
+                    Text(error).foregroundStyle(.red)
+                } else {
+                    ProgressView()
+                }
+            } header: {
+                Text("Peers")
+            } footer: {
+                Text("Servers this host's agents can call. Set up on the server with `casm peer add`; read-only here.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle(host.name)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+        }
+        .frame(minWidth: 460, minHeight: 420)
+        .task {
+            do { peers = try await host.client.peers(probe: true) } catch { self.error = error.localizedDescription }
         }
     }
 }

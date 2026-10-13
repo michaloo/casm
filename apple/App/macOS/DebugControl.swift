@@ -95,7 +95,7 @@ final class DebugControl {
             switch cmd["name"] {
             case "addHost": app.sheet = .addHost
             case "newProject": app.sheet = .newProject(nil)
-            case "newAgent": app.sheet = .newAgent(app.hosts.first, projectId: app.hosts.first?.childProjects(of: nil).first?.id)
+            case "newAgent": app.sheet = .newAgent(app.hosts.first, projectId: app.hosts.first?.pickerProjects().first?.id)
             default: app.sheet = nil
             }
         case "createAgent":

@@ -60,9 +60,12 @@ struct ChatView: View {
                     // Reload keeps the conversation (new process, same session); New Session clears it.
                     Button("Reload Agent", systemImage: "arrow.clockwise") { Task { await chat.reload() } }
                     Divider()
-                    Button("Copy Agent ID", systemImage: "doc.on.doc") { copy(chat.agentId) }
                     if let session = chat.agent?.nativeSessionId {
-                        Button("Copy Session ID", systemImage: "doc.on.doc") { copy(session) }
+                        Button("Copy Session ID", systemImage: "doc.on.doc") { Clipboard.copy(session) }
+                    }
+                    if let host = chat.host, let agent = chat.agent {
+                        Divider()
+                        AgentMenu(host: host, agent: agent)
                     }
                 }
                 .menuIndicator(.hidden)
@@ -107,14 +110,7 @@ struct ChatView: View {
         return "~" + path[match.range.upperBound...]
     }
 
-    private func copy(_ text: String) {
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #else
-        UIPasteboard.general.string = text
-        #endif
-    }
+
 
     private var transcript: some View {
         ScrollView {

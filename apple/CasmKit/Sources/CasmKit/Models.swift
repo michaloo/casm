@@ -129,11 +129,13 @@ public enum AgentStatus: OpenEnum {
     public var isBusy: Bool { self == .running || self == .waiting }
 }
 
+/// A hand-picked folder on the server. Its name and path are fixed at creation; `group` is only a
+/// visual grouping label.
 public struct Project: Codable, Sendable, Hashable, Identifiable {
     public var id: String
     public var name: String
-    public var parentId: String?
-    public var path: String?
+    public var path: String
+    public var group: String?
     public var tags: [String]
     public var sort: Double
     public var archivedAt: String?

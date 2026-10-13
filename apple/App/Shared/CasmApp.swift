@@ -51,11 +51,27 @@ struct ContentView: View {
             NavigationStack {
                 switch sheet {
                 case .addHost: AddHostSheet()
-                case .newProject(let host): NewProjectSheet(hostID: host?.id)
+                case .newProject(let host, let group): NewProjectSheet(hostID: host?.id, group: group ?? "")
                 case .newAgent(let host, let projectId): NewAgentSheet(hostID: host?.id, projectId: projectId)
+                case .hostInfo(let host): HostInfoSheet(host: host)
                 }
             }
             .environment(app)
+        }
+        .alert(app.textPrompt?.title ?? "", isPresented: Binding(get: { app.textPrompt != nil }, set: { if !$0 { app.textPrompt = nil } }),
+               presenting: app.textPrompt) { prompt in
+            TextField(prompt.placeholder, text: Binding(get: { app.textPrompt?.text ?? "" }, set: { app.textPrompt?.text = $0 }))
+            Button(prompt.confirm) { prompt.action(app.textPrompt?.text ?? prompt.text) }
+            Button("Cancel", role: .cancel) {}
+        } message: { prompt in
+            if let message = prompt.message { Text(message) }
+        }
+        .confirmationDialog(app.confirmation?.title ?? "", isPresented: Binding(get: { app.confirmation != nil }, set: { if !$0 { app.confirmation = nil } }),
+                            titleVisibility: .visible, presenting: app.confirmation) { confirmation in
+            Button(confirmation.confirm, role: .destructive) { confirmation.action() }
+            Button("Cancel", role: .cancel) {}
+        } message: { confirmation in
+            Text(confirmation.message)
         }
         .onChange(of: scenePhase) {
             // iOS suspends the socket in the background; don't wait for the backoff when we're back.

@@ -19,7 +19,7 @@ struct LiveChatFeatures {
     /// A fresh project + claude agent in CASM_TEST_DIR.
     func makeAgent(_ client: RPCClient) async throws -> Agent {
         let dir = env["CASM_TEST_DIR"] ?? NSTemporaryDirectory()
-        let project = try await client.createProject(CreateProjectParams(name: "t-\(UUID().uuidString.prefix(6))", path: dir))
+        let project = try await client.createProject(CreateProjectParams(path: dir, name: "t-\(UUID().uuidString.prefix(6))", group: "tests"))
         return try await client.createAgent(CreateAgentParams(projectId: project.id, provider: .claude, config: AgentConfig(model: "haiku")))
     }
 

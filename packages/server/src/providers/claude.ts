@@ -730,6 +730,14 @@ function findClaude(): string | undefined {
   }
 }
 
+const LIMIT_LABELS: Record<string, string> = {
+  five_hour: "5-hour",
+  seven_day: "weekly",
+  seven_day_opus: "weekly (Opus)",
+  seven_day_sonnet: "weekly (Sonnet)",
+  overage: "extra usage",
+};
+
 class ClaudeSession implements ProviderSession {
   private input = new InputQueue();
   private q: ReturnType<typeof query>;
@@ -965,6 +973,20 @@ class ClaudeSession implements ProviderSession {
 
   private rateLimit(info: SDKRateLimitInfo) {
     const kind = (info.rateLimitType ?? "usage").replace(/_/g, "-");
+    this.opts.emit({
+      type: "limits",
+      limits: {
+        windows: [
+          {
+            id: info.rateLimitType ?? "usage",
+            label: LIMIT_LABELS[info.rateLimitType ?? ""] ?? kind,
+            usedPercent: info.utilization != null ? Math.round(info.utilization * 1000) / 10 : undefined,
+            resetsAt: info.resetsAt ? new Date(info.resetsAt * 1000).toISOString() : undefined,
+            status: info.status === "rejected" ? "exhausted" : info.status === "allowed_warning" ? "warning" : "ok",
+          },
+        ],
+      },
+    });
     const resets = info.resetsAt ? `, resets ${new Date(info.resetsAt * 1000).toLocaleString()}` : "";
     if (info.status === "rejected") {
       this.item({ kind: "notice", id: `ratelimit:${kind}`, level: "error", text: `Rate limit reached (${kind} limit)${resets}` });

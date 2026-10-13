@@ -74,6 +74,8 @@ export const Agent = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   status: AgentStatus,
+  // A prompt waiting for a provider limit to reset; the server sends it then.
+  deferred: z.object({ until: z.string(), reason: z.string() }).nullable().optional(),
 });
 export type Agent = z.infer<typeof Agent>;
 
@@ -272,6 +274,8 @@ export const AgentEvent = z.discriminatedUnion("type", [
     turnId: z.string(),
     outcome: TurnOutcome,
     error: z.string().optional(),
+    // Set when the turn failed on a usage/rate limit; the prompt is deferred.
+    limit: z.object({ message: z.string(), resetsAt: z.string().optional() }).optional(),
   }),
 ]);
 export type AgentEvent = z.infer<typeof AgentEvent>;
@@ -406,8 +410,11 @@ export const methods = {
       text: z.string(),
       images: z.array(ImageData).optional(),
       whenBusy: z.enum(["queue", "steer"]).optional(),
+      // While the provider is known to be over its limit: "queue" (default)
+      // defers the prompt until the reset; "fail" rejects with code 1004.
+      whenLimited: z.enum(["queue", "fail"]).optional(),
     }),
-    z.object({ queued: z.boolean() }),
+    z.object({ queued: z.boolean(), deferredUntil: z.string().optional() }),
   ),
   // Latest known context/cost: from the live session, else read from the
   // provider's store. Null when the agent has not run yet.
@@ -471,6 +478,7 @@ export const ErrorCode = {
   NotFound: 1001,
   Busy: 1002,
   Conflict: 1003,
+  Limited: 1004,
 } as const;
 
 export type RpcRequest = { jsonrpc: "2.0"; id: number | string; method: string; params?: unknown };

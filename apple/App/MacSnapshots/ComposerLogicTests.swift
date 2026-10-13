@@ -60,6 +60,32 @@ final class ComposerLogicTests: XCTestCase {
         XCTAssertNil(ImageEncoding.encode(Data("not an image".utf8)))
     }
 
+    /// Regression: a Codex agent was created with mode "default", a Claude mode id.
+    func testAgentConfigOnlyUsesTheProvidersCatalog() throws {
+        let codex = try JSONDecoder().decode(Catalog.self, from: Data(#"""
+        {"models": [{"id": "gpt-5.5-codex", "isDefault": true, "efforts": ["low", "medium", "high"]}, {"id": "gpt-5-mini"}],
+         "modes": [{"id": "plan"}, {"id": "auto"}, {"id": "auto-review"}, {"id": "full-access"}]}
+        """#.utf8))
+        // Another provider's ids are dropped, so Codex picks its own defaults.
+        let foreign = AgentConfigChoice.config(model: "haiku", effort: "xhigh", mode: "default", catalog: codex)
+        XCTAssertNil(foreign.mode)
+        XCTAssertNil(foreign.model)
+        XCTAssertNil(foreign.effort)
+        // The provider's own ids go through.
+        let own = AgentConfigChoice.config(model: "gpt-5.5-codex", effort: "high", mode: "auto-review", catalog: codex)
+        XCTAssertEqual(own.model, "gpt-5.5-codex")
+        XCTAssertEqual(own.mode, "auto-review")
+        XCTAssertEqual(own.effort, "high")
+        // An effort the chosen model doesn't take is dropped.
+        XCTAssertNil(AgentConfigChoice.config(model: "gpt-5-mini", effort: "high", mode: "", catalog: codex).effort)
+        // "Default" everywhere sends nothing.
+        let defaults = AgentConfigChoice.config(model: "", effort: "", mode: "", catalog: codex)
+        XCTAssertNil(defaults.model)
+        XCTAssertNil(defaults.mode)
+        // Without a catalog nothing is guessed.
+        XCTAssertNil(AgentConfigChoice.config(model: "haiku", effort: "low", mode: "default", catalog: nil).mode)
+    }
+
     func testNotificationKinds() {
         XCTAssertEqual(Notifier.kind(from: .running, to: .waiting, focusedOnAgent: false), .needsYou)
         XCTAssertEqual(Notifier.kind(from: .running, to: .idle, focusedOnAgent: false), .finished)

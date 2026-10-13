@@ -15,6 +15,7 @@ import type {
   NotificationParams,
   PermissionRequest,
   ProviderId,
+  PendingMessage,
   ProviderLimits,
   QuestionRequest,
   Usage,
@@ -50,7 +51,6 @@ type Live = {
   // Events of the running turn, for clients that subscribe mid-turn.
   turn: AgentEvent[];
   pending: Map<string, Pending>;
-  queue: Prompt[];
   // Config changed mid-turn: restart the process once the turn ends.
   reloadAfterTurn: boolean;
   lastReply: string | null;
@@ -88,8 +88,8 @@ export class AgentManager {
     this.store = store;
     this.providers = providers;
     this.notify = notify;
-    // Deferred prompts survive restarts; check for due ones every 30 s.
-    this.deferTimer = setInterval(() => this.runDueDeferred(), 30_000);
+    // Pending messages survive restarts; send due ones every 15 s.
+    this.deferTimer = setInterval(() => this.runDuePending(), 15_000);
     this.deferTimer.unref();
   }
 
@@ -141,8 +141,54 @@ export class AgentManager {
   }
 
   withStatus(a: StoredAgent): Agent {
-    const d = this.store.getDeferred(a.id);
-    return { ...a, status: this.status(a.id), deferred: d ? { until: d.retryAt, reason: d.reason } : null };
+    const pending = this.store.listPending(a.id);
+    const limit = pending.find((m) => m.reason === "limit" && m.notBefore);
+    const times = pending.flatMap((m) => (m.notBefore ? [m.notBefore] : [])).sort();
+    return {
+      ...a,
+      status: this.status(a.id),
+      deferred: limit ? { until: limit.notBefore!, reason: limit.note ?? "usage limit" } : null,
+      pending: { count: pending.length, ...(times[0] ? { next: times[0] } : {}) },
+    };
+  }
+
+  private changed(id: string) {
+    const a = this.store.getAgent(id);
+    if (a) this.notify("agent.changed", { agent: this.withStatus(a) });
+  }
+
+  pendingMessages(agentId?: string): PendingMessage[] {
+    return this.store.listPending(agentId).map((m) => ({
+      id: m.id,
+      agentId: m.agentId,
+      text: m.text,
+      ...(m.images?.length ? { imageCount: m.images.length } : {}),
+      reason: m.reason,
+      ...(m.notBefore ? { notBefore: m.notBefore } : {}),
+      ...(m.note ? { note: m.note } : {}),
+      createdAt: m.createdAt,
+    }));
+  }
+
+  cancelPending(id: string, messageId?: string): number {
+    this.agent(id);
+    const n = messageId
+      ? this.store.listPending(id).some((m) => m.id === messageId) && this.store.removePending(messageId)
+        ? 1
+        : 0
+      : this.store.clearPending(id);
+    if (messageId && !n) throw new RpcError(1001, "no such pending message");
+    if (n) this.changed(id);
+    return n;
+  }
+
+  blocked() {
+    return [...this.live.entries()].flatMap(([agentId, l]) => {
+      const kinds = [...l.pending.values()];
+      const permissions = kinds.filter((p) => p.kind === "permission").length;
+      const questions = kinds.length - permissions;
+      return kinds.length ? [{ agentId, permissions, questions }] : [];
+    });
   }
 
   private provider(id: ProviderId): Provider {
@@ -160,7 +206,7 @@ export class AgentManager {
   private liveFor(id: string): Live {
     let l = this.live.get(id);
     if (!l) {
-      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), queue: [], reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, statusWaiters: new Set() };
+      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, statusWaiters: new Set() };
       this.live.set(id, l);
     }
     return l;
@@ -195,24 +241,37 @@ export class AgentManager {
     prompt: Prompt,
     whenBusy: "queue" | "steer" = "queue",
     whenLimited: "queue" | "fail" = "queue",
-  ): { queued: boolean; deferredUntil?: string } {
+    at?: string,
+  ): { queued: boolean; deferredUntil?: string; pendingId?: string } {
     const a = this.agent(id);
     if (a.archivedAt) throw new RpcError(1003, "agent is archived");
     if (!prompt.text.trim() && !prompt.images?.length) throw new RpcError(-32602, "nothing to send");
-    // Already deferred, or the provider is known to be over its limit: wait.
-    const waiting = this.store.getDeferred(id);
+    if (at !== undefined) {
+      const t = Date.parse(at);
+      if (Number.isNaN(t)) throw new RpcError(-32602, `invalid time "${at}"`);
+      if (t > Date.now()) {
+        const m = this.store.addPending({ agentId: id, ...prompt, reason: "scheduled", notBefore: new Date(t).toISOString(), note: null });
+        this.changed(id);
+        return { queued: true, pendingId: m.id };
+      }
+    }
+    // A message already waiting on a limit, or the provider known to be over it: wait too.
+    const waiting = this.store.listPending(id).find((m) => m.reason === "limit");
     const blocked = waiting ? null : this.exhaustedUntil(a.provider);
     if (waiting || blocked) {
-      const reason = waiting?.reason ?? `${a.provider} is over its usage limit`;
-      if (whenLimited === "fail") throw new RpcError(1004, `${reason}; resets ${waiting?.retryAt ?? blocked}`);
-      const until = this.defer(a, prompt, { message: reason, resetsAt: blocked ?? undefined }, false);
-      return { queued: true, deferredUntil: until };
+      const reason = waiting?.note ?? `${a.provider} is over its usage limit`;
+      const until = waiting?.notBefore ?? blocked!;
+      if (whenLimited === "fail") throw new RpcError(1004, `${reason}; resets ${until}`);
+      const m = this.store.addPending({ agentId: id, ...prompt, reason: waiting ? "queued" : "limit", notBefore: waiting ? null : until, note: waiting ? null : reason });
+      this.changed(id);
+      return { queued: true, deferredUntil: until, pendingId: m.id };
     }
     const l = this.liveFor(id);
     if (l.turnId) {
       if (whenBusy === "queue") {
-        l.queue.push(prompt);
-        return { queued: true };
+        const m = this.store.addPending({ agentId: id, ...prompt, reason: "queued", notBefore: null, note: null });
+        this.changed(id);
+        return { queued: true, pendingId: m.id };
       }
       this.sendToSession(id, l, prompt);
       return { queued: false };
@@ -336,10 +395,19 @@ export class AgentManager {
     l.turn = [];
     if (l.reloadAfterTurn) this.dropSession(l);
     const a = this.store.getAgent(id);
-    if (limit && a) {
-      // Retry the prompt that hit the limit, then whatever was queued behind it.
-      if (l.prompt) this.defer(a, l.prompt, limit, true);
-      for (const p of l.queue.splice(0)) this.defer(a, p, limit, false);
+    if (limit && a && l.prompt) {
+      // Retry the prompt that hit the limit first; anything queued waits behind it.
+      const attempts = this.retryAttempts.get(id) ?? 0;
+      this.store.addPending({
+        agentId: id,
+        ...l.prompt,
+        reason: "limit",
+        notBefore: retryAt(limit, attempts).toISOString(),
+        note: limit.message,
+        attempts,
+        front: true,
+      });
+      this.changed(id);
     }
     l.prompt = null;
     this.statusChanged(id);
@@ -351,11 +419,7 @@ export class AgentManager {
       const blocked = seen?.windows.filter((w) => w.status === "exhausted") ?? [];
       if (blocked.length) this.recordLimits(a.provider, { windows: blocked.map((w) => ({ ...w, status: "ok" as const })) });
     }
-    const next = l.queue.shift();
-    if (next !== undefined) {
-      const a = this.store.getAgent(id);
-      if (a && !a.archivedAt) this.startTurn(a, l, next);
-    }
+    this.runNext(id);
   }
 
   private block<P extends Pending>(id: string, l: Live, pending: Omit<P, "resolve" | "reject">, signal: AbortSignal) {
@@ -413,14 +477,10 @@ export class AgentManager {
   }
 
   async interrupt(id: string) {
-    // Interrupt also drops prompts waiting for a limit reset.
-    if (this.store.clearDeferred(id)) {
-      const a = this.store.getAgent(id);
-      if (a) this.notify("agent.changed", { agent: this.withStatus(a) });
-    }
+    // Interrupt also drops queued and limit-deferred messages (not scheduled ones).
+    if (this.store.clearPending(id, ["queued", "limit"])) this.changed(id);
     const l = this.live.get(id);
     if (!l?.turnId || !l.session) return;
-    l.queue = [];
     // Cancel open prompts first: an agent can't stop a tool that waits on one.
     for (const p of [...l.pending.values()]) p.reject(new Error("interrupted"));
     await l.session.interrupt();
@@ -448,7 +508,6 @@ export class AgentManager {
     this.agent(id);
     const l = this.live.get(id);
     if (!l) return;
-    l.queue = [];
     const s = l.session;
     l.session = null;
     l.generation++;
@@ -516,42 +575,35 @@ export class AgentManager {
     return reset > Date.now() ? new Date(reset).toISOString() : null;
   }
 
-  private defer(a: StoredAgent, prompt: Prompt, hit: LimitHit, front: boolean): string {
-    const prev = this.store.getDeferred(a.id);
-    const attempts = prev?.attempts ?? this.retryAttempts.get(a.id) ?? 0;
-    const at = prev?.retryAt ?? retryAt(hit, attempts).toISOString();
-    const prompts = prev ? (front ? [prompt, ...prev.prompts] : [...prev.prompts, prompt]) : [prompt];
-    this.store.setDeferred({ agentId: a.id, prompts, retryAt: at, reason: hit.message, attempts });
-    this.notify("agent.changed", { agent: this.withStatus(a) });
-    return at;
+  // Sends the next due pending message when the agent is idle. A "limit"
+  // message that isn't due yet holds back everything behind it; scheduled ones
+  // only hold themselves.
+  private runNext(id: string, now = Date.now()) {
+    const a = this.store.getAgent(id);
+    const l = this.liveFor(id);
+    if (!a || l.turnId) return;
+    if (a.archivedAt) return;
+    for (const m of this.store.listPending(id)) {
+      const due = !m.notBefore || Date.parse(m.notBefore) <= now;
+      if (!due && m.reason === "limit") return;
+      if (!due) continue;
+      this.store.removePending(m.id);
+      // A retried limit message that hits the limit again backs off further.
+      if (m.reason === "limit") this.retryAttempts.set(id, m.attempts + 1);
+      try {
+        this.startTurn(a, l, { text: m.text, images: m.images });
+      } catch {
+        // Couldn't start (e.g. provider gone): put it back with backoff.
+        this.store.addPending({ ...m, reason: "limit", notBefore: retryAt({ message: m.note ?? "" }, m.attempts + 1).toISOString(), attempts: m.attempts + 1, front: true });
+      }
+      this.changed(id);
+      return;
+    }
   }
 
-  // Sends the first due deferred prompt per idle agent; the rest follow via the
-  // normal queue. A turn that hits the limit again re-defers with more backoff.
-  runDueDeferred(now = Date.now()) {
-    for (const d of this.store.listDeferred()) {
-      if (Date.parse(d.retryAt) > now) continue;
-      const a = this.store.getAgent(d.agentId);
-      if (!a || a.archivedAt) {
-        this.store.clearDeferred(d.agentId);
-        continue;
-      }
-      const l = this.liveFor(a.id);
-      if (l.turnId) continue;
-      this.store.clearDeferred(a.id);
-      const [first, ...rest] = d.prompts;
-      l.queue.push(...rest);
-      try {
-        this.startTurn(a, l, first);
-      } catch {
-        // Couldn't start (e.g. provider gone): keep it for later with backoff.
-        this.store.setDeferred({ ...d, attempts: d.attempts + 1, retryAt: retryAt({ message: d.reason }, d.attempts + 1).toISOString() });
-        continue;
-      }
-      // If this retry hits the limit again, back off further.
-      this.retryAttempts.set(a.id, d.attempts + 1);
-      this.notify("agent.changed", { agent: this.withStatus(a) });
-    }
+  // Called on a timer: sends due pending messages of idle agents.
+  runDuePending(now = Date.now()) {
+    for (const agentId of new Set(this.store.listPending().map((m) => m.agentId))) this.runNext(agentId, now);
   }
 
   private recordLimits(provider: ProviderId, update: Omit<ProviderLimits, "provider" | "updatedAt">) {

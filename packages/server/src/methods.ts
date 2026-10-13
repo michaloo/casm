@@ -131,7 +131,13 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
       conn.subscriptions.delete(p.id);
       return { ok: true };
     },
-    "agent.send": (p) => agents.send(p.id, { text: p.text, images: p.images }, p.whenBusy, p.whenLimited),
+    "agent.send": (p) => agents.send(p.id, { text: p.text, images: p.images }, p.whenBusy, p.whenLimited, p.at),
+    "agent.pending": (p) => {
+      getAgent(p.id);
+      return { messages: agents.pendingMessages(p.id) };
+    },
+    "agent.cancelPending": (p) => ({ cancelled: agents.cancelPending(p.id, p.messageId) }),
+    "pending.list": () => ({ messages: agents.pendingMessages(), blocked: agents.blocked() }),
     "agent.usage": async (p) => ({ usage: await agents.usage(p.id) }),
     "agent.subagentHistory": async (p) => ({ items: await agents.subagentHistory(p.id, p.subagentId, p.limit) }),
     "agent.commands": async (p) => ({ commands: await agents.commands(p.id) }),

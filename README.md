@@ -228,12 +228,23 @@ casm tracks each provider's subscription limits and copes with running out:
   `{message, resetsAt}`. The reset time is taken from the provider or parsed from its message
   ("try again at 6:31 PM", "in 2 hours", ISO times). The provider is then marked exhausted, so
   its other agents wait too. A successful turn clears the mark.
-- **Queueing.** The prompt that hit the limit is deferred (stored in the server database, so it
-  survives restarts) and resent a minute after the reset, or with backoff (15 min, doubling, up
-  to 3 h) when no time is known. Messages sent meanwhile are queued behind it
-  (`agent.send` returns `deferredUntil`) unless the caller passes `whenLimited: "fail"`
-  (`casm send --fail-if-limited`), which fails with error code 1004. The agent shows
-  `deferred: {until, reason}`. `casm interrupt` (or `agent.interrupt`) drops deferred prompts.
+- **Queueing.** The prompt that hit the limit becomes a pending message (see below) and is resent a
+  minute after the reset, or with backoff (15 min, doubling, up to 3 h) when no time is known.
+  Messages sent meanwhile wait behind it (`agent.send` returns `deferredUntil`) unless the caller
+  passes `whenLimited: "fail"` (`casm send --fail-if-limited`), which fails with error code 1004.
 - **For scripts and coordinating agents.** `casm wait` exits 4 when the agent was deferred by a
   limit (3 = still running or waiting for you). The MCP `wait` tool returns `deferred` with a
   hint to pick another provider or host.
+
+## Pending messages
+
+Everything waiting to be sent is stored in the server database and visible:
+
+- **queued**: sent while the agent was busy; goes after the running turn.
+- **limit**: hit a usage limit; retried after the reset. Holds back the messages behind it.
+- **scheduled**: sent with `at` (`casm send <agent> "…" --at 18:30`, `--at "in 2h"`, or an ISO time).
+
+`casm pending [agent]` lists them, together with agents waiting for a permission or an answer
+(protocol `pending.list` / `agent.pending`, MCP `list_pending`). `casm cancel <agent> <id>` or
+`--all` cancels (`agent.cancelPending`). Interrupting an agent drops its queued and limit messages
+but keeps scheduled ones. Agents report `pending: {count, next}` so clients can badge them.

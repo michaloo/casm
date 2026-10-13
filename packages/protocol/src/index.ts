@@ -76,6 +76,9 @@ export const Agent = z.object({
   status: AgentStatus,
   // A prompt waiting for a provider limit to reset; the server sends it then.
   deferred: z.object({ until: z.string(), reason: z.string() }).nullable().optional(),
+  // Messages waiting to be sent (see agent.pending): how many, and the
+  // earliest time one is due when they are waiting for a time.
+  pending: z.object({ count: z.number(), next: z.string().optional() }).optional(),
 });
 export type Agent = z.infer<typeof Agent>;
 
@@ -104,6 +107,21 @@ export const Usage = z.object({
   costUsd: z.number().optional(),
 });
 export type Usage = z.infer<typeof Usage>;
+
+// A message the server will send to an agent later: behind a running turn
+// ("queued"), when a usage limit resets ("limit"), or at a set time
+// ("scheduled"). Sent in order; a waiting "limit" entry holds back the rest.
+export const PendingMessage = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  text: z.string(),
+  imageCount: z.number().optional(),
+  reason: z.enum(["queued", "limit", "scheduled"]),
+  notBefore: z.string().optional(),
+  note: z.string().optional(),
+  createdAt: z.string(),
+});
+export type PendingMessage = z.infer<typeof PendingMessage>;
 
 export const Item = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), id: z.string(), text: z.string(), images: z.array(ImageData).optional() }),
@@ -303,6 +321,15 @@ export const methods = {
 
   // Models and modes the agent offers on this host. Cached; `refresh` re-reads.
   "provider.catalog": method(z.object({ provider: ProviderId, refresh: z.boolean().optional() }), Catalog),
+  // Everything waiting on this server: pending messages of every agent, and
+  // agents blocked on a permission prompt or a question.
+  "pending.list": method(
+    Empty,
+    z.object({
+      messages: z.array(PendingMessage),
+      blocked: z.array(z.object({ agentId: z.string(), permissions: z.number(), questions: z.number() })),
+    }),
+  ),
   // Latest known subscription limits per provider (all installed ones by default).
   // `refresh` asks providers that can be queried; others report what their
   // sessions last saw.
@@ -413,8 +440,10 @@ export const methods = {
       // While the provider is known to be over its limit: "queue" (default)
       // defers the prompt until the reset; "fail" rejects with code 1004.
       whenLimited: z.enum(["queue", "fail"]).optional(),
+      // Send at this time (ISO) instead of now; it waits as a "scheduled" pending message.
+      at: z.string().optional(),
     }),
-    z.object({ queued: z.boolean(), deferredUntil: z.string().optional() }),
+    z.object({ queued: z.boolean(), deferredUntil: z.string().optional(), pendingId: z.string().optional() }),
   ),
   // Latest known context/cost: from the live session, else read from the
   // provider's store. Null when the agent has not run yet.
@@ -430,6 +459,12 @@ export const methods = {
   // tool item with streamed output, and lands in the agent's own history and
   // context the way the agent does it natively. Rejected while a turn runs.
   "agent.shell": method(z.object({ id: z.string(), command: z.string().min(1) }), Ok),
+  // Messages waiting to be sent to this agent, in order.
+  "agent.pending": method(ById, z.object({ messages: z.array(PendingMessage) })),
+  // Cancels one pending message, or all of them when `messageId` is omitted.
+  "agent.cancelPending": method(z.object({ id: z.string(), messageId: z.string().optional() }), z.object({ cancelled: z.number() })),
+  // Interrupts the running turn and drops queued and limit-deferred messages
+  // (scheduled ones stay; cancel them with agent.cancelPending).
   "agent.interrupt": method(ById, Ok),
   // Reload: new process, same native session. Restart: next turn starts a new session.
   "agent.reload": method(ById, Ok),

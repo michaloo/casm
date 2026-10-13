@@ -5,23 +5,37 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import type { Agent, AgentConfig, AgentParent, ImageData, Project, ProviderId } from "@casm/protocol";
 
-export type StoredAgent = Omit<Agent, "status" | "deferred">;
+export type StoredAgent = Omit<Agent, "status" | "deferred" | "pending">;
 
-export type Deferred = {
+export type PendingReason = "queued" | "limit" | "scheduled";
+
+// A message waiting to be sent to an agent: behind a running turn ("queued"),
+// until a usage limit resets ("limit"), or at a chosen time ("scheduled").
+export type Pending = {
+  id: string;
   agentId: string;
-  prompts: { text: string; images?: ImageData[] }[];
-  retryAt: string;
-  reason: string;
+  seq: number;
+  text: string;
+  images?: ImageData[];
+  reason: PendingReason;
+  notBefore: string | null;
+  note: string | null;
   attempts: number;
+  createdAt: string;
 };
 
-function toDeferred(r: Row): Deferred {
+function toPending(r: Row): Pending {
   return {
+    id: r.id as string,
     agentId: r.agent_id as string,
-    prompts: JSON.parse(r.prompts as string),
-    retryAt: r.retry_at as string,
-    reason: r.reason as string,
+    seq: r.seq as number,
+    text: r.text as string,
+    images: r.images ? JSON.parse(r.images as string) : undefined,
+    reason: r.reason as PendingReason,
+    notBefore: (r.not_before as string | null) ?? null,
+    note: (r.note as string | null) ?? null,
     attempts: r.attempts as number,
+    createdAt: r.created_at as string,
   };
 }
 
@@ -50,13 +64,19 @@ CREATE TABLE IF NOT EXISTS agents (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS deferred (
-  agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
-  prompts TEXT NOT NULL,
-  retry_at TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS pending (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  seq REAL NOT NULL,
+  text TEXT NOT NULL,
+  images TEXT,
   reason TEXT NOT NULL,
-  attempts INTEGER NOT NULL DEFAULT 0
+  not_before TEXT,
+  note TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
 );
+DROP TABLE IF EXISTS deferred;
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -266,25 +286,48 @@ export class Store {
     return this.db.prepare("DELETE FROM agents WHERE id = ?").run(id).changes > 0;
   }
 
-  // --- prompts waiting for a provider limit to reset (one row per agent)
+  // --- pending messages, in send order (seq) per agent
 
-  getDeferred(agentId: string): Deferred | undefined {
-    const r = this.db.prepare("SELECT * FROM deferred WHERE agent_id = ?").get(agentId) as Row | undefined;
-    return r && toDeferred(r);
+  listPending(agentId?: string): Pending[] {
+    const rows = agentId
+      ? this.db.prepare("SELECT * FROM pending WHERE agent_id = ? ORDER BY seq").all(agentId)
+      : this.db.prepare("SELECT * FROM pending ORDER BY agent_id, seq").all();
+    return (rows as Row[]).map(toPending);
   }
 
-  listDeferred(): Deferred[] {
-    return (this.db.prepare("SELECT * FROM deferred ORDER BY retry_at").all() as Row[]).map(toDeferred);
-  }
-
-  setDeferred(d: Deferred) {
+  addPending(p: Omit<Pending, "id" | "seq" | "createdAt" | "attempts"> & { attempts?: number; front?: boolean }): Pending {
+    const id = randomUUID();
+    const edge = this.db
+      .prepare(`SELECT ${p.front ? "MIN(seq) - 1" : "MAX(seq) + 1"} AS s FROM pending WHERE agent_id = ?`)
+      .get(p.agentId) as Row;
     this.db
-      .prepare("INSERT OR REPLACE INTO deferred (agent_id, prompts, retry_at, reason, attempts) VALUES (?, ?, ?, ?, ?)")
-      .run(d.agentId, JSON.stringify(d.prompts), d.retryAt, d.reason, d.attempts);
+      .prepare(
+        "INSERT INTO pending (id, agent_id, seq, text, images, reason, not_before, note, attempts, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        id,
+        p.agentId,
+        (edge.s as number | null) ?? 0,
+        p.text,
+        p.images?.length ? JSON.stringify(p.images) : null,
+        p.reason,
+        p.notBefore,
+        p.note,
+        p.attempts ?? 0,
+        now(),
+      );
+    return toPending(this.db.prepare("SELECT * FROM pending WHERE id = ?").get(id) as Row);
   }
 
-  clearDeferred(agentId: string): boolean {
-    return this.db.prepare("DELETE FROM deferred WHERE agent_id = ?").run(agentId).changes > 0;
+  removePending(id: string): boolean {
+    return this.db.prepare("DELETE FROM pending WHERE id = ?").run(id).changes > 0;
+  }
+
+  // Removes an agent's pending messages, optionally only some reasons; returns how many.
+  clearPending(agentId: string, reasons?: PendingReason[]): number {
+    if (!reasons) return Number(this.db.prepare("DELETE FROM pending WHERE agent_id = ?").run(agentId).changes);
+    const marks = reasons.map(() => "?").join(", ");
+    return Number(this.db.prepare(`DELETE FROM pending WHERE agent_id = ? AND reason IN (${marks})`).run(agentId, ...reasons).changes);
   }
 
   // A stable id for this server, created on first use.

@@ -50,7 +50,10 @@ agents:
   agents [--project p] [--all] [--usage]
   run --project p [--provider claude] [--name n] [--model m] [--mode m]
       [--parent serverId/agentId] [--casm-tools] [--wait] <prompt>
-  send <agent> <text> [--steer] [--wait] [--fail-if-limited]
+  send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--at 18:30|"in 2h"|ISO]
+  pending [agent]                    everything waiting: queued, limit-deferred and scheduled
+                                     messages, and agents waiting for a permission or answer
+  cancel <agent> [message-id|--all]  cancel pending messages
   wait <agent> [--timeout seconds]
   history <agent> [-n count]
   watch <agent>                      stream live events
@@ -101,6 +104,7 @@ const { values: opt, positionals } = parseArgs({
     refresh: { type: "boolean" },
     usage: { type: "boolean" },
     "fail-if-limited": { type: "boolean" },
+    at: { type: "string" },
     "casm-tools": { type: "boolean" },
     edit: { type: "boolean" },
   },
@@ -137,6 +141,22 @@ function pick<T extends { id: string; name: string }>(list: T[], ref: string, wh
 }
 
 const shortId = (id: string) => id.slice(0, 8);
+
+// "18:30" (today, or tomorrow if past), "in 2h" / "in 30m", or an ISO time.
+function parseWhen(s: string): string {
+  const rel = s.match(/^(?:in\s*)?\+?(\d+(?:\.\d+)?)\s*(m|min|h|hr|d)\w*$/i);
+  if (rel) return new Date(Date.now() + Number(rel[1]) * ({ m: 6e4, h: 36e5, d: 864e5 }[rel[2][0].toLowerCase() as "m" | "h" | "d"])).toISOString();
+  const clock = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (clock) {
+    const t = new Date();
+    t.setHours(Number(clock[1]), Number(clock[2]), 0, 0);
+    if (t.getTime() <= Date.now()) t.setDate(t.getDate() + 1);
+    return t.toISOString();
+  }
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) fail(`can't read the time "${s}" (use 18:30, "in 2h" or an ISO time)`);
+  return new Date(t).toISOString();
+}
 
 const kTokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`);
 
@@ -351,7 +371,7 @@ async function run(c: CasmClient) {
       return out(rows, () => {
         for (const a of agents)
           console.log(
-            `${shortId(a.id)}  ${a.status.padEnd(7)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}${a.deferred ? `  limited, retries ${new Date(a.deferred.until).toLocaleTimeString()}` : ""}${opt.usage ? `  ${usage.get(a.id) ? formatUsage(usage.get(a.id)!) : "-"}` : ""}`,
+            `${shortId(a.id)}  ${a.status.padEnd(7)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}${a.deferred ? `  limited, retries ${new Date(a.deferred.until).toLocaleTimeString()}` : ""}${a.pending?.count && !a.deferred ? `  ${a.pending.count} pending` : ""}${opt.usage ? `  ${usage.get(a.id) ? formatUsage(usage.get(a.id)!) : "-"}` : ""}`,
           );
       });
     }
@@ -382,7 +402,9 @@ async function run(c: CasmClient) {
         text,
         whenBusy: opt.steer ? "steer" : "queue",
         whenLimited: opt["fail-if-limited"] ? "fail" : "queue",
+        at: opt.at ? parseWhen(opt.at) : undefined,
       });
+      if (opt.at) return out(r, () => console.error(`scheduled for ${new Date(parseWhen(opt.at!)).toLocaleString()} (${r.pendingId?.slice(0, 8)})`));
       if (r.deferredUntil) {
         out(r, () => console.error(`${a.provider} is over its usage limit; queued until ${new Date(r.deferredUntil!).toLocaleString()}`));
         return;
@@ -482,6 +504,40 @@ async function run(c: CasmClient) {
           }
         }
       });
+    }
+
+    case "pending": {
+      const a = args[0] ? await agentRef(c, args[0]) : null;
+      const all = await c.call("pending.list", {});
+      const messages = a ? all.messages.filter((m) => m.agentId === a.id) : all.messages;
+      const blocked = a ? all.blocked.filter((b) => b.agentId === a.id) : all.blocked;
+      const names = new Map((await c.call("agent.list", { includeArchived: true })).agents.map((x) => [x.id, x.name]));
+      return out({ messages, blocked }, () => {
+        if (!messages.length && !blocked.length) console.log("nothing pending");
+        for (const b of blocked) {
+          const what = [b.permissions && `${b.permissions} permission prompt(s)`, b.questions && `${b.questions} question(s)`].filter(Boolean).join(", ");
+          console.log(`${shortId(b.agentId)}  ${names.get(b.agentId) ?? ""}  waiting for you: ${what}`);
+        }
+        for (const m of messages) {
+          const when = m.notBefore ? `  at ${new Date(m.notBefore).toLocaleString()}` : "";
+          const text = m.text.replace(/\s+/g, " ");
+          console.log(
+            `${shortId(m.id)}  ${shortId(m.agentId)}  ${(names.get(m.agentId) ?? "").slice(0, 24).padEnd(24)}  ${m.reason.padEnd(9)}${when}  ${text.length > 60 ? text.slice(0, 57) + "..." : text}${m.imageCount ? ` [${m.imageCount} image(s)]` : ""}`,
+          );
+          if (m.note) console.log(`          ${m.note.slice(0, 120)}`);
+        }
+      });
+    }
+
+    case "cancel": {
+      const a = await agentRef(c, args[0]);
+      let messageId: string | undefined;
+      if (args[1]) {
+        const { messages } = await c.call("agent.pending", { id: a.id });
+        messageId = pick(messages.map((m) => ({ ...m, name: m.id })), args[1], "pending message").id;
+      } else if (!opt.all) fail("cancel needs a message id, or --all");
+      const r = await c.call("agent.cancelPending", { id: a.id, messageId });
+      return out(r, () => console.error(`cancelled ${r.cancelled}`));
     }
 
     case "usage": {

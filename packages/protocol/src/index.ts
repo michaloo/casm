@@ -87,6 +87,56 @@ export type PermissionRequest = z.infer<typeof PermissionRequest>;
 export const PermissionDecision = z.enum(["allow", "allowAlways", "deny"]);
 export type PermissionDecision = z.infer<typeof PermissionDecision>;
 
+// A question the agent asks the user (Claude AskUserQuestion, Codex
+// requestUserInput, pi dialogs, OpenCode questions). One request can hold
+// several prompts; the answer maps prompt id -> value.
+export const QuestionPrompt = z.object({
+  id: z.string(),
+  text: z.string(),
+  header: z.string().optional(),
+  kind: z.enum(["select", "text", "confirm"]),
+  options: z.array(z.object({ label: z.string(), description: z.string().optional() })).optional(),
+  // select: allow picking several options.
+  multiple: z.boolean().optional(),
+  // select: allow a free-text answer instead of the options.
+  allowOther: z.boolean().optional(),
+  // text: multi-line input (editor) and an optional prefill.
+  multiline: z.boolean().optional(),
+  placeholder: z.string().optional(),
+  // text: mask the input (passwords, tokens).
+  secret: z.boolean().optional(),
+});
+export type QuestionPrompt = z.infer<typeof QuestionPrompt>;
+
+export const QuestionRequest = z.object({
+  id: z.string(),
+  title: z.string().optional(),
+  prompts: z.array(QuestionPrompt).min(1),
+});
+export type QuestionRequest = z.infer<typeof QuestionRequest>;
+
+// select: option label(s) or free text; text: the text; confirm: boolean.
+export const AnswerValue = z.union([z.string(), z.array(z.string()), z.boolean()]);
+export type AnswerValue = z.infer<typeof AnswerValue>;
+export const Answers = z.record(z.string(), AnswerValue);
+export type Answers = z.infer<typeof Answers>;
+
+export const ModelInfo = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  isDefault: z.boolean().optional(),
+  // Reasoning effort levels this model accepts (AgentConfig.effort).
+  efforts: z.array(z.string()).optional(),
+});
+export type ModelInfo = z.infer<typeof ModelInfo>;
+
+export const ModeInfo = z.object({ id: z.string(), name: z.string().optional(), description: z.string().optional() });
+export type ModeInfo = z.infer<typeof ModeInfo>;
+
+export const Catalog = z.object({ models: z.array(ModelInfo), modes: z.array(ModeInfo) });
+export type Catalog = z.infer<typeof Catalog>;
+
 export const TurnOutcome = z.enum(["completed", "interrupted", "failed"]);
 export type TurnOutcome = z.infer<typeof TurnOutcome>;
 
@@ -98,6 +148,8 @@ export const AgentEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("delta"), kind: z.enum(["assistant", "reasoning"]), text: z.string() }),
   z.object({ type: z.literal("permission"), request: PermissionRequest }),
   z.object({ type: z.literal("permissionResolved"), requestId: z.string() }),
+  z.object({ type: z.literal("question"), request: QuestionRequest }),
+  z.object({ type: z.literal("questionResolved"), requestId: z.string() }),
   z.object({
     type: z.literal("turnEnded"),
     turnId: z.string(),
@@ -123,6 +175,9 @@ export const methods = {
     Empty,
     z.object({ name: z.string(), version: z.string(), protocol: z.number(), providers: z.array(ProviderId) }),
   ),
+
+  // Models and modes the agent offers on this host. Cached; `refresh` re-reads.
+  "provider.catalog": method(z.object({ provider: ProviderId, refresh: z.boolean().optional() }), Catalog),
 
   "project.list": method(z.object({ includeArchived: z.boolean().optional() }), z.object({ projects: z.array(Project) })),
   "project.create": method(
@@ -188,7 +243,12 @@ export const methods = {
   // connects mid-turn can catch up.
   "agent.subscribe": method(
     ById,
-    z.object({ status: AgentStatus, turn: z.array(AgentEvent), permissions: z.array(PermissionRequest) }),
+    z.object({
+      status: AgentStatus,
+      turn: z.array(AgentEvent),
+      permissions: z.array(PermissionRequest),
+      questions: z.array(QuestionRequest),
+    }),
   ),
   "agent.unsubscribe": method(ById, Ok),
   // `queue` (default) runs after the current turn; `steer` injects into it.
@@ -200,11 +260,13 @@ export const methods = {
   // Reload: new process, same native session. Restart: next turn starts a new session.
   "agent.reload": method(ById, Ok),
   "agent.restart": method(ById, Ok),
+  // Omit `answers` to dismiss the question.
+  "agent.answerQuestion": method(z.object({ id: z.string(), requestId: z.string(), answers: Answers.optional() }), Ok),
   "agent.respondPermission": method(
     z.object({ id: z.string(), requestId: z.string(), decision: PermissionDecision, message: z.string().optional() }),
     Ok,
   ),
-  // Resolves when the agent is idle (or waiting for permission) or the timeout passes.
+  // Resolves when the agent is idle (or waiting for permission or an answer) or the timeout passes.
   "agent.wait": method(
     z.object({ id: z.string(), timeoutMs: z.number().optional() }),
     z.object({ status: AgentStatus, timedOut: z.boolean(), lastReply: z.string().nullable() }),

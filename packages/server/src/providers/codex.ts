@@ -3,7 +3,9 @@
 // `thread/items/list`, which reads Codex's own rollout files.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
-import type { Item, PermissionRequest } from "@casm/protocol";
+import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
+import type { Answers, AnswerValue, Catalog, Item, ModeInfo, ModelInfo, PermissionRequest, QuestionPrompt, QuestionRequest } from "@casm/protocol";
 import type { OpenOptions, PermissionAnswer, Provider, ProviderSession } from "./types.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -204,6 +206,162 @@ class Rpc {
   }
 }
 
+// --- questions (item/tool/requestUserInput, mcpServer/elicitation/request)
+
+// request_user_input: one prompt per question. Options -> select (with free
+// text when isOther), no options -> text.
+export function userInputQuestion(p: Record<string, unknown>, id: string): QuestionRequest {
+  const prompts = arr(p.questions).map((raw): QuestionPrompt => {
+    const q = rec(raw);
+    const options = arr(q.options).map((o) => ({ label: str(rec(o).label), description: str(rec(o).description) || undefined }));
+    const prompt: QuestionPrompt = { id: str(q.id), text: str(q.question), header: str(q.header) || undefined, kind: options.length ? "select" : "text" };
+    if (options.length) {
+      prompt.options = options;
+      if (q.isOther) prompt.allowOther = true;
+    }
+    if (q.isSecret) prompt.secret = true;
+    return prompt;
+  });
+  return { id, prompts };
+}
+
+const answerList = (v: AnswerValue | undefined): string[] =>
+  v === undefined ? [] : typeof v === "boolean" ? [v ? "yes" : "no"] : (Array.isArray(v) ? v : [v]).filter((s) => s !== "");
+
+// Dismissed (null) answers nothing, which Codex reports to the model as skipped.
+export function userInputResponse(p: Record<string, unknown>, answers: Answers | null): { answers: Record<string, { answers: string[] }> } {
+  const out: Record<string, { answers: string[] }> = {};
+  if (!answers) return { answers: out };
+  for (const raw of arr(p.questions)) {
+    const qid = str(rec(raw).id);
+    const list = answerList(answers[qid]);
+    if (list.length) out[qid] = { answers: list };
+  }
+  return { answers: out };
+}
+
+type FormField = { key: string; type: "string" | "number" | "integer" | "boolean" | "enum" | "multi"; values?: string[] };
+export type ElicitationForm = { req: QuestionRequest; fields: FormField[] };
+
+// A form elicitation's flat schema -> one prompt per property. Null when the
+// form has no fields or a field casm cannot render.
+export function elicitationQuestion(p: Record<string, unknown>, id: string): ElicitationForm | null {
+  if (p.mode === "url") return null;
+  const schema = rec(p.requestedSchema);
+  const entries = Object.entries(rec(schema.properties));
+  if (!entries.length) return null;
+  const prompts: QuestionPrompt[] = [];
+  const fields: FormField[] = [];
+  for (const [key, raw] of entries) {
+    const f = rec(raw);
+    const title = str(f.title) || key;
+    const desc = str(f.description);
+    const base = { id: key, text: desc || title, header: desc ? title : undefined };
+    const placeholder = f.default === undefined || f.default === null ? undefined : String(f.default);
+    const items = rec(f.items);
+    const choices = (list: unknown[]) =>
+      list.map((o) => (typeof o === "string" ? { value: o, label: o } : { value: str(rec(o).const), label: str(rec(o).title) || str(rec(o).const) }));
+    let opts: { value: string; label: string }[] | null = null;
+    let multi = false;
+    if (f.type === "array") {
+      opts = choices(arr(items.anyOf).length ? arr(items.anyOf) : arr(items.enum));
+      multi = true;
+    } else if (arr(f.oneOf).length) opts = choices(arr(f.oneOf));
+    else if (arr(f.enum).length) {
+      const names = arr(f.enumNames).map(str);
+      opts = arr(f.enum).map((v, i) => ({ value: str(v), label: names[i] || str(v) }));
+    }
+    if (opts) {
+      if (!opts.length) return null;
+      prompts.push({ ...base, kind: "select", options: opts.map((o) => ({ label: o.label })), multiple: multi || undefined });
+      fields.push({ key, type: multi ? "multi" : "enum", values: opts.map((o) => o.value) });
+    } else if (f.type === "boolean") {
+      prompts.push({ ...base, kind: "confirm" });
+      fields.push({ key, type: "boolean" });
+    } else if (f.type === "string" || f.type === "number" || f.type === "integer") {
+      prompts.push({ ...base, kind: "text", placeholder });
+      fields.push({ key, type: f.type });
+    } else return null;
+  }
+  return { req: { id, title: str(p.message) || undefined, prompts }, fields };
+}
+
+export function elicitationResponse(form: ElicitationForm, answers: Answers | null): { action: "accept" | "cancel"; content: Record<string, unknown> | null; _meta: null } {
+  if (!answers) return { action: "cancel", content: null, _meta: null };
+  const content: Record<string, unknown> = {};
+  form.fields.forEach((field, i) => {
+    const v = answers[field.key];
+    if (v === undefined) return;
+    const labels = (form.req.prompts[i].options ?? []).map((o) => o.label);
+    const toValue = (label: string) => {
+      const at = labels.indexOf(label);
+      return at >= 0 && field.values ? field.values[at] : label;
+    };
+    switch (field.type) {
+      case "boolean":
+        content[field.key] = typeof v === "boolean" ? v : /^(y|yes|true|1)$/i.test(String(v));
+        return;
+      case "multi":
+        content[field.key] = answerList(v).map(toValue);
+        return;
+      case "enum": {
+        const first = answerList(v)[0];
+        if (first !== undefined) content[field.key] = toValue(first);
+        return;
+      }
+      case "number":
+      case "integer": {
+        const text = answerList(v)[0]?.trim();
+        const n = Number(text);
+        if (text && Number.isFinite(n)) content[field.key] = field.type === "integer" ? Math.trunc(n) : n;
+        return;
+      }
+      default: {
+        const text = answerList(v).join(", ");
+        if (text) content[field.key] = text;
+      }
+    }
+  });
+  return { action: "accept", content, _meta: null };
+}
+
+// --- catalog
+
+export function parseModels(data: unknown[]): ModelInfo[] {
+  return data.map(rec).flatMap((m): ModelInfo[] => {
+    const id = str(m.model) || str(m.id);
+    if (!id || m.hidden === true) return [];
+    const info: ModelInfo = { id, name: str(m.displayName) || undefined, description: str(m.description) || undefined, isDefault: m.isDefault === true };
+    const efforts = arr(m.supportedReasoningEfforts).map((e) => str(rec(e).reasoningEffort)).filter(Boolean);
+    if (efforts.length) info.efforts = efforts;
+    return [info];
+  });
+}
+
+const MODE_INFO: ModeInfo[] = [
+  { id: "read-only", name: "Read only", description: "Read-only sandbox; asks before anything else" },
+  { id: "auto", name: "Auto", description: "Edits and runs commands in the workspace; asks to go beyond it" },
+  { id: "untrusted", name: "Untrusted", description: "Asks before any command that is not known to be safe" },
+  { id: "full-access", name: "Full access", description: "No sandbox and no approvals" },
+];
+
+export async function readCatalog(): Promise<Catalog> {
+  const rpc = new Rpc(homedir(), process.env as Record<string, string>);
+  try {
+    await rpc.initialize();
+    const data: unknown[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { data: unknown[]; nextCursor: string | null } = await rpc.request("model/list", { cursor, includeHidden: false });
+      data.push(...page.data);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return { models: parseModels(data), modes: MODE_INFO };
+  } finally {
+    rpc.kill();
+  }
+}
+
 // --- session
 
 // casm mode -> Codex approval policy + sandbox. Unknown modes keep Codex's own config.
@@ -255,7 +413,8 @@ class CodexSession implements ProviderSession {
       approvalPolicy: mode?.approvalPolicy,
       sandbox: mode?.sandbox,
       developerInstructions: config.systemPrompt,
-      config: config.mcpServers ? { mcp_servers: config.mcpServers } : undefined,
+      // request_user_input is otherwise only offered in Plan mode.
+      config: { features: { default_mode_request_user_input: true }, ...(config.mcpServers ? { mcp_servers: config.mcpServers } : {}) },
     };
     const res = resumeId
       ? await this.rpc.request<{ thread: { id: string } }>("thread/resume", { ...params, threadId: resumeId, excludeTurns: true })
@@ -318,6 +477,18 @@ class CodexSession implements ProviderSession {
     this.approvals.clear();
   }
 
+  private async question(rpcId: string, req: QuestionRequest): Promise<Answers | null> {
+    const ctrl = new AbortController();
+    this.approvals.set(rpcId, ctrl);
+    try {
+      return await this.opts.askQuestion(req, ctrl.signal);
+    } catch {
+      return null;
+    } finally {
+      this.approvals.delete(rpcId);
+    }
+  }
+
   private async ask(rpcId: string, req: Omit<PermissionRequest, "id">, itemId: string): Promise<PermissionAnswer | null> {
     const ctrl = new AbortController();
     this.approvals.set(rpcId, ctrl);
@@ -357,13 +528,15 @@ class CodexSession implements ProviderSession {
         return { permissions: requested, scope: a.decision === "allowAlways" ? "session" : "turn" };
       }
       case "mcpServer/elicitation/request": {
-        const required = arr(rec(p.requestedSchema).required);
-        if (p.mode === "url" || required.length) return { action: "decline", content: null, _meta: null };
+        if (p.mode === "url") return { action: "decline", content: null, _meta: null };
+        const form = elicitationQuestion(p, `elicitation-${randomUUID()}`);
+        if (form) return elicitationResponse(form, await this.question(key, form.req));
+        if (Object.keys(rec(rec(p.requestedSchema).properties)).length) return { action: "decline", content: null, _meta: null };
         const a = await this.ask(key, { toolName: `mcp__${str(p.serverName)}`, input: { message: p.message }, title: str(p.message), canAlwaysAllow: false }, str(p.elicitationId));
         return { action: a && a.decision !== "deny" ? "accept" : "decline", content: a && a.decision !== "deny" ? {} : null, _meta: null };
       }
       case "item/tool/requestUserInput":
-        return { answers: {} };
+        return userInputResponse(p, await this.question(key, userInputQuestion(p, str(p.itemId) || `input-${randomUUID()}`)));
       default:
         throw new Error(`casm does not handle ${method}`);
     }
@@ -449,5 +622,6 @@ export function codexProvider(): Provider {
     id: "codex",
     open: (opts) => new CodexSession(opts),
     history: readHistory,
+    catalog: readCatalog,
   };
 }

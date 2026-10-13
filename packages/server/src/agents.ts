@@ -4,12 +4,15 @@ import { randomUUID } from "node:crypto";
 import type {
   Agent,
   AgentEvent,
+  Answers,
+  Catalog,
   AgentStatus,
   Item,
   NotificationName,
   NotificationParams,
   PermissionRequest,
   ProviderId,
+  QuestionRequest,
 } from "@casm/protocol";
 import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from "./providers/types.ts";
@@ -22,11 +25,12 @@ export class RpcError extends Error {
   }
 }
 
-type Pending = {
-  req: PermissionRequest;
-  resolve: (a: PermissionAnswer) => void;
-  reject: (e: Error) => void;
-};
+// Everything the agent is blocked on: permission prompts and questions.
+type Pending =
+  | { kind: "permission"; req: PermissionRequest; resolve: (a: PermissionAnswer) => void; reject: (e: Error) => void }
+  | { kind: "question"; req: QuestionRequest; resolve: (a: Answers | null) => void; reject: (e: Error) => void };
+
+const CATALOG_TTL_MS = 10 * 60_000;
 
 type Live = {
   session: ProviderSession | null;
@@ -45,6 +49,7 @@ export type Notify = <N extends NotificationName>(name: N, params: NotificationP
 
 export class AgentManager {
   private live = new Map<string, Live>();
+  private catalogs = new Map<ProviderId, { at: number; catalog: Promise<Catalog> }>();
 
   private store: Store;
   private providers: Map<ProviderId, Provider>;
@@ -138,6 +143,8 @@ export class AgentManager {
         emit: (e) => gen === l.generation && this.onProviderEvent(a.id, l, e),
         askPermission: (req, signal) =>
           gen === l.generation ? this.askPermission(a.id, l, req, signal) : Promise.reject(new Error("session replaced")),
+        askQuestion: (req, signal) =>
+          gen === l.generation ? this.askQuestion(a.id, l, req, signal) : Promise.reject(new Error("session replaced")),
       });
     }
     l.turnId = randomUUID();
@@ -194,28 +201,58 @@ export class AgentManager {
     }
   }
 
-  private askPermission(id: string, l: Live, req: PermissionRequest, signal: AbortSignal): Promise<PermissionAnswer> {
-    return new Promise((resolve, reject) => {
+  private block<P extends Pending>(id: string, l: Live, pending: Omit<P, "resolve" | "reject">, signal: AbortSignal) {
+    type A = Parameters<P["resolve"]>[0];
+    const reqId = pending.req.id;
+    return new Promise<A>((resolve, reject) => {
       const done = () => {
-        l.pending.delete(req.id);
-        this.emit(id, { type: "permissionResolved", requestId: req.id });
+        l.pending.delete(reqId);
+        this.emit(id, pending.kind === "permission" ? { type: "permissionResolved", requestId: reqId } : { type: "questionResolved", requestId: reqId });
         this.statusChanged(id);
       };
-      l.pending.set(req.id, {
-        req,
-        resolve: (a) => (done(), resolve(a)),
-        reject: (e) => (done(), reject(e)),
-      });
-      signal.addEventListener("abort", () => l.pending.get(req.id)?.reject(new Error("aborted")), { once: true });
-      this.emit(id, { type: "permission", request: req });
+      l.pending.set(reqId, {
+        ...pending,
+        resolve: (a: A) => (done(), resolve(a)),
+        reject: (e: Error) => (done(), reject(e)),
+      } as Pending);
+      signal.addEventListener("abort", () => l.pending.get(reqId)?.reject(new Error("aborted")), { once: true });
+      this.emit(
+        id,
+        pending.kind === "permission"
+          ? { type: "permission", request: pending.req as PermissionRequest }
+          : { type: "question", request: pending.req as QuestionRequest },
+      );
       this.statusChanged(id);
     });
   }
 
+  private askPermission(id: string, l: Live, req: PermissionRequest, signal: AbortSignal): Promise<PermissionAnswer> {
+    return this.block<Extract<Pending, { kind: "permission" }>>(id, l, { kind: "permission", req }, signal);
+  }
+
+  private askQuestion(id: string, l: Live, req: QuestionRequest, signal: AbortSignal): Promise<Answers | null> {
+    return this.block<Extract<Pending, { kind: "question" }>>(id, l, { kind: "question", req }, signal);
+  }
+
   respondPermission(id: string, requestId: string, answer: PermissionAnswer) {
     const p = this.live.get(id)?.pending.get(requestId);
-    if (!p) throw new RpcError(1001, "no such pending permission request");
+    if (p?.kind !== "permission") throw new RpcError(1001, "no such pending permission request");
     p.resolve(answer);
+  }
+
+  answerQuestion(id: string, requestId: string, answers: Answers | null) {
+    const p = this.live.get(id)?.pending.get(requestId);
+    if (p?.kind !== "question") throw new RpcError(1001, "no such pending question");
+    p.resolve(answers);
+  }
+
+  catalog(provider: ProviderId, refresh = false): Promise<Catalog> {
+    const cached = this.catalogs.get(provider);
+    if (cached && !refresh && Date.now() - cached.at < CATALOG_TTL_MS) return cached.catalog;
+    const catalog = this.provider(provider).catalog();
+    this.catalogs.set(provider, { at: Date.now(), catalog });
+    catalog.catch(() => this.catalogs.delete(provider));
+    return catalog;
   }
 
   async interrupt(id: string) {
@@ -256,7 +293,8 @@ export class AgentManager {
     return {
       status: this.status(id),
       turn: l?.turn ?? [],
-      permissions: l ? [...l.pending.values()].map((p) => p.req) : [],
+      permissions: l ? [...l.pending.values()].flatMap((p) => (p.kind === "permission" ? [p.req] : [])) : [],
+      questions: l ? [...l.pending.values()].flatMap((p) => (p.kind === "question" ? [p.req] : [])) : [],
     };
   }
 

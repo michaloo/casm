@@ -1,4 +1,14 @@
-import type { AgentConfig, Item, PermissionDecision, PermissionRequest, ProviderId, TurnOutcome } from "@casm/protocol";
+import type {
+  AgentConfig,
+  Answers,
+  Catalog,
+  Item,
+  PermissionDecision,
+  PermissionRequest,
+  ProviderId,
+  QuestionRequest,
+  TurnOutcome,
+} from "@casm/protocol";
 
 // What a provider reports while a session is open.
 export type ProviderEvent =
@@ -18,6 +28,8 @@ export type OpenOptions = {
   emit: (e: ProviderEvent) => void;
   // Resolves when a client answers. Rejects (via signal) if the turn is aborted.
   askPermission: (req: PermissionRequest, signal: AbortSignal) => Promise<PermissionAnswer>;
+  // Resolves with the answers, or null when the user dismisses the question.
+  askQuestion: (req: QuestionRequest, signal: AbortSignal) => Promise<Answers | null>;
 };
 
 // One live provider process bound to one native session.
@@ -33,4 +45,6 @@ export interface Provider {
   open(opts: OpenOptions): ProviderSession;
   // Reads the transcript from the provider's own store.
   history(sessionId: string, cwd: string): Promise<Item[]>;
+  // Models and modes available on this host. The manager caches the result.
+  catalog(): Promise<Catalog>;
 }

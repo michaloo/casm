@@ -28,6 +28,8 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
   return {
     "server.info": () => ({ name: "casm", version, protocol: PROTOCOL_VERSION, providers: agents.providerIds() }),
 
+    "provider.catalog": (p) => agents.catalog(p.provider, p.refresh),
+
     "project.list": (p) => ({ projects: store.listProjects(p.includeArchived) }),
     "project.create": (p) => {
       if (p.parentId) getProject(p.parentId);
@@ -113,6 +115,10 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     },
     "agent.restart": async (p) => {
       await agents.restart(p.id);
+      return { ok: true };
+    },
+    "agent.answerQuestion": (p) => {
+      agents.answerQuestion(p.id, p.requestId, p.answers ?? null);
       return { ok: true };
     },
     "agent.respondPermission": (p) => {

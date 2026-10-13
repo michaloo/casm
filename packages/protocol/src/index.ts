@@ -105,6 +105,10 @@ export const Usage = z.object({
   inputTokens: z.number().optional(),
   outputTokens: z.number().optional(),
   costUsd: z.number().optional(),
+  // Totals for one subagent run (Item.subagent.usage).
+  totalTokens: z.number().optional(),
+  toolUses: z.number().optional(),
+  durationMs: z.number().optional(),
 });
 export type Usage = z.infer<typeof Usage>;
 

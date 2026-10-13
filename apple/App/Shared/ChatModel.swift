@@ -18,8 +18,6 @@ final class ChatModel {
     private(set) var draft: Draft?
     private(set) var permissions: [PermissionRequest] = []
     private(set) var questions: [QuestionRequest] = []
-    /// A config change made while a turn was running; applied with a reload once it ends.
-    private(set) var reloadAfterTurn = false
     private(set) var loading = false
     private(set) var loadingOlder = false
     var error: String?
@@ -152,10 +150,6 @@ final class ChatModel {
             draft = nil
             permissions = []
             questions = []
-            if reloadAfterTurn {
-                reloadAfterTurn = false
-                Task { await perform { try await $0.reload(agentId: self.agentId) } }
-            }
             if outcome == .failed { upsert(.notice(id: "failed-\(UUID().uuidString)", text: "Turn failed: \(error ?? "unknown error")")) }
             // History can hold items that never arrived live (e.g. the interrupt marker).
             Task { try? await loadLatest() }
@@ -224,20 +218,12 @@ final class ChatModel {
         if error == nil { questions.removeAll { $0.id == request.id } }
     }
 
-    /// Saves a config change. It takes effect when the session is next opened, so an idle agent is
-    /// reloaded now and a busy one after its turn ends.
-    func updateConfig(_ change: (inout AgentConfig) -> Void) async {
-        guard let host, let agent else { return }
-        var config = agent.config
-        change(&config)
-        guard config != agent.config else { return }
+    /// Merges a config change on the server ("" clears a field). The server applies it when the
+    /// session is next opened: right away if idle, after the turn otherwise.
+    func updateConfig(_ patch: AgentConfig) async {
+        guard let host else { return }
         do {
-            host.upsert(try await host.client.updateAgent(UpdateAgentParams(id: agentId, config: config)))
-            if status.isBusy {
-                reloadAfterTurn = true
-            } else {
-                try await host.client.reload(agentId: agentId)
-            }
+            host.upsert(try await host.client.updateAgent(UpdateAgentParams(id: agentId, config: patch)))
             error = nil
         } catch {
             self.error = error.localizedDescription

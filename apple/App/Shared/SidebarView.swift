@@ -126,7 +126,17 @@ struct ProjectNode: View {
     }
 
     private var label: some View {
-        Label(project.name, systemImage: "folder")
+        HStack(spacing: 4) {
+            Label(project.name, systemImage: "folder")
+            Spacer(minLength: 4)
+            Button("New Agent in \(project.name)", systemImage: "plus") {
+                app.sheet = .newAgent(host, projectId: project.id)
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("New agent in \(project.name)")
+        }
             .help(project.path ?? "")
             .contextMenu {
                 Button("New Agent…") { app.sheet = .newAgent(host, projectId: project.id) }
@@ -167,11 +177,31 @@ struct AgentRow: View {
             Label {
                 Text(agent.name).lineLimit(1)
             } icon: {
-                Image(systemName: "sparkle")
+                ProviderIcon(provider: agent.provider)
             }
             Spacer(minLength: 4)
             if agent.status != .idle { StatusBadge(status: agent.status) }
         }
         .help("\(agent.provider.rawValue) · \(agent.config.model ?? "default model") · \(agent.cwd)")
+    }
+}
+
+/// The coding agent behind an agent: Claude Code, Codex, pi or OpenCode.
+struct ProviderIcon: View {
+    let provider: ProviderID
+
+    var body: some View {
+        switch provider {
+        case .claude:
+            Image(systemName: "asterisk").fontWeight(.bold).foregroundStyle(Color(red: 0.85, green: 0.47, blue: 0.34))
+        case .codex:
+            Image(systemName: "chevron.left.forwardslash.chevron.right").foregroundStyle(.primary)
+        case .pi:
+            Text("π").fontWeight(.semibold).foregroundStyle(.purple)
+        case .opencode:
+            Image(systemName: "curlybraces").foregroundStyle(.teal)
+        case .unknown:
+            Image(systemName: "cpu").foregroundStyle(.secondary)
+        }
     }
 }

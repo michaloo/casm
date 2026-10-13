@@ -22,6 +22,7 @@ struct Composer: View {
             }
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Message the agent", text: $text, selection: $selection, axis: .vertical)
+                    .accessibilityLabel("Message")
                     .textFieldStyle(.plain)
                     .lineLimit(2...10)
                     .focused($focused)
@@ -153,13 +154,9 @@ struct ConfigPickers: View {
             Menu {
                 ForEach(models) { m in
                     Button {
-                        Task {
-                            await chat.updateConfig { config in
-                                config.model = m.id
-                                // Drop an effort the new model doesn't accept.
-                                if let effort = config.effort, !(m.efforts ?? []).contains(effort) { config.effort = nil }
-                            }
-                        }
+                        // Clear an effort the new model doesn't accept.
+                        let dropEffort = agent.config.effort.map { !(m.efforts ?? []).contains($0) } ?? false
+                        Task { await chat.updateConfig(AgentConfig(model: m.id, effort: dropEffort ? "" : nil)) }
                     } label: {
                         Text(m.displayName)
                         if let d = m.description { Text(d) }
@@ -167,7 +164,7 @@ struct ConfigPickers: View {
                     }
                 }
             } label: {
-                PickerLabel(icon: "asterisk", title: modelName)
+                PickerLabel(icon: Image(systemName: "asterisk"), title: modelName)
             }
             .menuStyle(.button)
             .menuIndicator(.hidden)
@@ -177,21 +174,21 @@ struct ConfigPickers: View {
             if let efforts = model?.efforts, !efforts.isEmpty {
                 Menu {
                     Button {
-                        Task { await chat.updateConfig { $0.effort = nil } }
+                        Task { await chat.updateConfig(AgentConfig(effort: "")) }
                     } label: {
                         Text("Default")
                         if agent.config.effort == nil { Image(systemName: "checkmark") }
                     }
                     ForEach(efforts, id: \.self) { e in
                         Button {
-                            Task { await chat.updateConfig { $0.effort = e } }
+                            Task { await chat.updateConfig(AgentConfig(effort: e)) }
                         } label: {
                             Text(e.effortName)
                             if agent.config.effort == e { Image(systemName: "checkmark") }
                         }
                     }
                 } label: {
-                    PickerLabel(icon: "brain", title: agent.config.effort?.effortName ?? "Default effort")
+                    PickerLabel(icon: Image(systemName: "brain"), title: agent.config.effort?.effortName ?? "Default effort")
                 }
                 .menuStyle(.button)
                 .menuIndicator(.hidden)
@@ -199,36 +196,114 @@ struct ConfigPickers: View {
                 .help("Reasoning effort")
             }
 
-            let modes = catalog?.modes ?? []
-            let mode = modes.first { $0.id == (agent.config.mode ?? "default") }
-            Menu {
-                ForEach(modes) { m in
-                    Button {
-                        Task { await chat.updateConfig { $0.mode = m.id } }
-                    } label: {
-                        Text(m.displayName)
-                        if let d = m.description { Text(d) }
-                        if m.id == mode?.id { Image(systemName: "checkmark") }
-                    }
-                }
-            } label: {
-                PickerLabel(icon: "shield", title: "\(mode?.displayName ?? agent.config.mode ?? "Default") mode")
-            }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Permission mode")
+            ModePicker(chat: chat, provider: agent.provider, modes: catalog?.modes ?? [], current: agent.config.mode)
         }
     }
 }
 
-private struct PickerLabel: View {
-    let icon: String
+/// Paseo-style mode picker: a searchable popover with a shield icon per mode.
+struct ModePicker: View {
+    let chat: ChatModel
+    let provider: ProviderID
+    let modes: [ModeInfo]
+    let current: String?
+    @State private var open = false
+    @State private var search = ""
+
+    private var selected: ModeInfo? { modes.first { $0.id == (current ?? "default") } }
+
+    private var filtered: [ModeInfo] {
+        let q = search.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return modes }
+        // Name matches first, then description matches.
+        let byName = modes.filter { $0.displayName.localizedCaseInsensitiveContains(q) || $0.id.localizedCaseInsensitiveContains(q) }
+        let byDescription = modes.filter { m in !byName.contains(m) && (m.description ?? "").localizedCaseInsensitiveContains(q) }
+        return byName + byDescription
+    }
+
+    var body: some View {
+        Button {
+            open.toggle()
+        } label: {
+            PickerLabel(icon: ModeIcon(provider: provider, mode: selected?.id ?? current ?? "default"),
+                        title: selected?.displayName ?? current ?? "Default")
+        }
+        .fixedSize()
+        .help("Permission mode")
+        .popover(isPresented: $open, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Search modes...", text: $search)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .onSubmit { if let first = filtered.first { choose(first) } }
+                Divider()
+                ForEach(filtered) { mode in
+                    Button { choose(mode) } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            ModeIcon(provider: provider, mode: mode.id).frame(width: 18)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(mode.displayName)
+                                if let d = mode.description {
+                                    Text(d).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            Spacer(minLength: 12)
+                            if mode.id == selected?.id { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                if filtered.isEmpty {
+                    Text("No matching modes").foregroundStyle(.secondary).padding(10)
+                }
+            }
+            .padding(6)
+            .frame(width: 320)
+        }
+    }
+
+    private func choose(_ mode: ModeInfo) {
+        open = false
+        search = ""
+        Task { await chat.updateConfig(AgentConfig(mode: mode.id)) }
+    }
+}
+
+/// Shield icons for Claude's permission modes; a generic one for other providers' modes.
+struct ModeIcon: View {
+    let provider: ProviderID
+    let mode: String
+
+    var body: some View {
+        switch (provider, mode) {
+        case (.claude, "plan"): overlay("ellipsis")
+        case (.claude, "default"): Image(systemName: "shield")
+        case (.claude, "acceptEdits"): overlay("plus")
+        case (.claude, "auto"): Image(systemName: "checkmark.shield")
+        case (.claude, "bypassPermissions"): Image(systemName: "shield.slash")
+        default: Image(systemName: "slider.horizontal.3")
+        }
+    }
+
+    /// A shield with a small glyph inside, for symbols SF Symbols doesn't ship.
+    private func overlay(_ glyph: String) -> some View {
+        Image(systemName: "shield").overlay {
+            Image(systemName: glyph).font(.system(size: 6, weight: .heavy)).offset(y: -0.5)
+        }
+    }
+}
+
+private struct PickerLabel<Icon: View>: View {
+    let icon: Icon
     let title: String
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: icon)
+            icon
             Text(title)
             Image(systemName: "chevron.down").font(.caption2)
         }

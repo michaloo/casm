@@ -541,11 +541,21 @@ struct ModePicker: View {
         Button {
             open.toggle()
         } label: {
-            PickerLabel(icon: ModeIcon(provider: provider, mode: selected?.id ?? current ?? ""),
+            PickerLabel(icon: ModeIcon(provider: provider, mode: selected?.id ?? current ?? "")
+                            .foregroundStyle(Self.isUnsafe(current) ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary)),
                         title: selected?.displayName ?? current ?? "Default mode")
         }
         .fixedSize()
         .help("Permission mode")
+        .confirmationDialog("Run every tool without asking?", isPresented: Binding(get: { confirmUnsafe != nil }, set: { if !$0 { confirmUnsafe = nil } }),
+                            titleVisibility: .visible, presenting: confirmUnsafe) { mode in
+            Button("Switch to \(mode.displayName)", role: .destructive) {
+                Task { await chat.updateConfig(AgentConfig(mode: mode.id)) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("The agent will edit files and run commands without asking for permission.")
+        }
         .popover(isPresented: $open, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 TextField("Search modes...", text: $search)
@@ -594,9 +604,19 @@ struct ModePicker: View {
         }
     }
 
+    /// Modes that run every tool without asking.
+    static func isUnsafe(_ id: String?) -> Bool { id == "bypassPermissions" || id == "full-access" }
+
+    @State private var confirmUnsafe: ModeInfo?
+
     private func choose(_ mode: ModeInfo) {
         open = false
         search = ""
+        // M7: skipping every permission prompt is one tap away otherwise.
+        if Self.isUnsafe(mode.id) && !Self.isUnsafe(current) {
+            confirmUnsafe = mode
+            return
+        }
         Task { await chat.updateConfig(AgentConfig(mode: mode.id)) }
     }
 }

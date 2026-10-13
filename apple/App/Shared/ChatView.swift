@@ -37,7 +37,7 @@ struct ChatView: View {
                     .modifier(ComposerColumn())
             }
             ForEach(chat.permissions) { request in
-                PermissionBanner(request: request) { decision in
+                PermissionBanner(request: request, isFirst: request.id == chat.permissions.first?.id) { decision in
                     Task { await chat.respond(to: request, decision) }
                 }
                 .disabled(!online)
@@ -475,6 +475,8 @@ struct ToolSection: View {
 
 struct PermissionBanner: View {
     let request: PermissionRequest
+    /// M7: only the first banner takes ⌘Return, and plain Return never approves (it's for typing).
+    var isFirst = true
     let respond: (PermissionDecision) -> Void
 
     var body: some View {
@@ -516,7 +518,8 @@ struct PermissionBanner: View {
             }
             Button("Allow") { respond(.allow) }
                 .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(isFirst ? KeyboardShortcut(.return, modifiers: .command) : nil)
+                .help(isFirst ? "Allow (⌘Return)" : "Allow")
         }
         .fixedSize()
     }

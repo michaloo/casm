@@ -347,17 +347,36 @@ final class ChatModel {
     }
 
     func respond(to request: PermissionRequest, _ decision: PermissionDecision) async {
-        await perform { try await $0.respondPermission(agentId: self.agentId, requestId: request.id, decision: decision) }
-        if error == nil { permissions.removeAll { $0.id == request.id } }
+        await resolveCard(request.id) { try await $0.respondPermission(agentId: self.agentId, requestId: request.id, decision: decision) }
     }
 
     /// `answers == nil` dismisses the question.
     func answer(_ request: QuestionRequest, _ answers: [String: AnswerValue]?) async {
-        await perform { try await $0.answerQuestion(agentId: self.agentId, requestId: request.id, answers: answers) }
-        if error == nil {
-            questions.removeAll { $0.id == request.id }
-            Drafts.shared.clearAnswers(request.id)
+        await resolveCard(request.id) { try await $0.answerQuestion(agentId: self.agentId, requestId: request.id, answers: answers) }
+    }
+
+    /// M8: answers a permission or question card. The card goes away when the answer lands, and
+    /// also when the server no longer has the request (answered from another client, or the turn
+    /// ended): then a notice says so instead of leaving a card that can never be answered.
+    private func resolveCard(_ requestId: String, _ action: (RPCClient) async throws -> Void) async {
+        guard let host else { return }
+        do {
+            try await action(host.client)
+            error = nil
+            removeCard(requestId)
+        } catch RPCError.server(1001, _) {
+            removeCard(requestId)
+            upsert(.notice(id: "resolved-\(requestId)", text: "Answered elsewhere"))
+        } catch {
+            // Kept, so the user can try again (the answer draft is kept too).
+            self.error = error.localizedDescription
         }
+    }
+
+    private func removeCard(_ requestId: String) {
+        permissions.removeAll { $0.id == requestId }
+        questions.removeAll { $0.id == requestId }
+        Drafts.shared.clearAnswers(requestId)
     }
 
     /// Merges a config change on the server ("" clears a field). The server applies it when the

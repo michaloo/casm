@@ -3,7 +3,8 @@
 ```
 CasmKit/   Swift package: protocol models, JSON-RPC WebSocket client, host list + Keychain
 App/       SwiftUI app shared by macOS (CasmMac) and iOS (CasmiOS); generated with XcodeGen
-scripts/   casmctl (drives a DEBUG build), run-dev.sh, record-session.mjs (contract fixture)
+scripts/   casmctl (DEBUG command channel), ui + uictl.swift (real input), run-dev.sh, scrollbench.sh,
+           record-session.mjs (contract fixture)
 ```
 
 ## Build
@@ -43,3 +44,32 @@ scripts/casmctl snapshot path=/tmp/casm-shots/x.png
 Snapshots render the window offscreen (no screen-recording permission needed, works while the
 screen is locked); sidebar rows are composited separately because the macOS 26 glass sidebar isn't
 captured by `cacheDisplay`.
+
+## Real input and screenshots
+
+`scripts/ui` runs `uictl` inside Terminal, which needs Accessibility and Screen Recording permission
+(System Settings → Privacy & Security). It starts one minimized Terminal window as a server and
+refuses to click or type unless casm or the Simulator is frontmost.
+
+```sh
+scripts/ui clickel casm "Always ask"                 # click an element by its AX title
+scripts/ui clickel casm "AXTextField@Project name"   # role-qualified
+scripts/ui type "hello"; scripts/ui key return casm
+scripts/ui scroll casm transcript 40 300 8           # trackpad-style scrolling
+scripts/ui shot casm /tmp/casm-shots/x.png region    # window incl. popovers and sheets
+```
+
+`scripts/scrollbench.sh` opens the synthetic transcript and scrolls it with real events while the app
+records display-link frame intervals (`casmctl fps` / `fps action=stop`).
+
+## iOS
+
+```sh
+xcrun simctl create "casm iPhone 13 mini" com.apple.CoreSimulator.SimDeviceType.iPhone-13-mini \
+  com.apple.CoreSimulator.SimRuntime.iOS-26-5
+TEST_RUNNER_CASM_TOKEN=$(cat ~/.casm-ng-dev/mac-app.token) xcodebuild -project Casm.xcodeproj \
+  -scheme CasmiOS -destination "id=<udid>" test
+```
+
+`App/iOSUITests/FlowTests.swift` drives the main flows against the local server (open an agent,
+switch mode, send, allow a permission, answer a question) and writes screenshots to /tmp/casm-shots.

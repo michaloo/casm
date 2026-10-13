@@ -27,13 +27,16 @@ struct AddHostSheet: View {
         Form {
             Section {
                 TextField("Name", text: $name, prompt: Text("macbook"))
+                    .accessibilityLabel("Host name")
                 TextField("URL", text: $url, prompt: Text("ws://host:7373"))
+                    .accessibilityLabel("Host URL")
                     .autocorrectionDisabled()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
                     #endif
                 SecureField("Token", text: $token, prompt: Text("casm_…"))
+                    .accessibilityLabel("Token")
             } footer: {
                 Text("Create a token on the server with `casm token create <name>`. It is stored in the Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -99,7 +102,9 @@ struct NewProjectSheet: View {
         Form {
             HostPicker(hostID: $hostID)
             TextField("Name", text: $name)
+                .accessibilityLabel("Project name")
             TextField("Path", text: $path, prompt: Text("Optional; inherited from the parent"))
+                .accessibilityLabel("Project path")
                 .autocorrectionDisabled()
             Picker("Parent", selection: $parentId) {
                 Text("None").tag(String?.none)
@@ -166,6 +171,7 @@ struct NewAgentSheet: View {
                 ForEach(host?.info?.providers ?? [.claude], id: \.self) { Text($0.rawValue).tag($0) }
             }
             TextField("Name", text: $name, prompt: Text("Optional"))
+                .accessibilityLabel("Agent name")
             let catalog = host?.catalog(for: provider)
             Picker("Model", selection: $model) {
                 Text("Default").tag("")

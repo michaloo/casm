@@ -47,6 +47,7 @@ struct SidebarView: View {
                 }
             }
         }
+        .navigationTitle("casm")
         #if os(macOS)
         .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         #endif
@@ -149,10 +150,17 @@ struct ProjectNode: View {
 struct AgentNode: View {
     let host: HostModel
     let agent: Agent
+    var depth = 0
     @State private var expanded = true
 
     var body: some View {
         let children = host.subagents(of: agent.id)
+        #if os(iOS)
+        // On iOS tapping a disclosure row toggles it instead of opening the agent, so subagents
+        // are listed below their caller, indented, without a disclosure.
+        row.padding(.leading, CGFloat(depth) * 18)
+        ForEach(children) { AgentNode(host: host, agent: $0, depth: depth + 1) }
+        #else
         if children.isEmpty {
             row
         } else {
@@ -162,6 +170,7 @@ struct AgentNode: View {
                 row
             }
         }
+        #endif
     }
 
     private var row: some View {

@@ -157,10 +157,13 @@ enum Exp {
     static let noGeo = flags.contains("nogeo")
     static let list = flags.contains("list")
     static let noWindow = flags.contains("nowindow")
+    static let noAnchor = flags.contains("noanchor")
+    static let noPosition = flags.contains("noposition")
     static func int(_ key: String) -> Int? { ProcessInfo.processInfo.environment[key].flatMap(Int.init) }
     #else
     static func int(_ key: String) -> Int? { nil }
     static let noSelect = false, noCodeScroll = false, noGeo = false, list = false, noWindow = false
+    static let noAnchor = false, noPosition = false
     #endif
 }
 

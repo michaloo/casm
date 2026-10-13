@@ -175,7 +175,12 @@ enum Markdown {
     static func inline(_ text: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        var result = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        // Inline `code`: monospaced on a tinted run, like Paseo's surface2 chip.
+        for run in result.runs where run.inlinePresentationIntent?.contains(.code) == true {
+            result[run.range].backgroundColor = Theme.surface2
+        }
+        return result
     }
 
     private static func headingLevel(_ line: Substring) -> Int? {
@@ -204,20 +209,26 @@ struct MarkdownView: View {
     let blocks: [MarkdownBlock]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+        VStack(alignment: .leading, spacing: Theme.paragraphGap) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { i, block in
                 switch block {
                 case .paragraph(let text):
-                    Text(text)
+                    Text(text).lineSpacing(Theme.proseLineSpacing)
                 case .heading(let level, let text):
-                    Text(text).font(level == 1 ? .title2 : level == 2 ? .title3 : .headline).bold()
+                    Text(text)
+                        .font(.system(size: Theme.headingSize(level), weight: level <= 2 ? .bold : .semibold))
+                        .padding(.top, i == 0 ? 0 : (level <= 2 ? 12 : 4))
                 case .code(let language, let code):
                     CodeBlock(language: language, code: code)
                 case .quote(let text):
                     Text(text)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 10)
-                        .overlay(alignment: .leading) { Rectangle().fill(.quaternary).frame(width: 3) }
+                        .lineSpacing(Theme.proseLineSpacing)
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Theme.surface1)
+                        .overlay(alignment: .leading) { Rectangle().fill(Theme.surface2).frame(width: 4) }
                 case .rule:
                     Divider()
                 case .table(let table):
@@ -225,6 +236,7 @@ struct MarkdownView: View {
                 }
             }
         }
+        .font(.system(size: Theme.proseSize))
         .modifier(Selectable())
     }
 }
@@ -393,20 +405,22 @@ struct CodeBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let language, language != "table" {
-                Text(language).font(.caption2).foregroundStyle(.secondary)
+                Text(language).font(.system(size: 11)).foregroundStyle(Theme.muted)
             }
             if Exp.noCodeScroll {
-                Text(code).font(.system(.callout, design: .monospaced))
+                Text(code).font(.system(size: Theme.codeSize, design: .monospaced)).lineSpacing(5)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(code)
-                        .font(.system(.callout, design: .monospaced))
+                        .font(.system(size: Theme.codeSize, design: .monospaced))
+                        .lineSpacing(5)
                         .fixedSize(horizontal: true, vertical: false)
                 }
             }
         }
-        .padding(10)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.border))
     }
 }

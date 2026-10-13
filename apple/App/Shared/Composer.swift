@@ -431,7 +431,7 @@ struct ComposerColumn: ViewModifier {
             .padding(.horizontal, 20)
             #endif
             .padding(.top, 6)
-            .frame(maxWidth: 900)
+            .frame(maxWidth: Theme.columnWidth)
             .frame(maxWidth: .infinity)
     }
 }

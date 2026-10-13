@@ -62,6 +62,24 @@ final class SnapshotTests: XCTestCase {
         }
     }
 
+    func testMemories() throws {
+        let groups = [
+            AgentMemories(provider: .claude, scope: .project, location: "~/.claude/projects/-Users-me-app/memory/MEMORY.md", entries: [
+                MemoryEntry(id: "1", title: "Testing", text: "Run `npm test` before committing; the e2e suite needs `CASM_HOME`.",
+                            updatedAt: "2026-10-12T09:00:00Z"),
+                MemoryEntry(id: "2", text: "The user prefers small commits with short messages."),
+            ]),
+            AgentMemories(provider: .codex, scope: .global, location: "~/.codex/memories.md", entries: [
+                MemoryEntry(id: "3", title: "Style", text: "Answer in the language the user wrote in."),
+            ]),
+        ]
+        try render("memories", width: 620) {
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(Array(groups.enumerated()), id: \.offset) { _, g in MemoryGroupView(group: g) }
+            }
+        }
+    }
+
     func testSubtitlePaths() {
         XCTAssertEqual(ChatView.abbreviate("~/code/casm"), "~/Projects/casm")
         XCTAssertEqual(ChatView.abbreviate("/home/me"), "~")

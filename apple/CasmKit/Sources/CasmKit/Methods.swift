@@ -35,6 +35,73 @@ public struct SlashCommand: Codable, Sendable, Hashable, Identifiable {
 }
 
 struct CommandList: Codable, Sendable { var commands: [SlashCommand] }
+
+/// A project's AGENTS.md; `content` is nil when the file doesn't exist yet.
+public struct AgentsMd: Codable, Sendable, Equatable {
+    public var path: String
+    public var content: String?
+}
+
+struct SetAgentsMdParams: Codable, Sendable {
+    var id: String
+    var content: String
+}
+
+public struct MemoryEntry: Codable, Sendable, Hashable, Identifiable {
+    public var id: String
+    public var title: String?
+    public var text: String
+    public var updatedAt: String?
+
+    public init(id: String, title: String? = nil, text: String, updatedAt: String? = nil) {
+        self.id = id
+        self.title = title
+        self.text = text
+        self.updatedAt = updatedAt
+    }
+}
+
+/// The memories one coding agent (provider) keeps that apply to a project. Read-only in casm.
+public struct AgentMemories: Codable, Sendable, Hashable {
+    public enum Scope: OpenEnum {
+        /// Stored per folder (Claude Code).
+        case project
+        /// Applies to every folder (Codex).
+        case global
+        case unknown(String)
+
+        public init?(rawValue: String) {
+            switch rawValue {
+            case "project": self = .project
+            case "global": self = .global
+            default: self = .unknown(rawValue)
+            }
+        }
+
+        public var rawValue: String {
+            switch self {
+            case .project: "project"
+            case .global: "global"
+            case .unknown(let raw): raw
+            }
+        }
+    }
+
+    public var provider: ProviderID
+    public var scope: Scope
+    /// Where the provider keeps them (a file or folder on the host).
+    public var location: String
+    public var entries: [MemoryEntry]
+
+    public init(provider: ProviderID, scope: Scope, location: String, entries: [MemoryEntry]) {
+        self.provider = provider
+        self.scope = scope
+        self.location = location
+        self.entries = entries
+    }
+}
+
+struct ProjectMemories: Codable, Sendable { var agents: [AgentMemories] }
 struct UsageResult: Codable, Sendable { var usage: Usage? }
 
 public struct FileEntry: Codable, Sendable, Hashable, Identifiable {
@@ -263,6 +330,20 @@ public extension RPCClient {
 
     func deleteAgent(id: String) async throws {
         let _: OK = try await call("agent.delete", ByID(id: id))
+    }
+
+    func agentsMd(projectId: String) async throws -> AgentsMd {
+        try await call("project.agentsMd", ByID(id: projectId))
+    }
+
+    /// Writes (or creates) the project's AGENTS.md.
+    func setAgentsMd(projectId: String, content: String) async throws -> AgentsMd {
+        try await call("project.setAgentsMd", SetAgentsMdParams(id: projectId, content: content))
+    }
+
+    /// Each installed coding agent's memories for the project folder (read-only).
+    func memories(projectId: String) async throws -> [AgentMemories] {
+        try await (call("project.memories", ByID(id: projectId)) as ProjectMemories).agents
     }
 
     func listAgents(includeArchived: Bool = false) async throws -> [Agent] {

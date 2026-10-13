@@ -133,6 +133,7 @@ struct ContentView: View {
                 case .newProject(let host, let group): NewProjectSheet(hostID: host?.id, group: group ?? "")
                 case .newAgent(let host, let projectId): NewAgentSheet(hostID: host?.id, projectId: projectId)
                 case .hostInfo(let host): HostInfoSheet(host: host)
+                case .projectDetails(let host, let projectId): ProjectDetailsSheet(host: host, projectId: projectId)
                 }
             }
             .environment(app)

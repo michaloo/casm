@@ -31,8 +31,16 @@ struct ChatView: View {
         VStack(spacing: 0) {
             // The transcript takes all height the banners and composer don't need; without this the
             // stack shrank it to its content and short chats sank behind the composer.
-            Group { if Exp.list { ListTranscript(chat: chat) } else { transcript } }
-                .frame(maxHeight: .infinity)
+            Group {
+                if chat.newAgent != nil {
+                    NewAgentPlaceholder(chat: chat)
+                } else if Exp.list {
+                    ListTranscript(chat: chat)
+                } else {
+                    transcript
+                }
+            }
+            .frame(maxHeight: .infinity)
             if let error = chat.error {
                 ErrorBar(message: error) { chat.error = nil }
                     .modifier(ComposerColumn())
@@ -59,7 +67,7 @@ struct ChatView: View {
             PendingStrip(chat: chat).modifier(ComposerColumn()).disabled(!online)
             Composer(chat: chat, working: app.workingSubagents(of: chat.agentId, on: chat.host))
         }
-        .navigationTitle(chat.agent?.name ?? "Transcript")
+        .navigationTitle(chat.newAgent != nil ? chat.project?.name ?? "New Agent" : chat.agent?.name ?? "Transcript")
         #if os(macOS)
         .navigationSubtitle(subtitle)
         #endif
@@ -71,6 +79,16 @@ struct ChatView: View {
                 }
                 ToolbarSpacer(.fixed)
             }
+            if chat.newAgent != nil {
+                if let host = chat.host, let project = chat.project {
+                    ToolbarItem {
+                        Button("Project Details", systemImage: "info.circle") {
+                            app.sheet = .projectDetails(host, projectId: project.id)
+                        }
+                        .help("AGENTS.md and memories")
+                    }
+                }
+            } else {
             ToolbarItem {
                 Button("New Session", systemImage: "square.and.pencil") { confirmRestart = true }
                     .help("New session: same agent settings, empty conversation")
@@ -90,6 +108,7 @@ struct ChatView: View {
                 }
                 .menuIndicator(.hidden)
                 .help("More actions")
+            }
             }
         }
         .confirmationDialog("Start a new session?", isPresented: $confirmRestart) {
@@ -125,6 +144,7 @@ struct ChatView: View {
 
     /// Where the agent works and how full its context is. Model and mode are in the composer.
     private var subtitle: String {
+        if chat.newAgent != nil { return chat.project.map { Self.abbreviate($0.path) } ?? "" }
         guard let agent = chat.agent else { return "\(chat.items.count) items" }
         return [Self.abbreviate(agent.cwd), contextText].compactMap { $0 }.joined(separator: " · ")
     }
@@ -754,5 +774,37 @@ extension JSONValue {
     var isOnlyCommand: Bool {
         if case .object(let o) = self { return o.count == 1 && o["command"]?.stringValue != nil }
         return false
+    }
+}
+
+/// What a project's new-agent chat shows above the composer before the first message.
+private struct NewAgentPlaceholder: View {
+    let chat: ChatModel
+
+    var body: some View {
+        if let first = chat.firstMessage {
+            VStack(alignment: .leading, spacing: 12) {
+                ItemRow(item: first, expanded: .constant([]))
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+                Spacer()
+            }
+            // The transcript's column: centred, at most `columnWidth` wide.
+            .frame(maxWidth: Theme.columnWidth)
+            .padding(.horizontal, Theme.sideMargin)
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
+        } else {
+            placeholder
+        }
+    }
+
+    private var placeholder: some View {
+        ContentUnavailableView {
+            Label("New agent in \(chat.project?.name ?? "this project")", systemImage: "bubble.left.and.text.bubble.right")
+        } description: {
+            if let project = chat.project {
+                Text("Your first message starts it in \(ChatView.abbreviate(project.path)).")
+            }
+        }
     }
 }

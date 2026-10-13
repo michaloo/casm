@@ -36,7 +36,7 @@ enum HostSeeder {
     }
 
     static func seed(data: Data) -> Bool {
-        let store = HostStore()
+        let store = HostStore.app
         do {
             let entries = try JSONDecoder().decode([Entry].self, from: data)
             for old in store.load() { store.remove(old.id) }
@@ -76,7 +76,7 @@ struct CasmApp: App {
         .commands {
             // ⌘N makes an agent, not a second window.
             CommandGroup(replacing: .newItem) {
-                Button("New Agent…") { app.sheet = .newAgent(app.chat?.host, projectId: app.chat?.agent?.projectId) }
+                Button("New Agent…") { app.sheet = .newAgent(app.chat?.host, projectId: app.chat?.project?.id) }
                     .keyboardShortcut("n")
                 Button("New Project…") { app.sheet = .newProject(nil) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])

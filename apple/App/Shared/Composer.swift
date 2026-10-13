@@ -438,7 +438,8 @@ struct ModePicker: View {
     @State private var open = false
     @State private var search = ""
 
-    private var selected: ModeInfo? { modes.first { $0.id == (current ?? "default") } }
+    /// Unset means the provider's own default; don't assume another provider's mode ids.
+    private var selected: ModeInfo? { current.flatMap { id in modes.first { $0.id == id } } }
 
     private var filtered: [ModeInfo] {
         let q = search.trimmingCharacters(in: .whitespaces)
@@ -453,8 +454,8 @@ struct ModePicker: View {
         Button {
             open.toggle()
         } label: {
-            PickerLabel(icon: ModeIcon(provider: provider, mode: selected?.id ?? current ?? "default"),
-                        title: selected?.displayName ?? current ?? "Default")
+            PickerLabel(icon: ModeIcon(provider: provider, mode: selected?.id ?? current ?? ""),
+                        title: selected?.displayName ?? current ?? "Default mode")
         }
         .fixedSize()
         .help("Permission mode")
@@ -513,18 +514,21 @@ struct ModePicker: View {
     }
 }
 
-/// Shield icons for Claude's permission modes; a generic one for other providers' modes.
+/// Shield icons for permission modes, by mode id (Claude Code and Codex share some ideas, not ids);
+/// a generic icon for modes it doesn't know.
 struct ModeIcon: View {
     let provider: ProviderID
     let mode: String
 
     var body: some View {
-        switch (provider, mode) {
-        case (.claude, "plan"): overlay("ellipsis")
-        case (.claude, "default"): Image(systemName: "shield")
-        case (.claude, "acceptEdits"): overlay("plus")
-        case (.claude, "auto"): Image(systemName: "checkmark.shield")
-        case (.claude, "bypassPermissions"): Image(systemName: "shield.slash")
+        switch mode {
+        case "plan": overlay("ellipsis")
+        case "default": Image(systemName: "shield")
+        case "acceptEdits": overlay("plus")
+        case "auto": Image(systemName: "checkmark.shield")
+        case "auto-review": Image(systemName: "exclamationmark.shield")
+        case "bypassPermissions", "full-access": Image(systemName: "shield.slash")
+        case "": Image(systemName: "shield.lefthalf.filled")
         default: Image(systemName: "slider.horizontal.3")
         }
     }

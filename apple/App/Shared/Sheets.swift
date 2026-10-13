@@ -240,7 +240,7 @@ struct NewAgentSheet: View {
     /// Empty means the provider's default.
     @State private var model = ""
     @State private var effort = ""
-    @State private var mode = "default"
+    @State private var mode = ""
     @State private var prompt = ""
     @State private var error: String?
     @State private var busy = false
@@ -280,7 +280,8 @@ struct NewAgentSheet: View {
                 }
             }
             Picker("Mode", selection: $mode) {
-                ForEach(catalog?.modes ?? [ModeInfo(id: "default")]) { Text($0.displayName).tag($0.id) }
+                Text("Default").tag("")
+                ForEach(catalog?.modes ?? []) { Text($0.displayName).tag($0.id) }
             }
             Section("First prompt") {
                 TextEditor(text: $prompt)
@@ -300,6 +301,12 @@ struct NewAgentSheet: View {
         }
         .sheetSize(minWidth: 460, minHeight: 520)
         .onAppear { if hostID == nil { hostID = app.hosts.first(where: \.isOnline)?.id ?? app.hosts.first?.id } }
+        // Model, effort and mode ids belong to one provider; start over with its defaults.
+        .onChange(of: provider) {
+            model = ""
+            effort = ""
+            mode = ""
+        }
     }
 
     private func create(_ host: HostModel?, _ project: Project?) async {
@@ -308,9 +315,7 @@ struct NewAgentSheet: View {
         defer { busy = false }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let efforts = host.catalog(for: provider)?.models.first { $0.id == model }?.efforts ?? []
-        let config = AgentConfig(model: model.isEmpty ? nil : model,
-                                 mode: mode, effort: efforts.contains(effort) ? effort : nil)
+        let config = AgentConfigChoice.config(model: model, effort: effort, mode: mode, catalog: host.catalog(for: provider))
         do {
             try await app.createAgent(on: host, CreateAgentParams(
                 projectId: project.id, provider: provider, name: trimmedName.isEmpty ? nil : trimmedName,
@@ -400,5 +405,21 @@ extension View {
         #else
         self
         #endif
+    }
+}
+
+/// Builds an agent's config from picker choices, keeping only ids the selected provider's catalog
+/// offers. Anything else (another provider's mode, a stale model) is left unset, so the provider
+/// uses its own default. Without a catalog nothing is sent.
+enum AgentConfigChoice {
+    static func config(model: String, effort: String, mode: String, catalog: Catalog?) -> AgentConfig {
+        guard let catalog else { return AgentConfig() }
+        let chosenModel = catalog.models.first { $0.id == model }
+        // The chosen model's efforts; with no model chosen, the default model's.
+        let effortsModel = chosenModel ?? catalog.models.first { $0.isDefault == true }
+        let efforts = effortsModel?.efforts ?? []
+        return AgentConfig(model: chosenModel?.id,
+                           mode: catalog.modes.contains { $0.id == mode } ? mode : nil,
+                           effort: efforts.contains(effort) ? effort : nil)
     }
 }

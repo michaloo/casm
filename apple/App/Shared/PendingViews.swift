@@ -23,25 +23,48 @@ enum ISOTime {
 /// cancel for each.
 struct PendingStrip: View {
     let chat: ChatModel
+    #if os(iOS)
+    /// On iPhone the strip is one summary line until tapped: the composer area is short.
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var expanded = false
+    private var collapsed: Bool { sizeClass == .compact && !expanded }
+    #else
+    private let collapsed = false
+    #endif
+
+    private var summary: String {
+        let next = chat.pending.compactMap { ISOTime.parse($0.notBefore) }.min()
+        return "\(chat.pending.count) pending" + (next.map { " · next \(ISOTime.describe($0))" } ?? "")
+    }
 
     var body: some View {
         if !chat.pending.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Label("\(chat.pending.count) pending", systemImage: "tray.full")
+                    Label(collapsed ? summary : "\(chat.pending.count) pending", systemImage: "tray.full")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                     Spacer()
+                    #if os(iOS)
+                    if sizeClass == .compact {
+                        Button(expanded ? "Hide" : "Show") { withAnimation { expanded.toggle() } }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                    }
+                    #endif
                     if chat.pending.count > 1 {
                         Button("Cancel All") { Task { await chat.cancelPending(nil) } }
                             .buttonStyle(.borderless)
                             .font(.caption)
                     }
                 }
+                if !collapsed {
                 ForEach(chat.pending) { message in
                     PendingRow(message: message,
                                edit: { Task { await chat.editPending(message) } },
                                cancel: { Task { await chat.cancelPending(message) } })
+                }
                 }
             }
             .padding(10)
@@ -70,7 +93,7 @@ struct PendingRow: View {
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
                 .help("Take it back into the composer")
-            Button("Cancel", systemImage: "xmark", action: cancel)
+            Button("Cancel Message", systemImage: "xmark", action: cancel)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
                 .help("Don't send it")

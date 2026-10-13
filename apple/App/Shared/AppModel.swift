@@ -139,8 +139,12 @@ final class AppModel {
 
     #if DEBUG
     /// `CASM_DEV_URL` + `CASM_DEV_TOKEN` add a host on first launch, so test runs don't need the sheet.
+    /// `CASM_DEV_REPLACE=1` swaps the saved hosts for this one (UI tests against a given server).
     private func seedDevHost() {
         let env = ProcessInfo.processInfo.environment
+        if env["CASM_DEV_REPLACE"] == "1", env["CASM_DEV_URL"] != nil {
+            for old in store.load() { store.remove(old.id) }
+        }
         guard store.load().isEmpty, let raw = env["CASM_DEV_URL"], let url = URL(string: raw),
               let token = env["CASM_DEV_TOKEN"] else { return }
         try? store.upsert(HostEntry(name: env["CASM_DEV_NAME"] ?? "local", url: url), token: token)

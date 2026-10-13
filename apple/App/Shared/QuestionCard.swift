@@ -36,7 +36,8 @@ struct QuestionCard: View {
             // transcript and the buttons stay visible.
             ViewThatFits(in: .vertical) {
                 prompts
-                ScrollView { prompts }.frame(maxHeight: 300)
+                // Never squeezed to nothing on a short screen: keep a few options visible.
+                ScrollView { prompts }.frame(minHeight: 140, maxHeight: 300)
             }
             HStack {
                 Spacer()

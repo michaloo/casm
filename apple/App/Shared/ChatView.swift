@@ -210,10 +210,11 @@ struct ChatView: View {
         } action: { old, new in
             if old.height == new.height, old.offset != new.offset { pinned = new.atBottom }
         }
-        // While pinned, follow every change of the bottom: new items, streaming text, growing
-        // tool output, banners taking space from the transcript.
-        .onChange(of: bottomOffset) {
-            if pinned && !scrolling { position.scrollTo(edge: .bottom) }
+        // While pinned, follow the content as it grows (new items, streaming text, tool output).
+        // Only content growth: scrolling while the view itself resized (composer growing, chips,
+        // banners) left the lazy rows blank; the bottom scroll anchor handles resizes.
+        .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height } action: { old, new in
+            if new > old, pinned, !scrolling { position.scrollTo(edge: .bottom) }
         }
         #if DEBUG && os(macOS)
         .onScrollGeometryChange(for: CGRect.self) { geo in

@@ -92,7 +92,7 @@
     "query:usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET": {"status": "gap", "theme": "usage", "note": "Experimental usage API; no usage in the protocol."},
     "sdkmessage:assistant": {"status": "mapped", "to": "Item.assistant / Item.reasoning / Item.tool", "note": "Subagent messages (parent_tool_use_id set) are skipped."},
     "sdkmessage:auth_status": {"status": "ignored", "reason": "Interactive login progress; agent auth is set up on the host by the user."},
-    "sdkmessage:conversation_reset": {"status": "gap", "theme": "session", "note": "After /clear or plan-mode exit Claude starts a new conversation id; casm keeps the old nativeSessionId and transcript."},
+    "sdkmessage:conversation_reset": {"status": "mapped", "to": "AgentEvent.item", "note": "Updates nativeSessionId to new_conversation_id and adds a notice item."},
     "sdkmessage:prompt_suggestion": {"status": "gap", "theme": "agent-extras", "note": "Predicted next prompt (opt-in promptSuggestions, not enabled)."},
     "sdkmessage:rate_limit_event": {"status": "gap", "theme": "usage", "note": "Rate-limit state is not surfaced."},
     "sdkmessage:result/error_during_execution": {"status": "mapped", "to": "AgentEvent.turnEnded", "note": "outcome interrupted (after agent.interrupt) or failed with errors joined."},

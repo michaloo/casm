@@ -5,7 +5,16 @@ import { writeFileSync } from "node:fs";
 import { z } from "zod";
 import { PROTOCOL_VERSION, ErrorCode, methods, notifications } from "../src/index.ts";
 
-const schema = (s: z.ZodType, io: "input" | "output") => z.toJSONSchema(s, { io, unrepresentable: "any" });
+// Clients must ignore unknown fields, so the spec never forbids them.
+function allowExtra(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(allowExtra);
+  if (!node || typeof node !== "object") return node;
+  return Object.fromEntries(
+    Object.entries(node).filter(([k, v]) => !(k === "additionalProperties" && v === false)).map(([k, v]) => [k, allowExtra(v)]),
+  );
+}
+
+const schema = (s: z.ZodType, io: "input" | "output") => allowExtra(z.toJSONSchema(s, { io, unrepresentable: "any" }));
 
 const spec = {
   protocol: PROTOCOL_VERSION,

@@ -221,6 +221,8 @@ export const methods = {
     }),
     Agent,
   ),
+  // `config` fields merge into the current config ("" clears one) and apply
+  // when the session is next opened: right away if idle, else after the turn.
   "agent.update": method(
     z.object({
       id: z.string(),

@@ -82,9 +82,14 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
       return getAgent(stored.id);
     },
     "agent.update": (p) => {
-      getAgent(p.id);
+      const current = getAgent(p.id);
       if (p.projectId) getProject(p.projectId);
-      store.updateAgent(p.id, p);
+      // Config fields merge; an empty string clears a field.
+      const config = p.config
+        ? Object.fromEntries(Object.entries({ ...current.config, ...p.config }).filter(([, v]) => v !== "" && v !== undefined))
+        : undefined;
+      store.updateAgent(p.id, { ...p, config });
+      if (config) agents.configChanged(p.id);
       return changed(p.id);
     },
     "agent.delete": async (p) => {

@@ -13,7 +13,7 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 
 | Source | Version | Ids | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|---|--:|--:|--:|--:|--:|--:|
-| Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 30 | 60 | 52 | 0 | 37% |
+| Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 31 | 60 | 51 | 0 | 38% |
 | Codex (app-server) | codex-cli 0.160.1 | 225 | 40 | 114 | 71 | 0 | 36% |
 | OpenCode (serve) | opencode 1.19.0 | 147 | 25 | 60 | 62 | 0 | 29% |
 | pi (RPC mode) | pi-coding-agent 1.1.0 | 102 | 34 | 26 | 42 | 0 | 45% |
@@ -24,7 +24,7 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 | Theme | Gaps |
 |---|--:|
 | Agent extras (commands, skills, MCP, hooks, subagents) | 61 |
-| Session control (fork, rewind, compact, rename, list) | 45 |
+| Session control (fork, rewind, compact, rename, list) | 44 |
 | Status, retries, warnings and errors | 33 |
 | Rich tool content (diffs, terminals, streaming output) | 24 |
 | Input content (images, files, mentions) | 24 |
@@ -101,7 +101,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 ### Session control (fork, rewind, compact, rename, list)
 
 - **claude** `query:rewindFiles`: No checkpoint rewind (file checkpointing isn't enabled either).
-- **claude** `sdkmessage:conversation_reset`: After /clear or plan-mode exit Claude starts a new conversation id; casm keeps the old nativeSessionId and transcript.
 - **codex** `notification:thread/name/updated`: Thread titles are not surfaced (Agent.name is casm's own).
 - **codex** `notification:thread/reverted`: Reverts made elsewhere are not reflected until history is re-read.
 - **codex** `request:thread/archive`: agent.update archived doesn't archive the native thread.
@@ -320,10 +319,10 @@ claude-agent-sdk 0.3.296, from node_modules/@anthropic-ai/claude-agent-sdk/sdk.d
 | callback | 3 | 0 | 0 | 0 | 100% |
 | hook | 0 | 33 | 0 | 0 | - |
 | query | 11 | 5 | 14 | 0 | 44% |
-| sdkmessage | 9 | 9 | 24 | 0 | 27% |
+| sdkmessage | 10 | 9 | 23 | 0 | 30% |
 | streamdelta | 2 | 1 | 3 | 0 | 40% |
 | streamevent | 1 | 4 | 1 | 0 | 50% |
-| **total** | **30** | **60** | **52** | **0** | **37%** |
+| **total** | **31** | **60** | **51** | **0** | **38%** |
 
 ### Codex (app-server)
 

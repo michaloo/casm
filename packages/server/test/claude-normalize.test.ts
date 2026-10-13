@@ -42,3 +42,10 @@ test("user prompts become user items; empty text is skipped", () => {
   ]);
   assert.deepEqual(normalize({ type: "assistant", uuid: "a", message: { content: [{ type: "text", text: "  " }] } }, tools), []);
 });
+
+test("Claude's interrupt marker becomes a notice", () => {
+  assert.deepEqual(
+    normalize({ type: "user", uuid: "u9", message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user for tool use]" }] } }, new Map()),
+    [{ kind: "notice", id: "u9", text: "Interrupted" }],
+  );
+});

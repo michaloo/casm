@@ -26,7 +26,10 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if Exp.list { ListTranscript(chat: chat) } else { transcript }
+            // The transcript takes all height the banners and composer don't need; without this the
+            // stack shrank it to its content and short chats sank behind the composer.
+            Group { if Exp.list { ListTranscript(chat: chat) } else { transcript } }
+                .frame(maxHeight: .infinity)
             if let error = chat.error {
                 ErrorBar(message: error) { chat.error = nil }
                     .modifier(ComposerColumn())
@@ -98,11 +101,15 @@ struct ChatView: View {
         return "\(k(used)) context"
     }
 
+    /// Scrolls to the bottom edge. Not scrollTo(y:): for a chat shorter than the view the system
+    /// anchors it with a large top inset, and y-offsets then pushed the content below the viewport.
+    /// (Edge scrolling once reset x and shifted the transcript sideways; the side margins are inside
+    /// the rows now, so that no longer applies.)
     private func scrollToBottom() {
         pinned = true
-        position.scrollTo(y: bottomOffset)
+        position.scrollTo(edge: .bottom)
         // Content may still grow this frame (first load); settle once more on the next one.
-        Task { @MainActor in position.scrollTo(y: bottomOffset) }
+        Task { @MainActor in position.scrollTo(edge: .bottom) }
     }
 
     /// Where the agent works and how full its context is. Model and mode are in the composer.
@@ -173,6 +180,9 @@ struct ChatView: View {
         // Keeps the bottom in place when content grows, so prepending older pages doesn't jump
         // and streaming text stays in view.
         .defaultScrollAnchor(Exp.noAnchor ? nil : .bottom)
+        // A chat shorter than the view starts at the top: bottom alignment added an inset larger
+        // than the view and pushed short transcripts behind the composer (macOS 26).
+        .defaultScrollAnchor(.top, for: .alignment)
         .onScrollGeometryChange(for: CGFloat.self) { geo in
             max(0, geo.contentSize.height + geo.contentInsets.top + geo.contentInsets.bottom - geo.containerSize.height) - geo.contentInsets.top
         } action: { _, y in
@@ -195,7 +205,7 @@ struct ChatView: View {
         // While pinned, follow every change of the bottom: new items, streaming text, growing
         // tool output, banners taking space from the transcript.
         .onChange(of: bottomOffset) {
-            if pinned && !scrolling { position.scrollTo(y: bottomOffset) }
+            if pinned && !scrolling { position.scrollTo(edge: .bottom) }
         }
         #if DEBUG && os(macOS)
         .onScrollGeometryChange(for: CGRect.self) { geo in

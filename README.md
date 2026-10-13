@@ -80,6 +80,20 @@ casm -H studio info
 
 To read the token over SSH from the Mac, run `ssh studio "awk '\$1==\"laptop\"{print \$2}' ~/.casm-ng/client-tokens.txt"`.
 
+## Project details: AGENTS.md and memories
+
+```sh
+casm project agents-md Explorations          # print <project>/AGENTS.md
+casm project agents-md Explorations --edit   # edit it in $EDITOR, then save it on the server
+casm project memories Explorations           # each agent's memories for the folder
+casm --json project memories Explorations    # with the full text of each entry
+```
+
+Claude Code memories (`~/.claude/projects/<folder>/memory/`) can be edited and deleted over the
+protocol (`project.updateMemory`, `project.deleteMemory`). Codex memories are one global store
+(`~/.codex/memories/`) that Codex regenerates itself, so casm lists the parts that apply to the
+folder read-only. OpenCode and pi have no memory store by default. See docs/design.md.
+
 ## Writing your own client
 
 The protocol is meant to be used by other clients:

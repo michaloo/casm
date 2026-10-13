@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // casm — the casm server (`casm serve`, `casm token`) and its command-line client.
 // Client commands take -H/--host and --json.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { CasmClient } from "@casm/client";
@@ -42,10 +43,12 @@ projects:
   project create <dir> [--name n] [--group g] [--tag t]...
   project group <project> [group]     set the project's group; omit it to ungroup
   project rm <project>
+  project agents-md <project> [--edit]  print <project>/AGENTS.md; --edit opens $EDITOR and saves
+  project memories <project>          each agent's memories for the project folder (--json: full text)
 
 agents:
   agents [--project p] [--all]
-  run --project p [--provider claude] [--name n] [--cwd dir] [--model m] [--mode m]
+  run --project p [--provider claude] [--name n] [--model m] [--mode m]
       [--parent serverId/agentId] [--casm-tools] [--wait] <prompt>
   send <agent> <text> [--steer] [--wait]
   wait <agent> [--timeout seconds]
@@ -83,7 +86,6 @@ const { values: opt, positionals } = parseArgs({
     all: { type: "boolean" },
     provider: { type: "string" },
     name: { type: "string" },
-    cwd: { type: "string" },
     model: { type: "string" },
     mode: { type: "string" },
     wait: { type: "boolean", short: "w" },
@@ -96,6 +98,7 @@ const { values: opt, positionals } = parseArgs({
     group: { type: "string" },
     refresh: { type: "boolean" },
     "casm-tools": { type: "boolean" },
+    edit: { type: "boolean" },
   },
 });
 
@@ -282,7 +285,37 @@ async function run(c: CasmClient) {
         await c.call("project.delete", { id: pick(await projects(c), ref, "project").id });
         return;
       }
-      fail("usage: casm project create|group|rm");
+      if (sub === "agents-md" && ref) {
+        const id = pick(await projects(c), ref, "project").id;
+        const md = await c.call("project.agentsMd", { id });
+        if (!opt.edit) return out(md, () => (md.content === null ? console.error(`no ${md.path}`) : process.stdout.write(md.content)));
+        const dir = mkdtempSync(join(tmpdir(), "casm-"));
+        const file = join(dir, "AGENTS.md");
+        try {
+          writeFileSync(file, md.content ?? "");
+          const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+          // Through sh, so EDITOR may carry arguments ("code --wait").
+          const r = spawnSync("/bin/sh", ["-c", `${editor} "$1"`, "sh", file], { stdio: "inherit" });
+          if (r.status !== 0) fail(`${editor} exited with ${r.status ?? r.signal}; ${md.path} not changed`);
+          const content = readFileSync(file, "utf8");
+          if (content === (md.content ?? "")) return console.error("no changes");
+          const saved = await c.call("project.setAgentsMd", { id, content });
+          return out(saved, () => console.error(`saved ${saved.path}`));
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+      if (sub === "memories" && ref) {
+        const res = await c.call("project.memories", { id: pick(await projects(c), ref, "project").id });
+        return out(res, () => {
+          if (!res.agents.length) console.log("no memories");
+          for (const a of res.agents) {
+            console.log(`${a.provider} (${a.scope}${a.readOnly ? ", read-only" : ""})  ${a.location}`);
+            for (const e of a.entries) console.log(`  ${e.id}${e.title ? `  ${e.title}` : ""}${e.updatedAt ? `  ${e.updatedAt.slice(0, 10)}` : ""}`);
+          }
+        });
+      }
+      fail("usage: casm project create|group|rm|agents-md|memories");
     }
 
     case "agents": {
@@ -306,7 +339,6 @@ async function run(c: CasmClient) {
         projectId: project.id,
         provider: (opt.provider ?? "claude") as ProviderId,
         name: opt.name,
-        cwd: opt.cwd ? resolve(opt.cwd) : undefined,
         config: { model: opt.model, mode: opt.mode, casmTools: opt["casm-tools"] },
         parent: runParent(),
         prompt,

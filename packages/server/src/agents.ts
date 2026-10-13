@@ -115,6 +115,10 @@ export class AgentManager {
     return [...this.providers.keys()];
   }
 
+  installedProviders(): Provider[] {
+    return [...this.providers.values()];
+  }
+
   status(id: string): AgentStatus {
     const l = this.live.get(id);
     if (!l?.turnId) return "idle";

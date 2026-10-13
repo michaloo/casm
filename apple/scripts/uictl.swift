@@ -2,6 +2,7 @@
 // window screenshots. Needs Accessibility + Screen Recording for the process that runs it
 // (we run it through Terminal, see scripts/ui).
 //
+//   <app> is a name, bundle id or pid:123 (a dev build beside the installed app)
 //   uictl press <app> <title>          AXPress the first element whose title/description matches
 //   uictl showmenu <app> <title>       open the context menu of a matching element
 //   uictl dump <app> [depth]           print the AX tree (role, title, description, frame)
@@ -21,8 +22,10 @@
 import AppKit
 import ApplicationServices
 
+/// `name` is an app name, a bundle id, or `pid:123` (a dev build next to the installed app has the same name).
 func app(_ name: String) -> NSRunningApplication? {
-    NSWorkspace.shared.runningApplications.first { $0.localizedName == name || $0.bundleIdentifier == name }
+    if name.hasPrefix("pid:"), let pid = pid_t(name.dropFirst(4)) { return NSRunningApplication(processIdentifier: pid) }
+    return NSWorkspace.shared.runningApplications.first { $0.localizedName == name || $0.bundleIdentifier == name }
 }
 
 func attr(_ el: AXUIElement, _ key: String) -> AnyObject? {

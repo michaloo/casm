@@ -241,6 +241,12 @@ final class HostModel: Identifiable {
         }
     }
 
+    /// Asks the providers again (`provider.limits` with refresh) instead of the last known values.
+    func refreshLimits() async {
+        guard let all = try? await client.limits(refresh: true) else { return }
+        for value in all { limits[value.provider] = value }
+    }
+
     func register(_ chat: ChatModel) { chats[chat.agentId] = WeakChat(chat: chat) }
     func unregister(_ chat: ChatModel) { if chats[chat.agentId]?.chat === chat { chats[chat.agentId] = nil } }
 

@@ -73,3 +73,14 @@ TEST_RUNNER_CASM_TOKEN=$(cat ~/.casm-ng-dev/mac-app.token) xcodebuild -project C
 
 `App/iOSUITests/FlowTests.swift` drives the main flows against the local server (open an agent,
 switch mode, send, allow a permission, answer a question) and writes screenshots to /tmp/casm-shots.
+
+## Headless snapshots
+
+`CasmMacSnapshots` is an unhosted unit-test bundle: it renders components with `ImageRenderer` to
+`/tmp/casm-shots/snap-*.png` without launching the app or opening a window, so it can run while the Mac
+is in use. Toolbars, sheets and popovers need a real window and aren't covered, and AppKit-backed views
+(`ProgressView`, `ScrollView`) render as placeholders.
+
+```sh
+xcodebuild -project Casm.xcodeproj -scheme CasmMac -derivedDataPath build/dd test
+```

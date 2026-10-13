@@ -203,14 +203,21 @@ struct ContextRing: View {
     var body: some View {
         if let usage, usage.contextTokens != nil || usage.costUsd != nil {
             Button { showDetails.toggle() } label: {
-                ZStack {
-                    Circle().stroke(Color.secondary.opacity(0.25), lineWidth: 2.5)
-                    Circle()
-                        .trim(from: 0, to: fraction)
-                        .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
+                // M4: a filled pie on a tinted disc, so it doesn't read as a spinner; the percentage
+                // shows once the context is half full.
+                HStack(spacing: 4) {
+                    ZStack {
+                        Circle().fill(Color.secondary.opacity(0.18))
+                        PieSlice(fraction: fraction).fill(color)
+                        Circle().strokeBorder(Color.secondary.opacity(0.35), lineWidth: 0.5)
+                    }
+                    .frame(width: 13, height: 13)
+                    if fraction >= 0.5 {
+                        Text("\(Int((fraction * 100).rounded()))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(color)
+                    }
                 }
-                .frame(width: 15, height: 15)
                 .padding(2)
                 .contentShape(Rectangle())
             }
@@ -245,5 +252,21 @@ struct ContextRing: View {
         if let cost = usage.costUsd { lines.append("Cost \(cost.formatted(.currency(code: "USD").precision(.fractionLength(2...4))))") }
         if let model = usage.model { lines.append("Model \(model)") }
         return lines.joined(separator: "\n")
+    }
+}
+
+/// A pie sector from 12 o'clock, clockwise.
+struct PieSlice: Shape {
+    var fraction: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard fraction > 0 else { return path }
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        path.move(to: center)
+        path.addArc(center: center, radius: min(rect.width, rect.height) / 2,
+                    startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * Double(min(1, fraction))), clockwise: false)
+        path.closeSubpath()
+        return path
     }
 }

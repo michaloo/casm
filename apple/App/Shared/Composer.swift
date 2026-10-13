@@ -112,9 +112,7 @@ struct Composer: View {
                         ConfigPickers(chat: chat).environment(\.compactPickers, compactWidth)
                     }
                     Spacer(minLength: 0)
-                    if busy {
-                        WorkingIndicator()
-                    }
+                    // M4: the toolbar's Working badge is the one busy cue (and Stop shows here).
                     ContextRing(usage: chat.usage)
                     // M5: dictation and voice mode come back with voice (phase 2); no dead buttons until then.
                     sendOrInterrupt

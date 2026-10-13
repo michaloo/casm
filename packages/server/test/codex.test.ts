@@ -1,7 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  BUILTIN_COMMANDS,
   collaborationMode,
+  errorNotice,
+  parseSkills,
+  planEntries,
+  planUpdate,
+  promptInput,
+  rolloutUsage,
+  routePrompt,
+  skillCommands,
+  tokenUsage,
+  warningNotice,
   elicitationQuestion,
   MODE_INFO,
   MODES,
@@ -72,7 +83,7 @@ const fx = {
 
 test("user messages use the client id casm sent, so history matches live ids", () => {
   assert.deepEqual(normalize(fx.user), { kind: "user", id: "casm-item-1", text: "Run `ls`" });
-  assert.deepEqual(normalize(fx.userNoClient), { kind: "user", id: "u2", text: "hi\n[localImage]" });
+  assert.deepEqual(normalize(fx.userNoClient), { kind: "user", id: "u2", text: "hi", images: [{ mediaType: "image/png" }] });
 });
 
 test("empty assistant and reasoning items are skipped; reasoning falls back to raw content", () => {
@@ -114,8 +125,8 @@ test("file changes, MCP, web search and collab calls map to tools", () => {
 });
 
 test("bookkeeping items become notices", () => {
-  assert.deepEqual(normalize(fx.subAgent), { kind: "notice", id: "call_d", text: "Subagent /root/feasibility started" });
-  assert.deepEqual(normalize(fx.compaction), { kind: "notice", id: "c1", text: "Context compacted" });
+  assert.deepEqual(normalize(fx.subAgent), { kind: "notice", id: "call_d", text: "Subagent /root/feasibility started", level: "info" });
+  assert.deepEqual(normalize(fx.compaction), { kind: "notice", id: "c1", text: "Context compacted", level: "info" });
 });
 
 test("tool output is truncated", () => {
@@ -293,4 +304,204 @@ test("collaborationMode carries the agent's model and effort, else the preset's,
   });
   // No presets (list failed): the bare kind with the thread's settings.
   assert.deepEqual(collaborationMode("plan", [], {}, { model: "m", effort: null }).settings, { model: "m", reasoning_effort: null, developer_instructions: null });
+});
+
+// --- chat features. Fixtures trimmed from live codex-cli 0.160.1 app-server output.
+
+const RED_PNG = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeUlEQVR4nO3PQQkAMAzAwIqof2UTMxF7HINABFzm7H7dcEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNa";
+
+test("images go out as data: URLs and come back on the user item", () => {
+  assert.deepEqual(promptInput("What colour?", [{ mediaType: "image/png", data: RED_PNG }]), [
+    { type: "text", text: "What colour?", text_elements: [] },
+    { type: "image", url: `data:image/png;base64,${RED_PNG}` },
+  ]);
+  assert.deepEqual(promptInput("", [{ mediaType: "image/png", data: "QQ==" }]), [{ type: "image", url: "data:image/png;base64,QQ==" }]);
+  const user = {
+    type: "userMessage",
+    id: "01a13509-718e-7d63-9d47-9014d6879202",
+    clientId: null,
+    content: [
+      { type: "text", text: "What colour is this image? One word.", text_elements: [] },
+      { type: "image", url: `data:image/png;base64,${RED_PNG}` },
+    ],
+  };
+  assert.deepEqual(normalize(user), {
+    kind: "user",
+    id: "01a13509-718e-7d63-9d47-9014d6879202",
+    text: "What colour is this image? One word.",
+    images: [{ mediaType: "image/png", data: RED_PNG }],
+  });
+  // Image only, and too big to inline.
+  const big = normalize({ type: "userMessage", id: "u3", content: [{ type: "image", url: `data:image/jpeg;base64,${"A".repeat(1_500_000)}` }] });
+  assert.deepEqual(big, { kind: "user", id: "u3", text: "", images: [{ mediaType: "image/jpeg" }] });
+});
+
+test("error notifications: retries update one warning per turn, final errors are error notices", () => {
+  const failed = {
+    error: {
+      message: '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'no-such-model-xyz\' model is not supported when using Codex with a ChatGPT account."}}',
+      codexErrorInfo: "other",
+      additionalDetails: null,
+    },
+    willRetry: false,
+    threadId: "t",
+    turnId: "turn-1",
+  };
+  assert.deepEqual(errorNotice(failed), {
+    kind: "notice",
+    id: "error-turn-1",
+    text: "The 'no-such-model-xyz' model is not supported when using Codex with a ChatGPT account.",
+    level: "error",
+  });
+  const retry = (n: number) => errorNotice({ error: { message: `Reconnecting... ${n}/5`, codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: null } } }, willRetry: true, threadId: "t", turnId: "turn-1" });
+  assert.equal(retry(1).id, retry(2).id);
+  assert.deepEqual(retry(2), { kind: "notice", id: "retry-turn-1", text: "Retrying: Reconnecting... 2/5", level: "warning" });
+});
+
+test("warnings become notices with a stable id per text", () => {
+  const w = { threadId: "t", message: "Model metadata for `no-such-model-xyz` not found. Defaulting to fallback metadata; this can degrade performance and cause issues." };
+  const n = warningNotice("warning", w);
+  assert.equal(n.kind === "notice" && n.level, "warning");
+  assert.equal(n.kind === "notice" && n.text, w.message);
+  assert.equal(n.id, warningNotice("warning", { ...w }).id);
+  const cfg = warningNotice("configWarning", { summary: "Codex could not find bubblewrap on PATH.", details: null });
+  assert.equal(cfg.kind === "notice" && cfg.text, "Codex could not find bubblewrap on PATH.");
+  const dep = warningNotice("deprecationNotice", { summary: "old", details: "use new" });
+  assert.deepEqual(dep.kind === "notice" && [dep.text, dep.level], ["old\nuse new", "info"]);
+});
+
+test("turn/plan/updated becomes one plan item per turn", () => {
+  const p = {
+    threadId: "t",
+    turnId: "turn-2",
+    explanation: null,
+    plan: [
+      { step: "alpha", status: "inProgress" },
+      { step: "beta", status: "pending" },
+      { step: "gamma", status: "completed" },
+    ],
+  };
+  assert.deepEqual(planUpdate(p), {
+    kind: "plan",
+    id: "plan-turn-2",
+    entries: [
+      { text: "alpha", status: "in_progress" },
+      { text: "beta", status: "pending" },
+      { text: "gamma", status: "completed" },
+    ],
+  });
+});
+
+test("Plan mode plan items become plans when they are lists, else assistant text", () => {
+  const item = {
+    type: "plan",
+    id: "01a13511-0023-7d00-b6c6-aedacb452fb8-plan",
+    text: "1. Create `/tmp/casm-codex-chat/work/hello.txt`.\n2. Write exactly `hi` into the file.\n3. Verify the file contains the expected text.\n",
+  };
+  assert.deepEqual(normalize(item), {
+    kind: "plan",
+    id: item.id,
+    entries: [
+      { text: "Create `/tmp/casm-codex-chat/work/hello.txt`.", status: "pending" },
+      { text: "Write exactly `hi` into the file.", status: "pending" },
+      { text: "Verify the file contains the expected text.", status: "pending" },
+    ],
+  });
+  assert.deepEqual(planEntries("- [x] done\n- [ ] todo"), [
+    { text: "done", status: "completed" },
+    { text: "todo", status: "pending" },
+  ]);
+  assert.deepEqual(normalize({ type: "plan", id: "p2", text: "## Summary\nAdd a file.\n\n- step" }), { kind: "assistant", id: "p2", text: "## Summary\nAdd a file.\n\n- step" });
+});
+
+test("token usage maps to context (last request) and thread totals", () => {
+  const live = {
+    total: { totalTokens: 27723, inputTokens: 27543, cachedInputTokens: 19968, cacheWriteInputTokens: 0, outputTokens: 180, reasoningOutputTokens: 51 },
+    last: { totalTokens: 13984, inputTokens: 13809, cachedInputTokens: 9984, cacheWriteInputTokens: 0, outputTokens: 175, reasoningOutputTokens: 51 },
+    modelContextWindow: 258400,
+  };
+  assert.deepEqual(tokenUsage(live, "gpt-5.6-luna"), { model: "gpt-5.6-luna", contextTokens: 13984, contextWindow: 258400, inputTokens: 27543, outputTokens: 180 });
+  assert.deepEqual(tokenUsage({ ...live, modelContextWindow: null }), { contextTokens: 13984, inputTokens: 27543, outputTokens: 180 });
+});
+
+test("stored usage is read from the rollout's last token_count and turn_context", () => {
+  const usage = (o: object) => JSON.stringify(o);
+  const jsonl = [
+    usage({ type: "turn_context", payload: { turn_id: "a", model: "gpt-5.6-luna", cwd: "/w" } }),
+    usage({ type: "event_msg", payload: { type: "token_count", info: null } }),
+    usage({
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: { input_tokens: 13301, cached_input_tokens: 9984, cache_write_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 13306 },
+          last_token_usage: { input_tokens: 13301, cached_input_tokens: 9984, cache_write_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 13306 },
+          model_context_window: 258400,
+        },
+      },
+    }),
+    "",
+  ].join("\n");
+  assert.deepEqual(rolloutUsage(jsonl), { model: "gpt-5.6-luna", contextTokens: 13306, contextWindow: 258400, inputTokens: 13301, outputTokens: 5 });
+  assert.equal(rolloutUsage(usage({ type: "session_meta", payload: {} })), null);
+});
+
+const skillsList = {
+  data: [
+    {
+      cwd: "/w",
+      errors: [],
+      skills: [
+        { name: "fedora-compute", description: "Use the `fedora` box as the on-demand local powerhouse.", enabled: true, interface: null, path: "/h/.agents/skills/fedora-compute/SKILL.md", scope: "user", shortDescription: null },
+        {
+          name: "openai-docs",
+          description: "Use when the user asks how to build with OpenAI products or APIs.",
+          enabled: true,
+          interface: { displayName: "OpenAI Docs", shortDescription: "OpenAI and Codex docs for models, skills, tasks, and setup" },
+          path: "/h/.codex/skills/.system/openai-docs/SKILL.md",
+          scope: "system",
+          shortDescription: "Codex models/pricing",
+        },
+        { name: "off", description: "disabled", enabled: false, interface: null, path: "/x", scope: "user" },
+      ],
+    },
+  ],
+};
+
+test("skills/list becomes skill commands after the routed builtins", () => {
+  const skills = parseSkills(skillsList);
+  assert.deepEqual(skillCommands(skills), [
+    { name: "fedora-compute", description: "Use the `fedora` box as the on-demand local powerhouse.", kind: "skill" },
+    { name: "openai-docs", description: "OpenAI and Codex docs for models, skills, tasks, and setup", kind: "skill" },
+  ]);
+  assert.deepEqual(BUILTIN_COMMANDS.map((c) => c.name), ["compact", "review"]);
+});
+
+test("slash prompts route to compact, review, skill inputs or plain text", () => {
+  const skills = parseSkills(skillsList);
+  assert.deepEqual(routePrompt("/compact", skills), { kind: "compact" });
+  assert.deepEqual(routePrompt("/review", skills), { kind: "review", instructions: "" });
+  assert.deepEqual(routePrompt("/review focus on auth", skills), { kind: "review", instructions: "focus on auth" });
+  assert.deepEqual(routePrompt("/openai-docs what is this skill?", skills), {
+    kind: "input",
+    input: [
+      { type: "text", text: "$openai-docs what is this skill?", text_elements: [] },
+      { type: "skill", name: "openai-docs", path: "/h/.codex/skills/.system/openai-docs/SKILL.md" },
+    ],
+  });
+  assert.deepEqual(routePrompt("/nope x", skills), { kind: "input", input: [{ type: "text", text: "/nope x", text_elements: [] }] });
+  assert.deepEqual(routePrompt("/compact now", skills), { kind: "input", input: [{ type: "text", text: "/compact now", text_elements: [] }] });
+});
+
+test("skill invocations read back as the slash command that was typed", () => {
+  const item = {
+    type: "userMessage",
+    id: "01a13512-886a-7911-b760-9dbd218dbf26",
+    clientId: "casm-1",
+    content: [
+      { type: "text", text: "$openai-docs what is the name of this skill? one line", text_elements: [] },
+      { type: "skill", name: "openai-docs", path: "/home/michaloo/.codex/skills/.system/openai-docs/SKILL.md" },
+    ],
+  };
+  assert.deepEqual(normalize(item), { kind: "user", id: "casm-1", text: "/openai-docs what is the name of this skill? one line" });
 });

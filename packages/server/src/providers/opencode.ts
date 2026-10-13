@@ -1,5 +1,6 @@
 // OpenCode via one shared `opencode serve` per provider: HTTP API for sessions,
 // prompts and permission replies, one /global/event SSE stream routed by session.
+// Account limits are unavailable: GET /doc exposes no provider quota endpoint.
 // History comes from the server's `session/:id/message`.
 //
 // Images are sent as `file` parts with data URLs. The todo list (todowrite
@@ -27,7 +28,7 @@ type ToolState = {
   output?: string;
   error?: string;
   // Running bash tools carry the output so far in metadata.output.
-  metadata?: { output?: unknown; todos?: unknown };
+  metadata?: { output?: unknown; todos?: unknown; sessionId?: string };
 };
 
 export type OcPart = {
@@ -164,6 +165,16 @@ export function normalizePart(p: OcPart, turn?: string): Item | null {
   }
   if (p.type === "text" && !p.synthetic && !p.ignored && p.text?.trim()) return { kind: "assistant", id: p.id, text: p.text };
   if (p.type === "reasoning" && p.text?.trim()) return { kind: "reasoning", id: p.id, text: p.text };
+  if (p.type === "tool" && p.tool === "task" && p.state) {
+    const s = p.state;
+    const input = s.input as { description?: string; subagent_type?: string } | undefined;
+    return {
+      kind: "subagent", id: p.id, title: input?.description || "Task",
+      ...(input?.subagent_type ? { agentType: input.subagent_type } : {}),
+      status: s.status === "completed" ? "done" : s.status === "error" ? "error" : "running",
+      ...(s.status === "completed" ? { summary: truncate(s.output ?? "") } : s.status === "error" ? { summary: truncate(s.error ?? "") } : {}),
+    };
+  }
   if (p.type === "tool" && p.state) {
     const s = p.state;
     const base = { kind: "tool" as const, id: p.id, name: p.tool ?? "tool", input: s.input };
@@ -361,7 +372,8 @@ function freePort(): Promise<number> {
 
 type Listener = { onEvent: (e: OcEvent) => void; onClosed: (error: string) => void };
 
-class OpencodeServer {
+export class OpencodeServer {
+  private parents = new Map<string, string>();
   url = "";
   private proc: ChildProcess | null = null;
   private ready: Promise<void> | null = null;
@@ -458,16 +470,25 @@ class OpencodeServer {
     })();
   }
 
-  private dispatch(data: string) {
+  dispatch(data: string) {
     let payload: OcEvent | undefined;
     try {
       payload = (JSON.parse(data) as { payload?: OcEvent }).payload;
     } catch {
       return;
     }
-    const sid = payload?.properties?.sessionID;
+    if (!payload?.properties) return;
+    const p = payload.properties;
+    const info = p.info as { id?: string; sessionID?: string; parentID?: string } | undefined;
+    const part = p.part as OcPart | undefined;
+    if (payload.type.startsWith("session.") && info?.id && info.parentID) this.parents.set(info.id, info.parentID);
+    const sid = p.sessionID ?? part?.sessionID ?? info?.sessionID ?? info?.id;
     if (typeof sid !== "string") return;
-    for (const l of this.listeners.get(sid) ?? []) l.onEvent(payload!);
+    if (part?.tool === "task" && part.state?.metadata?.sessionId) this.parents.set(part.state.metadata.sessionId, sid);
+    for (const l of this.listeners.get(sid) ?? []) l.onEvent(payload);
+    const parent = this.parents.get(sid);
+    if (parent) for (const l of this.listeners.get(parent) ?? []) l.onEvent(payload);
+    if (payload.type === "session.deleted") this.parents.delete(sid);
   }
 
   private died(error: string) {
@@ -479,6 +500,7 @@ class OpencodeServer {
     this.stream = null;
     const all = [...this.listeners.values()].flatMap((s) => [...s]);
     this.listeners.clear();
+    this.parents.clear();
     for (const l of all) l.onClosed(error);
   }
 
@@ -486,6 +508,10 @@ class OpencodeServer {
     const p = this.proc;
     this.died("opencode serve stopped");
     p?.kill();
+  }
+
+  linkChild(child: string, parent: string) {
+    this.parents.set(child, parent);
   }
 
   listen(sessionId: string, l: Listener): () => void {
@@ -542,6 +568,10 @@ class OpencodeSession implements ProviderSession {
   private sawBusy = false;
   // The running turn is a user shell command (its tool part is the command).
   private shellTurn = false;
+  private nativeId: string | undefined;
+  private tasks = new Map<string, Extract<Item, { kind: "subagent" }>>();
+  private childTasks = new Map<string, string>();
+  private activity = new Map<string, string>();
 
   constructor(opts: OpenOptions, server: OpencodeServer) {
     this.opts = opts;
@@ -560,11 +590,13 @@ class OpencodeSession implements ProviderSession {
     void this.server.contextWindows();
     const id =
       this.opts.resumeId ?? (await this.server.request<{ id: string }>("POST", "/session", this.opts.cwd, {})).id;
+    this.nativeId = id;
     this.unlisten = this.server.listen(id, { onEvent: (e) => this.handle(e), onClosed: (err) => this.finish(err) });
     this.opts.emit({ type: "sessionId", id });
     if (this.opts.resumeId) {
       try {
         const messages = await this.server.request<OcMessage[]>("GET", `/session/${id}/message`, this.opts.cwd);
+        for (const m of messages) for (const p of m.parts) this.task(p, false);
         for (const m of messages) if (m.info.role === "assistant" && m.info.tokens && !this.usageInfos.has(m.info.id)) this.usageInfos.set(m.info.id, m.info);
       } catch {
         // Totals then count from this process on.
@@ -583,8 +615,41 @@ class OpencodeSession implements ProviderSession {
     if (!this.closed) this.opts.emit(e);
   }
 
+  private task(part: OcPart, emit = true): boolean {
+    const item = normalizePart(part);
+    if (item?.kind !== "subagent") return false;
+    const child = part.state?.metadata?.sessionId;
+    if (child) {
+      this.childTasks.set(child, item.id);
+      this.server.linkChild(child, part.sessionID);
+    }
+    const activity = child ? this.activity.get(child) : undefined;
+    const updated = { ...item, ...(activity ? { activity } : {}) };
+    this.tasks.set(item.id, updated);
+    if (emit) this.emit({ type: "item", item: updated });
+    return true;
+  }
+
   private handle(e: OcEvent) {
     const p = e.properties;
+    const part = p.part as OcPart | undefined;
+    const sid = p.sessionID ?? part?.sessionID ?? (p.info as OcMessageInfo | undefined)?.sessionID;
+    if (sid && sid !== this.nativeId) {
+      // Child text, reasoning, usage and status never enter the parent transcript.
+      if (e.type === "message.part.updated" && part?.type === "tool") {
+        const activity = part.tool ?? "tool";
+        this.activity.set(String(sid), activity);
+        const id = this.childTasks.get(String(sid));
+        const task = id ? this.tasks.get(id) : undefined;
+        if (task?.status === "running") {
+          const updated = { ...task, activity };
+          this.tasks.set(task.id, updated);
+          this.emit({ type: "item", item: updated });
+        }
+      } else if (e.type === "permission.asked") void this.permission(p as unknown as OcPermission);
+      else if (e.type === "question.asked") void this.question(p as unknown as OcQuestion);
+      return;
+    }
     switch (e.type) {
       case "message.updated": {
         const info = p.info as OcMessageInfo;
@@ -612,6 +677,7 @@ class OpencodeSession implements ProviderSession {
           return;
         }
         if (this.roles.get(part.messageID) !== "assistant") return;
+        if (this.task(part)) return;
         // The todo list arrives as todo.updated.
         if (part.type === "tool" && part.tool === "todowrite") return;
         let item = normalizePart(part, this.userMessage);
@@ -811,8 +877,7 @@ class OpencodeSession implements ProviderSession {
   }
 }
 
-export function opencodeProvider(): Provider {
-  const server = new OpencodeServer();
+export function opencodeProvider(server = new OpencodeServer()): Provider {
   return {
     id: "opencode",
     open: (opts) => new OpencodeSession(opts, server),
@@ -820,6 +885,20 @@ export function opencodeProvider(): Provider {
       const release = await server.acquire();
       try {
         return normalizeMessages(await server.request<OcMessage[]>("GET", `/session/${sessionId}/message`, cwd));
+      } finally {
+        release();
+      }
+    },
+    async subagentHistory(sessionId, cwd, subagentId) {
+      const release = await server.acquire();
+      try {
+        const messages = await server.request<OcMessage[]>("GET", `/session/${sessionId}/message`, cwd);
+        const task = messages.flatMap((m) => m.parts).find((p) => p.id === subagentId && p.type === "tool" && p.tool === "task");
+        const child = task?.state?.metadata?.sessionId;
+        if (!child) return [];
+        const info = await server.request<{ parentID?: string }>("GET", `/session/${child}`, cwd);
+        if (info.parentID !== sessionId) return [];
+        return normalizeMessages(await server.request<OcMessage[]>("GET", `/session/${child}/message`, cwd));
       } finally {
         release();
       }

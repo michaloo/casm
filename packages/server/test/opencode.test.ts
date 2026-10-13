@@ -351,3 +351,93 @@ test("shell commands: the bash part after the synthetic user message is a shell 
   // A model's bash call stays bash.
   assert.equal((normalizeMessages(messages.slice(0, 2))[2] as { name: string }).name, "read");
 });
+
+// Exercise the real SSE dispatcher/session adapter with native wire shapes.
+import { OpencodeServer, opencodeProvider } from "../src/providers/opencode.ts";
+import type { ProviderEvent } from "../src/providers/types.ts";
+
+const taskPart = (status: "pending" | "running" | "completed" | "error"): OcPart => ({
+  id: "prt_task", ...ids, type: "tool", tool: "task",
+  state: { status, input: { description: "Inspect files", subagent_type: "explore" }, metadata: { sessionId: "ses_child" }, output: "Found files", error: "Task failed" },
+});
+
+class FakeOpencodeServer extends OpencodeServer {
+  parentMessages: OcMessage[] = [{ info: { id: ids.messageID, sessionID: ids.sessionID, role: "assistant" }, parts: [taskPart("completed")] }];
+  childMessages: OcMessage[] = [{ info: { id: "child_a", sessionID: "ses_child", role: "assistant" }, parts: [{ id: "child_text", sessionID: "ses_child", messageID: "child_a", type: "text", text: "Private child result" }] }];
+  parentID = ids.sessionID;
+  releases = 0;
+  override async acquire() { return () => { this.releases++; }; }
+  override async contextWindows() { return new Map<string, number>(); }
+  override async request<T>(_method: string, path: string): Promise<T> {
+    if (path === "/session") return { id: ids.sessionID } as T;
+    if (path === `/session/${ids.sessionID}/message`) return this.parentMessages as T;
+    if (path === "/session/ses_child/message") return this.childMessages as T;
+    if (path === "/session/ses_child") return { parentID: this.parentID } as T;
+    throw new Error(`Unexpected request: ${path}`);
+  }
+  event(type: string, properties: Record<string, unknown>) { this.dispatch(JSON.stringify({ payload: { type, properties } })); }
+}
+
+test("task states normalize to stable subagent ids, including failures and missing metadata", () => {
+  for (const status of ["pending", "running", "completed", "error"] as const) {
+    const item = normalizePart(taskPart(status));
+    assert.ok(item?.kind === "subagent");
+    assert.equal(item.id, "prt_task");
+    assert.equal(item.title, "Inspect files");
+    assert.equal(item.agentType, "explore");
+    assert.equal(item.status, status === "completed" ? "done" : status === "error" ? "error" : "running");
+    assert.equal(item.summary, status === "completed" ? "Found files" : status === "error" ? "Task failed" : undefined);
+  }
+  assert.deepEqual(normalizePart({ ...taskPart("pending"), state: { status: "pending" } }), { kind: "subagent", id: "prt_task", title: "Task", status: "running" });
+});
+
+test("child SSE updates only task activity; live and history ids agree", async () => {
+  const server = new FakeOpencodeServer();
+  const provider = opencodeProvider(server);
+  const events: ProviderEvent[] = [];
+  const session = provider.open({ cwd: "/tmp", config: {}, resumeId: null, emit: (e) => events.push(e), askPermission: async () => ({ decision: "allow" }), askQuestion: async () => null });
+  await new Promise((r) => setImmediate(r));
+  server.dispatch(JSON.stringify({ payload: { type: "server.connected" } }));
+  server.dispatch("invalid json");
+  server.event("message.updated", { info: { id: ids.messageID, sessionID: ids.sessionID, role: "assistant" } });
+  server.event("session.created", { info: { id: "ses_child", parentID: ids.sessionID } });
+  // A child tool can arrive before the parent task's metadata update.
+  server.event("message.part.updated", { part: { id: "child_tool", sessionID: "ses_child", messageID: "child_a", type: "tool", tool: "glob" } });
+  server.event("message.part.updated", { part: taskPart("running") });
+  server.event("message.updated", { info: { id: "child_a", sessionID: "ses_child", role: "assistant", error: { name: "Private error" } } });
+  server.event("message.part.updated", { part: { ...server.childMessages[0].parts[0], time: { end: 1 } } });
+  server.event("message.part.delta", { sessionID: "ses_child", messageID: "child_a", partID: "child_text", field: "text", delta: "private" });
+  server.event("session.status", { sessionID: "ses_child", status: { type: "idle" } });
+  server.event("message.part.updated", { part: { id: "child_tool2", sessionID: "ses_child", messageID: "child_a", type: "tool", tool: "read" } });
+  server.event("message.part.updated", { part: taskPart("completed") });
+  const items = events.filter((e) => e.type === "item").map((e) => e.item);
+  assert.deepEqual(items.map((i) => i.kind), ["subagent", "subagent", "subagent"]);
+  assert.deepEqual(items.map((i) => i.kind === "subagent" && [i.status, i.activity]), [["running", "glob"], ["running", "read"], ["done", "read"]]);
+  assert.equal(events.some((e) => e.type === "delta" || e.type === "turnEnded"), false);
+  const history = await provider.history(ids.sessionID, "/tmp");
+  assert.equal(history[0].id, items[0].id);
+  assert.deepEqual(await provider.subagentHistory!(ids.sessionID, "/tmp", "prt_task"), normalizeMessages(server.childMessages));
+  assert.deepEqual(await provider.subagentHistory!(ids.sessionID, "/tmp", "missing"), []);
+  server.parentID = "unrelated";
+  assert.deepEqual(await provider.subagentHistory!(ids.sessionID, "/tmp", "prt_task"), []);
+  assert.equal(provider.limits, undefined);
+  await session.close();
+  assert.equal(server.releases, 5);
+});
+
+test("resumed tasks restore child routing without a session.created event", async () => {
+  const server = new FakeOpencodeServer();
+  server.parentMessages[0].parts = [taskPart("running")];
+  const events: ProviderEvent[] = [];
+  const provider = opencodeProvider(server);
+  const session = provider.open({ cwd: "/tmp", config: {}, resumeId: ids.sessionID, emit: (e) => events.push(e), askPermission: async () => ({ decision: "allow" }), askQuestion: async () => null });
+  await new Promise((r) => setImmediate(r));
+  const childTool = { id: "child_tool", sessionID: "ses_child", messageID: "child_a", type: "tool", tool: "read" };
+  server.event("message.part.updated", { part: { ...childTool, sessionID: "unrelated" } });
+  assert.equal(events.filter((e) => e.type === "item").length, 0);
+  server.event("message.part.updated", { part: childTool });
+  assert.deepEqual(events.filter((e) => e.type === "item"), [{ type: "item", item: { kind: "subagent", id: "prt_task", title: "Inspect files", agentType: "explore", status: "running", activity: "read" } }]);
+  await session.close();
+  server.event("message.part.updated", { part: childTool });
+  assert.equal(events.filter((e) => e.type === "item").length, 1);
+});

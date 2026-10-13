@@ -59,7 +59,8 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(element("Scratch").exists, "group label shown")
         shot("ios-01-sidebar")
 
-        element("Details of iOS Scratch").tap()
+        element("iOS Scratch").swipeLeft()
+        app.buttons["Details"].tap()
         XCTAssertTrue(element("AGENTS.md").waitForExistence(timeout: 10))
         sleep(1)
         shot("ios-02-details-agentsmd")

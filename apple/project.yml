@@ -69,10 +69,29 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: me.raczka.casm.ios.uitests
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
+  CasmMacSnapshots:
+    # Unhosted: renders views with ImageRenderer, never launches the app or opens a window.
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: App/Shared
+        excludes: [CasmApp.swift]
+      - App/macOS
+      - App/MacSnapshots
+    dependencies:
+      - package: CasmKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.raczka.casm.mac.snapshots
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: Apple Development
 schemes:
   CasmMac:
     build:
       targets: {CasmMac: all}
+    test:
+      targets: [CasmMacSnapshots]
     run:
       config: Debug
   CasmiOS:

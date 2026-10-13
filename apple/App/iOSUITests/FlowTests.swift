@@ -75,7 +75,7 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["Allow"].waitForExistence(timeout: 60), "permission card")
         shot("i04-permission")
         app.buttons["Allow"].tap()
-        XCTAssertTrue(element("Idle").waitForExistence(timeout: 60))
+        XCTAssertTrue(app.buttons["Send"].waitForExistence(timeout: 60), "turn finished")
         sleep(2)
         shot("i05-after-allow")
 
@@ -85,7 +85,7 @@ final class FlowTests: XCTestCase {
         shot("i06-question")
         element("Blue").tap()
         app.buttons["Submit"].tap()
-        XCTAssertTrue(element("Idle").waitForExistence(timeout: 60))
+        XCTAssertTrue(app.buttons["Send"].waitForExistence(timeout: 60), "turn finished")
         sleep(2)
         shot("i07-answered")
 

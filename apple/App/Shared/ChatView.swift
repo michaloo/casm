@@ -44,15 +44,29 @@ struct ChatView: View {
         .navigationSubtitle(subtitle)
         #endif
         .toolbar {
-            ToolbarItem {
-                StatusBadge(status: chat.status, showLabel: showStatusLabel)
+            // Status only when there is something to say; an idle agent shows nothing.
+            if chat.status.isBusy {
+                ToolbarItem {
+                    ActivityBadge(status: chat.status, compact: !showStatusLabel)
+                }
+                ToolbarSpacer(.fixed)
             }
-            ToolbarItemGroup {
-                // Reload keeps the conversation (new process, same session); New Session clears it.
-                Button("Reload Agent", systemImage: "arrow.clockwise") { Task { await chat.reload() } }
-                    .help("Reload the agent: restart its process and keep the conversation")
+            ToolbarItem {
                 Button("New Session", systemImage: "square.and.pencil") { confirmRestart = true }
                     .help("New session: same agent settings, empty conversation")
+            }
+            ToolbarItem {
+                Menu("More", systemImage: "ellipsis") {
+                    // Reload keeps the conversation (new process, same session); New Session clears it.
+                    Button("Reload Agent", systemImage: "arrow.clockwise") { Task { await chat.reload() } }
+                    Divider()
+                    Button("Copy Agent ID", systemImage: "doc.on.doc") { copy(chat.agentId) }
+                    if let session = chat.agent?.nativeSessionId {
+                        Button("Copy Session ID", systemImage: "doc.on.doc") { copy(session) }
+                    }
+                }
+                .menuIndicator(.hidden)
+                .help("More actions")
             }
         }
         .confirmationDialog("Start a new session?", isPresented: $confirmRestart) {
@@ -81,9 +95,25 @@ struct ChatView: View {
         Task { @MainActor in position.scrollTo(y: bottomOffset) }
     }
 
+    /// Where the agent works and how full its context is. Model and mode are in the composer.
     private var subtitle: String {
         guard let agent = chat.agent else { return "\(chat.items.count) items" }
-        return [agent.provider.rawValue, agent.config.model, agent.config.mode, agent.cwd, contextText].compactMap { $0 }.joined(separator: " · ")
+        return [Self.abbreviate(agent.cwd), contextText].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// `/Users/me/x` or `/home/me/x` → `~/x`. Paths are on the agent's host, so this is cosmetic only.
+    static func abbreviate(_ path: String) -> String {
+        guard let match = path.firstMatch(of: /^\/(Users|home)\/[^\/]+/) else { return path }
+        return "~" + path[match.range.upperBound...]
+    }
+
+    private func copy(_ text: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
+        #endif
     }
 
     private var transcript: some View {
@@ -471,6 +501,42 @@ struct ErrorBar: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(.red.opacity(0.1))
+    }
+}
+
+/// The agent's activity in the chat toolbar: a spinner while it works, an orange hand when it
+/// waits for a permission or an answer.
+struct ActivityBadge: View {
+    let status: AgentStatus
+    var compact = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if status == .waiting {
+                Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
+            } else {
+                WorkingIndicator()
+            }
+            if !compact {
+                Text(status == .waiting ? "Needs you" : "Working")
+                    .foregroundStyle(status == .waiting ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+            }
+        }
+        .font(.callout.weight(.medium))
+        .padding(.horizontal, 6)
+        .fixedSize()
+        .help(status == .waiting ? "Waiting for a permission or an answer" : "Working on a turn")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(status == .waiting ? "Needs you" : "Working")
+    }
+}
+
+/// The animated "working" glyph, used in the toolbar and the composer.
+struct WorkingIndicator: View {
+    var body: some View {
+        Image(systemName: "progress.indicator")
+            .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeat(.continuous))
+            .foregroundStyle(.secondary)
     }
 }
 

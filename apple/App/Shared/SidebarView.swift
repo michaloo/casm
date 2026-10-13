@@ -108,6 +108,7 @@ struct ProjectNode: View {
     let host: HostModel
     let project: Project
     @State private var expanded = true
+    @State private var hovering = false
 
     var body: some View {
         if host.childProjects(of: project.id).isEmpty && host.agents(in: project.id).isEmpty {
@@ -137,7 +138,14 @@ struct ProjectNode: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help("New agent in \(project.name)")
+            #if os(macOS)
+            // Shown on hover so the tree stays quiet; still reachable via the context menu.
+            .opacity(hovering ? 1 : 0)
+            #endif
         }
+        #if os(macOS)
+        .onHover { hovering = $0 }
+        #endif
             .help(project.path ?? "")
             .contextMenu {
                 Button("New Agent…") { app.sheet = .newAgent(host, projectId: project.id) }

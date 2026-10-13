@@ -47,7 +47,7 @@ struct Composer: View {
                     }
                     Spacer(minLength: 0)
                     if busy {
-                        ProgressView().controlSize(.small)
+                        WorkingIndicator()
                     }
                     Button("Dictate", systemImage: "mic") {}
                         .labelStyle(.iconOnly)

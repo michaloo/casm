@@ -8,7 +8,7 @@ import PhotosUI
 
 /// The message box under the transcript, Paseo-style: an activity pill, image thumbnails, a rounded
 /// input with "/" and "@" completion and a "!" shell mode, and a row with attach, model / effort / mode
-/// pickers, the context ring, and the busy, voice and send controls.
+/// pickers, the context ring, and the send / stop control.
 struct Composer: View {
     let chat: ChatModel
     /// Running subagents of this agent, on any host.
@@ -116,16 +116,7 @@ struct Composer: View {
                         WorkingIndicator()
                     }
                     ContextRing(usage: chat.usage)
-                    Button("Dictate", systemImage: "mic") {}
-                        .labelStyle(.iconOnly)
-                        .disabled(true)
-                        .help("Dictation comes with voice (phase 2)")
-                    if !compactWidth {
-                        Button("Voice mode", systemImage: "waveform") {}
-                            .labelStyle(.iconOnly)
-                            .disabled(true)
-                            .help("Voice mode comes in phase 2")
-                    }
+                    // M5: dictation and voice mode come back with voice (phase 2); no dead buttons until then.
                     sendOrInterrupt
                 }
                 .buttonStyle(.plain)

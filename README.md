@@ -28,6 +28,58 @@ node packages/cli/src/main.ts agents
 
 State lives in `$CASM_HOME` (default `~/.casm-ng`): `casm.db` on the server, `hosts.json` for the CLI.
 
+## Install from a checkout (Linux and macOS)
+
+```sh
+scripts/install.sh            # npm ci + a `casm` launcher in ~/.local/bin (CASM_BIN_DIR overrides); idempotent
+casm service install          # background server: systemd user unit (Linux) / launchd agent (macOS)
+casm service status | logs [-f] | restart | uninstall
+```
+
+The launcher runs `packages/cli/src/main.ts` from the checkout, so `git pull` updates casm in place
+(run `scripts/install.sh` again when dependencies change). `casm service ...` is handled by the launcher
+(`scripts/service.sh`), and `npm run setup` / `npm run service -- <cmd>` do the same.
+
+The service runs `node .../main.ts serve` and reads `$CASM_HOME/config.json`, for example
+`{"listen": "100.68.62.102:7373", "name": "ubuntu"}`. `service install` captures the current `PATH`
+into the unit/plist, so the server finds claude/codex/pi/opencode; run it again after installing
+agents somewhere new or switching Node versions.
+- Linux: `~/.config/systemd/user/casm.service`, `Restart=on-failure`, logs in the user journal. To keep it
+  running while logged out, enable linger once: `sudo loginctl enable-linger $USER`.
+- macOS: `~/Library/LaunchAgents/dev.casm.server.plist`, `KeepAlive`, logs in `~/Library/Logs/casm/casm.log`.
+
+Publishing to npm is not set up yet. Node refuses to strip types under `node_modules`, so
+`npm i -g` of the workspace does not run. A publishable package will need a bundle step first (for
+example esbuild of `packages/cli/src/main.ts` into one `dist/casm.js`, keeping
+`@anthropic-ai/claude-agent-sdk` external since it ships its own CLI files).
+
+## Install on macOS
+
+The Mac runs its own casm server and also talks to the one on ubuntu (`ws://100.68.62.102:7373`, over Tailscale).
+It needs Node 24+ (`brew install node`) and git.
+
+```sh
+git clone <casm-ng repo> ~/Explorations/casm-ng      # or copy the checkout from ubuntu
+cd ~/Explorations/casm-ng
+scripts/install.sh                                    # ensure ~/.local/bin is on PATH (e.g. in ~/.zshrc)
+
+mkdir -p ~/.casm-ng
+echo '{"listen": "<mac-tailscale-ip>:7373", "name": "macbook"}' > ~/.casm-ng/config.json
+casm service install                                  # run from a shell whose PATH has claude/codex/pi/opencode
+casm service status; casm service logs
+
+casm token create cli-macbook                         # this Mac's own CLI -> its own server
+casm token create ubuntu                              # for ubuntu to use when it peers with the Mac
+casm host add macbook ws://<mac-tailscale-ip>:7373 <cli-macbook token>
+
+# ubuntu: the tokens are in ubuntu:~/.casm-ng/client-tokens.txt (the "macbook" line)
+casm host add ubuntu ws://100.68.62.102:7373 <macbook token>
+casm peer add ubuntu ws://100.68.62.102:7373 <macbook token>   # lets agents on the Mac call ubuntu's server
+casm -H ubuntu info
+```
+
+To read the token over SSH from the Mac, run `ssh ubuntu "awk '\$1==\"macbook\"{print \$2}' ~/.casm-ng/client-tokens.txt"`.
+
 ## Writing your own client
 
 The protocol is meant to be used by other clients:

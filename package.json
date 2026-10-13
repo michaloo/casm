@@ -10,7 +10,9 @@
     "test": "node --test 'packages/*/test/*.test.ts'",
     "dev:server": "node packages/cli/src/main.ts serve",
     "schema": "node packages/protocol/scripts/export-schema.ts",
-    "coverage": "node scripts/coverage/run.ts"
+    "coverage": "node scripts/coverage/run.ts",
+    "setup": "scripts/install.sh",
+    "service": "scripts/service.sh"
   },
   "engines": {
     "node": ">=24"

@@ -39,16 +39,24 @@ struct MenuBarContent: View {
 struct MenuBarLabel: View {
     @Environment(AppModel.self) private var app
 
+    /// The casm glyph (a template image, so it follows the menu bar's colour) with the number of
+    /// agents that need you, or else the number running.
     var body: some View {
         let agents = app.hosts.flatMap(\.agents).filter { $0.archivedAt == nil }
         let waiting = agents.count { $0.status == .waiting }
         let running = agents.count { $0.status == .running }
-        if waiting > 0 {
-            Label("\(waiting)", systemImage: "hand.raised.fill")
-        } else if running > 0 {
-            Label("\(running)", systemImage: "circle.dotted.circle")
-        } else {
-            Image(systemName: "asterisk")
+        HStack(spacing: 3) {
+            Image("MenuBarGlyph")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 16, height: 16)
+            if waiting > 0 {
+                Text("\(waiting) waiting")
+            } else if running > 0 {
+                Text("\(running)")
+            }
         }
+        .accessibilityLabel("casm: \(running) running, \(waiting) waiting")
     }
 }

@@ -317,7 +317,7 @@ struct AgentNode: View {
     }
 
     private var row: some View {
-        AgentRow(agent: agent)
+        AgentRow(agent: agent, online: host.isOnline)
             .tag(Selection.agent(host: host.id, agent: agent.id))
             .contextMenu { AgentMenu(host: host, agent: agent) }
     }
@@ -364,6 +364,8 @@ enum Clipboard {
 
 struct AgentRow: View {
     let agent: Agent
+    /// M1: an offline host's agents are dimmed and show no (stale) status.
+    var online = true
 
     var body: some View {
         HStack(spacing: 6) {
@@ -372,9 +374,9 @@ struct AgentRow: View {
             } icon: {
                 ProviderIcon(provider: agent.provider)
             }
-            .opacity(agent.archivedAt == nil ? 1 : 0.5)
+            .opacity(agent.archivedAt == nil && online ? 1 : 0.5)
             Spacer(minLength: 4)
-            if agent.status != .idle { StatusBadge(status: agent.status) }
+            if online && agent.status != .idle { StatusBadge(status: agent.status) }
         }
         .help("\(agent.provider.rawValue) · \(agent.config.model ?? "default model") · \(agent.cwd)")
     }

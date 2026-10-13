@@ -156,8 +156,10 @@ struct SuggestionList: View {
                     }
                 }
             }
-            .frame(maxHeight: 220)
             .scrollBounceBehavior(.basedOnSize)
+            // As tall as its rows, up to 260 pt.
+            .frame(maxHeight: 260)
+            .fixedSize(horizontal: false, vertical: true)
             .onChange(of: highlighted) {
                 if suggestions.indices.contains(highlighted) { proxy.scrollTo(suggestions[highlighted].id) }
             }

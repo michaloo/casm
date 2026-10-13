@@ -318,7 +318,16 @@ struct Composer: View {
             await chat.loadCommands()
             // A newer keystroke replaced this lookup while it waited; its result is stale.
             guard !Task.isCancelled else { return }
-            suggestions = Array(Suggestion.commands(chat.commands, matching: context.query).prefix(30))
+            if let failure = chat.commandsError, chat.commands.isEmpty {
+                // m3: say why there's nothing; typing "/" again retries.
+                suggestions = [Suggestion(id: "loading", icon: "exclamationmark.triangle", title: "Couldn't load commands",
+                                          detail: failure, insert: "/")]
+                return
+            }
+            let matches = Suggestion.commands(chat.commands, matching: context.query)
+            suggestions = matches.isEmpty
+                ? [Suggestion(id: "loading", icon: "magnifyingglass", title: "No commands match \u{201C}/\(context.query)\u{201D}", insert: "/")]
+                : Array(matches.prefix(30))
         case .mention:
             try? await Task.sleep(for: .milliseconds(120)) // debounce typing
             guard !Task.isCancelled else { return }

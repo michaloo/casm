@@ -63,6 +63,24 @@ final class DebugControl {
             guard let request = chat?.permissions.first else { return log("no pending permission") }
             let decision = PermissionDecision(rawValue: cmd["decision"] ?? "allow") ?? .allow
             Task { await chat?.respond(to: request, decision); log("permission \(decision.rawValue) \(request.toolName)") }
+        case "answer":
+            // answer: JSON object of prompt id → value, or omitted to dismiss.
+            guard let request = chat?.questions.first else { return log("no pending question") }
+            let answers = cmd["answers"].flatMap { try? JSONDecoder().decode([String: AnswerValue].self, from: Data($0.utf8)) }
+            Task { await chat?.answer(request, answers); log("answered \(request.id): \(String(describing: answers))") }
+        case "questions":
+            for q in chat?.questions ?? [] {
+                log("question \(q.id): " + q.prompts.map { "\($0.id) [\($0.kind.rawValue)] \($0.text) options=\($0.options?.map(\.label) ?? [])" }.joined(separator: " | "))
+            }
+        case "config":
+            Task {
+                await chat?.updateConfig { config in
+                    if let m = cmd["model"] { config.model = m }
+                    if let e = cmd["effort"] { config.effort = e.isEmpty ? nil : e }
+                    if let m = cmd["mode"] { config.mode = m }
+                }
+                log("config now \(String(describing: chat?.agent?.config)) reloadAfterTurn=\(chat?.reloadAfterTurn ?? false)")
+            }
         case "interrupt":
             Task { await chat?.interrupt(); log("interrupted") }
         case "reload":
@@ -109,7 +127,7 @@ final class DebugControl {
         case "state":
             log("hosts: " + app.hosts.map { "\($0.name)=\($0.state) projects=\($0.projects.count) agents=\($0.agents.count)" }.joined(separator: ", "))
             if let chat {
-                log("chat: items=\(chat.items.count) start=\(chat.historyStart ?? -1) status=\(chat.status.rawValue) permissions=\(chat.permissions.count) draft=\(chat.draft?.text.count ?? 0) error=\(chat.error ?? "-")")
+                log("chat: items=\(chat.items.count) start=\(chat.historyStart ?? -1) status=\(chat.status.rawValue) permissions=\(chat.permissions.count) questions=\(chat.questions.count) draft=\(chat.draft?.text.count ?? 0) error=\(chat.error ?? "-")")
             }
         default:
             log("unknown command \(cmd)")

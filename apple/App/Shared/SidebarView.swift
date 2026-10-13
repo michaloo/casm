@@ -117,8 +117,7 @@ struct ProjectNode: View {
                 ProjectNode(host: host, project: child)
             }
             ForEach(host.agents(in: project.id)) { agent in
-                AgentRow(agent: agent)
-                    .tag(Selection.agent(host: host.id, agent: agent.id))
+                AgentNode(host: host, agent: agent)
             }
             } label: {
                 label
@@ -133,6 +132,30 @@ struct ProjectNode: View {
                 Button("New Agent…") { app.sheet = .newAgent(host, projectId: project.id) }
                 Button("New Project…") { app.sheet = .newProject(host) }
             }
+    }
+}
+
+/// An agent with the subagents it created nested below it.
+struct AgentNode: View {
+    let host: HostModel
+    let agent: Agent
+    @State private var expanded = true
+
+    var body: some View {
+        let children = host.subagents(of: agent.id)
+        if children.isEmpty {
+            row
+        } else {
+            DisclosureGroup(isExpanded: $expanded) {
+                ForEach(children) { AgentNode(host: host, agent: $0) }
+            } label: {
+                row
+            }
+        }
+    }
+
+    private var row: some View {
+        AgentRow(agent: agent).tag(Selection.agent(host: host.id, agent: agent.id))
     }
 }
 

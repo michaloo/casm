@@ -17,6 +17,9 @@ final class ChatModel {
     @ObservationIgnored private var historyCount = 0
     private(set) var draft: Draft?
     private(set) var permissions: [PermissionRequest] = []
+    private(set) var questions: [QuestionRequest] = []
+    /// A config change made while a turn was running; applied with a reload once it ends.
+    private(set) var reloadAfterTurn = false
     private(set) var loading = false
     private(set) var loadingOlder = false
     var error: String?
@@ -67,6 +70,7 @@ final class ChatModel {
             host.setStatus(sub.status, of: agentId)
             draft = nil
             permissions = sub.permissions
+            questions = sub.questions
             for event in sub.turn { apply(event) }
             let first = historyStart == nil
             try await loadLatest()
@@ -140,9 +144,18 @@ final class ChatModel {
             if !permissions.contains(where: { $0.id == request.id }) { permissions.append(request) }
         case .permissionResolved(let requestId):
             permissions.removeAll { $0.id == requestId }
+        case .question(let request):
+            if !questions.contains(where: { $0.id == request.id }) { questions.append(request) }
+        case .questionResolved(let requestId):
+            questions.removeAll { $0.id == requestId }
         case .turnEnded(_, let outcome, let error):
             draft = nil
             permissions = []
+            questions = []
+            if reloadAfterTurn {
+                reloadAfterTurn = false
+                Task { await perform { try await $0.reload(agentId: self.agentId) } }
+            }
             if outcome == .failed { upsert(.notice(id: "failed-\(UUID().uuidString)", text: "Turn failed: \(error ?? "unknown error")")) }
             // History can hold items that never arrived live (e.g. the interrupt marker).
             Task { try? await loadLatest() }
@@ -197,11 +210,38 @@ final class ChatModel {
         historyCount = 0
         draft = nil
         permissions = []
+        questions = []
     }
 
     func respond(to request: PermissionRequest, _ decision: PermissionDecision) async {
         await perform { try await $0.respondPermission(agentId: self.agentId, requestId: request.id, decision: decision) }
         if error == nil { permissions.removeAll { $0.id == request.id } }
+    }
+
+    /// `answers == nil` dismisses the question.
+    func answer(_ request: QuestionRequest, _ answers: [String: AnswerValue]?) async {
+        await perform { try await $0.answerQuestion(agentId: self.agentId, requestId: request.id, answers: answers) }
+        if error == nil { questions.removeAll { $0.id == request.id } }
+    }
+
+    /// Saves a config change. It takes effect when the session is next opened, so an idle agent is
+    /// reloaded now and a busy one after its turn ends.
+    func updateConfig(_ change: (inout AgentConfig) -> Void) async {
+        guard let host, let agent else { return }
+        var config = agent.config
+        change(&config)
+        guard config != agent.config else { return }
+        do {
+            host.upsert(try await host.client.updateAgent(UpdateAgentParams(id: agentId, config: config)))
+            if status.isBusy {
+                reloadAfterTurn = true
+            } else {
+                try await host.client.reload(agentId: agentId)
+            }
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     private func perform(_ action: (RPCClient) async throws -> Void) async {

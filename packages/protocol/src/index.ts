@@ -30,6 +30,9 @@ export const AgentConfig = z.object({
   systemPrompt: z.string().optional(),
   mcpServers: z.record(z.string(), z.unknown()).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  // Give the agent casm's own MCP tools (list hosts and agents, create and
+  // drive agents here or on peer servers). Children it creates get it as parent.
+  casmTools: z.boolean().optional(),
 });
 export type AgentConfig = z.infer<typeof AgentConfig>;
 
@@ -38,6 +41,19 @@ export type AgentConfig = z.infer<typeof AgentConfig>;
 // `host` is only a display hint.
 export const AgentParent = z.object({ serverId: z.string(), agentId: z.string(), host: z.string().optional() });
 export type AgentParent = z.infer<typeof AgentParent>;
+
+// Another casm server this one can call on behalf of its agents. The peer's
+// token is never sent to clients.
+export const Peer = z.object({
+  name: z.string(),
+  url: z.string(),
+  // The peer's `server.info` id, recorded when it was added.
+  serverId: z.string().nullable(),
+  // Only present when `peer.list` was asked to probe.
+  reachable: z.boolean().optional(),
+  error: z.string().optional(),
+});
+export type Peer = z.infer<typeof Peer>;
 
 // Derived from the live process, never stored.
 export const AgentStatus = z.enum(["idle", "running", "waiting"]);
@@ -218,6 +234,10 @@ export const methods = {
     Empty,
     z.object({ id: z.string(), name: z.string(), version: z.string(), protocol: z.number(), providers: z.array(ProviderId) }),
   ),
+
+  // Peer servers (edited with `casm peer add|rm` on the server). `probe`
+  // connects to each one to report `reachable`.
+  "peer.list": method(z.object({ probe: z.boolean().optional() }), z.object({ peers: z.array(Peer) })),
 
   // Models and modes the agent offers on this host. Cached; `refresh` re-reads.
   "provider.catalog": method(z.object({ provider: ProviderId, refresh: z.boolean().optional() }), Catalog),

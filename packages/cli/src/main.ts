@@ -29,8 +29,9 @@ function writeHosts(h: Hosts) {
 const usage = `usage: casm [-H host] [--json] <command>
 
 server (runs on this machine):
-  serve [--listen host:port]
+  serve [--listen host:port] [--name n]
   token create <name> | token list | token revoke <name>
+  peer add <name> <ws-url> <token> | peer list [--probe] | peer rm <name>
 
 hosts (stored in ${hostsFile}):
   host add <name> <ws-url> <token> [--default]
@@ -43,7 +44,8 @@ projects:
 
 agents:
   agents [--project p] [--all]
-  run --project p [--provider claude] [--name n] [--cwd dir] [--model m] [--mode m] [--wait] <prompt>
+  run --project p [--provider claude] [--name n] [--cwd dir] [--model m] [--mode m]
+      [--parent serverId/agentId] [--casm-tools] [--wait] <prompt>
   send <agent> <text> [--steer] [--wait]
   wait <agent> [--timeout seconds]
   history <agent> [-n count]
@@ -58,9 +60,11 @@ agents:
   interrupt | reload | restart | archive | rm <agent>
 
 <project> and <agent> accept an id, an id prefix or an exact name.
-Environment: CASM_HOST, CASM_URL + CASM_TOKEN override the host list.`;
+Environment: CASM_HOST, CASM_URL + CASM_TOKEN override the host list.
+Inside a casm agent, CASM_SERVER_ID, CASM_SERVER_NAME and CASM_AGENT_ID are set,
+so "casm run" links the new agent to it as parent (override with --parent, or --parent none).`;
 
-const serverSubcommand = process.argv[2] === "serve" || process.argv[2] === "token";
+const serverSubcommand = ["serve", "token", "peer"].includes(process.argv[2]);
 
 const { values: opt, positionals } = parseArgs({
   args: serverSubcommand ? [] : process.argv.slice(2),
@@ -88,6 +92,7 @@ const { values: opt, positionals } = parseArgs({
     message: { type: "string" },
     dismiss: { type: "boolean" },
     refresh: { type: "boolean" },
+    "casm-tools": { type: "boolean" },
   },
 });
 
@@ -122,6 +127,18 @@ function pick<T extends { id: string; name: string }>(list: T[], ref: string, wh
 }
 
 const shortId = (id: string) => id.slice(0, 8);
+
+// `run --parent serverId/agentId`, else the agent this CLI runs inside of.
+function runParent(): { serverId: string; agentId: string; host?: string } | undefined {
+  if (opt.parent === "none") return undefined;
+  if (opt.parent) {
+    const [serverId, agentId, ...extra] = opt.parent.split("/");
+    if (!serverId || !agentId || extra.length) fail("--parent must be <serverId>/<agentId>");
+    return { serverId, agentId };
+  }
+  const { CASM_SERVER_ID: serverId, CASM_AGENT_ID: agentId, CASM_SERVER_NAME: host } = process.env;
+  return serverId && agentId ? { serverId, agentId, host: host || undefined } : undefined;
+}
 
 function renderItem(i: Item): string {
   switch (i.kind) {
@@ -273,7 +290,8 @@ async function run(c: CasmClient) {
         provider: (opt.provider ?? "claude") as ProviderId,
         name: opt.name,
         cwd: opt.cwd ? resolve(opt.cwd) : undefined,
-        config: { model: opt.model, mode: opt.mode },
+        config: { model: opt.model, mode: opt.mode, casmTools: opt["casm-tools"] },
+        parent: runParent(),
         prompt,
       });
       if (opt.wait) return waitAndPrint(c, a.id);

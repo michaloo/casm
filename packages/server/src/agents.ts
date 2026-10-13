@@ -1,8 +1,9 @@
 // Live agent state. Everything here is in memory and rebuilt lazily: a session
 // is opened on the first send and the status is derived from it.
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type {
   Agent,
+  AgentConfig,
   AgentEvent,
   Answers,
   Catalog,
@@ -19,6 +20,10 @@ import type {
 } from "@casm/protocol";
 import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from "./providers/types.ts";
+import { casmMcpEntry } from "./mcp.ts";
+
+// What sessions are told about the server that runs them.
+export type SessionContext = { serverId: string; serverName: string; mcpUrl: string | null };
 
 export class RpcError extends Error {
   readonly code: number;
@@ -58,6 +63,10 @@ export type Notify = <N extends NotificationName>(name: N, params: NotificationP
 export class AgentManager {
   private live = new Map<string, Live>();
   private catalogs = new Map<ProviderId, { at: number; catalog: Promise<Catalog> }>();
+  // Per-agent MCP bearer tokens, minted when a session opens. Memory only.
+  private mcpTokens = new Map<string, string>();
+  private mcpTokenOf = new Map<string, string>();
+  private context: SessionContext | null = null;
 
   private store: Store;
   private providers: Map<ProviderId, Provider>;
@@ -67,6 +76,39 @@ export class AgentManager {
     this.store = store;
     this.providers = providers;
     this.notify = notify;
+  }
+
+  setContext(ctx: SessionContext) {
+    this.context = ctx;
+  }
+
+  // The agent a casm MCP token was minted for.
+  agentForMcpToken(token: string): string | undefined {
+    return this.mcpTokens.get(token);
+  }
+
+  private mintMcpToken(agentId: string): string {
+    const old = this.mcpTokenOf.get(agentId);
+    if (old) this.mcpTokens.delete(old);
+    const token = "casm_agent_" + randomBytes(24).toString("base64url");
+    this.mcpTokens.set(token, agentId);
+    this.mcpTokenOf.set(agentId, token);
+    return token;
+  }
+
+  // The stored config plus what the server adds to every session: CASM_* env
+  // vars (so `casm run` from inside links the child) and, with casmTools, the
+  // casm MCP server.
+  private sessionConfig(a: StoredAgent): AgentConfig {
+    const ctx = this.context;
+    if (!ctx) return a.config;
+    const env = { ...a.config.env, CASM_SERVER_ID: ctx.serverId, CASM_SERVER_NAME: ctx.serverName, CASM_AGENT_ID: a.id };
+    let mcpServers = a.config.mcpServers;
+    if (a.config.casmTools && ctx.mcpUrl) {
+      const entry = casmMcpEntry(a.provider, ctx.mcpUrl, this.mintMcpToken(a.id));
+      if (entry) mcpServers = { ...mcpServers, casm: entry };
+    }
+    return { ...a.config, env, mcpServers };
   }
 
   providerIds(): ProviderId[] {
@@ -157,7 +199,7 @@ export class AgentManager {
       const gen = ++l.generation;
       l.session = this.provider(a.provider).open({
         cwd: a.cwd,
-        config: a.config,
+        config: this.sessionConfig(a),
         resumeId: a.nativeSessionId,
         emit: (e) => gen === l.generation && this.onProviderEvent(a.id, l, e),
         askPermission: (req, signal) =>
@@ -329,6 +371,8 @@ export class AgentManager {
   async remove(id: string) {
     await this.reload(id).catch(() => {});
     this.live.delete(id);
+    const token = this.mcpTokenOf.get(id);
+    if (token) (this.mcpTokens.delete(token), this.mcpTokenOf.delete(id));
   }
 
   subscribeState(id: string) {

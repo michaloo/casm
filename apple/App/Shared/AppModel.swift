@@ -363,10 +363,6 @@ final class HostModel: Identifiable {
         await edit { upsert(try await client.updateAgent(UpdateAgentParams(id: agent.id, name: name))) }
     }
 
-    func move(_ agent: Agent, to projectId: String) async {
-        await edit { upsert(try await client.updateAgent(UpdateAgentParams(id: agent.id, projectId: projectId))) }
-    }
-
     func setArchived(_ agent: Agent, _ archived: Bool) async {
         await edit { upsert(try await client.updateAgent(UpdateAgentParams(id: agent.id, archived: archived))) }
     }

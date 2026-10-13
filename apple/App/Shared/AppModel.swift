@@ -1,4 +1,7 @@
 import CasmKit
+#if os(macOS)
+import AppKit
+#endif
 import Foundation
 import Observation
 
@@ -69,6 +72,23 @@ final class AppModel {
     }
 
     func host(_ id: UUID) -> HostModel? { hosts.first { $0.id == id } }
+
+    /// Live agents in sidebar order (host, group, project), for ⌘1…9.
+    func sidebarAgents() -> [(host: HostModel, agent: Agent)] {
+        hosts.flatMap { host in
+            host.pickerProjects().flatMap { project in host.agents(in: project.id).map { (host, $0) } }
+        }
+    }
+
+    /// Brings the main window forward (from the menu bar extra or a notification).
+    func bringToFront() {
+        #if os(macOS)
+        NSApp.activate()
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true || $0.isVisible && $0.canBecomeMain }) {
+            window.makeKeyAndOrderFront(nil)
+        }
+        #endif
+    }
 
     /// Running agents on any host that were created by this agent (cross-host subagents).
     /// `serverId` pins the parent to the right server when the server reports one.
@@ -229,6 +249,9 @@ final class HostModel: Identifiable {
         case .agentEvent(let agentID, let event):
             chats[agentID]?.chat?.apply(event)
         case .agentStatus(let agentID, let status):
+            if let agent = agent(agentID) {
+                Notifier.shared.statusChanged(host: self, agent: agent, from: agent.status, to: status)
+            }
             setStatus(status, of: agentID)
         case .agentChanged(let agent):
             upsert(agent)

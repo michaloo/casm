@@ -102,7 +102,7 @@ struct Composer: View {
                 TextField("Message the agent", text: $text, selection: $selection, axis: .vertical)
                     .accessibilityLabel("Message")
                     .textFieldStyle(.plain)
-                    .font(shellMode ? .body.monospaced() : .body)
+                    .font(shellMode ? .system(size: 14, design: .monospaced) : .system(size: Theme.proseSize))
                     .lineLimit(2...10)
                     .focused($focused)
                     .onKeyPress(.return, phases: .down, action: handleReturn)

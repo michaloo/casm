@@ -40,12 +40,28 @@ struct CommandList: Codable, Sendable { var commands: [SlashCommand] }
 public struct AgentsMd: Codable, Sendable, Equatable {
     public var path: String
     public var content: String?
+    /// Of the content as read; pass it back as `expectedSha256` so a save can't overwrite a newer file.
+    public var sha256: String?
 }
 
-struct SetAgentsMdParams: Codable, Sendable {
+struct SetAgentsMdParams: Encodable, Sendable {
     var id: String
     var content: String
+    /// nil: the file must not exist yet (create). Omitted entirely when `force`.
+    var expectedSha256: String?
+    var force: Bool
+
+    private enum CodingKeys: String, CodingKey { case id, content, expectedSha256 }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(content, forKey: .content)
+        if !force { try c.encode(expectedSha256, forKey: .expectedSha256) }
+    }
 }
+
+struct CommandsParams: Codable, Sendable { var id: String; var refresh: Bool? }
 
 public struct MemoryEntry: Codable, Sendable, Hashable, Identifiable {
     public var id: String
@@ -291,8 +307,6 @@ public struct SendParams: Codable, Sendable {
     public var text: String
     public var images: [ImageData]?
     public var whenBusy: WhenBusy?
-    /// Send at this ISO time instead of now (a "scheduled" pending message).
-    public var at: String?
 }
 
 public struct SendResult: Codable, Sendable {
@@ -351,8 +365,10 @@ public extension RPCClient {
     }
 
     /// Writes (or creates) the project's AGENTS.md.
-    func setAgentsMd(projectId: String, content: String) async throws -> AgentsMd {
-        try await call("project.setAgentsMd", SetAgentsMdParams(id: projectId, content: content))
+    /// Writes AGENTS.md if it still has `expectedSha256` (nil: doesn't exist yet). Throws server
+    /// error 1003 when it changed meanwhile. `force` skips the check.
+    func setAgentsMd(projectId: String, content: String, expectedSha256: String?, force: Bool = false) async throws -> AgentsMd {
+        try await call("project.setAgentsMd", SetAgentsMdParams(id: projectId, content: content, expectedSha256: expectedSha256, force: force))
     }
 
     /// Each installed coding agent's memories for the project folder (read-only).
@@ -388,8 +404,8 @@ public extension RPCClient {
         try await (call("agent.usage", ByID(id: agentId)) as UsageResult).usage
     }
 
-    func commands(agentId: String) async throws -> [SlashCommand] {
-        try await (call("agent.commands", ByID(id: agentId)) as CommandList).commands
+    func commands(agentId: String, refresh: Bool = false) async throws -> [SlashCommand] {
+        try await (call("agent.commands", CommandsParams(id: agentId, refresh: refresh ? true : nil)) as CommandList).commands
     }
 
     /// Files and directories for @-mentions, under the agent's cwd or `cwd`.

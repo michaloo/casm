@@ -264,7 +264,9 @@ struct NewAgentSheet: View {
                 }
             }
             Picker("Provider", selection: $provider) {
-                ForEach(host?.info?.providers ?? [.claude], id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(host?.info?.providers ?? [.claude], id: \.self) { p in
+                    Label { Text(MemoryGroupView.providerName(p)) } icon: { ProviderIcon(provider: p) }.tag(p)
+                }
             }
             TextField("Name", text: $name, prompt: Text("Optional"))
                 .accessibilityLabel("Agent name")
@@ -276,7 +278,7 @@ struct NewAgentSheet: View {
             if let efforts = catalog?.models.first(where: { $0.id == model })?.efforts, !efforts.isEmpty {
                 Picker("Effort", selection: $effort) {
                     Text("Default").tag("")
-                    ForEach(efforts, id: \.self) { Text($0).tag($0) }
+                    ForEach(efforts, id: \.self) { Text($0.effortName).tag($0) }
                 }
             }
             Picker("Mode", selection: $mode) {

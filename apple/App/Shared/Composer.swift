@@ -683,7 +683,7 @@ private struct PickerLabel<Icon: View>: View {
     }
 }
 
-private extension String {
+extension String {
     /// "xhigh" → "Extra high", "medium" → "Medium".
     var effortName: String {
         switch self {

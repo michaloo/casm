@@ -420,6 +420,12 @@ public struct ModeInfo: Codable, Sendable, Hashable, Identifiable {
     public var description: String?
 
     public var displayName: String { name ?? id }
+
+    public init(id: String, name: String? = nil, description: String? = nil) {
+        self.id = id
+        self.name = name
+        self.description = description
+    }
 }
 
 public struct Catalog: Codable, Sendable, Hashable {

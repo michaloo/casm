@@ -1,0 +1,25 @@
+#!/bin/sh
+# Runs uictl inside Terminal, which holds the Accessibility and Screen Recording permissions.
+# The first call starts one server loop in a (minimized) Terminal window; later calls go through a FIFO.
+#   scripts/ui press casm Create
+D=/tmp/casm-ui; BIN=/tmp/uictl
+[ -x $BIN ] || swiftc -O -o $BIN "$(dirname "$0")/uictl.swift" -framework AppKit -framework ApplicationServices || exit 1
+if ! { [ -p $D/in ] && [ -f $D/pid ] && kill -0 "$(cat $D/pid)" 2>/dev/null; }; then
+  mkdir -p $D; rm -f $D/in $D/pid; mkfifo $D/in
+  cat > $D/casm-ui-server.command <<EOS
+#!/bin/sh
+echo \$\$ > $D/pid
+$BIN minimize Terminal casm-ui-server >/dev/null 2>&1
+while true; do
+  read -r line < $D/in
+  eval "$BIN \$line" > $D/out 2>&1; echo \$? > $D/status
+done
+EOS
+  chmod +x $D/casm-ui-server.command; open -a Terminal $D/casm-ui-server.command
+  while [ ! -f $D/pid ]; do sleep 0.1; done; sleep 0.5
+fi
+rm -f $D/status
+q=""; for a in "$@"; do q="$q '$(printf %s "$a" | sed "s/'/'\\\\''/g")'"; done
+echo "$q" > $D/in
+while [ ! -f $D/status ]; do sleep 0.1; done
+cat $D/out; exit "$(cat $D/status)"

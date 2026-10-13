@@ -74,12 +74,8 @@ final class DebugControl {
             }
         case "config":
             Task {
-                await chat?.updateConfig { config in
-                    if let m = cmd["model"] { config.model = m }
-                    if let e = cmd["effort"] { config.effort = e.isEmpty ? nil : e }
-                    if let m = cmd["mode"] { config.mode = m }
-                }
-                log("config now \(String(describing: chat?.agent?.config)) reloadAfterTurn=\(chat?.reloadAfterTurn ?? false)")
+                await chat?.updateConfig(AgentConfig(model: cmd["model"], mode: cmd["mode"], effort: cmd["effort"]))
+                log("config now \(String(describing: chat?.agent?.config))")
             }
         case "interrupt":
             Task { await chat?.interrupt(); log("interrupted") }

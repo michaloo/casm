@@ -6,6 +6,9 @@ const TaskEvent = z.object({
   type: z.literal("system"),
   subtype: z.enum(["task_started", "task_updated", "task_progress", "task_notification"]),
   task_id: z.string().min(1),
+  tool_use_id: z.string().optional(),
+  parent_task_id: z.string().optional(),
+  spawn_depth: z.number().optional(),
   run_id: z.string().optional(),
   description: z.string().optional(),
   subagent_type: z.string().optional(),
@@ -29,6 +32,7 @@ const TaskEvent = z.object({
 });
 
 type TaskState = {
+  id: string;
   runId?: string;
   hidden: boolean;
   status: z.infer<typeof Status>;
@@ -45,11 +49,38 @@ function terminal(status: TaskState["status"]): boolean {
   return status === "completed" || status === "failed" || status === "killed" || status === "stopped";
 }
 
-// Task lifecycle is independent of the foreground turn: a result message must
-// not finish background work. These notices use the existing client surface;
-// child transcripts and a durable task registry are separate concerns.
+// Task lifecycle is independent of the foreground turn. Tool IDs join live
+// lifecycle events to the same cards reconstructed from persisted tool calls.
 export class ClaudeTasks {
   private readonly tasks = new Map<string, TaskState>();
+
+  start(id: string, input: Record<string, unknown>): Item[] {
+    return this.observe({ type: "system", subtype: "task_started", task_id: id,
+      description: input.description ?? "Subagent", subagent_type: input.subagent_type });
+  }
+
+  result(id: string, output: string, error: boolean, structured: unknown): Item[] | null {
+    const state = this.tasks.get(id);
+    if (!state) return null;
+    const r = structured as { content?: { type: string; text?: string }[]; status?: string; totalTokens?: number; totalToolUseCount?: number; totalDurationMs?: number } | undefined;
+    if (!error && (r?.status === "async_launched" || /agent launched successfully|agent is running in the background/i.test(output))) return [];
+    return this.observe({ type: "system", subtype: "task_notification", task_id: id, run_id: state.runId,
+      status: error ? "failed" : "completed", summary: Array.isArray(r?.content) ? r.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n") : output,
+      ...(r?.totalTokens != null ? { usage: { total_tokens: r.totalTokens, tool_uses: r.totalToolUseCount ?? 0, duration_ms: r.totalDurationMs ?? 0 } } : {}) });
+  }
+
+  // Background completions are persisted as harness-authored user messages,
+  // not system task_* frames. Call only after checking the record's origin.
+  notification(text: string, runId?: string): Item[] {
+    if (!text.trim().startsWith("<task-notification>")) return [];
+    const tag = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1];
+    const total = tag("subagent_tokens");
+    return this.observe({ type: "system", subtype: "task_notification",
+      task_id: tag("task-id"), tool_use_id: tag("tool-use-id"), run_id: runId,
+      status: tag("status"), summary: tag("result") ?? tag("summary"),
+      ...(total !== undefined ? { usage: { total_tokens: Number(total), tool_uses: Number(tag("tool_uses")), duration_ms: Number(tag("duration_ms")) } } : {}),
+    });
+  }
 
   observe(value: unknown): Item[] {
     const parsed = TaskEvent.safeParse(value);
@@ -57,17 +88,22 @@ export class ClaudeTasks {
     const e = parsed.data;
     if (e.subtype === "task_notification" && (!e.status || !terminal(e.status))) return [];
     if (e.subtype === "task_updated" && !e.patch) return [];
-    let state = this.tasks.get(e.task_id);
+    let state = this.tasks.get(e.task_id) ?? (e.tool_use_id ? this.tasks.get(e.tool_use_id) : undefined);
     if (state?.runId && (!e.run_id || e.run_id < state.runId)) return [];
-    if (state && e.run_id && e.run_id !== state.runId) state = undefined;
+    const previous = state;
+    if (state?.runId && e.run_id && e.run_id !== state.runId) state = undefined;
     if (!state) {
       // Progress/patches carry no ambient flag. Wait for the declaration so a
       // housekeeping task cannot accidentally become visible. A notification
       // can stand alone when we attached after the task started.
       if (e.subtype !== "task_started" && e.subtype !== "task_notification") return [];
-      state = { runId: e.run_id, hidden: false, status: "running", description: e.task_id };
-      this.tasks.set(e.task_id, state);
+      state = { id: previous?.id ?? e.tool_use_id ?? e.task_id, runId: e.run_id, hidden: false, status: "running", description: previous?.description ?? e.task_id, agentType: previous?.agentType };
     }
+    this.tasks.set(e.task_id, state);
+    this.tasks.set(state.id, state);
+    if (e.tool_use_id) this.tasks.set(e.tool_use_id, state);
+    state.runId ??= e.run_id;
+    state.hidden ||= !!e.parent_task_id || (e.spawn_depth ?? 1) > 1;
     state.hidden ||= e.ambient === true || e.skip_transcript === true;
     if (state.hidden) return [];
     // A late progress/start/patch must not revive a finished run. The terminal
@@ -81,7 +117,7 @@ export class ClaudeTasks {
       state.background = e.patch.is_backgrounded ?? state.background;
       state.summary = e.patch.error ?? state.summary;
     } else {
-      state.description = e.description ?? state.description;
+      if (e.subtype !== "task_progress") state.description = e.description ?? state.description;
       state.agentType = e.subagent_type ?? state.agentType;
       state.background = e.is_backgrounded ?? state.background;
       state.summary = e.summary ?? state.summary;
@@ -93,22 +129,17 @@ export class ClaudeTasks {
       }
     }
 
-    const status = state.status === "killed" ? "stopped" : state.status;
-    const title = state.agentType ? `Subagent (${state.agentType})` : "Task";
-    const details: string[] = [];
-    if (state.usage) {
-      details.push(`${state.usage.tool_uses} tool uses`, `${state.usage.total_tokens} tokens`, `${Math.round(state.usage.duration_ms / 1000)}s`);
-    }
-    if (state.lastTool && !terminal(state.status)) details.push(`last tool: ${state.lastTool}`);
-    const text = [
-      `${title} ${status}${state.background && !terminal(state.status) ? " (background)" : ""}: ${state.description}`,
-      state.summary,
-      details.length ? details.join(" · ") : undefined,
-    ].filter(Boolean).join("\n").slice(0, 8000);
-    const level = state.status === "failed" ? "error" : status === "stopped" ? "warning" : "info";
-    const rendered = `${level}:${text}`;
+    const item: Item = {
+      kind: "subagent", id: state.id, title: state.description.slice(0, 8000),
+      ...(state.agentType ? { agentType: state.agentType } : {}),
+      status: state.status === "completed" ? "done" : terminal(state.status) ? "error" : "running",
+      ...(state.lastTool && !terminal(state.status) ? { activity: state.lastTool } : {}),
+      ...(state.summary ? { summary: state.summary.slice(0, 8000) } : {}),
+      ...(state.usage ? { usage: { totalTokens: state.usage.total_tokens, toolUses: state.usage.tool_uses, durationMs: state.usage.duration_ms } } : {}),
+    };
+    const rendered = JSON.stringify(item);
     if (state.rendered === rendered) return [];
     state.rendered = rendered;
-    return [{ kind: "notice", id: `claude-task:${e.task_id}`, text, level }];
+    return [item];
   }
 }

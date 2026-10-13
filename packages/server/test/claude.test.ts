@@ -171,3 +171,39 @@ test("parses the model catalog", () => {
   );
   assert.equal(parseCatalog(models.slice(2)).modes.length, 5);
 });
+
+test("maps live Claude rate windows without losing fractional percentages or zero reset times", async () => {
+  const { rateLimitWindow } = await import("../src/providers/claude.ts");
+  for (const rateLimitType of ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet", "overage"] as const) {
+    for (const [status, expected] of [["allowed", "ok"], ["allowed_warning", "warning"], ["rejected", "exhausted"]] as const) {
+      const window = rateLimitWindow({ rateLimitType, status, utilization: 0.12345, resetsAt: 0 });
+      assert.equal(window.id, rateLimitType);
+      assert.equal(window.usedPercent, 12.345);
+      assert.equal(window.resetsAt, "1970-01-01T00:00:00.000Z");
+      assert.equal(window.status, expected);
+      assert.ok(window.label);
+    }
+  }
+});
+
+test("Claude account limits map percentages and optional windows, and fail closed on unavailable or malformed responses", async () => {
+  const { queryLimits } = await import("../src/providers/claude.ts");
+  const response = { subscription_type: "max", rate_limits_available: true, rate_limits: {
+    five_hour: { utilization: 15.5, resets_at: "2026-10-13T20:00:00+00:00" },
+    seven_day: { utilization: 85, resets_at: null }, seven_day_opus: null,
+    seven_day_sonnet: { utilization: null, resets_at: null },
+    extra_usage: { is_enabled: true, utilization: 100 },
+  } };
+  const result = await queryLimits(async () => response);
+  assert.equal(result?.plan, "max");
+  assert.deepEqual(result?.windows.map((w) => [w.id, w.usedPercent, w.status]), [
+    ["five_hour", 15.5, "ok"], ["seven_day", 85, "warning"], ["seven_day_sonnet", undefined, undefined], ["overage", 100, "exhausted"],
+  ]);
+  assert.equal(await queryLimits(async () => { throw new Error("SDK unavailable"); }), null);
+  for (const value of [null, {}, [], { ...response, rate_limits_available: false }, { ...response, rate_limits: null },
+    { ...response, rate_limits: { five_hour: { utilization: "15", resets_at: null } } },
+    { ...response, rate_limits: { five_hour: { utilization: NaN, resets_at: null } } },
+    { ...response, rate_limits: { five_hour: { utilization: 10, resets_at: "bad date" } } }]) {
+    assert.equal(await queryLimits(async () => value), null);
+  }
+});

@@ -2,6 +2,7 @@ import CasmKit
 import SwiftUI
 
 struct ChatView: View {
+    @Environment(AppModel.self) private var app
     @Bindable var chat: ChatModel
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var nearBottom = true
@@ -18,12 +19,12 @@ struct ChatView: View {
                     Task { await chat.respond(to: request, decision) }
                 }
             }
-            Divider()
-            Composer(busy: chat.status.isBusy, enabled: chat.host?.isOnline ?? false) { text in
-                await chat.send(text)
-            } interrupt: {
-                Task { await chat.interrupt() }
+            ForEach(chat.questions) { request in
+                QuestionCard(request: request) { answers in
+                    Task { await chat.answer(request, answers) }
+                }
             }
+            Composer(chat: chat, working: app.workingSubagents(of: chat.agentId))
         }
         .navigationTitle(chat.agent?.name ?? "Transcript")
         #if os(macOS)
@@ -301,46 +302,6 @@ struct ErrorBar: View {
     }
 }
 
-struct Composer: View {
-    let busy: Bool
-    let enabled: Bool
-    let send: (String) async -> Void
-    let interrupt: () -> Void
-    @State private var text = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(busy ? "Queue a message…" : "Message", text: $text, axis: .vertical)
-                .lineLimit(1...8)
-                .textFieldStyle(.plain)
-                .focused($focused)
-                .onSubmit(submit)
-                .padding(.vertical, 6)
-            if busy {
-                Button("Interrupt", systemImage: "stop.fill", action: interrupt)
-                    .keyboardShortcut(".", modifiers: .command)
-                    .help("Interrupt the running turn (⌘.)")
-            }
-            Button("Send", systemImage: "arrow.up", action: submit)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.circle)
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !enabled)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .onAppear { focused = true }
-    }
-
-    private func submit() {
-        let message = text
-        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, enabled else { return }
-        text = ""
-        Task { await send(message) }
-    }
-}
-
 struct StatusBadge: View {
     let status: AgentStatus
     var showLabel = false
@@ -364,7 +325,7 @@ struct StatusBadge: View {
     private var label: String {
         switch status {
         case .running: "Running"
-        case .waiting: "Waiting for permission"
+        case .waiting: "Waiting for you"
         case .idle: "Idle"
         case .unknown(let raw): raw
         }

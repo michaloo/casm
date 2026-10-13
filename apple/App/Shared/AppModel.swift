@@ -41,6 +41,11 @@ final class AppModel {
 
     func host(_ id: UUID) -> HostModel? { hosts.first { $0.id == id } }
 
+    /// Running agents on any host that were created by this agent (cross-host subagents).
+    func workingSubagents(of agentID: String) -> Int {
+        hosts.reduce(0) { n, host in n + host.agents.count { $0.parent?.agentId == agentID && $0.status.isBusy } }
+    }
+
     func addHost(name: String, url: URL, token: String) throws {
         let entry = HostEntry(name: name, url: url)
         try store.upsert(entry, token: token)
@@ -98,6 +103,8 @@ final class HostModel: Identifiable {
 
     /// Open chats get this host's live events and are re-synced on reconnect.
     @ObservationIgnored private var chats: [String: WeakChat] = [:]
+    private var catalogs: [ProviderID: Catalog] = [:]
+    @ObservationIgnored private var catalogLoads: Set<ProviderID> = []
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
 
     nonisolated var id: UUID { entry.id }
@@ -160,6 +167,22 @@ final class HostModel: Identifiable {
 
     func agent(_ id: String) -> Agent? { agents.first { $0.id == id } }
 
+    func upsert(_ agent: Agent) {
+        if let i = agents.firstIndex(where: { $0.id == agent.id }) { agents[i] = agent } else { agents.append(agent) }
+    }
+
+    /// Models and modes for a provider; loaded on first use and cached for the connection.
+    func catalog(for provider: ProviderID) -> Catalog? {
+        if catalogs[provider] == nil, isOnline, !catalogLoads.contains(provider) {
+            catalogLoads.insert(provider)
+            Task {
+                defer { catalogLoads.remove(provider) }
+                if let catalog = try? await client.catalog(provider: provider) { catalogs[provider] = catalog }
+            }
+        }
+        return catalogs[provider]
+    }
+
     func setStatus(_ status: AgentStatus, of agentID: String) {
         if let i = agents.firstIndex(where: { $0.id == agentID }), agents[i].status != status { agents[i].status = status }
     }
@@ -171,7 +194,7 @@ final class HostModel: Identifiable {
         case .agentStatus(let agentID, let status):
             setStatus(status, of: agentID)
         case .agentChanged(let agent):
-            if let i = agents.firstIndex(where: { $0.id == agent.id }) { agents[i] = agent } else { agents.append(agent) }
+            upsert(agent)
         case .agentRemoved(let agentID):
             agents.removeAll { $0.id == agentID }
         case .projectChanged(let project):
@@ -190,9 +213,19 @@ final class HostModel: Identifiable {
             .sorted { ($0.sort, $0.name.localizedLowercase) < ($1.sort, $1.name.localizedLowercase) }
     }
 
+    /// Top-level agents of a project; subagents whose caller is on this host are nested under it.
     func agents(in project: String) -> [Agent] {
-        agents.filter { $0.projectId == project && $0.archivedAt == nil }
+        agents.filter { $0.projectId == project && $0.archivedAt == nil && !hasLocalParent($0) }
             .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    func subagents(of agentID: String) -> [Agent] {
+        agents.filter { $0.parent?.agentId == agentID && $0.archivedAt == nil }.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    private func hasLocalParent(_ agent: Agent) -> Bool {
+        guard let parent = agent.parent?.agentId else { return false }
+        return agents.contains { $0.id == parent }
     }
 
     /// Projects in tree order with their depth, for pickers.

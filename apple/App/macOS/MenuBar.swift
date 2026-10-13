@@ -7,11 +7,16 @@ struct MenuBarContent: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        let all = app.hosts.flatMap { host in host.agents.filter { $0.archivedAt == nil }.map { (host, $0) } }
+        // M1: statuses from offline hosts are stale, so they don't count.
+        let all = app.hosts.filter(\.isOnline).flatMap { host in host.agents.filter { $0.archivedAt == nil }.map { (host, $0) } }
+        let offline = app.hosts.filter { !$0.isOnline }
         let waiting = all.filter { $0.1.status == .waiting }
         let running = all.filter { $0.1.status == .running }
         let idle = all.filter { $0.1.status == .idle }
         Text("\(running.count) running · \(waiting.count) waiting · \(idle.count) idle")
+        if !offline.isEmpty {
+            Text("Offline: " + offline.map(\.name).joined(separator: ", "))
+        }
         if !waiting.isEmpty {
             Section("Needs you") { rows(waiting) }
         }
@@ -51,7 +56,7 @@ struct MenuBarLabel: View {
     /// The casm glyph (a template image, so it follows the menu bar's colour) with the number of
     /// agents that need you, or else the number running.
     var body: some View {
-        let agents = app.hosts.flatMap(\.agents).filter { $0.archivedAt == nil }
+        let agents = app.hosts.filter(\.isOnline).flatMap(\.agents).filter { $0.archivedAt == nil }
         let waiting = agents.count { $0.status == .waiting }
         let running = agents.count { $0.status == .running }
         HStack(spacing: 3) {

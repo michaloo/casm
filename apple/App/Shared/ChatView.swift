@@ -23,6 +23,8 @@ struct ChatView: View {
     private let showStatusLabel = true
     #endif
     @State private var confirmRestart = false
+    /// The synthetic transcript has no host; treat it as online.
+    private var online: Bool { chat.host?.isOnline ?? true }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,16 +40,21 @@ struct ChatView: View {
                 PermissionBanner(request: request) { decision in
                     Task { await chat.respond(to: request, decision) }
                 }
+                .disabled(!online)
                 .modifier(ComposerColumn())
             }
             ForEach(chat.questions) { request in
                 QuestionCard(request: request) { answers in
                     Task { await chat.answer(request, answers) }
                 }
+                .disabled(!online)
                 .modifier(ComposerColumn())
             }
+            if let host = chat.host, !host.isOnline {
+                OfflineBar(host: host).modifier(ComposerColumn())
+            }
             LimitBanner(chat: chat).modifier(ComposerColumn())
-            PendingStrip(chat: chat).modifier(ComposerColumn())
+            PendingStrip(chat: chat).modifier(ComposerColumn()).disabled(!online)
             Composer(chat: chat, working: app.workingSubagents(of: chat.agentId, on: chat.host))
         }
         .navigationTitle(chat.agent?.name ?? "Transcript")
@@ -56,7 +63,7 @@ struct ChatView: View {
         #endif
         .toolbar {
             // Status only when there is something to say; an idle agent shows nothing.
-            if chat.status.isBusy {
+            if chat.status.isBusy && online {
                 ToolbarItem {
                     ActivityBadge(status: chat.status, compact: !showStatusLabel)
                 }
@@ -512,6 +519,29 @@ struct PermissionBanner: View {
                 .keyboardShortcut(.defaultAction)
         }
         .fixedSize()
+    }
+}
+
+/// M1: the agent's host is unreachable; what's shown may be stale and actions can't go through.
+struct OfflineBar: View {
+    let host: HostModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.exclamationmark").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(host.name) is offline — reconnecting…").fontWeight(.medium)
+                if case .waiting(let retryAt, let error) = host.state {
+                    Text("\(error) · next try \(retryAt.formatted(.relative(presentation: .named)))")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer()
+            Button("Retry Now") { host.reconnectNow() }
+        }
+        .font(.callout)
+        .padding(10)
+        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

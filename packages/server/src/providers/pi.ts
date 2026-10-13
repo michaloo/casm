@@ -36,6 +36,12 @@ export type PiUsage = {
   cost?: { total?: number };
 };
 
+// A user shell command (`!cmd`, the RPC `bash` command) as a tool item. A
+// cancelled command has no exit code.
+export function shellItem(id: string, command: string, output: string | undefined, exitCode: number | undefined, cancelled?: boolean): Tool {
+  return { kind: "tool", id, name: "shell", input: { command }, status: exitCode === 0 && !cancelled ? "done" : "error", output: truncate(output ?? "") };
+}
+
 export type PiMessage = {
   role: string;
   content?: unknown;
@@ -49,6 +55,7 @@ export type PiMessage = {
   command?: string;
   output?: string;
   exitCode?: number;
+  cancelled?: boolean;
   summary?: string;
   details?: unknown;
   model?: string;
@@ -178,14 +185,7 @@ export function normalize(msg: PiMessage, tools: Map<string, Tool>, fallbackId =
       break;
     }
     case "bashExecution":
-      out.push({
-        kind: "tool",
-        id: key,
-        name: "bash",
-        input: { command: msg.command },
-        status: msg.exitCode === 0 ? "done" : "error",
-        output: truncate(msg.output ?? ""),
-      });
+      out.push(shellItem(key, String(msg.command ?? ""), msg.output, msg.exitCode, msg.cancelled));
       break;
     case "custom":
       if (msg.display) {
@@ -523,6 +523,8 @@ class PiSession implements ProviderSession {
   private compactionNotice: string | null = null;
   private summaryRetryNotice: string | null = null;
   private noticeSeq = 0;
+  // The running user shell command: its RPC id and tool item.
+  private shellRun: { id: string; item: Tool } | null = null;
 
   constructor(opts: OpenOptions) {
     this.opts = opts;
@@ -579,8 +581,7 @@ class PiSession implements ProviderSession {
     if (this.proc.stdin.writable) this.proc.stdin.write(JSON.stringify(cmd) + "\n");
   }
 
-  private request(cmd: Rec): Promise<Rec> {
-    const id = `casm-${++this.seq}`;
+  private request(cmd: Rec, id = `casm-${++this.seq}`): Promise<Rec> {
     return new Promise((resolve) => {
       this.pending.set(id, resolve);
       this.write({ ...cmd, id });
@@ -615,6 +616,9 @@ class PiSession implements ProviderSession {
         }
         return;
       }
+      case "bash_execution_update":
+        if (this.shellRun && r.id === this.shellRun.id && str(r.delta)) emit({ type: "toolOutput", itemId: this.shellRun.item.id, text: String(r.delta) });
+        return;
       case "tool_execution_update": {
         const id = String(r.toolCallId);
         const next = text((r.partialResult as { content?: unknown } | undefined)?.content);
@@ -780,9 +784,35 @@ class PiSession implements ProviderSession {
     });
   }
 
+  // pi runs it, streams bash_execution_update with the command's id and stores
+  // a bashExecution message that reaches the model with the next prompt.
+  shell(command: string, itemId: string) {
+    const item: Tool = { kind: "tool", id: itemId, name: "shell", input: { command }, status: "running" };
+    const id = `casm-${++this.seq}`;
+    this.running = true;
+    this.turnAbort = new AbortController();
+    this.shellRun = { id, item };
+    this.opts.emit({ type: "item", item });
+    void this.request({ type: "bash", command }, id).then((r) => {
+      this.shellRun = null;
+      if (!r.success) {
+        this.opts.emit({ type: "item", item: { ...item, status: "error", output: String(r.error ?? "bash failed") } });
+        this.endTurn(this.interrupted ? "interrupted" : "failed", String(r.error ?? "bash failed"));
+        return;
+      }
+      const d = (r.data ?? {}) as { output?: string; exitCode?: number; cancelled?: boolean };
+      this.opts.emit({ type: "item", item: shellItem(itemId, command, d.output, d.exitCode, d.cancelled) });
+      this.endTurn(d.cancelled || this.interrupted ? "interrupted" : "completed");
+    });
+  }
+
   async interrupt() {
     if (!this.running) return;
     this.interrupted = true;
+    if (this.shellRun) {
+      await this.request({ type: "abort_bash" });
+      return;
+    }
     // A pending dialog blocks the tool that opened it, and so the abort.
     this.turnAbort.abort();
     await this.request({ type: "clear_queue" });

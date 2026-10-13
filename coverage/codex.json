@@ -202,7 +202,7 @@
     "request:thread/resume": {"status": "mapped", "to": "agent.send", "note": "Opens the stored thread (Agent.nativeSessionId) on the first send after a reload."},
     "request:thread/revert": {"status": "gap", "theme": "session", "note": "No undo/revert of turns."},
     "request:thread/section/move": {"status": "ignored", "reason": "Codex desktop sidebar organization; casm has its own projects and tags."},
-    "request:thread/shellCommand": {"status": "gap", "theme": "agent-extras", "note": "User shell commands (the TUI's ! prefix) are not supported."},
+    "request:thread/shellCommand": {"status": "mapped", "to": "agent.shell", "note": "Runs as its own turn: a commandExecution item (source userShell) with streamed output; turn/interrupt stops it."},
     "request:thread/start": {"status": "mapped", "to": "agent.send", "note": "Opens a new thread on the first send of a new agent (AgentConfig -> model, approvalPolicy, sandbox, approvalsReviewer, developerInstructions, mcp_servers)."},
     "request:thread/turns/list": {"status": "mapped", "to": "agent.history", "note": "Read for failed turns' errors, placed after the turn's last item as error notices."},
     "request:thread/unarchive": {"status": "gap", "theme": "session", "note": "agent.update archived doesn't unarchive the native thread."},

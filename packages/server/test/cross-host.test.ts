@@ -44,6 +44,9 @@ const provider: Provider = {
           opts.emit({ type: "turnEnded", outcome: "completed" });
         })();
       },
+      shell() {
+        opts.emit({ type: "turnEnded", outcome: "completed" });
+      },
       async interrupt() {
         abort.abort();
       },

@@ -660,6 +660,8 @@ class CodexSession implements ProviderSession {
   // For "/skill" prompts; refreshed on skills/changed.
   private skills: Skill[] = [];
   private model = "";
+  // A thread/shellCommand was sent and its turn has not started yet.
+  private shellPending = false;
 
   constructor(opts: OpenOptions) {
     this.opts = opts;
@@ -756,6 +758,7 @@ class CodexSession implements ProviderSession {
       case "turn/started": {
         const id = str(rec(p.turn).id);
         if (!this.ended.has(id)) this.turnId = id;
+        this.shellPending = false;
         return;
       }
       case "item/agentMessage/delta":
@@ -784,6 +787,7 @@ class CodexSession implements ProviderSession {
         const id = str(turn.id);
         this.ended.add(id);
         if (this.turnId === id) this.turnId = null;
+        this.shellPending = false;
         this.abortApprovals();
         const status = str(turn.status);
         for (const t of this.tools.values())
@@ -920,8 +924,27 @@ class CodexSession implements ProviderSession {
     });
   }
 
+  // thread/shellCommand runs the command as its own turn (turn/started, a
+  // commandExecution item with source "userShell" and streamed output,
+  // turn/completed) and records it in the thread, so the model sees it. The
+  // item id is Codex's own.
+  shell(command: string, _itemId: string) {
+    void this.enqueue(async () => {
+      if (!this.threadId) return;
+      this.shellPending = true;
+      try {
+        await this.rpc.request("thread/shellCommand", { threadId: this.threadId, command });
+      } catch (e) {
+        this.shellPending = false;
+        throw e;
+      }
+    });
+  }
+
   async interrupt() {
     await this.enqueue(async () => {
+      // The shell command's turn is announced after the request returns.
+      for (let i = 0; i < 40 && this.shellPending && !this.turnId; i++) await new Promise((r) => setTimeout(r, 50));
       if (!this.threadId || !this.turnId) return;
       await this.rpc.request("turn/interrupt", { threadId: this.threadId, turnId: this.turnId });
     });

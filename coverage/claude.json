@@ -131,7 +131,7 @@
     "sdkmessage:system/worker_shutting_down": {"status": "ignored", "reason": "Emitted by the remote bridge worker only; casm runs the CLI locally."},
     "sdkmessage:tool_progress": {"status": "gap", "theme": "tool-content", "note": "Carries only elapsed time; Claude Code doesn't stream Bash/tool output to SDK hosts, so there is no AgentEvent.toolOutput for Claude."},
     "sdkmessage:tool_use_summary": {"status": "gap", "theme": "tool-content", "note": "Tool-batch summaries are dropped."},
-    "sdkmessage:user": {"status": "mapped", "to": "Item.user / Item.tool / Item.plan / Item.notice", "note": "Live: tool results and local-command stdout (prompts are emitted by casm). History: user text with images, slash commands shown as typed, interrupt and command-output notices; meta and compact-summary messages are hidden."},
+    "sdkmessage:user": {"status": "mapped", "to": "Item.user / Item.tool / Item.plan / Item.notice", "note": "Live: tool results and local-command stdout (prompts are emitted by casm). History: user text with images, slash commands shown as typed, interrupt and command-output notices, bash-mode records (<bash-input>/<bash-stdout>, as agent.shell appends with shouldQuery: false) as shell tool items; meta and compact-summary messages are hidden."},
     "streamdelta:citations_delta": {"status": "gap", "theme": "output", "note": "Citations are dropped."},
     "streamdelta:compaction_delta": {"status": "gap", "theme": "usage", "note": "Streaming compaction summary is dropped."},
     "streamdelta:input_json_delta": {"status": "gap", "theme": "tool-content", "note": "Tool input isn't streamed; the tool appears when the assistant message completes."},

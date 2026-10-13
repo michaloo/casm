@@ -10,6 +10,8 @@ import {
   parseSlash,
   planEntries,
   sessionUsage,
+  SHELL_MARKER,
+  shellTool,
   questionReply,
   questionRequest,
   type OcAgent,
@@ -332,4 +334,20 @@ test("a todowrite part maps to the turn's plan", () => {
       { text: "b", status: "pending" },
     ],
   });
+});
+
+test("shell commands: the bash part after the synthetic user message is a shell item; aborts are errors", () => {
+  const sh = { sessionID: "ses_1", messageID: "msg_sa" };
+  const shellMessages: OcMessage[] = [
+    { info: { id: "msg_su", sessionID: "ses_1", role: "user" }, parts: [{ id: "prt_su", sessionID: "ses_1", messageID: "msg_su", type: "text", text: SHELL_MARKER, synthetic: true }] },
+    {
+      info: { id: "msg_sa", sessionID: "ses_1", role: "assistant", parentID: "msg_su" },
+      parts: [{ id: "prt_sh", ...sh, type: "tool", tool: "bash", callID: "c", state: { status: "completed", input: { command: "sleep 30" }, output: "start\n\n\n<metadata>\nUser aborted the command\n</metadata>" } }],
+    },
+  ];
+  assert.deepEqual(normalizeMessages(shellMessages), [{ kind: "tool", id: "prt_sh", name: "shell", input: { command: "sleep 30" }, status: "error", output: "start" }]);
+  const ok = shellTool({ kind: "tool", id: "p", name: "bash", input: { command: "ls" }, status: "done", output: "a\n" });
+  assert.deepEqual(ok, { kind: "tool", id: "p", name: "shell", input: { command: "ls" }, status: "done", output: "a\n" });
+  // A model's bash call stays bash.
+  assert.equal((normalizeMessages(messages.slice(0, 2))[2] as { name: string }).name, "read");
 });

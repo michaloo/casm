@@ -40,6 +40,28 @@ final class SnapshotTests: XCTestCase {
         }
     }
 
+    func testComposerPieces() throws {
+        let commands = [
+            SlashCommand(name: "review", description: "Review a pull request", argumentHint: "<pr>", kind: .command),
+            SlashCommand(name: "pdf", description: "Read and fill PDFs", argumentHint: nil, kind: .skill),
+        ]
+        try render("composer-pieces", width: 460) {
+            VStack(alignment: .leading, spacing: 16) {
+                // Rows directly: SuggestionList's ScrollView doesn't render offscreen.
+                let rows = Suggestion.commands(commands, matching: "")
+                    + Suggestion.files([FileEntry(path: "packages/server", kind: .dir), FileEntry(path: "README.md", kind: .file)])
+                VStack(spacing: 1) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { i, s in SuggestionRow(suggestion: s, highlighted: i == 0) }
+                }
+                HStack(spacing: 16) {
+                    ContextRing(usage: Usage(model: "haiku", contextTokens: 34200, contextWindow: 200000))
+                    ContextRing(usage: Usage(model: "haiku", contextTokens: 150000, contextWindow: 200000))
+                    ContextRing(usage: Usage(model: "haiku", contextTokens: 190000, contextWindow: 200000))
+                }
+            }
+        }
+    }
+
     func testSubtitlePaths() {
         XCTAssertEqual(ChatView.abbreviate("/Users/michal/Projects/casm"), "~/Projects/casm")
         XCTAssertEqual(ChatView.abbreviate("/home/me"), "~")

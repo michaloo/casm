@@ -134,22 +134,21 @@ public struct UpdateProjectParams: Encodable, Sendable {
     }
 }
 
+/// `agent.create`. The agent works in its project's folder; there is no separate working directory.
 public struct CreateAgentParams: Codable, Sendable {
     public var projectId: String
     public var provider: ProviderID
     public var name: String?
-    public var cwd: String?
     public var config: AgentConfig?
     public var tags: [String]?
     public var prompt: String?
     public var images: [ImageData]?
 
-    public init(projectId: String, provider: ProviderID, name: String? = nil, cwd: String? = nil,
+    public init(projectId: String, provider: ProviderID, name: String? = nil,
                 config: AgentConfig? = nil, tags: [String]? = nil, prompt: String? = nil) {
         self.projectId = projectId
         self.provider = provider
         self.name = name
-        self.cwd = cwd
         self.config = config
         self.tags = tags
         self.prompt = prompt

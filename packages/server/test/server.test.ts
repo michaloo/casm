@@ -128,13 +128,14 @@ test("health endpoint needs no auth", async () => {
   assert.equal((await res.json()).protocol, 1);
 });
 
-test("projects nest, inherit paths and refuse cycles", async () => {
-  const parent = await client.call("project.create", { name: "Work", path: "/tmp/work" });
-  const child = await client.call("project.create", { name: "Client A", parentId: parent.id, tags: ["client"] });
-  assert.equal(store.projectPath(child.id), "/tmp/work");
-  await assert.rejects(client.call("project.update", { id: parent.id, parentId: child.id }), (e: CasmError) => e.code === 1003);
-  const agent = await client.call("agent.create", { projectId: child.id, provider: "claude" });
+test("projects are folders with an optional group", async () => {
+  const p = await client.call("project.create", { path: "/tmp/work", group: "Clients", tags: ["client"] });
+  assert.equal(p.name, "work");
+  assert.equal(p.group, "Clients");
+  await assert.rejects(client.call("project.create", { path: "relative/dir" }));
+  const agent = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   assert.equal(agent.cwd, "/tmp/work");
+  assert.equal((await client.call("project.update", { id: p.id, group: null })).group, null);
 });
 
 test("send, wait, history and session id are wired through", async () => {
@@ -151,7 +152,7 @@ test("send, wait, history and session id are wired through", async () => {
 });
 
 test("queues sends while busy and streams events to subscribers", async () => {
-  const p = await client.call("project.create", { name: "P2" });
+  const p = await client.call("project.create", { name: "P2", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   const events: string[] = [];
   const off = client.on("agent.event", (n) => n.agentId === a.id && events.push(n.event.type));
@@ -169,7 +170,7 @@ test("queues sends while busy and streams events to subscribers", async () => {
 });
 
 test("permission requests block the turn until answered", async () => {
-  const p = await client.call("project.create", { name: "P3" });
+  const p = await client.call("project.create", { name: "P3", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "please ask" });
   const w = await client.call("agent.wait", { id: a.id });
   assert.equal(w.status, "waiting");
@@ -181,7 +182,7 @@ test("permission requests block the turn until answered", async () => {
 });
 
 test("interrupt ends a running turn", async () => {
-  const p = await client.call("project.create", { name: "P4" });
+  const p = await client.call("project.create", { name: "P4", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "slow" });
   await new Promise((r) => setTimeout(r, 30));
   assert.equal((await client.call("agent.get", { id: a.id })).status, "running");
@@ -190,7 +191,7 @@ test("interrupt ends a running turn", async () => {
 });
 
 test("reload resumes the same session; late events from the old process are ignored", async () => {
-  const p = await client.call("project.create", { name: "P5" });
+  const p = await client.call("project.create", { name: "P5", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "first" });
   await client.call("agent.wait", { id: a.id });
   const native = (await client.call("agent.get", { id: a.id })).nativeSessionId;
@@ -205,7 +206,7 @@ test("reload resumes the same session; late events from the old process are igno
 });
 
 test("restart clears the native session", async () => {
-  const p = await client.call("project.create", { name: "P6" });
+  const p = await client.call("project.create", { name: "P6", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "x" });
   await client.call("agent.wait", { id: a.id });
   await client.call("agent.restart", { id: a.id });
@@ -221,7 +222,7 @@ test("invalid params are rejected with JSON-RPC errors", async () => {
 });
 
 test("questions block the turn and return the answers", async () => {
-  const p = await client.call("project.create", { name: "P7" });
+  const p = await client.call("project.create", { name: "P7", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "a question" });
   assert.equal((await client.call("agent.wait", { id: a.id })).status, "waiting");
   const sub = await client.call("agent.subscribe", { id: a.id });
@@ -249,7 +250,7 @@ test("provider catalog is cached until refreshed", async () => {
 });
 
 test("config changes merge and reload the session, after the turn if one is running", async () => {
-  const p = await client.call("project.create", { name: "P8" });
+  const p = await client.call("project.create", { name: "P8", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude", config: { model: "m1", mode: "plan" }, prompt: "hi" });
   await client.call("agent.wait", { id: a.id });
   const opened = fake.opened.length;
@@ -277,7 +278,7 @@ test("server identity, images, tool output, usage and commands", async () => {
   assert.match(info.id, /^[0-9a-f-]{36}$/);
   assert.equal((await client.call("server.info", {})).id, info.id);
 
-  const p = await client.call("project.create", { name: "P9" });
+  const p = await client.call("project.create", { name: "P9", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   const events: AgentEvent[] = [];
   client.on("agent.event", (n) => n.agentId === a.id && events.push(n.event));
@@ -308,7 +309,7 @@ test("fs.search finds files under the agent's cwd", async () => {
 });
 
 test("agent.shell runs as its own turn and is refused while busy", async () => {
-  const p = await client.call("project.create", { name: "P11" });
+  const p = await client.call("project.create", { name: "P11", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   const events: AgentEvent[] = [];
   client.on("agent.event", (n) => n.agentId === a.id && events.push(n.event));

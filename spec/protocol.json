@@ -272,13 +272,10 @@
                 "name": {
                   "type": "string"
                 },
-                "parentId": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
                 "path": {
+                  "type": "string"
+                },
+                "group": {
                   "type": [
                     "string",
                     "null"
@@ -306,8 +303,8 @@
               "required": [
                 "id",
                 "name",
-                "parentId",
                 "path",
+                "group",
                 "tags",
                 "sort",
                 "archivedAt",
@@ -326,17 +323,15 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
           "name": {
             "type": "string",
             "minLength": 1
           },
-          "parentId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "path": {
+          "group": {
             "type": [
               "string",
               "null"
@@ -350,7 +345,7 @@
           }
         },
         "required": [
-          "name"
+          "path"
         ]
       },
       "result": {
@@ -363,13 +358,10 @@
           "name": {
             "type": "string"
           },
-          "parentId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "path": {
+            "type": "string"
+          },
+          "group": {
             "type": [
               "string",
               "null"
@@ -397,8 +389,8 @@
         "required": [
           "id",
           "name",
-          "parentId",
           "path",
+          "group",
           "tags",
           "sort",
           "archivedAt",
@@ -418,13 +410,11 @@
             "type": "string",
             "minLength": 1
           },
-          "parentId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
             "type": [
               "string",
               "null"
@@ -457,13 +447,10 @@
           "name": {
             "type": "string"
           },
-          "parentId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "path": {
+            "type": "string"
+          },
+          "group": {
             "type": [
               "string",
               "null"
@@ -491,8 +478,8 @@
         "required": [
           "id",
           "name",
-          "parentId",
           "path",
+          "group",
           "tags",
           "sort",
           "archivedAt",
@@ -3287,13 +3274,10 @@
             "name": {
               "type": "string"
             },
-            "parentId": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
             "path": {
+              "type": "string"
+            },
+            "group": {
               "type": [
                 "string",
                 "null"
@@ -3321,8 +3305,8 @@
           "required": [
             "id",
             "name",
-            "parentId",
             "path",
+            "group",
             "tags",
             "sort",
             "archivedAt",

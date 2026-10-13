@@ -177,7 +177,7 @@ export function createMcp(ctx: McpContext) {
     async list_projects(a) {
       const t = target(a.host);
       const { projects } = await t.call("project.list", {});
-      return projects.map((p) => ({ id: p.id, name: p.name, path: p.path, parentId: p.parentId }));
+      return projects.map((p) => ({ id: p.id, name: p.name, path: p.path, group: p.group }));
     },
 
     async list_agents(a) {

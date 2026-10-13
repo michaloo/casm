@@ -2,6 +2,7 @@
 // client tokens and peer servers. Transcripts live in each provider's own store.
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import type { Agent, AgentConfig, AgentParent, Project, ProviderId } from "@casm/protocol";
 
 export type StoredAgent = Omit<Agent, "status">;
@@ -10,8 +11,8 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  parent_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
-  path TEXT,
+  path TEXT NOT NULL,
+  group_name TEXT,
   tags TEXT NOT NULL DEFAULT '[]',
   sort REAL NOT NULL DEFAULT 0,
   archived_at TEXT,
@@ -62,8 +63,8 @@ function toProject(r: Row): Project {
   return {
     id: r.id as string,
     name: r.name as string,
-    parentId: (r.parent_id as string | null) ?? null,
-    path: (r.path as string | null) ?? null,
+    path: r.path as string,
+    group: (r.group_name as string | null) ?? null,
     tags: JSON.parse(r.tags as string),
     sort: r.sort as number,
     archivedAt: (r.archived_at as string | null) ?? null,
@@ -93,8 +94,31 @@ export class Store {
 
   constructor(file: string) {
     this.db = new DatabaseSync(file);
-    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+    // node:sqlite enables foreign keys by default; the migration must run without them.
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = OFF;");
+    this.migrate();
+    this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec(SCHEMA);
+  }
+
+  // Projects used to nest (parent_id, optional path); now they are flat folders
+  // with a group label. Rebuilt with foreign keys off so agents are kept.
+  private migrate() {
+    const cols = (this.db.prepare("PRAGMA table_info(projects)").all() as Row[]).map((c) => c.name);
+    if (!cols.length || cols.includes("group_name")) return;
+    this.db.exec(`
+      BEGIN;
+      CREATE TABLE projects_new (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, group_name TEXT,
+        tags TEXT NOT NULL DEFAULT '[]', sort REAL NOT NULL DEFAULT 0, archived_at TEXT, created_at TEXT NOT NULL
+      );
+      INSERT INTO projects_new (id, name, path, group_name, tags, sort, archived_at, created_at)
+        SELECT p.id, p.name, COALESCE(p.path, parent.path, '${homedir().replaceAll("'", "''")}'), parent.name, p.tags, p.sort, p.archived_at, p.created_at
+        FROM projects p LEFT JOIN projects parent ON parent.id = p.parent_id;
+      DROP TABLE projects;
+      ALTER TABLE projects_new RENAME TO projects;
+      COMMIT;
+    `);
   }
 
   close() {
@@ -115,23 +139,23 @@ export class Store {
     return r && toProject(r);
   }
 
-  createProject(p: { name: string; parentId?: string | null; path?: string | null; tags?: string[] }): Project {
+  createProject(p: { name: string; path: string; group?: string | null; tags?: string[] }): Project {
     const id = randomUUID();
     this.db
-      .prepare("INSERT INTO projects (id, name, parent_id, path, tags, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(id, p.name, p.parentId ?? null, p.path ?? null, JSON.stringify(p.tags ?? []), now());
+      .prepare("INSERT INTO projects (id, name, path, group_name, tags, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(id, p.name, p.path, p.group || null, JSON.stringify(p.tags ?? []), now());
     return this.getProject(id)!;
   }
 
   updateProject(
     id: string,
-    patch: { name?: string; parentId?: string | null; path?: string | null; tags?: string[]; sort?: number; archived?: boolean },
+    patch: { name?: string; path?: string; group?: string | null; tags?: string[]; sort?: number; archived?: boolean },
   ): Project | undefined {
     const sets: string[] = [];
     const vals: (string | number | null)[] = [];
     if (patch.name !== undefined) (sets.push("name = ?"), vals.push(patch.name));
-    if (patch.parentId !== undefined) (sets.push("parent_id = ?"), vals.push(patch.parentId));
     if (patch.path !== undefined) (sets.push("path = ?"), vals.push(patch.path));
+    if (patch.group !== undefined) (sets.push("group_name = ?"), vals.push(patch.group || null));
     if (patch.tags !== undefined) (sets.push("tags = ?"), vals.push(JSON.stringify(patch.tags)));
     if (patch.sort !== undefined) (sets.push("sort = ?"), vals.push(patch.sort));
     if (patch.archived !== undefined) (sets.push("archived_at = ?"), vals.push(patch.archived ? now() : null));
@@ -141,14 +165,6 @@ export class Store {
 
   deleteProject(id: string): boolean {
     return this.db.prepare("DELETE FROM projects WHERE id = ?").run(id).changes > 0;
-  }
-
-  // The effective path: own path, else the nearest ancestor's.
-  projectPath(id: string): string | null {
-    for (let p = this.getProject(id); p; p = p.parentId ? this.getProject(p.parentId) : undefined) {
-      if (p.path) return p.path;
-    }
-    return null;
   }
 
   // --- agents

@@ -10,15 +10,20 @@ struct SidebarView: View {
     var body: some View {
         @Bindable var app = app
         List(selection: $app.selection) {
+            if !query.isEmpty {
+                ForEach(app.hosts) { host in
+                    SearchResults(host: host, query: query)
+                }
+            } else {
             ForEach(app.hosts) { host in
                 Section {
                     if host.projects.isEmpty && host.isOnline {
                         Text("No projects").foregroundStyle(.tertiary)
                     }
-                    ForEach(host.groups(includeArchived: app.showArchived), id: \.self) { group in
+                    ForEach(host.groups(), id: \.self) { group in
                         GroupNode(host: host, group: group)
                     }
-                    ForEach(host.projects(inGroup: nil, includeArchived: app.showArchived)) { project in
+                    ForEach(host.projects(inGroup: nil)) { project in
                         ProjectNode(host: host, project: project)
                     }
                     if host.isOnline {
@@ -45,6 +50,7 @@ struct SidebarView: View {
                         #endif
                 }
             }
+            }
             #if DEBUG
             Section("Debug") {
                 Label("Synthetic transcript (2,000 items)", systemImage: "speedometer")
@@ -52,8 +58,11 @@ struct SidebarView: View {
             }
             #endif
         }
+        .searchable(text: $app.sidebarSearch, placement: .sidebar, prompt: "Search agents and projects")
         .overlay {
-            if app.hosts.isEmpty {
+            if !query.isEmpty && app.hosts.allSatisfy({ host in let r = host.search(query); return r.projects.isEmpty && r.agents.isEmpty }) {
+                ContentUnavailableView.search(text: query)
+            } else if app.hosts.isEmpty {
                 ContentUnavailableView {
                     Label("No hosts", systemImage: "server.rack")
                 } description: {
@@ -75,8 +84,6 @@ struct SidebarView: View {
                     Button("New Project…") { app.sheet = .newProject(nil) }
                     Divider()
                     Button("Add Host…") { app.sheet = .addHost }
-                    Divider()
-                    Toggle("Show Archived", isOn: $app.showArchived)
                 }
             }
         }
@@ -85,6 +92,8 @@ struct SidebarView: View {
         .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         #endif
     }
+
+    private var query: String { app.sidebarSearch.trimmingCharacters(in: .whitespaces) }
 
     /// Project drags carry "project:<host>:<id>"; drops only move projects within their host.
     private func dropProjects(_ payloads: [String], on host: HostModel, group: String?) -> Bool {
@@ -185,7 +194,7 @@ struct GroupNode: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            ForEach(host.projects(inGroup: group, includeArchived: app.showArchived)) { project in
+            ForEach(host.projects(inGroup: group)) { project in
                 ProjectNode(host: host, project: project)
             }
         } label: {
@@ -217,11 +226,13 @@ struct ProjectNode: View {
     @Environment(AppModel.self) private var app
     let host: HostModel
     let project: Project
+    /// Search results list agents separately, so a project there is just its row.
+    var showsAgents = true
     @State private var expanded = true
     @State private var hovering = false
 
     var body: some View {
-        let agents = host.agents(in: project.id, includeArchived: app.showArchived)
+        let agents = showsAgents ? host.agents(in: project.id) : []
         if agents.isEmpty {
             label
         } else {
@@ -329,6 +340,34 @@ struct ProjectNode: View {
     }
 }
 
+/// One host's matches for the sidebar search, archived ones included (dimmed, with Unarchive in
+/// their context menu).
+struct SearchResults: View {
+    let host: HostModel
+    let query: String
+
+    var body: some View {
+        let results = host.search(query)
+        if !results.projects.isEmpty || !results.agents.isEmpty {
+            Section {
+                ForEach(results.projects) { ProjectNode(host: host, project: $0, showsAgents: false) }
+                ForEach(results.agents) { agent in
+                    AgentRow(agent: agent, online: host.isOnline, subtitle: subtitle(agent))
+                        .tag(Selection.agent(host: host.id, agent: agent.id))
+                        .contextMenu { AgentMenu(host: host, agent: agent) }
+                }
+            } header: {
+                HostHeader(host: host)
+            }
+        }
+    }
+
+    private func subtitle(_ agent: Agent) -> String {
+        let project = host.project(agent.projectId)?.name ?? agent.cwd
+        return agent.archivedAt == nil ? project : "\(project) · Archived"
+    }
+}
+
 /// An agent with the subagents it created nested below it.
 struct AgentNode: View {
     @Environment(AppModel.self) private var app
@@ -407,11 +446,18 @@ struct AgentRow: View {
     let agent: Agent
     /// M1: an offline host's agents are dimmed and show no (stale) status.
     var online = true
+    /// Search results: the project, and whether it's archived.
+    var subtitle: String? = nil
 
     var body: some View {
         HStack(spacing: 6) {
             Label {
-                Text(agent.name).lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(agent.name).lineLimit(1)
+                    if let subtitle {
+                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
             } icon: {
                 ProviderIcon(provider: agent.provider)
             }

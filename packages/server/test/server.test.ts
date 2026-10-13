@@ -227,3 +227,27 @@ test("provider catalog is cached until refreshed", async () => {
   assert.equal(fake.catalogCalls, before + 2);
   await assert.rejects(client.call("provider.catalog", { provider: "codex" }), (e: CasmError) => e.code === 1003);
 });
+
+test("config changes merge and reload the session, after the turn if one is running", async () => {
+  const p = await client.call("project.create", { name: "P8" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude", config: { model: "m1", mode: "plan" }, prompt: "hi" });
+  await client.call("agent.wait", { id: a.id });
+  const opened = fake.opened.length;
+
+  const u = await client.call("agent.update", { id: a.id, config: { mode: "", effort: "high" } });
+  assert.deepEqual(u.config, { model: "m1", effort: "high" });
+  await client.call("agent.send", { id: a.id, text: "again" });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal(fake.opened.length, opened + 1, "idle agent reopens with the new config");
+  assert.equal(fake.opened.at(-1)!.config.effort, "high");
+
+  await client.call("agent.send", { id: a.id, text: "slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  await client.call("agent.update", { id: a.id, config: { model: "m2" } });
+  assert.equal((await client.call("agent.get", { id: a.id })).status, "running", "running turn is not cut short");
+  await client.call("agent.interrupt", { id: a.id });
+  await client.call("agent.wait", { id: a.id });
+  await client.call("agent.send", { id: a.id, text: "after" });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal(fake.opened.at(-1)!.config.model, "m2");
+});

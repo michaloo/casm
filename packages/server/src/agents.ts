@@ -41,6 +41,8 @@ type Live = {
   turn: AgentEvent[];
   pending: Map<string, Pending>;
   queue: string[];
+  // Config changed mid-turn: restart the process once the turn ends.
+  reloadAfterTurn: boolean;
   lastReply: string | null;
   statusWaiters: Set<() => void>;
 };
@@ -90,7 +92,7 @@ export class AgentManager {
   private liveFor(id: string): Live {
     let l = this.live.get(id);
     if (!l) {
-      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), queue: [], lastReply: null, statusWaiters: new Set() };
+      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), queue: [], reloadAfterTurn: false, lastReply: null, statusWaiters: new Set() };
       this.live.set(id, l);
     }
     return l;
@@ -193,6 +195,7 @@ export class AgentManager {
     this.emit(id, { type: "turnEnded", turnId, outcome, error });
     l.turnId = null;
     l.turn = [];
+    if (l.reloadAfterTurn) this.dropSession(l);
     this.statusChanged(id);
     const next = l.queue.shift();
     if (next !== undefined) {
@@ -262,6 +265,23 @@ export class AgentManager {
     // Cancel open prompts first: an agent can't stop a tool that waits on one.
     for (const p of [...l.pending.values()]) p.reject(new Error("interrupted"));
     await l.session.interrupt();
+  }
+
+  private dropSession(l: Live) {
+    l.reloadAfterTurn = false;
+    const s = l.session;
+    l.session = null;
+    l.generation++;
+    void s?.close().catch(() => {});
+  }
+
+  // A new config applies when the session is next opened: now if idle,
+  // otherwise after the running turn.
+  configChanged(id: string) {
+    const l = this.live.get(id);
+    if (!l?.session) return;
+    if (l.turnId) l.reloadAfterTurn = true;
+    else this.dropSession(l);
   }
 
   // Drops the process; the next send resumes the same native session.

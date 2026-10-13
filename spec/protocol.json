@@ -49,8 +49,7 @@
           "version",
           "protocol",
           "providers"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "provider.catalog": {
@@ -105,8 +104,7 @@
               },
               "required": [
                 "id"
-              ],
-              "additionalProperties": false
+              ]
             }
           },
           "modes": {
@@ -126,16 +124,14 @@
               },
               "required": [
                 "id"
-              ],
-              "additionalProperties": false
+              ]
             }
           }
         },
         "required": [
           "models",
           "modes"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "project.list": {
@@ -203,15 +199,13 @@
                 "sort",
                 "archivedAt",
                 "createdAt"
-              ],
-              "additionalProperties": false
+              ]
             }
           }
         },
         "required": [
           "projects"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "project.create": {
@@ -296,8 +290,7 @@
           "sort",
           "archivedAt",
           "createdAt"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "project.update": {
@@ -391,8 +384,7 @@
           "sort",
           "archivedAt",
           "createdAt"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "project.delete": {
@@ -419,8 +411,7 @@
         },
         "required": [
           "ok"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.list": {
@@ -497,8 +488,7 @@
                         "type": "string"
                       }
                     }
-                  },
-                  "additionalProperties": false
+                  }
                 },
                 "nativeSessionId": {
                   "type": [
@@ -521,8 +511,7 @@
                       "required": [
                         "host",
                         "agentId"
-                      ],
-                      "additionalProperties": false
+                      ]
                     },
                     {
                       "type": "null"
@@ -570,15 +559,13 @@
                 "createdAt",
                 "updatedAt",
                 "status"
-              ],
-              "additionalProperties": false
+              ]
             }
           }
         },
         "required": [
           "agents"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.get": {
@@ -650,8 +637,7 @@
                   "type": "string"
                 }
               }
-            },
-            "additionalProperties": false
+            }
           },
           "nativeSessionId": {
             "type": [
@@ -674,8 +660,7 @@
                 "required": [
                   "host",
                   "agentId"
-                ],
-                "additionalProperties": false
+                ]
               },
               {
                 "type": "null"
@@ -723,8 +708,7 @@
           "createdAt",
           "updatedAt",
           "status"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.create": {
@@ -869,8 +853,7 @@
                   "type": "string"
                 }
               }
-            },
-            "additionalProperties": false
+            }
           },
           "nativeSessionId": {
             "type": [
@@ -893,8 +876,7 @@
                 "required": [
                   "host",
                   "agentId"
-                ],
-                "additionalProperties": false
+                ]
               },
               {
                 "type": "null"
@@ -942,8 +924,7 @@
           "createdAt",
           "updatedAt",
           "status"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.update": {
@@ -1064,8 +1045,7 @@
                   "type": "string"
                 }
               }
-            },
-            "additionalProperties": false
+            }
           },
           "nativeSessionId": {
             "type": [
@@ -1088,8 +1068,7 @@
                 "required": [
                   "host",
                   "agentId"
-                ],
-                "additionalProperties": false
+                ]
               },
               {
                 "type": "null"
@@ -1137,8 +1116,7 @@
           "createdAt",
           "updatedAt",
           "status"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.delete": {
@@ -1165,8 +1143,7 @@
         },
         "required": [
           "ok"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.history": {
@@ -1214,8 +1191,7 @@
                     "kind",
                     "id",
                     "text"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1235,8 +1211,7 @@
                     "kind",
                     "id",
                     "text"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1256,8 +1231,7 @@
                     "kind",
                     "id",
                     "text"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1291,8 +1265,7 @@
                     "name",
                     "input",
                     "status"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1312,8 +1285,7 @@
                     "kind",
                     "id",
                     "text"
-                  ],
-                  "additionalProperties": false
+                  ]
                 }
               ]
             }
@@ -1329,8 +1301,7 @@
           "items",
           "start",
           "total"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.subscribe": {
@@ -1376,8 +1347,7 @@
                   "required": [
                     "type",
                     "turnId"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1406,8 +1376,7 @@
                             "kind",
                             "id",
                             "text"
-                          ],
-                          "additionalProperties": false
+                          ]
                         },
                         {
                           "type": "object",
@@ -1427,8 +1396,7 @@
                             "kind",
                             "id",
                             "text"
-                          ],
-                          "additionalProperties": false
+                          ]
                         },
                         {
                           "type": "object",
@@ -1448,8 +1416,7 @@
                             "kind",
                             "id",
                             "text"
-                          ],
-                          "additionalProperties": false
+                          ]
                         },
                         {
                           "type": "object",
@@ -1483,8 +1450,7 @@
                             "name",
                             "input",
                             "status"
-                          ],
-                          "additionalProperties": false
+                          ]
                         },
                         {
                           "type": "object",
@@ -1504,8 +1470,7 @@
                             "kind",
                             "id",
                             "text"
-                          ],
-                          "additionalProperties": false
+                          ]
                         }
                       ]
                     }
@@ -1513,8 +1478,7 @@
                   "required": [
                     "type",
                     "item"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1538,8 +1502,7 @@
                     "type",
                     "kind",
                     "text"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1570,15 +1533,13 @@
                         "toolName",
                         "input",
                         "canAlwaysAllow"
-                      ],
-                      "additionalProperties": false
+                      ]
                     }
                   },
                   "required": [
                     "type",
                     "request"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1594,8 +1555,7 @@
                   "required": [
                     "type",
                     "requestId"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1650,8 +1610,7 @@
                                   },
                                   "required": [
                                     "label"
-                                  ],
-                                  "additionalProperties": false
+                                  ]
                                 }
                               },
                               "multiple": {
@@ -1674,23 +1633,20 @@
                               "id",
                               "text",
                               "kind"
-                            ],
-                            "additionalProperties": false
+                            ]
                           }
                         }
                       },
                       "required": [
                         "id",
                         "prompts"
-                      ],
-                      "additionalProperties": false
+                      ]
                     }
                   },
                   "required": [
                     "type",
                     "request"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1706,8 +1662,7 @@
                   "required": [
                     "type",
                     "requestId"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "object",
@@ -1735,8 +1690,7 @@
                     "type",
                     "turnId",
                     "outcome"
-                  ],
-                  "additionalProperties": false
+                  ]
                 }
               ]
             }
@@ -1765,8 +1719,7 @@
                 "toolName",
                 "input",
                 "canAlwaysAllow"
-              ],
-              "additionalProperties": false
+              ]
             }
           },
           "questions": {
@@ -1817,8 +1770,7 @@
                           },
                           "required": [
                             "label"
-                          ],
-                          "additionalProperties": false
+                          ]
                         }
                       },
                       "multiple": {
@@ -1841,16 +1793,14 @@
                       "id",
                       "text",
                       "kind"
-                    ],
-                    "additionalProperties": false
+                    ]
                   }
                 }
               },
               "required": [
                 "id",
                 "prompts"
-              ],
-              "additionalProperties": false
+              ]
             }
           }
         },
@@ -1859,8 +1809,7 @@
           "turn",
           "permissions",
           "questions"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.unsubscribe": {
@@ -1887,8 +1836,7 @@
         },
         "required": [
           "ok"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.send": {
@@ -1926,8 +1874,7 @@
         },
         "required": [
           "queued"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.interrupt": {
@@ -1954,8 +1901,7 @@
         },
         "required": [
           "ok"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.reload": {
@@ -1982,8 +1928,7 @@
         },
         "required": [
           "ok"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.restart": {
@@ -2010,8 +1955,7 @@
         },
         "required": [
           "ok"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.answerQuestion": {
@@ -2064,8 +2008,7 @@
         },
         "required": [
           "ok"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.respondPermission": {
@@ -2108,8 +2051,7 @@
         },
         "required": [
           "ok"
-        ],
-        "additionalProperties": false
+        ]
       }
     },
     "agent.wait": {
@@ -2154,8 +2096,7 @@
           "status",
           "timedOut",
           "lastReply"
-        ],
-        "additionalProperties": false
+        ]
       }
     }
   },
@@ -2183,8 +2124,7 @@
               "required": [
                 "type",
                 "turnId"
-              ],
-              "additionalProperties": false
+              ]
             },
             {
               "type": "object",
@@ -2213,8 +2153,7 @@
                         "kind",
                         "id",
                         "text"
-                      ],
-                      "additionalProperties": false
+                      ]
                     },
                     {
                       "type": "object",
@@ -2234,8 +2173,7 @@
                         "kind",
                         "id",
                         "text"
-                      ],
-                      "additionalProperties": false
+                      ]
                     },
                     {
                       "type": "object",
@@ -2255,8 +2193,7 @@
                         "kind",
                         "id",
                         "text"
-                      ],
-                      "additionalProperties": false
+                      ]
                     },
                     {
                       "type": "object",
@@ -2290,8 +2227,7 @@
                         "name",
                         "input",
                         "status"
-                      ],
-                      "additionalProperties": false
+                      ]
                     },
                     {
                       "type": "object",
@@ -2311,8 +2247,7 @@
                         "kind",
                         "id",
                         "text"
-                      ],
-                      "additionalProperties": false
+                      ]
                     }
                   ]
                 }
@@ -2320,8 +2255,7 @@
               "required": [
                 "type",
                 "item"
-              ],
-              "additionalProperties": false
+              ]
             },
             {
               "type": "object",
@@ -2345,8 +2279,7 @@
                 "type",
                 "kind",
                 "text"
-              ],
-              "additionalProperties": false
+              ]
             },
             {
               "type": "object",
@@ -2377,15 +2310,13 @@
                     "toolName",
                     "input",
                     "canAlwaysAllow"
-                  ],
-                  "additionalProperties": false
+                  ]
                 }
               },
               "required": [
                 "type",
                 "request"
-              ],
-              "additionalProperties": false
+              ]
             },
             {
               "type": "object",
@@ -2401,8 +2332,7 @@
               "required": [
                 "type",
                 "requestId"
-              ],
-              "additionalProperties": false
+              ]
             },
             {
               "type": "object",
@@ -2457,8 +2387,7 @@
                               },
                               "required": [
                                 "label"
-                              ],
-                              "additionalProperties": false
+                              ]
                             }
                           },
                           "multiple": {
@@ -2481,23 +2410,20 @@
                           "id",
                           "text",
                           "kind"
-                        ],
-                        "additionalProperties": false
+                        ]
                       }
                     }
                   },
                   "required": [
                     "id",
                     "prompts"
-                  ],
-                  "additionalProperties": false
+                  ]
                 }
               },
               "required": [
                 "type",
                 "request"
-              ],
-              "additionalProperties": false
+              ]
             },
             {
               "type": "object",
@@ -2513,8 +2439,7 @@
               "required": [
                 "type",
                 "requestId"
-              ],
-              "additionalProperties": false
+              ]
             },
             {
               "type": "object",
@@ -2542,8 +2467,7 @@
                 "type",
                 "turnId",
                 "outcome"
-              ],
-              "additionalProperties": false
+              ]
             }
           ]
         }
@@ -2551,8 +2475,7 @@
       "required": [
         "agentId",
         "event"
-      ],
-      "additionalProperties": false
+      ]
     },
     "agent.status": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2573,8 +2496,7 @@
       "required": [
         "agentId",
         "status"
-      ],
-      "additionalProperties": false
+      ]
     },
     "agent.changed": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2635,8 +2557,7 @@
                     "type": "string"
                   }
                 }
-              },
-              "additionalProperties": false
+              }
             },
             "nativeSessionId": {
               "type": [
@@ -2659,8 +2580,7 @@
                   "required": [
                     "host",
                     "agentId"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 {
                   "type": "null"
@@ -2708,14 +2628,12 @@
             "createdAt",
             "updatedAt",
             "status"
-          ],
-          "additionalProperties": false
+          ]
         }
       },
       "required": [
         "agent"
-      ],
-      "additionalProperties": false
+      ]
     },
     "agent.removed": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2727,8 +2645,7 @@
       },
       "required": [
         "agentId"
-      ],
-      "additionalProperties": false
+      ]
     },
     "project.changed": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2783,14 +2700,12 @@
             "sort",
             "archivedAt",
             "createdAt"
-          ],
-          "additionalProperties": false
+          ]
         }
       },
       "required": [
         "project"
-      ],
-      "additionalProperties": false
+      ]
     },
     "project.removed": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2802,8 +2717,7 @@
       },
       "required": [
         "projectId"
-      ],
-      "additionalProperties": false
+      ]
     }
   }
 }

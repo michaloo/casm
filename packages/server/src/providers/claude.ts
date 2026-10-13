@@ -89,7 +89,9 @@ export function normalize(
       }
     }
     const text = texts.join("\n").trim();
-    if (text) out.unshift({ kind: "user", id: msg.uuid, text });
+    // Claude records interrupts as a synthetic user message.
+    if (/^\[Request interrupted by user[^\]]*\]$/.test(text)) out.unshift({ kind: "notice", id: msg.uuid, text: "Interrupted" });
+    else if (text) out.unshift({ kind: "user", id: msg.uuid, text });
   }
   return out;
 }
@@ -355,11 +357,17 @@ class ClaudeSession implements ProviderSession {
       case "system":
         if (m.subtype === "init") emit({ type: "sessionId", id: m.session_id });
         return;
+      case "conversation_reset":
+        // /clear or leaving plan mode moves Claude to a new transcript.
+        emit({ type: "sessionId", id: m.new_conversation_id });
+        emit({ type: "item", item: { kind: "notice", id: m.uuid, text: `Conversation reset${m.trigger ? ` (${m.trigger})` : ""}` } });
+        return;
       case "stream_event": {
         const ev = m.event;
         if (ev.type === "content_block_delta") {
           if (ev.delta.type === "text_delta") emit({ type: "delta", kind: "assistant", text: ev.delta.text });
-          else if (ev.delta.type === "thinking_delta") emit({ type: "delta", kind: "reasoning", text: ev.delta.thinking });
+          else if (ev.delta.type === "thinking_delta" && ev.delta.thinking.trim())
+            emit({ type: "delta", kind: "reasoning", text: ev.delta.thinking });
         }
         return;
       }

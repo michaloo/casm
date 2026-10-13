@@ -264,8 +264,8 @@ export const methods = {
   "project.update": method(
     z.object({
       id: z.string(),
-      name: z.string().min(1).optional(),
-      path: z.string().min(1).optional(),
+      // The name and folder are fixed at creation: agents key their memories
+      // and sessions by the folder path.
       // null removes the project from its group.
       group: z.string().nullish(),
       tags: z.array(z.string()).optional(),

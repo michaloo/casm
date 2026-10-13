@@ -60,7 +60,6 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     },
     "project.update": (p) => {
       getProject(p.id);
-      if (p.path !== undefined && !isAbsolute(p.path)) throw new RpcError(ErrorCode.InvalidParams, "path must be absolute");
       const project = store.updateProject(p.id, p)!;
       notify("project.changed", { project });
       return project;

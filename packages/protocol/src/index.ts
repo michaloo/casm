@@ -197,6 +197,28 @@ export type Command = z.infer<typeof Command>;
 export const TurnOutcome = z.enum(["completed", "interrupted", "failed"]);
 export type TurnOutcome = z.infer<typeof TurnOutcome>;
 
+// One note in an agent's memory store. `id` is stable for update/delete
+// (for file-backed stores, the path relative to `location`).
+export const MemoryEntry = z.object({
+  id: z.string(),
+  title: z.string().optional(),
+  text: z.string(),
+  updatedAt: z.string().optional(),
+});
+export type MemoryEntry = z.infer<typeof MemoryEntry>;
+
+// The memories one agent keeps that apply to a project folder. "project"
+// stores are keyed by the folder (Claude Code); "global" ones apply to every
+// folder (Codex). `readOnly` stores can't be edited through casm.
+export const AgentMemories = z.object({
+  provider: ProviderId,
+  scope: z.enum(["project", "global"]),
+  location: z.string(),
+  readOnly: z.boolean().optional(),
+  entries: z.array(MemoryEntry),
+});
+export type AgentMemories = z.infer<typeof AgentMemories>;
+
 // Live events for one agent. `delta` streams text into a transient draft that
 // the client drops when the next assistant/reasoning `item` arrives.
 export const AgentEvent = z.discriminatedUnion("type", [
@@ -276,17 +298,31 @@ export const methods = {
   ),
   "project.delete": method(ById, Ok),
 
+  // <project path>/AGENTS.md, which Codex, OpenCode, pi and Claude Code read.
+  // `content` is null when the file doesn't exist.
+  "project.agentsMd": method(ById, z.object({ path: z.string(), content: z.string().nullable() })),
+  "project.setAgentsMd": method(z.object({ id: z.string(), content: z.string() }), z.object({ path: z.string(), content: z.string() })),
+  // Each installed agent's memories that apply to the project folder. Agents
+  // with no memory store (or nothing stored) are left out.
+  "project.memories": method(ById, z.object({ agents: z.array(AgentMemories) })),
+  // Edit or remove one entry; rejected for read-only stores.
+  "project.updateMemory": method(
+    z.object({ id: z.string(), provider: ProviderId, entryId: z.string(), text: z.string() }),
+    MemoryEntry,
+  ),
+  "project.deleteMemory": method(z.object({ id: z.string(), provider: ProviderId, entryId: z.string() }), Ok),
+
   "agent.list": method(
     z.object({ projectId: z.string().optional(), includeArchived: z.boolean().optional() }),
     z.object({ agents: z.array(Agent) }),
   ),
   "agent.get": method(ById, Agent),
+  // The working directory is always the project's folder.
   "agent.create": method(
     z.object({
       projectId: z.string(),
       provider: ProviderId,
       name: z.string().optional(),
-      cwd: z.string().optional(),
       config: AgentConfig.optional(),
       parent: AgentParent.optional(),
       tags: z.array(z.string()).optional(),
@@ -300,8 +336,8 @@ export const methods = {
   "agent.update": method(
     z.object({
       id: z.string(),
+      // Agents stay in the project they were created in.
       name: z.string().min(1).optional(),
-      projectId: z.string().optional(),
       config: AgentConfig.optional(),
       tags: z.array(z.string()).optional(),
       archived: z.boolean().optional(),

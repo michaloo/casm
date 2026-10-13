@@ -4,6 +4,7 @@ import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type Result 
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
 import { searchFiles } from "./fs-search.ts";
+import { deleteMemory, listMemories, readAgentsMd, updateMemory, writeAgentsMd } from "./project-details.ts";
 import type { PeerPool } from "./peers.ts";
 
 export type Conn = { subscriptions: Set<string> };
@@ -71,11 +72,19 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
       notify("project.removed", { projectId: p.id });
       return { ok: true };
     },
+    "project.agentsMd": (p) => readAgentsMd(getProject(p.id).path),
+    "project.setAgentsMd": (p) => writeAgentsMd(getProject(p.id).path, p.content),
+    "project.memories": async (p) => ({ agents: await listMemories(agents.installedProviders(), getProject(p.id).path) }),
+    "project.updateMemory": (p) => updateMemory(agents.installedProviders(), getProject(p.id).path, p.provider, p.entryId, p.text),
+    "project.deleteMemory": async (p) => {
+      await deleteMemory(agents.installedProviders(), getProject(p.id).path, p.provider, p.entryId);
+      return { ok: true };
+    },
 
     "agent.list": (p) => ({ agents: store.listAgents(p).map((a) => agents.withStatus(a)) }),
     "agent.get": (p) => getAgent(p.id),
     "agent.create": (p) => {
-      const cwd = p.cwd ?? getProject(p.projectId).path;
+      const cwd = getProject(p.projectId).path;
       const stored = store.createAgent({
         projectId: p.projectId,
         name: p.name ?? `${p.provider} · ${basename(cwd)}`,
@@ -91,7 +100,6 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     },
     "agent.update": (p) => {
       const current = getAgent(p.id);
-      if (p.projectId) getProject(p.projectId);
       // Config fields merge; an empty string clears a field.
       const config = p.config
         ? Object.fromEntries(Object.entries({ ...current.config, ...p.config }).filter(([, v]) => v !== "" && v !== undefined))

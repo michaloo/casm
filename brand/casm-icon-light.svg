@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1C1A24"/><stop offset="1" stop-color="#121117"/></linearGradient>
+<linearGradient id="bgl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF8F1"/><stop offset="1" stop-color="#FFE8DC"/></linearGradient>
+<linearGradient id="ln" x1="0.15" y1="0.15" x2="0.9" y2="0.9"><stop offset="0" stop-color="#FF6B81"/><stop offset=".5" stop-color="#B57BFF"/><stop offset="1" stop-color="#22D3EE"/></linearGradient>
+<linearGradient id="lnl" x1="0.15" y1="0.15" x2="0.9" y2="0.9"><stop offset="0" stop-color="#FF5A6E"/><stop offset=".5" stop-color="#8B5CF6"/><stop offset="1" stop-color="#0FB5AE"/></linearGradient></defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bgl)"/>
+  <g transform="translate(-14 -44)">
+    <path d="M684 300 C586 214 330 232 290 452 C252 656 398 772 530 764 C660 756 780 708 792 620 C802 536 670 520 650 604 C632 680 706 744 786 760 C832 770 866 790 886 818" fill="none" stroke="url(#lnl)" stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="938" cy="896" r="38" fill="#0FB5AE"/>
+  </g>
+</svg>

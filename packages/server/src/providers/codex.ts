@@ -24,6 +24,7 @@ import type {
   Usage,
 } from "@casm/protocol";
 import type { OpenOptions, PermissionAnswer, Provider, ProviderSession } from "./types.ts";
+import { codexMemories } from "./codex-memory.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
 // History drops image bytes above this (decoded) size; the item keeps the media type.
@@ -1035,5 +1036,7 @@ export function codexProvider(): Provider {
     catalog: readCatalog,
     usage: (sessionId) => readUsage(sessionId),
     commands: readCommands,
+    // Read-only: Codex regenerates its memory files itself.
+    memories: codexMemories,
   };
 }

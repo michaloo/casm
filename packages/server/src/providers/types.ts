@@ -5,6 +5,7 @@ import type {
   Command,
   ImageData,
   Item,
+  MemoryEntry,
   PermissionDecision,
   PermissionRequest,
   ProviderId,
@@ -62,4 +63,17 @@ export interface Provider {
   usage(sessionId: string, cwd: string): Promise<Usage | null>;
   // Slash commands and skills available in `cwd`.
   commands(cwd: string): Promise<Command[]>;
+  // Memories that apply to `cwd`; null when the agent has none. Agents without
+  // a memory store leave these out.
+  memories?(cwd: string): Promise<ProviderMemories | null>;
+  // Throw RpcError NotFound for an unknown entry. Left out for read-only stores.
+  updateMemory?(cwd: string, entryId: string, text: string): Promise<MemoryEntry>;
+  deleteMemory?(cwd: string, entryId: string): Promise<void>;
 }
+
+export type ProviderMemories = {
+  scope: "project" | "global";
+  location: string;
+  readOnly?: boolean;
+  entries: MemoryEntry[];
+};

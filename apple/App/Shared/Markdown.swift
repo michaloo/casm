@@ -10,6 +10,15 @@ enum MarkdownBlock: Hashable {
     case quote(AttributedString)
     case rule
     case table(MarkdownTable)
+    /// Consecutive list items; wrapped lines hang under the text, not the marker.
+    case list([MarkdownListItem])
+}
+
+struct MarkdownListItem: Hashable {
+    /// "•" or "3."
+    var marker: String
+    var text: AttributedString
+    var level: Int
 }
 
 /// A GitHub-flavoured markdown table; every row has as many cells as the header.
@@ -46,7 +55,38 @@ enum Markdown {
 
         func flushParagraph() {
             guard !paragraph.isEmpty else { return }
-            blocks.append(.paragraph(inline(paragraph.map(bullet).joined(separator: "\n"))))
+            // Split into runs of plain lines and list items (continuation lines join their item).
+            var lines: [String] = []
+            var items: [MarkdownListItem] = []
+            var itemText: [String] = []
+            func flushItem() {
+                guard var last = items.popLast() else { return }
+                last.text = inline(itemText.joined(separator: " "))
+                items.append(last)
+                itemText = []
+            }
+            func flushLines() {
+                if !lines.isEmpty { blocks.append(.paragraph(inline(lines.joined(separator: "\n")))); lines = [] }
+            }
+            func flushList() {
+                flushItem()
+                if !items.isEmpty { blocks.append(.list(items)); items = [] }
+            }
+            for line in paragraph {
+                if let (marker, rest, level) = listItem(line) {
+                    flushLines()
+                    flushItem()
+                    items.append(MarkdownListItem(marker: marker, text: AttributedString(), level: level))
+                    itemText = [rest]
+                } else if !items.isEmpty && line.first == " " {
+                    itemText.append(line.trimmingCharacters(in: .whitespaces))
+                } else {
+                    flushList()
+                    lines.append(String(line))
+                }
+            }
+            flushList()
+            flushLines()
             paragraph = []
         }
         func flushTable() {
@@ -195,13 +235,24 @@ enum Markdown {
     }
 
     /// `- item` / `* item` → `• item`, keeping the indentation.
-    private static func bullet(_ line: Substring) -> String {
-        let indent = line.prefix(while: { $0 == " " })
-        let rest = line.dropFirst(indent.count)
+    /// "- x" / "* x" / "+ x" → ("•", "x"); "3. x" / "3) x" → ("3.", "x"). Level from indentation.
+    static func listItem(_ line: Substring) -> (String, String, Int)? {
+        let indent = line.prefix(while: { $0 == " " }).count
+        let rest = line.dropFirst(indent)
+        let level = indent / 2
         if rest.hasPrefix("- ") || rest.hasPrefix("* ") || rest.hasPrefix("+ ") {
-            return indent + "• " + rest.dropFirst(2)
+            if rest.hasPrefix("- [ ] ") { return ("☐", String(rest.dropFirst(6)), level) }
+            if rest.hasPrefix("- [x] ") || rest.hasPrefix("- [X] ") { return ("☑", String(rest.dropFirst(6)), level) }
+            return ("•", String(rest.dropFirst(2)), level)
         }
-        return String(line)
+        let digits = rest.prefix(while: \.isNumber)
+        if !digits.isEmpty, digits.count <= 3 {
+            let after = rest.dropFirst(digits.count)
+            if after.hasPrefix(". ") || after.hasPrefix(") ") {
+                return ("\(digits).", String(after.dropFirst(2)), level)
+            }
+        }
+        return nil
     }
 }
 
@@ -214,10 +265,23 @@ struct MarkdownView: View {
                 switch block {
                 case .paragraph(let text):
                     Text(text).lineSpacing(Theme.proseLineSpacing)
+                case .list(let items):
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(item.marker)
+                                    .foregroundStyle(Theme.muted)
+                                    .monospacedDigit()
+                                    .frame(minWidth: 14, alignment: .trailing)
+                                Text(item.text).lineSpacing(Theme.proseLineSpacing)
+                            }
+                            .padding(.leading, CGFloat(item.level) * 18)
+                        }
+                    }
                 case .heading(let level, let text):
                     Text(text)
-                        .font(.system(size: Theme.headingSize(level), weight: level <= 2 ? .bold : .semibold))
-                        .padding(.top, i == 0 ? 0 : (level <= 2 ? 12 : 4))
+                        .font(.system(size: Theme.headingSize(level), weight: .semibold))
+                        .padding(.top, i == 0 ? 0 : 6)
                 case .code(let language, let code):
                     CodeBlock(language: language, code: code)
                 case .quote(let text):
@@ -261,7 +325,7 @@ struct MarkdownTableView: View {
         let alignment = table.alignments[column]
         let horizontal: HorizontalAlignment = alignment == .center ? .center : alignment == .trailing ? .trailing : .leading
         return Text(text)
-            .font(.callout)
+            .font(.system(size: 14))
             .fontWeight(header ? .semibold : nil)
             .multilineTextAlignment(alignment == .center ? .center : alignment == .trailing ? .trailing : .leading)
             .padding(.horizontal, 10)

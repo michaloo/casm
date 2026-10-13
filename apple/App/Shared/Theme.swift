@@ -7,16 +7,17 @@ enum Theme {
     // MARK: Type
     static let proseSize: CGFloat = 15
     /// Extra space between lines so 15 pt prose has a 21 pt line height.
-    static let proseLineSpacing: CGFloat = 4
+    static let proseLineSpacing: CGFloat = 3
     static let codeSize: CGFloat = 12
     static let toolSize: CGFloat = 14
     static let metaSize: CGFloat = 13
     static func headingSize(_ level: Int) -> CGFloat {
         switch level {
-        case 1: 28
-        case 2: 24
-        case 3: 21
-        default: 19
+        // Chat-sized: a clear step above 15 pt prose without shouting.
+        case 1: 21
+        case 2: 18
+        case 3: 16
+        default: 15
         }
     }
 

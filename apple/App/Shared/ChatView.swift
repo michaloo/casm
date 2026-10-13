@@ -273,11 +273,7 @@ struct ItemRow: View {
         case .assistant(let id, let text):
             MarkdownView(blocks: Markdown.blocks(for: text, id: id))
         case .reasoning(let id, let text):
-            DisclosureGroup(isExpanded: binding(id)) {
-                Text(text).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-            } label: {
-                Label("Thinking", systemImage: "brain").font(.callout).foregroundStyle(.secondary)
-            }
+            ThinkingRow(text: text, expanded: binding(id))
         case .tool(let call):
             ToolRow(call: call, expanded: binding(call.id))
         case .notice(_, let text, let level):
@@ -293,6 +289,43 @@ struct ItemRow: View {
 
     private func binding(_ id: String) -> Binding<Bool> {
         Binding { expanded.contains(id) } set: { if $0 { expanded.insert(id) } else { expanded.remove(id) } }
+    }
+}
+
+/// Collapsed "Thinking" in the same row style as tools (icon slot, muted 14 pt label, chevron right).
+struct ThinkingRow: View {
+    let text: String
+    @Binding var expanded: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "brain").font(.system(size: 11)).frame(width: 22, height: 22)
+                    Text("Thinking")
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .opacity(0.6)
+                }
+                .font(.system(size: Theme.toolSize))
+                .foregroundStyle(Theme.muted)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                Text(text)
+                    .font(.system(size: 14))
+                    .lineSpacing(3)
+                    .foregroundStyle(Theme.muted)
+                    .textSelection(.enabled)
+                    .padding(.leading, 26)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .padding(.horizontal, -8)
     }
 }
 
@@ -368,7 +401,7 @@ struct NoticeRow: View {
             Text(text)
                 .foregroundStyle(level == .error ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
         }
-        .font(.caption)
+        .font(.system(size: 12))
         .frame(maxWidth: .infinity)
     }
 }
@@ -379,7 +412,7 @@ struct PlanRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Label("Plan", systemImage: "checklist").font(.callout.weight(.medium)).foregroundStyle(.secondary)
+            Label("Plan", systemImage: "checklist").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.muted)
             ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     switch entry.status {
@@ -392,12 +425,13 @@ struct PlanRow: View {
                         .foregroundStyle(entry.status == .completed ? .secondary : .primary)
                         .fontWeight(entry.status == .inProgress ? .medium : .regular)
                 }
-                .font(.callout)
+                .font(.system(size: 14))
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        .background(Theme.surface1, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border))
     }
 }
 
@@ -448,7 +482,8 @@ struct ToolRow: View {
                     ToolSection(title: "Input", text: input.prettyPrinted)
                 }
                 if let output = call.output, !output.isEmpty {
-                    ToolSection(title: "Output", text: output)
+                    // A "!" command is all output; no label needed.
+                    ToolSection(title: call.isUserCommand ? "" : "Output", text: output)
                 }
             }
         }
@@ -488,27 +523,36 @@ struct ToolSection: View {
     private static let limit = 4000
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 8) {
-                Text(title).font(.caption2).foregroundStyle(.secondary)
-                Spacer()
-                if text.count > Self.limit {
-                    Button(showAll ? "Show less" : "Show all (\(text.count.formatted()) characters)") { showAll.toggle() }
-                        .buttonStyle(.borderless)
-                        .font(.caption2)
+        VStack(alignment: .leading, spacing: 4) {
+            if !title.isEmpty || text.count > Self.limit {
+                HStack(spacing: 8) {
+                    if !title.isEmpty { Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted) }
+                    Spacer()
+                    if text.count > Self.limit {
+                        Button(showAll ? "Show less" : "Show all (\(text.count.formatted()) characters)") { showAll.toggle() }
+                            .buttonStyle(.borderless)
+                            .font(.system(size: 11))
+                    }
                 }
-                Button("Copy", systemImage: "doc.on.doc") { Clipboard.copy(text) }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .font(.caption2)
-                    .help("Copy \(title.lowercased())")
             }
             Text(text.count > Self.limit && !showAll ? text.prefix(Self.limit) + "\n…" : text)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: Theme.codeSize, design: .monospaced))
+                .lineSpacing(3)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(6)
-                .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+                .padding(10)
+                .padding(.trailing, 20)
+                .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 6))
+                // Copy sits in the box's corner instead of taking a row of its own.
+                .overlay(alignment: .topTrailing) {
+                    Button("Copy", systemImage: "doc.on.doc") { Clipboard.copy(text) }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.muted)
+                        .padding(8)
+                        .help(title.isEmpty ? "Copy output" : "Copy \(title.lowercased())")
+                }
         }
     }
 }

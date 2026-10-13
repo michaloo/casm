@@ -98,12 +98,19 @@ struct HostHeader: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
+            // m9: not colour alone: offline is a hollow ring, and VoiceOver reads the state.
+            Group {
+                if host.isOnline { Circle().fill(color) } else { Circle().strokeBorder(color, lineWidth: 1.5) }
+            }
+            .frame(width: 7, height: 7)
+            .accessibilityHidden(true)
             Text(host.name)
             Spacer()
             Text(stateText).font(.caption2).foregroundStyle(.tertiary)
         }
         .help(help)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(host.name), \(accessibilityState)")
         .contextMenu {
             Button("New Project…") { app.sheet = .newProject(host) }
             Button("New Agent…") { app.sheet = .newAgent(host, projectId: nil) }
@@ -124,6 +131,15 @@ struct HostHeader: View {
         case .connected: .green
         case .connecting: .yellow
         case .waiting, .disconnected: .red
+        }
+    }
+
+    private var accessibilityState: String {
+        switch host.state {
+        case .connected: "connected"
+        case .connecting: "connecting"
+        case .waiting: "offline, reconnecting"
+        case .disconnected: "disconnected"
         }
     }
 

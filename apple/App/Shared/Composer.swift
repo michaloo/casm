@@ -350,10 +350,10 @@ struct Composer: View {
         #endif
         Task {
             let ok = shell ? await chat.shell(String(message.dropFirst())) : await chat.send(message, images: images)
-            // Put the draft back if it didn't go through.
-            if !ok && text.isEmpty {
-                text = message
-                if !shell { attachments = images.map { Attachment(image: $0) } }
+            // m1: put it back if it didn't go through, ahead of anything typed since.
+            if !ok {
+                text = text.isEmpty ? message : message + "\n" + text
+                if !shell { attachments = images.map { Attachment(image: $0) } + attachments }
             }
         }
     }

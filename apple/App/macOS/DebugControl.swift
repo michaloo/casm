@@ -155,6 +155,9 @@ final class DebugControl {
             scroller(ScrollPosition(y: y))
             afterIdle {
                 costs.append((CACurrentMediaTime() - t0) * 1000)
+                if costs.count % 250 == 0 {
+                    self.log(String(format: "bench %@: %d steps, y=%.0f, last %.1f ms", phase, costs.count, y, costs.last!))
+                }
                 DispatchQueue.main.async { next() }
             }
         }

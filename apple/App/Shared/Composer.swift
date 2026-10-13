@@ -37,6 +37,14 @@ struct Composer: View {
     @State private var pasteMonitor: Any?
     #endif
 
+    @State private var scheduling: ScheduleEditor.Mode?
+    private var hasSchedules: Bool { chat.host.map { !$0.schedules(for: chat.agentId).filter(\.enabled).isEmpty } ?? false }
+
+    /// "Send later…": a once schedule that messages this agent, with the composer text as prompt.
+    private func sendLater() {
+        scheduling = .new(agentId: chat.agentId, prompt: text, once: true)
+    }
+
     private var draftKey: String { Drafts.key(host: chat.host?.id, agent: chat.agentId) }
 
     private var busy: Bool { chat.status.isBusy }
@@ -64,8 +72,11 @@ struct Composer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if working > 0 {
-                ActivityPill(count: working)
+            if working > 0 || hasSchedules {
+                HStack(spacing: 8) {
+                    if working > 0 { ActivityPill(count: working) }
+                    if let host = chat.host { SchedulesChip(host: host, agentId: chat.agentId) }
+                }
             }
             VStack(alignment: .leading, spacing: 10) {
                 #if os(iOS)
@@ -158,6 +169,12 @@ struct Composer: View {
         #endif
         .modifier(ComposerColumn())
         .task(id: context) { await refreshSuggestions() }
+        .sheet(item: $scheduling, onDismiss: {
+            // Created: the text now lives in the schedule.
+            if let host = chat.host, host.schedules(for: chat.agentId).contains(where: { $0.prompt == trimmed }) { text = "" }
+        }) { mode in
+            if let host = chat.host { NavigationStack { ScheduleEditor(host: host, mode: mode) } }
+        }
         // B1: the draft belongs to the agent, not to this view (which is rebuilt per selection).
         .onAppear {
             text = Drafts.shared.text(draftKey)
@@ -218,6 +235,8 @@ struct Composer: View {
             Button("Photo Library", systemImage: "photo.on.rectangle") { pickingPhotos = true }
             // Not disabled: the menu is built before the user copies something.
             Button("Paste Image", systemImage: "doc.on.clipboard") { pasteImages() }
+            Divider()
+            Button("Send Later…", systemImage: "calendar.badge.clock", action: sendLater)
         } label: {
             Image(systemName: "plus").accessibilityLabel("Attach images")
                 .frame(minWidth: 44, minHeight: 44)
@@ -237,10 +256,18 @@ struct Composer: View {
             }
         }
         #else
-        Button("Attach images", systemImage: "plus") { pickingFiles = true }
-            .labelStyle(.iconOnly)
-            .disabled(shellMode)
-            .help("Attach images (or paste / drop them here)")
+        Menu {
+            Button("Attach Images…", systemImage: "photo") { pickingFiles = true }
+            Divider()
+            Button("Send Later…", systemImage: "calendar.badge.clock", action: sendLater)
+        } label: {
+            Image(systemName: "plus").accessibilityLabel("Attach or send later")
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(shellMode)
+        .help("Attach images (or paste / drop them here), or send later")
         #endif
     }
 

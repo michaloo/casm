@@ -21,6 +21,20 @@ struct SidebarView: View {
                     ForEach(host.projects(inGroup: nil, includeArchived: app.showArchived)) { project in
                         ProjectNode(host: host, project: project)
                     }
+                    if host.isOnline {
+                        Label {
+                            HStack {
+                                Text("Schedules")
+                                Spacer()
+                                let n = host.schedules.filter(\.enabled).count
+                                if n > 0 { Text("\(n)").font(.caption).foregroundStyle(.secondary) }
+                            }
+                        } icon: {
+                            Image(systemName: "calendar.badge.clock")
+                        }
+                        .foregroundStyle(.secondary)
+                        .tag(Selection.schedules(host: host.id))
+                    }
                 } header: {
                     HostHeader(host: host)
                         #if os(macOS)

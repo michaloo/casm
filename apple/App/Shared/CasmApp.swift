@@ -118,7 +118,10 @@ struct ContentView: View {
         NavigationSplitView {
             SidebarView()
         } detail: {
-            if let chat = app.chat {
+            if case .schedules(let hostID, let agentID) = app.selection, let host = app.host(hostID) {
+                NavigationStack { SchedulesView(host: host, agentId: agentID) }
+                    .id("schedules-\(hostID)-\(agentID ?? "")")
+            } else if let chat = app.chat {
                 ChatView(chat: chat)
                     .id(ObjectIdentifier(chat))
             } else {

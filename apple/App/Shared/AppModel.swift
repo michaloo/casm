@@ -7,6 +7,8 @@ import Observation
 
 enum Selection: Hashable {
     case agent(host: UUID, agent: String)
+    /// A host's schedules; `agent` narrows the list to the ones that message that agent.
+    case schedules(host: UUID, agent: String? = nil)
     #if DEBUG
     case synthetic
     #endif
@@ -128,6 +130,8 @@ final class AppModel {
             let chat = ChatModel(host: host, agentId: agentID)
             self.chat = chat
             chat.open()
+        case .schedules:
+            break
         #if DEBUG
         case .synthetic:
             chat = ChatModel.synthetic()
@@ -166,6 +170,9 @@ final class HostModel: Identifiable {
     /// Open chats get this host's live events and are re-synced on reconnect.
     @ObservationIgnored private var chats: [String: WeakChat] = [:]
     private var catalogs: [ProviderID: Catalog] = [:]
+    /// This host's schedules (schedule.list + live notifications).
+    private(set) var schedules: [Schedule] = []
+
     /// Latest subscription limits per provider on this host (provider.limits + live notifications).
     private(set) var limits: [ProviderID: ProviderLimits] = [:]
     @ObservationIgnored private var catalogLoads: Set<ProviderID> = []
@@ -224,7 +231,8 @@ final class HostModel: Identifiable {
             lastError = nil
             // m2: fetch the catalogs of providers in use now, so pickers never start with raw ids.
             for provider in Set(self.agents.map(\.provider)) { _ = catalog(for: provider) }
-            // Older servers don't have provider.limits; that's fine.
+            // Older servers have no schedules or provider.limits; that's fine.
+            if let list = try? await client.schedules() { schedules = list }
             if let all = try? await client.limits() {
                 limits = Dictionary(all.map { ($0.provider, $0) }, uniquingKeysWith: { _, b in b })
             }
@@ -282,6 +290,10 @@ final class HostModel: Identifiable {
             if pendingChanged { chats[agent.id]?.chat?.refreshPendingSoon() }
         case .providerLimits(let value):
             limits[value.provider] = value
+        case .scheduleChanged(let schedule):
+            upsert(schedule)
+        case .scheduleRemoved(let id):
+            schedules.removeAll { $0.id == id }
         case .agentRemoved(let agentID):
             agents.removeAll { $0.id == agentID }
         case .projectChanged(let project):
@@ -335,6 +347,42 @@ final class HostModel: Identifiable {
     private func isLocalParent(_ parent: AgentParent?) -> Bool {
         guard let serverID = parent?.serverId, let own = info?.id else { return true }
         return serverID == own
+    }
+
+    // MARK: Schedules
+
+    func schedules(for agentID: String) -> [Schedule] {
+        schedules.filter { $0.target.agentId == agentID }
+    }
+
+    private func upsert(_ schedule: Schedule) {
+        if let i = schedules.firstIndex(where: { $0.id == schedule.id }) { schedules[i] = schedule } else { schedules.append(schedule) }
+    }
+
+    func createSchedule(_ params: CreateScheduleParams) async throws {
+        upsert(try await client.createSchedule(params))
+    }
+
+    func updateSchedule(_ params: UpdateScheduleParams) async throws {
+        upsert(try await client.updateSchedule(params))
+    }
+
+    func setEnabled(_ schedule: Schedule, _ enabled: Bool) async {
+        await edit { upsert(try await client.updateSchedule(UpdateScheduleParams(id: schedule.id, enabled: enabled))) }
+    }
+
+    func runNow(_ schedule: Schedule) async {
+        await edit {
+            _ = try await client.runScheduleNow(id: schedule.id)
+            if let list = try? await client.schedules() { schedules = list }
+        }
+    }
+
+    func delete(_ schedule: Schedule) async {
+        await edit {
+            try await client.deleteSchedule(id: schedule.id)
+            schedules.removeAll { $0.id == schedule.id }
+        }
     }
 
     // MARK: Editing

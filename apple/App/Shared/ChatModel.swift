@@ -214,9 +214,8 @@ final class ChatModel {
     /// "!" commands (casm's "shell" tool items) start expanded: their output is the point. The
     /// user can still collapse them; that sticks because only new items are expanded.
     private func expandIfShell(_ item: Item) {
-        // The user's "!" commands carry only {command}; agents' own shell calls (Codex) add cwd etc.
-        // and stay collapsed. (The protocol has no explicit marker yet.)
-        if case .tool(let call) = item, call.name == "shell", call.input?.isOnlyCommand == true { expanded.insert(call.id) }
+        // The user's own "!" commands are marked origin: user; the agent's tool calls stay collapsed.
+        if case .tool(let call) = item, call.isUserCommand { expanded.insert(call.id) }
     }
 
     /// The item rendered just above this one, for spacing.

@@ -201,7 +201,14 @@ final class ChatModel {
         }
     }
 
+    /// A "!" command's output is what the user asked for: open its tool row.
+    @ObservationIgnored private var expandNextTool = false
+
     private func upsert(_ item: Item) {
+        if expandNextTool, case .tool(let call) = item {
+            expandNextTool = false
+            expanded.insert(call.id)
+        }
         if let i = index[item.id] {
             items[i] = item
         } else {
@@ -243,6 +250,7 @@ final class ChatModel {
         let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let host, !command.isEmpty else { return false }
         do {
+            expandNextTool = true
             try await host.client.shell(agentId: agentId, command: command)
             scrollToBottomRequest += 1
             return true

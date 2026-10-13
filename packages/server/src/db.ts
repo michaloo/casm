@@ -1,5 +1,5 @@
-// The only persistent state: projects, agents (config + native session id) and
-// client tokens. Transcripts live in each provider's own store.
+// The only persistent state: projects, agents (config + native session id),
+// client tokens and peer servers. Transcripts live in each provider's own store.
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Agent, AgentConfig, AgentParent, Project, ProviderId } from "@casm/protocol";
@@ -40,7 +40,18 @@ CREATE TABLE IF NOT EXISTS tokens (
   hash TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS peers (
+  name TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  token TEXT NOT NULL,
+  server_id TEXT,
+  created_at TEXT NOT NULL
+);
 `;
+
+// Another casm server. The token is ours to use on it (outbound), so it is
+// stored in clear, unlike client tokens.
+export type StoredPeer = { name: string; url: string; token: string; serverId: string | null; createdAt: string };
 
 type Row = Record<string, unknown>;
 
@@ -246,5 +257,30 @@ export class Store {
   checkToken(token: string): string | undefined {
     const r = this.db.prepare("SELECT name FROM tokens WHERE hash = ?").get(hashToken(token)) as Row | undefined;
     return r?.name as string | undefined;
+  }
+
+  // --- peers
+
+  setPeer(p: { name: string; url: string; token: string; serverId: string | null }) {
+    this.db
+      .prepare(
+        `INSERT INTO peers (name, url, token, server_id, created_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(name) DO UPDATE SET url = excluded.url, token = excluded.token, server_id = excluded.server_id`,
+      )
+      .run(p.name, p.url, p.token, p.serverId, now());
+  }
+
+  listPeers(): StoredPeer[] {
+    return (this.db.prepare("SELECT * FROM peers ORDER BY name").all() as Row[]).map((r) => ({
+      name: r.name as string,
+      url: r.url as string,
+      token: r.token as string,
+      serverId: (r.server_id as string | null) ?? null,
+      createdAt: r.created_at as string,
+    }));
+  }
+
+  removePeer(name: string): boolean {
+    return this.db.prepare("DELETE FROM peers WHERE name = ?").run(name).changes > 0;
   }
 }

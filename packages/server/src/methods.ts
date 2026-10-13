@@ -4,14 +4,15 @@ import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type Result 
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
 import { searchFiles } from "./fs-search.ts";
+import type { PeerPool } from "./peers.ts";
 
 export type Conn = { subscriptions: Set<string> };
 
-type Handlers = { [M in MethodName]: (p: Params<M>, conn: Conn) => Result<M> | Promise<Result<M>> };
+export type Handlers = { [M in MethodName]: (p: Params<M>, conn: Conn) => Result<M> | Promise<Result<M>> };
 
 export type Identity = { id: string; name: string; version: string };
 
-export function createHandlers(store: Store, agents: AgentManager, notify: Notify, identity: Identity): Handlers {
+export function createHandlers(store: Store, agents: AgentManager, notify: Notify, identity: Identity, peers: PeerPool): Handlers {
   const getProject = (id: string) => {
     const p = store.getProject(id);
     if (!p) throw new RpcError(ErrorCode.NotFound, `project ${id} not found`);
@@ -36,6 +37,17 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
       if (!root || !isAbsolute(root)) throw new RpcError(ErrorCode.InvalidParams, "give an agentId or an absolute cwd");
       return { root, entries: await searchFiles(root, p.query, p.limit) };
     },
+
+    "peer.list": async (p) => ({
+      peers: await Promise.all(
+        peers.list().map(async (x) => ({
+          name: x.name,
+          url: x.url,
+          serverId: x.serverId,
+          ...(p.probe ? await peers.probe(x) : {}),
+        })),
+      ),
+    }),
 
     "provider.catalog": (p) => agents.catalog(p.provider, p.refresh),
 

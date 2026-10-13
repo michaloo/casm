@@ -16,6 +16,8 @@ import {
 import { AgentManager, RpcError, type Notify } from "./agents.ts";
 import { Store } from "./db.ts";
 import { createHandlers, type Conn } from "./methods.ts";
+import { createMcp } from "./mcp.ts";
+import { PeerPool } from "./peers.ts";
 import type { Provider } from "./providers/types.ts";
 
 export type ServerOptions = {
@@ -27,6 +29,8 @@ export type ServerOptions = {
   // Display name for this server (defaults to the machine's hostname).
   name?: string;
   log?: (msg: string) => void;
+  // Connect timeout for peer servers (tests use a short one).
+  peerTimeoutMs?: number;
 };
 
 export type RunningServer = {
@@ -49,7 +53,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
   const agents = new AgentManager(opts.store, new Map(opts.providers.map((p) => [p.id, p])), notify);
   const identity = { id: opts.store.serverId(), name: opts.name ?? hostname(), version: opts.version };
-  const handlers = createHandlers(opts.store, agents, notify, identity);
+  const peers = new PeerPool(opts.store, opts.peerTimeoutMs);
+  const handlers = createHandlers(opts.store, agents, notify, identity, peers);
+  const mcp = createMcp({ identity, agents, handlers, peers });
 
   const http = createServer((req, res) => {
     // Unauthenticated, so clients can check compatibility before connecting.
@@ -57,6 +63,13 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({ ...identity, protocol: PROTOCOL_VERSION }),
       );
+      return;
+    }
+    if (req.url === "/mcp" || req.url?.startsWith("/mcp?")) {
+      mcp(req, res).catch((e) => {
+        log(`mcp request failed: ${e instanceof Error ? e.stack : e}`);
+        if (!res.headersSent) res.writeHead(500).end();
+      });
       return;
     }
     res.writeHead(426, { "content-type": "text/plain" }).end("casm: connect with a WebSocket\n");
@@ -115,6 +128,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const addr = http.address();
   const port = typeof addr === "object" && addr ? addr.port : opts.port;
   log(`listening on ws://${opts.host}:${port}`);
+  // Agents run on this machine, so they reach the MCP endpoint over loopback
+  // unless the server is bound to one specific address.
+  const wildcard = ["", "0.0.0.0", "::", "[::]"].includes(opts.host);
+  const mcpHost = wildcard ? "127.0.0.1" : opts.host.includes(":") ? `[${opts.host}]` : opts.host;
+  agents.setContext({ serverId: identity.id, serverName: identity.name, mcpUrl: `http://${mcpHost}:${port}/mcp` });
 
   return {
     http,
@@ -122,6 +140,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     agents,
     async close() {
       await agents.shutdown();
+      peers.close();
       for (const c of clients) c.ws.close();
       wss.close();
       await new Promise<void>((r) => http.close(() => r()));

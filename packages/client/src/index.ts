@@ -35,10 +35,18 @@ export class CasmClient {
     });
   }
 
-  static connect(url: string, token: string): Promise<CasmClient> {
+  // `timeoutMs` bounds the connect + handshake, so an unreachable host fails fast.
+  static connect(url: string, token: string, opts: { timeoutMs?: number } = {}): Promise<CasmClient> {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } });
-      ws.once("open", () => resolve(new CasmClient(ws)));
+      const ws = new WebSocket(url, { headers: { authorization: `Bearer ${token}` }, handshakeTimeout: opts.timeoutMs });
+      const timer = opts.timeoutMs
+        ? setTimeout(() => {
+            ws.terminate();
+            reject(new Error(`cannot connect to ${url}: no answer within ${opts.timeoutMs} ms`));
+          }, opts.timeoutMs)
+        : undefined;
+      ws.once("close", () => clearTimeout(timer));
+      ws.once("open", () => (clearTimeout(timer), resolve(new CasmClient(ws))));
       ws.once("unexpected-response", (_req, res) =>
         reject(new Error(res.statusCode === 401 ? `unauthorized at ${url} (check the token)` : `HTTP ${res.statusCode} from ${url}`)),
       );
@@ -48,6 +56,7 @@ export class CasmClient {
 
   call<M extends MethodName>(method: M, params: Params<M>): Promise<Result<M>> {
     const id = this.nextId++;
+    if (this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("connection closed"));
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
       this.ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
@@ -59,6 +68,10 @@ export class CasmClient {
     if (!set) this.listeners.set(name, (set = new Set()));
     set.add(fn as Listener);
     return () => set.delete(fn as Listener);
+  }
+
+  get isOpen(): boolean {
+    return this.ws.readyState === WebSocket.OPEN;
   }
 
   close() {

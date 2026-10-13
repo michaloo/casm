@@ -115,6 +115,67 @@ Each host offers the agents installed on it (`casm info` lists them). Each one u
 
 Override a binary with `CASM_CLAUDE_PATH`, `CASM_CODEX_PATH`, `CASM_PI_PATH` or `CASM_OPENCODE_PATH`.
 
+## Cross-host agents
+
+### Peers
+
+A server can call other casm servers ("peers") on behalf of its agents. Peers are edited on the
+server machine, straight in its DB (like tokens):
+
+```sh
+casm peer add macbook ws://michals-macbook-pro:7373 <token>   # connects and checks server.info first
+casm peer list [--probe]
+casm peer rm macbook
+```
+
+The token is one created on the peer (`casm token create ...` there). Clients see peers through the
+read-only `peer.list` RPC (`{probe: true}` adds `reachable`); peer tokens are never sent over RPC.
+`casm serve --name <n>` (or `$CASM_NAME`, or `"name"` in config.json) sets the server's display name;
+the default is the hostname.
+
+### Agent tools (MCP)
+
+Create an agent with `config.casmTools: true` (`casm run --casm-tools ...`) and its sessions get casm's
+own MCP server, served by casm at `POST /mcp` (streamable HTTP, JSON responses, no SSE). Tools:
+
+| Tool | Does |
+|---|---|
+| `list_hosts` | this server and its peers, with reachability and agents offered |
+| `list_projects(host?)`, `list_agents(host?, project?)` | |
+| `create_agent(host?, project, provider, prompt?, model?, mode?, name?)` | parent is set to the calling agent |
+| `send(host?, agent, text)` | queued if the agent is busy |
+| `wait(host?, agent, timeout_s?)` | status, last reply and pending requests; default 50 s (call again on `timedOut`) |
+| `get_history(host?, agent, limit?)` | the last transcript entries as text |
+| `answer_permission(host?, agent, request_id, decision, message?)`, `answer_question(host?, agent, request_id, answers?)` | unblock a child |
+
+`host` defaults to this server; other hosts are peer names (or server ids). Remote calls go through one
+cached connection per peer. An unreachable peer fails within 3 s, and errors come back as MCP tool
+errors. Each session gets its own bearer token, minted when the session opens and kept in memory only;
+it identifies the calling agent.
+
+| Agent | casm tools |
+|---|---|
+| Claude Code | yes: `{type: "http", url, headers}` in the SDK's `mcpServers` |
+| Codex | yes: `mcp_servers.casm = {url, http_headers}` in the thread config |
+| pi | no: pi has no MCP client. Use the `casm` CLI (env vars below) |
+| OpenCode | no: MCP servers belong to the shared `opencode serve`, so there is no per-agent token. Use the CLI |
+
+The agent's own permission flow still applies: in Claude's default mode, `mcp__casm__*` calls ask for
+approval like any other tool.
+
+### Environment of agent sessions
+
+Every session casm starts (Claude, Codex, pi; not OpenCode, whose server is shared) gets:
+
+| Variable | Value |
+|---|---|
+| `CASM_SERVER_ID` | this server's `server.info` id |
+| `CASM_SERVER_NAME` | this server's name |
+| `CASM_AGENT_ID` | the agent's id |
+
+`casm run` reads them, so an agent shelling out to `casm -H macbook run ...` links the child to itself.
+`--parent <serverId>/<agentId>` overrides them and `--parent none` turns the link off.
+
 ## Protocol coverage
 
 [coverage/REPORT.md](coverage/REPORT.md) measures how much of each agent's native protocol, and of

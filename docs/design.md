@@ -140,18 +140,25 @@ Each adapter implements: `start`, `resume`, `send`, `steer`, `interrupt`, `event
   - `casm --host macbook send <agent> "…"`, then `casm wait <agent>`
   - JSON output for scripts.
 - **Agents call agents on other hosts.** Each server has a peer list (`casm peer add macbook <url>
-  <token>`). Each server also exposes an opt-in MCP server to its own agents, built on the same client
-  library, with tools:
-  - `list_hosts`, `list_agents`
-  - `create_agent(host, project, provider, prompt)`
-  - `send(host, agent, prompt)`
-  - `wait(host, agent)`
-  - `get_last_reply(host, agent)`
+  <token>`, verified with `server.info` and stored with the peer's server id). Each server also exposes
+  an opt-in MCP server to its own agents (`AgentConfig.casmTools`), at `POST /mcp` on its HTTP port,
+  built on the same client library, with tools:
+  - `list_hosts`, `list_projects`, `list_agents`
+  - `create_agent(host, project, provider, prompt, model, mode, name)`
+  - `send(host, agent, text)`, `wait(host, agent, timeout_s)` (status + last reply + pending requests)
+  - `get_history(host, agent, limit)`
+  - `answer_permission`, `answer_question`, so a parent can unblock its child
 
   Example: an agent on ubuntu calls `create_agent(host: "macbook", …)`. The ubuntu server forwards
-  the call to the macbook server, which runs the agent with `parent = {ubuntu, callerId}`.
-- An agent can equally shell out to `casm --host macbook …`. The MCP tools exist so it doesn't need
-  shell access or a token in its environment.
+  the call to the macbook server, which runs the agent with `parent = {ubuntu's server id, callerId,
+  host: "ubuntu"}`.
+- **MCP transport:** hand-rolled streamable HTTP subset (initialize, ping, tools/list, tools/call;
+  JSON responses, no SSE, no MCP session). The bearer token is minted per agent session, kept in memory
+  and identifies the caller. Claude Code and Codex take it per session; pi has no MCP client and
+  OpenCode's MCP config is shared by every session of its one server, so those two use the CLI.
+- An agent can equally shell out to `casm --host macbook …`. Sessions get `CASM_SERVER_ID`,
+  `CASM_SERVER_NAME` and `CASM_AGENT_ID`, which `casm run` uses as the parent. The MCP tools exist so
+  the agent doesn't need shell access or a token in its environment.
 - **Unreachable host** (a sleeping laptop): fail fast with a clear error, no queuing.
 - **No cross-host state:** the child lives only on its own host, and the caller polls or waits.
 

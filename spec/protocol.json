@@ -56,6 +56,57 @@
         ]
       }
     },
+    "peer.list": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "probe": {
+            "type": "boolean"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "peers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "serverId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reachable": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "url",
+                "serverId"
+              ]
+            }
+          }
+        },
+        "required": [
+          "peers"
+        ]
+      }
+    },
     "provider.catalog": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -549,6 +600,9 @@
                       "additionalProperties": {
                         "type": "string"
                       }
+                    },
+                    "casmTools": {
+                      "type": "boolean"
                     }
                   }
                 },
@@ -701,6 +755,9 @@
                 "additionalProperties": {
                   "type": "string"
                 }
+              },
+              "casmTools": {
+                "type": "boolean"
               }
             }
           },
@@ -832,6 +889,9 @@
                 "additionalProperties": {
                   "type": "string"
                 }
+              },
+              "casmTools": {
+                "type": "boolean"
               }
             }
           },
@@ -940,6 +1000,9 @@
                 "additionalProperties": {
                   "type": "string"
                 }
+              },
+              "casmTools": {
+                "type": "boolean"
               }
             }
           },
@@ -1063,6 +1126,9 @@
                 "additionalProperties": {
                   "type": "string"
                 }
+              },
+              "casmTools": {
+                "type": "boolean"
               }
             }
           },
@@ -1135,6 +1201,9 @@
                 "additionalProperties": {
                   "type": "string"
                 }
+              },
+              "casmTools": {
+                "type": "boolean"
               }
             }
           },
@@ -3076,6 +3145,9 @@
                   "additionalProperties": {
                     "type": "string"
                   }
+                },
+                "casmTools": {
+                  "type": "boolean"
                 }
               }
             },

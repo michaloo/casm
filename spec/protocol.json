@@ -189,6 +189,97 @@
         ]
       }
     },
+    "provider.limits": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex",
+              "pi",
+              "opencode"
+            ]
+          },
+          "refresh": {
+            "type": "boolean"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "enum": [
+                    "claude",
+                    "codex",
+                    "pi",
+                    "opencode"
+                  ]
+                },
+                "plan": {
+                  "type": "string"
+                },
+                "windows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "usedPercent": {
+                        "type": "number"
+                      },
+                      "resetsAt": {
+                        "type": "string"
+                      },
+                      "windowMinutes": {
+                        "type": "number"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "ok",
+                          "warning",
+                          "exhausted"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  }
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider",
+                "windows",
+                "updatedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "limits"
+        ]
+      }
+    },
     "fs.search": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1572,6 +1663,67 @@
                   "properties": {
                     "kind": {
                       "type": "string",
+                      "const": "subagent"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "agentType": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "running",
+                        "done",
+                        "error"
+                      ]
+                    },
+                    "activity": {
+                      "type": "string"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "model": {
+                          "type": "string"
+                        },
+                        "contextTokens": {
+                          "type": "number"
+                        },
+                        "contextWindow": {
+                          "type": "number"
+                        },
+                        "inputTokens": {
+                          "type": "number"
+                        },
+                        "outputTokens": {
+                          "type": "number"
+                        },
+                        "costUsd": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "title",
+                    "status"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
                       "const": "notice"
                     },
                     "id": {
@@ -1814,6 +1966,67 @@
                             "id",
                             "name",
                             "input",
+                            "status"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "subagent"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "agentType": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "running",
+                                "done",
+                                "error"
+                              ]
+                            },
+                            "activity": {
+                              "type": "string"
+                            },
+                            "summary": {
+                              "type": "string"
+                            },
+                            "usage": {
+                              "type": "object",
+                              "properties": {
+                                "model": {
+                                  "type": "string"
+                                },
+                                "contextTokens": {
+                                  "type": "number"
+                                },
+                                "contextWindow": {
+                                  "type": "number"
+                                },
+                                "inputTokens": {
+                                  "type": "number"
+                                },
+                                "outputTokens": {
+                                  "type": "number"
+                                },
+                                "costUsd": {
+                                  "type": "number"
+                                }
+                              }
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id",
+                            "title",
                             "status"
                           ]
                         },
@@ -2415,6 +2628,283 @@
         ]
       }
     },
+    "agent.subagentHistory": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "subagentId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "subagentId"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "user"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "images": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "mediaType": {
+                            "type": "string"
+                          },
+                          "data": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "mediaType"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "assistant"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "reasoning"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "tool"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "input": {},
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "running",
+                        "done",
+                        "error"
+                      ]
+                    },
+                    "output": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "name",
+                    "input",
+                    "status"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "subagent"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "agentType": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "running",
+                        "done",
+                        "error"
+                      ]
+                    },
+                    "activity": {
+                      "type": "string"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "model": {
+                          "type": "string"
+                        },
+                        "contextTokens": {
+                          "type": "number"
+                        },
+                        "contextWindow": {
+                          "type": "number"
+                        },
+                        "inputTokens": {
+                          "type": "number"
+                        },
+                        "outputTokens": {
+                          "type": "number"
+                        },
+                        "costUsd": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "title",
+                    "status"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "notice"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "level": {
+                      "type": "string",
+                      "enum": [
+                        "info",
+                        "warning",
+                        "error"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "plan"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "entries": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "in_progress",
+                              "completed"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "text",
+                          "status"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "entries"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
     "agent.commands": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2863,6 +3353,67 @@
                         "id",
                         "name",
                         "input",
+                        "status"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "subagent"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "agentType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "running",
+                            "done",
+                            "error"
+                          ]
+                        },
+                        "activity": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "usage": {
+                          "type": "object",
+                          "properties": {
+                            "model": {
+                              "type": "string"
+                            },
+                            "contextTokens": {
+                              "type": "number"
+                            },
+                            "contextWindow": {
+                              "type": "number"
+                            },
+                            "inputTokens": {
+                              "type": "number"
+                            },
+                            "outputTokens": {
+                              "type": "number"
+                            },
+                            "costUsd": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id",
+                        "title",
                         "status"
                       ]
                     },
@@ -3449,6 +4000,74 @@
       },
       "required": [
         "project"
+      ]
+    },
+    "provider.limits": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "limits": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "codex",
+                "pi",
+                "opencode"
+              ]
+            },
+            "plan": {
+              "type": "string"
+            },
+            "windows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "usedPercent": {
+                    "type": "number"
+                  },
+                  "resetsAt": {
+                    "type": "string"
+                  },
+                  "windowMinutes": {
+                    "type": "number"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "warning",
+                      "exhausted"
+                    ]
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "provider",
+            "windows",
+            "updatedAt"
+          ]
+        }
+      },
+      "required": [
+        "limits"
       ]
     },
     "project.removed": {

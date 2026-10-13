@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { CasmClient } from "@casm/client";
-import type { Agent, AgentEvent, Item, Project, ProviderId } from "@casm/protocol";
+import type { Agent, AgentEvent, Item, Project, ProviderId, Usage } from "@casm/protocol";
 
 const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");
 const hostsFile = join(home, "hosts.json");
@@ -47,7 +47,7 @@ projects:
   project memories <project>          each agent's memories for the project folder (--json: full text)
 
 agents:
-  agents [--project p] [--all]
+  agents [--project p] [--all] [--usage]
   run --project p [--provider claude] [--name n] [--model m] [--mode m]
       [--parent serverId/agentId] [--casm-tools] [--wait] <prompt>
   send <agent> <text> [--steer] [--wait]
@@ -59,6 +59,8 @@ agents:
   answer <agent> <request> <prompt>=<value>...   (repeat a prompt for several choices)
   answer <agent> <request> --dismiss
   models [--provider p] [--refresh]  models and modes each agent offers on the host
+  limits [--provider p] [--refresh]  subscription limits per agent (used % per window)
+  usage <agent>                      context-window usage and cost of one agent
   approve <agent> <request> [--always]
   deny <agent> <request> [--message text]
   shell <agent> <command>            run a command in the agent's directory (like "!cmd")
@@ -97,6 +99,7 @@ const { values: opt, positionals } = parseArgs({
     dismiss: { type: "boolean" },
     group: { type: "string" },
     refresh: { type: "boolean" },
+    usage: { type: "boolean" },
     "casm-tools": { type: "boolean" },
     edit: { type: "boolean" },
   },
@@ -134,6 +137,16 @@ function pick<T extends { id: string; name: string }>(list: T[], ref: string, wh
 
 const shortId = (id: string) => id.slice(0, 8);
 
+const kTokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`);
+
+function formatUsage(u: Usage): string {
+  const ctx =
+    u.contextTokens !== undefined
+      ? `ctx ${kTokens(u.contextTokens)}${u.contextWindow ? `/${kTokens(u.contextWindow)} (${Math.round((100 * u.contextTokens) / u.contextWindow)}%)` : ""}`
+      : "";
+  return [ctx, u.costUsd !== undefined ? `$${u.costUsd.toFixed(2)}` : "", u.model ?? ""].filter(Boolean).join("  ");
+}
+
 // `run --parent serverId/agentId`, else the agent this CLI runs inside of.
 function runParent(): { serverId: string; agentId: string; host?: string } | undefined {
   if (opt.parent === "none") return undefined;
@@ -163,6 +176,10 @@ function renderItem(i: Item): string {
       return `  [${i.text}]`;
     case "plan":
       return i.entries.map((e) => `  ${e.status === "completed" ? "[x]" : e.status === "in_progress" ? "[~]" : "[ ]"} ${e.text}`).join("\n");
+    case "subagent": {
+      const mark = i.status === "running" ? "…" : i.status === "error" ? "✗" : "✓";
+      return `  ${mark} subagent ${i.title}${i.agentType ? ` (${i.agentType})` : ""}${i.activity && i.status === "running" ? ` - ${i.activity}` : ""}`;
+    }
   }
 }
 
@@ -322,10 +339,13 @@ async function run(c: CasmClient) {
       const projectId = opt.project ? pick(await projects(c), opt.project, "project").id : undefined;
       const { agents } = await c.call("agent.list", { projectId, includeArchived: opt.all });
       const names = new Map((await projects(c)).map((p) => [p.id, p.name]));
-      return out(agents, () => {
+      const usage = new Map<string, Usage | null>();
+      if (opt.usage) for (const a of agents) usage.set(a.id, (await c.call("agent.usage", { id: a.id })).usage);
+      const rows = opt.usage ? agents.map((a) => ({ ...a, usage: usage.get(a.id) ?? null })) : agents;
+      return out(rows, () => {
         for (const a of agents)
           console.log(
-            `${shortId(a.id)}  ${a.status.padEnd(7)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}`,
+            `${shortId(a.id)}  ${a.status.padEnd(7)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}${opt.usage ? `  ${usage.get(a.id) ? formatUsage(usage.get(a.id)!) : "-"}` : ""}`,
           );
       });
     }
@@ -432,6 +452,27 @@ async function run(c: CasmClient) {
       }
       await c.call("agent.answerQuestion", { id: a.id, requestId, answers });
       return;
+    }
+
+    case "limits": {
+      const { limits } = await c.call("provider.limits", { provider: opt.provider as ProviderId | undefined, refresh: opt.refresh });
+      return out(limits, () => {
+        if (!limits.length) console.log("no limits reported yet (they appear once an agent has run, or with --refresh for agents that can be queried)");
+        for (const l of limits) {
+          console.log(`${l.provider}${l.plan ? `  (${l.plan})` : ""}  as of ${l.updatedAt}`);
+          for (const w of l.windows) {
+            const used = w.usedPercent === undefined ? "?" : `${Math.round(w.usedPercent)}%`;
+            const reset = w.resetsAt ? `  resets ${w.resetsAt}` : "";
+            console.log(`  ${(w.label ?? w.id).padEnd(16)} ${used.padStart(4)} used${w.status && w.status !== "ok" ? `  ${w.status}` : ""}${reset}`);
+          }
+        }
+      });
+    }
+
+    case "usage": {
+      const a = await agentRef(c, args[0]);
+      const { usage } = await c.call("agent.usage", { id: a.id });
+      return out(usage, () => console.log(usage ? formatUsage(usage) : "no usage reported yet"));
     }
 
     case "models": {

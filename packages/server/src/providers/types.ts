@@ -12,6 +12,7 @@ import type {
   QuestionRequest,
   TurnOutcome,
   Usage,
+  ProviderLimits,
 } from "@casm/protocol";
 
 // What a provider reports while a session is open.
@@ -23,6 +24,8 @@ export type ProviderEvent =
   | { type: "toolOutput"; itemId: string; text: string }
   // Partial updates merge into the agent's last known usage.
   | { type: "usage"; usage: Usage }
+  // Account/subscription limits as the agent last reported them (provider-wide).
+  | { type: "limits"; limits: Omit<ProviderLimits, "provider" | "updatedAt"> }
   | { type: "turnEnded"; outcome: TurnOutcome; error?: string }
   // The process is gone; the manager drops the session and reopens on next send.
   | { type: "closed"; error?: string };
@@ -63,6 +66,11 @@ export interface Provider {
   usage(sessionId: string, cwd: string): Promise<Usage | null>;
   // Slash commands and skills available in `cwd`.
   commands(cwd: string): Promise<Command[]>;
+  // Queries account limits directly when the agent can (e.g. Codex). Others
+  // leave it out and report limits as "limits" events from their sessions.
+  limits?(): Promise<Omit<ProviderLimits, "provider" | "updatedAt"> | null>;
+  // Items of one subagent's own transcript (Item.subagent id).
+  subagentHistory?(sessionId: string, cwd: string, subagentId: string): Promise<Item[]>;
   // Memories that apply to `cwd`; null when the agent has none. Agents without
   // a memory store leave these out.
   memories?(cwd: string): Promise<ProviderMemories | null>;

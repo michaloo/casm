@@ -27,6 +27,10 @@ class FakeSession implements ProviderSession {
         await new Promise((r) => this.abort.signal.addEventListener("abort", r, { once: true }));
         return this.opts.emit({ type: "turnEnded", outcome: "interrupted" });
       }
+      if (text.includes("limits")) {
+        this.opts.emit({ type: "limits", limits: { windows: [{ id: "five_hour", usedPercent: 80, status: "warning" }] } });
+        this.opts.emit({ type: "item", item: { kind: "subagent", id: "sa1", title: "Explore repo", status: "done", summary: "found 3 files" } });
+      }
       if (text.includes("question")) {
         const answers = await this.opts.askQuestion(
           { id: "q-1", prompts: [{ id: "color", text: "Pick a color", kind: "select", options: [{ label: "red" }, { label: "blue" }] }] },
@@ -343,4 +347,19 @@ test("modes must come from the agent's catalog", async () => {
   );
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude", config: { mode: "default", model: "anything" } });
   await assert.rejects(client.call("agent.update", { id: a.id, config: { mode: "full-access" } }), (e: CasmError) => e.code === -32602);
+});
+
+test("limits reported by sessions are merged, cached and broadcast", async () => {
+  const p = await client.call("project.create", { name: "P14", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const seen: number[] = [];
+  const off = client.on("provider.limits", (n) => seen.push(n.limits.windows.length));
+  await client.call("agent.send", { id: a.id, text: "check limits" });
+  await client.call("agent.wait", { id: a.id });
+  const { limits } = await client.call("provider.limits", {});
+  assert.equal(limits[0].provider, "claude");
+  assert.deepEqual(limits[0].windows, [{ id: "five_hour", usedPercent: 80, status: "warning" }]);
+  assert.deepEqual(seen, [1]);
+  assert.deepEqual(await client.call("agent.subagentHistory", { id: a.id, subagentId: "sa1" }), { items: [] });
+  off();
 });

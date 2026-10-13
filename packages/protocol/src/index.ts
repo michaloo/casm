@@ -92,6 +92,17 @@ export const PlanEntry = z.object({
 });
 export type PlanEntry = z.infer<typeof PlanEntry>;
 
+// Context and cost, as far as the agent reports them.
+export const Usage = z.object({
+  model: z.string().optional(),
+  contextTokens: z.number().optional(),
+  contextWindow: z.number().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  costUsd: z.number().optional(),
+});
+export type Usage = z.infer<typeof Usage>;
+
 export const Item = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), id: z.string(), text: z.string(), images: z.array(ImageData).optional() }),
   z.object({ kind: z.literal("assistant"), id: z.string(), text: z.string() }),
@@ -103,6 +114,20 @@ export const Item = z.discriminatedUnion("kind", [
     input: z.unknown(),
     status: z.enum(["running", "done", "error"]),
     output: z.string().optional(),
+  }),
+  // A subagent the agent spawned itself (Claude Task tool, Codex sub-agents,
+  // OpenCode child sessions). Upserted by id as it runs; its own transcript is
+  // read with agent.subagentHistory.
+  z.object({
+    kind: z.literal("subagent"),
+    id: z.string(),
+    title: z.string(),
+    agentType: z.string().optional(),
+    status: z.enum(["running", "done", "error"]),
+    // Latest thing it did, e.g. the tool it is running.
+    activity: z.string().optional(),
+    summary: z.string().optional(),
+    usage: Usage.optional(),
   }),
   // Status lines: interrupts, retries, compaction, warnings. Upserted by id, so
   // a retry notice can update its countdown.
@@ -174,16 +199,27 @@ export type ModeInfo = z.infer<typeof ModeInfo>;
 export const Catalog = z.object({ models: z.array(ModelInfo), modes: z.array(ModeInfo) });
 export type Catalog = z.infer<typeof Catalog>;
 
-// Context and cost, as far as the agent reports them.
-export const Usage = z.object({
-  model: z.string().optional(),
-  contextTokens: z.number().optional(),
-  contextWindow: z.number().optional(),
-  inputTokens: z.number().optional(),
-  outputTokens: z.number().optional(),
-  costUsd: z.number().optional(),
+
+// Subscription / account limits of an agent provider on this host (e.g. Claude's
+// five-hour and weekly windows, Codex's primary and secondary windows).
+export const LimitWindow = z.object({
+  id: z.string(),
+  label: z.string().optional(),
+  usedPercent: z.number().optional(),
+  resetsAt: z.string().optional(),
+  windowMinutes: z.number().optional(),
+  status: z.enum(["ok", "warning", "exhausted"]).optional(),
 });
-export type Usage = z.infer<typeof Usage>;
+export type LimitWindow = z.infer<typeof LimitWindow>;
+
+export const ProviderLimits = z.object({
+  provider: ProviderId,
+  plan: z.string().optional(),
+  windows: z.array(LimitWindow),
+  // When the provider last reported them.
+  updatedAt: z.string(),
+});
+export type ProviderLimits = z.infer<typeof ProviderLimits>;
 
 export const Command = z.object({
   // Typed after "/" in the composer.
@@ -263,6 +299,13 @@ export const methods = {
 
   // Models and modes the agent offers on this host. Cached; `refresh` re-reads.
   "provider.catalog": method(z.object({ provider: ProviderId, refresh: z.boolean().optional() }), Catalog),
+  // Latest known subscription limits per provider (all installed ones by default).
+  // `refresh` asks providers that can be queried; others report what their
+  // sessions last saw.
+  "provider.limits": method(
+    z.object({ provider: ProviderId.optional(), refresh: z.boolean().optional() }),
+    z.object({ limits: z.array(ProviderLimits) }),
+  ),
 
   // Files and directories under `cwd` (or the agent's cwd) matching `query`,
   // for @-mentions. Paths are relative; .gitignore is respected.
@@ -369,6 +412,11 @@ export const methods = {
   // Latest known context/cost: from the live session, else read from the
   // provider's store. Null when the agent has not run yet.
   "agent.usage": method(ById, z.object({ usage: Usage.nullable() })),
+  // Transcript of one subagent (Item.subagent id) from the provider's store.
+  "agent.subagentHistory": method(
+    z.object({ id: z.string(), subagentId: z.string(), limit: z.number().optional() }),
+    z.object({ items: z.array(Item) }),
+  ),
   // Slash commands and skills the agent accepts. Send them as text ("/name args").
   "agent.commands": method(ById, z.object({ commands: z.array(Command) })),
   // Runs a shell command in the agent's cwd as the user ("!cmd"). It shows as a
@@ -403,6 +451,7 @@ export const notifications = {
   "agent.changed": z.object({ agent: Agent }),
   "agent.removed": z.object({ agentId: z.string() }),
   "project.changed": z.object({ project: Project }),
+  "provider.limits": z.object({ limits: ProviderLimits }),
   "project.removed": z.object({ projectId: z.string() }),
 } as const;
 

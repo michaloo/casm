@@ -60,6 +60,7 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     }),
 
     "provider.catalog": (p) => agents.catalog(p.provider, p.refresh),
+    "provider.limits": async (p) => ({ limits: await agents.limits(p.provider, p.refresh) }),
 
     "project.list": (p) => ({ projects: store.listProjects(p.includeArchived) }),
     "project.create": (p) => {
@@ -132,6 +133,7 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     },
     "agent.send": (p) => agents.send(p.id, { text: p.text, images: p.images }, p.whenBusy),
     "agent.usage": async (p) => ({ usage: await agents.usage(p.id) }),
+    "agent.subagentHistory": async (p) => ({ items: await agents.subagentHistory(p.id, p.subagentId, p.limit) }),
     "agent.commands": async (p) => ({ commands: await agents.commands(p.id) }),
     "agent.shell": (p) => {
       agents.shell(p.id, p.command);

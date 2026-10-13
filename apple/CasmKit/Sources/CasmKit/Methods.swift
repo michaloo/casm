@@ -4,6 +4,7 @@ import Foundation
 public struct EmptyParams: Codable, Sendable { public init() {} }
 public struct OK: Codable, Sendable { public var ok: Bool }
 struct ByID: Codable, Sendable { var id: String }
+struct IncludeArchived: Codable, Sendable { var includeArchived: Bool? }
 
 public struct ServerInfo: Codable, Sendable, Hashable {
     /// Stable server id; `AgentParent.serverId` refers to it. Absent on older servers.
@@ -80,16 +81,56 @@ struct PeerListParams: Codable, Sendable { var probe: Bool? }
 public struct AgentList: Codable, Sendable { public var agents: [Agent] }
 
 public struct CreateProjectParams: Codable, Sendable {
-    public var name: String
-    public var parentId: String?
-    public var path: String?
+    /// Absolute path on the server.
+    public var path: String
+    /// Defaults to the path's last segment.
+    public var name: String?
+    public var group: String?
     public var tags: [String]?
 
-    public init(name: String, parentId: String? = nil, path: String? = nil, tags: [String]? = nil) {
-        self.name = name
-        self.parentId = parentId
+    public init(path: String, name: String? = nil, group: String? = nil, tags: [String]? = nil) {
         self.path = path
+        self.name = name
+        self.group = group
         self.tags = tags
+    }
+}
+
+/// `project.update`: only group, tags, sort and archived can change after creation.
+public struct UpdateProjectParams: Encodable, Sendable {
+    public enum GroupChange: Sendable, Equatable {
+        case set(String)
+        /// Sends `null`: removes the project from its group.
+        case clear
+    }
+
+    public var id: String
+    public var group: GroupChange?
+    public var tags: [String]?
+    public var sort: Double?
+    public var archived: Bool?
+
+    public init(id: String, group: GroupChange? = nil, tags: [String]? = nil, sort: Double? = nil, archived: Bool? = nil) {
+        self.id = id
+        self.group = group
+        self.tags = tags
+        self.sort = sort
+        self.archived = archived
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, group, tags, sort, archived }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        switch group {
+        case .set(let name): try c.encode(name, forKey: .group)
+        case .clear: try c.encodeNil(forKey: .group)
+        case nil: break
+        }
+        try c.encodeIfPresent(tags, forKey: .tags)
+        try c.encodeIfPresent(sort, forKey: .sort)
+        try c.encodeIfPresent(archived, forKey: .archived)
     }
 }
 
@@ -205,16 +246,29 @@ public extension RPCClient {
         try await call("provider.catalog", CatalogParams(provider: provider, refresh: refresh ? true : nil))
     }
 
-    func listProjects() async throws -> [Project] {
-        try await (call("project.list", EmptyParams()) as ProjectList).projects
+    func listProjects(includeArchived: Bool = false) async throws -> [Project] {
+        try await (call("project.list", IncludeArchived(includeArchived: includeArchived ? true : nil)) as ProjectList).projects
     }
 
     func createProject(_ params: CreateProjectParams) async throws -> Project {
         try await call("project.create", params)
     }
 
-    func listAgents() async throws -> [Agent] {
-        try await (call("agent.list", EmptyParams()) as AgentList).agents
+    func updateProject(_ params: UpdateProjectParams) async throws -> Project {
+        try await call("project.update", params)
+    }
+
+    /// Also stops and removes the project's agents on the server.
+    func deleteProject(id: String) async throws {
+        let _: OK = try await call("project.delete", ByID(id: id))
+    }
+
+    func deleteAgent(id: String) async throws {
+        let _: OK = try await call("agent.delete", ByID(id: id))
+    }
+
+    func listAgents(includeArchived: Bool = false) async throws -> [Agent] {
+        try await (call("agent.list", IncludeArchived(includeArchived: includeArchived ? true : nil)) as AgentList).agents
     }
 
     func createAgent(_ params: CreateAgentParams) async throws -> Agent {

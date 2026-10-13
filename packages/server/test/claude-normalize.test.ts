@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SlashCommand } from "@anthropic-ai/claude-agent-sdk";
-import { Normalizer, chain, historyItems, parseCommands, parseLines, promptContent, usageFromLines, type Entry } from "../src/providers/claude.ts";
+import { Normalizer, bashRecord, bashResult, chain, historyItems, parseCommands, parseLines, promptContent, usageFromLines, type Entry } from "../src/providers/claude.ts";
 
 test("normalizes a tool call and completes it from the tool result", () => {
   const n = new Normalizer();
@@ -238,4 +238,31 @@ test("commands: skills are told apart by reloadSkills()", () => {
     { name: "compact", description: "Clear conversation history but keep a summary in context", argumentHint: "<optional custom summarization instructions>", kind: "command" },
     { name: "simplify", description: "Review changed code", argumentHint: undefined, kind: "skill" },
   ]);
+});
+
+test("bash mode: casm's one-message record and Claude's two-message form become one shell item", () => {
+  const user = (uuid: string, content: unknown): Entry => ({ type: "user", uuid, message: { role: "user", content } });
+  const n = new Normalizer();
+  const record = bashRecord("for i in 1 2; do echo $i; done; exit 3", "1\n2\n", "oops\n", 3);
+  assert.deepEqual(n.entry(user("s1", record)), [
+    { kind: "tool", id: "s1", name: "shell", input: { command: "for i in 1 2; do echo $i; done; exit 3" }, status: "error", output: "1\n2\noops" },
+  ]);
+  assert.equal(record[2]!.text, "<bash-stdout>1\n2</bash-stdout><bash-stderr>oops</bash-stderr><bash-exit-code>3</bash-exit-code>");
+  // Claude's TUI: a meta caveat, the input, then the output in its own message.
+  assert.deepEqual(n.entry({ ...user("c0", record[0]!.text), isMeta: true }), []);
+  assert.deepEqual(n.entry(user("c1", "<bash-input>ls</bash-input>")), [{ kind: "tool", id: "c1", name: "shell", input: { command: "ls" }, status: "running" }]);
+  assert.deepEqual(n.entry(user("c2", "<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>")), [
+    { kind: "tool", id: "c1", name: "shell", input: { command: "ls" }, status: "done", output: "a.txt" },
+  ]);
+  // Batched appends are stored joined in one message.
+  assert.deepEqual(n.entry(user("j1", `${record[0]!.text}\n<bash-input>pwd</bash-input>\n<bash-stdout>/w</bash-stdout><bash-stderr></bash-stderr>`)), [
+    { kind: "tool", id: "j1", name: "shell", input: { command: "pwd" }, status: "done", output: "/w" },
+  ]);
+  // An interrupted TUI command never gets its output.
+  n.entry(user("i1", "<bash-input>sleep 9</bash-input>"));
+  assert.deepEqual(n.entry(user("i2", "[Request interrupted by user]")), [
+    { kind: "tool", id: "i1", name: "shell", input: { command: "sleep 9" }, status: "error" },
+    { kind: "notice", id: "i2", text: "Interrupted" },
+  ]);
+  assert.deepEqual(bashResult("<bash-stdout>x</bash-stdout><bash-stderr></bash-stderr><bash-exit-code>0</bash-exit-code>"), { output: "x", status: "done" });
 });

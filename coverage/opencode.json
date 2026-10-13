@@ -130,7 +130,7 @@
     "op:session.prompt_async": {"status": "mapped", "to": "agent.send", "note": "model, agent (mode), variant (effort), system from AgentConfig."},
     "op:session.revert": {"status": "gap", "theme": "session", "note": "No revert/undo."},
     "op:session.share": {"status": "ignored", "reason": "Publishes the session to opencode.ai; casm deliberately uses no cloud services."},
-    "op:session.shell": {"status": "gap", "theme": "agent-extras", "note": "User shell commands are not supported."},
+    "op:session.shell": {"status": "mapped", "to": "agent.shell", "note": "Blocks until done; the bash tool part after the synthetic user message becomes the shell item. No exit code is reported, and OpenCode 1.19 expands $ and backticks once before running the command (eval inside double quotes)."},
     "op:session.status": {"status": "ignored", "reason": "Redundant: status comes from session.status events."},
     "op:session.summarize": {"status": "gap", "theme": "session", "note": "No manual compaction."},
     "op:session.todo": {"status": "ignored", "reason": "Redundant: history rebuilds each turn's plan from the todowrite tool parts."},

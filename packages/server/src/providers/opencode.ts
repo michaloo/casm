@@ -134,6 +134,23 @@ function errorItem(messageId: string, e: OcError): Item {
   return { kind: "notice", id: `${messageId}:error`, text: errorText(e), level: "error" };
 }
 
+// POST /session/:id/shell stores a user message with only this synthetic text,
+// then an assistant message with one bash tool part that runs the command.
+export const SHELL_MARKER = "The following tool was executed by the user";
+const ABORTED = /\n*<metadata>\nUser aborted the command\n<\/metadata>$/;
+
+// A user shell command's tool item. OpenCode reports no exit code; an aborted
+// command completes with a marker, which becomes an error status.
+export function shellTool(item: Extract<Item, { kind: "tool" }>): Item {
+  const command = (item.input as { command?: unknown } | undefined)?.command;
+  const out: Extract<Item, { kind: "tool" }> = { ...item, name: "shell", input: { command: typeof command === "string" ? command : "" } };
+  if (out.output !== undefined && ABORTED.test(out.output)) {
+    out.output = out.output.replace(ABORTED, "");
+    out.status = "error";
+  }
+  return out;
+}
+
 // One assistant part as an item, or null when there is nothing to show yet.
 // `turn` is the user message the part answers (assistant info.parentID).
 export function normalizePart(p: OcPart, turn?: string): Item | null {
@@ -178,8 +195,10 @@ export function normalizeMessages(messages: OcMessage[]): Item[] {
     if (i === undefined) at.set(item.id, out.push(item) - 1);
     else out[i] = item;
   };
+  const shellTurns = new Set<string>();
   for (const m of messages) {
     if (m.info.role === "user") {
+      if (m.parts.some((p) => p.type === "text" && p.synthetic && p.text === SHELL_MARKER)) shellTurns.add(m.info.id);
       const text = m.parts
         .filter((p) => p.type === "text" && !p.synthetic && !p.ignored)
         .map((p) => p.text ?? "")
@@ -190,9 +209,10 @@ export function normalizeMessages(messages: OcMessage[]): Item[] {
       for (const p of m.parts) if (p.type === "compaction") push(normalizePart(p)!);
       continue;
     }
+    const shell = shellTurns.has(m.info.parentID ?? "");
     for (const p of m.parts) {
       const item = normalizePart(p, m.info.parentID);
-      if (item) push(item);
+      if (item) push(shell && item.kind === "tool" ? shellTool(item) : item);
     }
     if (m.info.error && m.info.error.name !== "MessageAbortedError") push(errorItem(m.info.id, m.info.error));
   }
@@ -520,6 +540,8 @@ class OpencodeSession implements ProviderSession {
   // Bumped when a turn ends, so a late HTTP failure of a finished turn is ignored.
   private turnSeq = 0;
   private sawBusy = false;
+  // The running turn is a user shell command (its tool part is the command).
+  private shellTurn = false;
 
   constructor(opts: OpenOptions, server: OpencodeServer) {
     this.opts = opts;
@@ -592,8 +614,9 @@ class OpencodeSession implements ProviderSession {
         if (this.roles.get(part.messageID) !== "assistant") return;
         // The todo list arrives as todo.updated.
         if (part.type === "tool" && part.tool === "todowrite") return;
-        const item = normalizePart(part, this.userMessage);
+        let item = normalizePart(part, this.userMessage);
         if (!item) return;
+        if (item.kind === "tool" && this.shellTurn) item = shellTool(item);
         if (item.kind === "tool") {
           if (part.state?.status === "pending") return;
           if (this.toolStatus.get(item.id) !== item.status) {
@@ -694,6 +717,7 @@ class OpencodeSession implements ProviderSession {
     const error = this.error;
     this.busy = false;
     this.sawBusy = false;
+    this.shellTurn = false;
     this.turnSeq++;
     this.interrupted = false;
     this.error = undefined;
@@ -739,12 +763,32 @@ class OpencodeSession implements ProviderSession {
           system: config.systemPrompt,
         });
       })
-      .catch((e) => {
-        // A failure after the turn got going is reported by the event stream.
-        if (this.closed || seq !== this.turnSeq || this.sawBusy) return;
-        this.busy = false;
-        this.emit({ type: "turnEnded", outcome: "failed", error: e instanceof Error ? e.message : String(e) });
-      });
+      .catch((e) => this.sendFailed(seq, e));
+  }
+
+  // A failure after the turn got going is reported by the event stream.
+  private sendFailed(seq: number, e: unknown) {
+    if (this.closed || seq !== this.turnSeq || this.sawBusy) return;
+    this.busy = false;
+    this.shellTurn = false;
+    this.emit({ type: "turnEnded", outcome: "failed", error: e instanceof Error ? e.message : String(e) });
+  }
+
+  // POST /session/:id/shell runs the command in the session's directory and
+  // stores it as a tool call the model sees on the next prompt. It blocks until
+  // the command is done; the event stream drives the turn like a prompt's. The
+  // item id is the tool part's.
+  shell(command: string, _itemId: string) {
+    const { config, cwd } = this.opts;
+    const seq = this.turnSeq;
+    this.shellTurn = true;
+    void this.sessionId
+      .then(async (id) => {
+        this.busy = true;
+        const agent = config.mode ?? (await this.server.request<{ default_agent?: string }>("GET", "/config", cwd).catch(() => null))?.default_agent ?? "build";
+        return this.server.request("POST", `/session/${id}/shell`, cwd, { agent, command, model: modelRef(config.model) });
+      })
+      .catch((e) => this.sendFailed(seq, e));
   }
 
   async interrupt() {

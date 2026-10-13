@@ -1,10 +1,10 @@
 // Claude Code via the Claude Agent SDK: one long-lived query() per open
 // session, fed by an async input queue. History comes from Claude's own JSONL.
 import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
-import { homedir } from "node:os";
+import { constants as osConstants, homedir } from "node:os";
 import { join } from "node:path";
 import {
   query,
@@ -86,6 +86,41 @@ function commandText(text: string): string | null {
 
 const STDOUT = /^<local-command-(stdout|stderr)>([\s\S]*)<\/local-command-\1>$/;
 
+// Bash mode (`!cmd`): Claude stores the command as `<bash-input>` and its
+// result as `<bash-stdout>`/`<bash-stderr>` (plus `<bash-exit-code>` from
+// headless runs) in user messages, after a `<local-command-caveat>` that tells
+// the model the user ran it. casm stores the same, in one message.
+const CAVEAT = /<local-command-caveat>[\s\S]*?<\/local-command-caveat>\s*/g;
+const CAVEAT_TEXT =
+  "<local-command-caveat>The command below was run directly in Claude Code, not sent to you as a request, and its output goes straight to the user. It's recorded here as context for later messages.</local-command-caveat>";
+const BASH_INPUT = /^<bash-input>([\s\S]*?)<\/bash-input>\s*/;
+const BASH_OUTPUT = /^<bash-(?:stdout|stderr|exit-code)>/;
+// Bash output Claude keeps in the transcript (its own shell output cap).
+const MAX_BASH_RECORD = 30_000;
+
+const tagged = (text: string, tag: string) => new RegExp(`<${tag}>([\\s\\S]*)</${tag}>`).exec(text)?.[1];
+
+// The result part of a bash-mode record -> tool output and status.
+export function bashResult(text: string): { output: string; status: "done" | "error" } {
+  const exit = tagged(text, "bash-exit-code")?.trim();
+  const output = [tagged(text, "bash-stdout"), tagged(text, "bash-stderr")].filter((s) => s?.trim()).join("\n");
+  return { output: toolOutput(output), status: exit && exit !== "0" ? "error" : "done" };
+}
+
+function capRecord(text: string): string {
+  return text.length > MAX_BASH_RECORD ? `…(truncated)\n${text.slice(-MAX_BASH_RECORD)}` : text;
+}
+
+// The transcript record of a user shell command, as text blocks.
+export function bashRecord(command: string, stdout: string, stderr: string, exitCode: number): { type: "text"; text: string }[] {
+  const exit = exitCode !== 0 ? `<bash-exit-code>${exitCode}</bash-exit-code>` : "";
+  return [
+    { type: "text", text: CAVEAT_TEXT },
+    { type: "text", text: `<bash-input>${command}</bash-input>` },
+    { type: "text", text: `<bash-stdout>${capRecord(stdout.trimEnd())}</bash-stdout><bash-stderr>${capRecord(stderr.trimEnd())}</bash-stderr>${exit}` },
+  ];
+}
+
 // A transcript entry: an SDK message (live) or a JSONL line (history).
 export type Entry = {
   type: string;
@@ -122,6 +157,8 @@ export class Normalizer {
   private tasks = new Map<string, { text: string; status: PlanEntry["status"] }>();
   // Consecutive API retries share one notice.
   private retryId: string | null = null;
+  // A bash-mode command whose result is in a later message.
+  private bash: ToolItem | null = null;
 
   entry(e: Entry): Item[] {
     if (e.type === "system") return this.system(e);
@@ -224,11 +261,15 @@ export class Normalizer {
         else texts.push("[image]");
       } else if (b.type === "tool_result") out.push(...this.toolResult(b, e.toolUseResult ?? e.tool_use_result));
     }
-    let text = texts.join("\n").trim();
+    let text = texts.join("\n").replace(CAVEAT, "").trim();
     const stdout = STDOUT.exec(text);
+    const bash = this.bashCommand(uuid, text);
+    if (bash) out.unshift(bash);
     // Claude records interrupts as a synthetic user message.
-    if (/^\[Request interrupted by user[^\]]*\]$/.test(text)) out.unshift({ kind: "notice", id: uuid, text: "Interrupted" });
-    else if (stdout) {
+    else if (/^\[Request interrupted by user[^\]]*\]$/.test(text)) {
+      out.unshift({ kind: "notice", id: uuid, text: "Interrupted" });
+      if (this.bash) out.unshift({ ...this.bash, status: "error" }), (this.bash = null);
+    } else if (stdout) {
       const body = stdout[2]!.trim();
       if (body) out.unshift({ kind: "notice", id: uuid, level: stdout[1] === "stderr" ? "error" : "info", text: body });
     } else {
@@ -236,6 +277,23 @@ export class Normalizer {
       if (text || images.length) out.unshift({ kind: "user", id: uuid, text, images: images.length ? images : undefined });
     }
     return out;
+  }
+
+  // A bash-mode command, its result, or both in one message, as one shell
+  // tool item (updated in place when the result follows separately).
+  private bashCommand(uuid: string, text: string): ToolItem | null {
+    const input = BASH_INPUT.exec(text);
+    if (input) {
+      const rest = text.slice(input[0].length);
+      const item: ToolItem = { kind: "tool", id: uuid, name: "shell", input: { command: input[1] }, status: "running" };
+      if (!BASH_OUTPUT.test(rest)) return (this.bash = item);
+      this.bash = null;
+      return { ...item, ...bashResult(rest) };
+    }
+    if (!BASH_OUTPUT.test(text)) return null;
+    const prev = this.bash ?? { kind: "tool", id: uuid, name: "shell", input: { command: "" }, status: "running" };
+    this.bash = null;
+    return { ...prev, ...bashResult(text) };
   }
 
   private toolResult(b: Block, structured: unknown): Item[] {
@@ -609,6 +667,10 @@ class ClaudeSession implements ProviderSession {
   private compactId: string | null = null;
   private rateNotices = new Set<string>();
   private seen = new Set<string>();
+  // The running user shell command, then the end of its turn: the result of
+  // the transcript append (or a fallback timer if none comes).
+  private shellRun: { proc: ChildProcess; interrupted: boolean } | null = null;
+  private shellEnd: { outcome: "completed" | "interrupted"; timer: NodeJS.Timeout } | null = null;
   // Resumed sessions replay the stored transcript first so plan updates apply
   // to tasks created before the reload.
   private ready: Promise<void>;
@@ -748,6 +810,10 @@ class ClaudeSession implements ProviderSession {
         this.rateLimit(m.rate_limit_info);
         return;
       case "result": {
+        if (this.shellEnd) {
+          this.endShell();
+          return;
+        }
         const interrupted = this.interrupted;
         this.interrupted = false;
         this.n.endTurn();
@@ -844,14 +910,95 @@ class ClaudeSession implements ProviderSession {
     });
   }
 
+  // Bash mode, as Claude's own `!cmd` does it: the command runs in the
+  // session's cwd and env, and the command with its output is appended to the
+  // transcript without a model turn (shouldQuery: false), so the model sees it
+  // with the next prompt. The append reports a zero-turn result, which ends
+  // the turn. The record's uuid is the item id, so history matches.
+  shell(command: string, itemId: string) {
+    const { cwd, config, emit } = this.opts;
+    const item: ToolItem = { kind: "tool", id: itemId, name: "shell", input: { command }, status: "running" };
+    this.item(item);
+    const env = { ...(process.env as Record<string, string>), ...config.env };
+    const proc = spawn(shellPath(env.SHELL), ["-c", command], { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    const run = { proc, interrupted: false };
+    this.shellRun = run;
+    let stdout = "";
+    let stderr = "";
+    let all = "";
+    const out = (to: "stdout" | "stderr") => (chunk: Buffer) => {
+      const text = chunk.toString("utf8");
+      if (to === "stdout") stdout += text;
+      else stderr += text;
+      all += text;
+      emit({ type: "toolOutput", itemId, text });
+    };
+    proc.stdout!.on("data", out("stdout"));
+    proc.stderr!.on("data", out("stderr"));
+    let done = false;
+    const finish = (exitCode: number, error?: string) => {
+      if (done) return;
+      done = true;
+      this.shellRun = null;
+      if (error) stderr += `${stderr && !stderr.endsWith("\n") ? "\n" : ""}${error}`;
+      const output = toolOutput([all.trimEnd(), error].filter(Boolean).join("\n"));
+      this.item({ ...item, status: exitCode === 0 ? "done" : "error", output });
+      this.shellEnd = {
+        outcome: run.interrupted ? "interrupted" : "completed",
+        timer: setTimeout(() => this.endShell(), 15_000),
+      };
+      this.input.push({
+        type: "user",
+        message: { role: "user", content: bashRecord(command, stdout, stderr, exitCode) },
+        parent_tool_use_id: null,
+        shouldQuery: false,
+        uuid: itemId as SDKUserMessage["uuid"],
+      });
+    };
+    proc.on("error", (e) => finish(127, e.message));
+    proc.on("close", (code, signal) => finish(code ?? 128 + (signal ? (osConstants.signals[signal] ?? 0) : 0)));
+  }
+
+  private endShell() {
+    if (!this.shellEnd) return;
+    clearTimeout(this.shellEnd.timer);
+    const { outcome } = this.shellEnd;
+    this.shellEnd = null;
+    this.interrupted = false;
+    this.opts.emit({ type: "turnEnded", outcome });
+  }
+
   async interrupt() {
+    const run = this.shellRun;
+    if (run) {
+      // The whole process group: the shell and what it started.
+      run.interrupted = true;
+      killGroup(run.proc, "SIGTERM");
+      setTimeout(() => this.shellRun === run && killGroup(run.proc, "SIGKILL"), 2000).unref();
+      return;
+    }
+    if (this.shellEnd) return;
     this.interrupted = true;
     await this.q.interrupt();
   }
 
   async close() {
+    if (this.shellRun) killGroup(this.shellRun.proc, "SIGKILL");
     this.input.end();
     this.q.close();
+  }
+}
+
+// The user's shell when it takes `-c` like sh, else bash.
+function shellPath(shell: string | undefined): string {
+  return shell && /\/(?:ba|z|k|da)?sh$/.test(shell) ? shell : "/bin/bash";
+}
+
+function killGroup(proc: ChildProcess, signal: NodeJS.Signals) {
+  try {
+    if (proc.pid) process.kill(-proc.pid, signal);
+  } catch {
+    // Already gone.
   }
 }
 

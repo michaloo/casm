@@ -14,16 +14,16 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 | Source | Version | Ids | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|---|--:|--:|--:|--:|--:|--:|
 | Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 43 | 64 | 35 | 0 | 55% |
-| Codex (app-server) | codex-cli 0.160.1 | 225 | 59 | 113 | 53 | 0 | 53% |
-| OpenCode (serve) | opencode 1.19.0 | 147 | 32 | 66 | 49 | 0 | 40% |
-| pi (RPC mode) | pi-coding-agent 1.1.0 | 102 | 50 | 26 | 26 | 0 | 66% |
+| Codex (app-server) | codex-cli 0.160.1 | 225 | 60 | 113 | 52 | 0 | 54% |
+| OpenCode (serve) | opencode 1.19.0 | 147 | 33 | 66 | 48 | 0 | 41% |
+| pi (RPC mode) | pi-coding-agent 1.1.0 | 102 | 53 | 26 | 23 | 0 | 70% |
 | ACP (Agent Client Protocol) | @agentclientprotocol/sdk 1.8.0 | 68 | 27 | 24 | 17 | 0 | 61% |
 
 ## Gaps by theme
 
 | Theme | Gaps |
 |---|--:|
-| Agent extras (commands, skills, MCP, hooks, subagents) | 49 |
+| Agent extras (commands, skills, MCP, hooks, subagents) | 44 |
 | Session control (fork, rewind, compact, rename, list) | 43 |
 | Rich tool content (diffs, terminals, streaming output) | 20 |
 | Input content (images, files, mentions) | 17 |
@@ -66,7 +66,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **codex** `request:thread/goal/get`: Thread goals are not exposed.
 - **codex** `request:thread/goal/set`: Thread goals are not exposed.
 - **codex** `request:thread/inject_items`: Injecting history items without a turn is not supported.
-- **codex** `request:thread/shellCommand`: User shell commands (the TUI's ! prefix) are not supported.
 - **opencode** `event:lsp.updated`: LSP status is not shown.
 - **opencode** `event:mcp.tools.changed`: MCP tool changes are not shown.
 - **opencode** `event:reference.updated`: Reference (context source) changes are not surfaced.
@@ -76,12 +75,8 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **opencode** `input:subtask`: Clients can't start a subagent task directly.
 - **opencode** `op:session.children`: Subagent sessions are not exposed.
 - **opencode** `op:session.init`: /init (AGENTS.md generation) can't be run.
-- **opencode** `op:session.shell`: User shell commands are not supported.
 - **opencode** `part:agent`: @agent mentions are not shown.
 - **opencode** `part:subtask`: Subagent tasks are not shown (the task tool call itself is).
-- **pi** `command:abort_bash`: User shell commands are not supported.
-- **pi** `command:bash`: User shell commands (the TUI's ! prefix) are not supported.
-- **pi** `event:bash_execution_update`: Only for the bash command, which casm doesn't support.
 - **pi** `ui:setWidget`: Extension widgets are dropped.
 - **acp** `update:available_commands_update`: No slash-command list.
 - **acp** `update:subagent_update`: Subagents aren't modelled (casm has parent links only for casm-created agents).
@@ -268,12 +263,12 @@ codex-cli 0.160.1, from codex app-server generate-json-schema. Classified by rea
 | Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|--:|--:|--:|--:|--:|
 | clientNotification | 1 | 0 | 0 | 0 | 100% |
-| clientRequest | 12 | 67 | 25 | 0 | 32% |
+| clientRequest | 13 | 67 | 24 | 0 | 35% |
 | serverNotification | 20 | 40 | 23 | 0 | 47% |
 | serverRequest | 5 | 6 | 0 | 0 | 100% |
 | threadItem | 17 | 0 | 2 | 0 | 89% |
 | userInput | 4 | 0 | 3 | 0 | 57% |
-| **total** | **59** | **113** | **53** | **0** | **53%** |
+| **total** | **60** | **113** | **52** | **0** | **54%** |
 
 ### OpenCode (serve)
 
@@ -281,12 +276,12 @@ opencode 1.19.0, from opencode serve: GET /doc (OpenAPI). Classified by reading 
 
 | Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|--:|--:|--:|--:|--:|
-| endpoint | 13 | 12 | 15 | 0 | 46% |
+| endpoint | 14 | 12 | 14 | 0 | 50% |
 | event | 9 | 51 | 29 | 0 | 24% |
 | inputPart | 2 | 0 | 2 | 0 | 50% |
 | message | 2 | 0 | 0 | 0 | 100% |
 | part | 6 | 3 | 3 | 0 | 67% |
-| **total** | **32** | **66** | **49** | **0** | **40%** |
+| **total** | **33** | **66** | **48** | **0** | **41%** |
 
 ### pi (RPC mode)
 
@@ -295,13 +290,13 @@ pi-coding-agent 1.1.0, from pi-coding-agent/docs (rpc-commands, json, rpc-extens
 | Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|--:|--:|--:|--:|--:|
 | assistantMessageEvent | 2 | 7 | 3 | 0 | 40% |
-| command | 13 | 8 | 12 | 0 | 52% |
+| command | 15 | 8 | 10 | 0 | 60% |
 | content | 4 | 0 | 0 | 0 | 100% |
-| event | 12 | 9 | 3 | 0 | 80% |
+| event | 13 | 9 | 2 | 0 | 87% |
 | extensionUi | 5 | 0 | 4 | 0 | 56% |
 | message | 7 | 1 | 0 | 0 | 100% |
 | sessionEntry | 7 | 1 | 4 | 0 | 64% |
-| **total** | **50** | **26** | **26** | **0** | **66%** |
+| **total** | **53** | **26** | **23** | **0** | **70%** |
 
 ### ACP (Agent Client Protocol)
 

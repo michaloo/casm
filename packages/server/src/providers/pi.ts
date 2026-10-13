@@ -3,11 +3,11 @@
 // session file path (what `--session` resumes); history reads that file.
 //
 // pi has no permission system of its own. Extensions can ask through dialogs
-// (extension_ui_request); `confirm` and two-option `select` are routed through
-// askPermission, other dialogs are cancelled.
+// (extension_ui_request): `confirm` goes through askPermission; `select`,
+// `input` and `editor` become questions.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import type { Item } from "@casm/protocol";
+import type { Answers, Catalog, Item, ModelInfo, QuestionRequest } from "@casm/protocol";
 import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -141,9 +141,123 @@ export function parseSession(jsonl: string): Item[] {
   return [...items.values()];
 }
 
-// --- RPC process
+// --- dialogs and catalog
 
 type Rec = { type: string; id?: string; [k: string]: unknown };
+
+const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+
+// A select/input/editor extension_ui_request as a one-prompt question; null for
+// other methods. The prompt id is the method.
+export function dialogQuestion(r: Rec): QuestionRequest | null {
+  const method = String(r.method);
+  const text = [str(r.title), str(r.message)].filter(Boolean).join("\n\n") || method;
+  const base = { id: method, text };
+  switch (method) {
+    case "select": {
+      const options = Array.isArray(r.options) ? (r.options as unknown[]).map((o) => ({ label: String(o) })) : [];
+      return { id: String(r.id), prompts: [{ ...base, kind: "select", options }] };
+    }
+    case "input":
+      return { id: String(r.id), prompts: [{ ...base, kind: "text", placeholder: str(r.placeholder) }] };
+    case "editor":
+      return { id: String(r.id), prompts: [{ ...base, kind: "text", multiline: true, placeholder: str(r.prefill) }] };
+  }
+  return null;
+}
+
+// The extension_ui_response for a question's answers; null answers cancel.
+export function dialogResponse(req: QuestionRequest, answers: Answers | null): Rec {
+  const prompt = req.prompts[0];
+  const v = answers?.[prompt.id];
+  const value = Array.isArray(v) ? v[0] : typeof v === "string" ? v : undefined;
+  return value === undefined ? { type: "extension_ui_response", id: req.id, cancelled: true } : { type: "extension_ui_response", id: req.id, value };
+}
+
+type PiModel = { id: string; name?: string; provider: string; reasoning?: boolean; thinkingLevelMap?: Record<string, string | null> };
+
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+// pi-ai getSupportedThinkingLevels: null in the map disables a level; xhigh and
+// max must be mapped explicitly.
+function thinkingLevels(m: PiModel): string[] {
+  if (!m.reasoning) return ["off"];
+  return THINKING_LEVELS.filter((level) => {
+    const mapped = m.thinkingLevelMap?.[level];
+    if (mapped === null) return false;
+    return level === "xhigh" || level === "max" ? mapped !== undefined : true;
+  });
+}
+
+// get_available_models plus the default model from get_state. Ids are bare
+// unless several providers share one, then `provider/id` (both work for --model).
+export function parseCatalog(models: PiModel[], current?: { id: string; provider: string }): Catalog {
+  const count = new Map<string, number>();
+  for (const m of models) count.set(m.id, (count.get(m.id) ?? 0) + 1);
+  return {
+    models: models.map((m): ModelInfo => {
+      const shared = count.get(m.id)! > 1;
+      return {
+        id: shared ? `${m.provider}/${m.id}` : m.id,
+        name: shared ? `${m.name ?? m.id} (${m.provider})` : (m.name ?? m.id),
+        description: m.provider,
+        isDefault: current?.id === m.id && current.provider === m.provider,
+        efforts: thinkingLevels(m),
+      };
+    }),
+    modes: [],
+  };
+}
+
+// A short-lived `pi --mode rpc --no-session`: no session file, no inference.
+function fetchCatalog(): Promise<Catalog> {
+  return new Promise((resolve, reject) => {
+    const args = ["--mode", "rpc", "--no-session"];
+    if (process.env.CASM_PI_ARGS) args.push(...process.env.CASM_PI_ARGS.split(" ").filter(Boolean));
+    const proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const responses = new Map<string, Rec>();
+    let buf = "";
+    let stderr = "";
+    let done = false;
+    const finish = (err?: Error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      proc.stdin.end();
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGTERM");
+      if (err) return reject(err);
+      const models = responses.get("models")!;
+      const state = responses.get("state");
+      if (!models.success) return reject(new Error(`pi get_available_models: ${String(models.error)}`));
+      const current = (state?.data as { model?: { id: string; provider: string } } | undefined)?.model;
+      resolve(parseCatalog((models.data as { models: PiModel[] }).models, current));
+    };
+    const timer = setTimeout(() => finish(new Error("pi catalog timed out")), 30_000);
+    proc.on("error", (e) => finish(e));
+    proc.on("exit", (code) => finish(new Error(`pi exited with code ${code}: ${stderr.trim()}`)));
+    proc.stdin.on("error", () => {});
+    proc.stderr.setEncoding("utf8");
+    proc.stderr.on("data", (c: string) => (stderr = (stderr + c).slice(-2000)));
+    proc.stdout.setEncoding("utf8");
+    proc.stdout.on("data", (chunk: string) => {
+      buf += chunk;
+      let i: number;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 1);
+        try {
+          const r = JSON.parse(line) as Rec;
+          if (r.type === "response" && (r.id === "state" || r.id === "models")) responses.set(r.id, r);
+        } catch {}
+        if (responses.size === 2) return finish();
+      }
+    });
+    proc.stdin.write(JSON.stringify({ type: "get_state", id: "state" }) + "\n");
+    proc.stdin.write(JSON.stringify({ type: "get_available_models", id: "models" }) + "\n");
+  });
+}
+
+// --- RPC process
 
 class PiSession implements ProviderSession {
   private proc: ChildProcessWithoutNullStreams;
@@ -266,24 +380,32 @@ class PiSession implements ProviderSession {
   }
 
   private async dialog(r: Rec) {
-    const method = r.method as string;
-    const options = Array.isArray(r.options) ? (r.options as string[]) : [];
     const id = String(r.id);
-    if (method !== "confirm" && !(method === "select" && options.length === 2)) {
-      if (method === "select" || method === "input" || method === "editor") this.write({ type: "extension_ui_response", id, cancelled: true });
+    // pi resolves a timed-out dialog itself; drop ours with it.
+    const signals = [this.turnAbort.signal];
+    if (typeof r.timeout === "number") signals.push(AbortSignal.timeout(r.timeout));
+    const signal = AbortSignal.any(signals);
+    if (r.method === "confirm") {
+      const title = [r.title, r.message].filter((s) => typeof s === "string" && s).join("\n\n");
+      try {
+        if (signal.aborted) throw new Error("aborted");
+        const answer = await this.opts.askPermission(
+          { id, toolName: "pi confirm", input: { title: r.title, message: r.message }, title, canAlwaysAllow: false },
+          signal,
+        );
+        this.write({ type: "extension_ui_response", id, confirmed: answer.decision !== "deny" });
+      } catch {
+        this.write({ type: "extension_ui_response", id, cancelled: true });
+      }
       return;
     }
-    const title = [r.title, r.message].filter((s) => typeof s === "string" && s).join("\n\n");
+    const req = dialogQuestion(r);
+    if (!req) return;
     try {
-      const answer = await this.opts.askPermission(
-        { id, toolName: `pi ${method}`, input: { title: r.title, message: r.message, options }, title, canAlwaysAllow: false },
-        this.turnAbort.signal,
-      );
-      const allow = answer.decision !== "deny";
-      if (method === "confirm") this.write({ type: "extension_ui_response", id, confirmed: allow });
-      else this.write({ type: "extension_ui_response", id, value: options[allow ? 0 : 1] });
+      if (signal.aborted) throw new Error("aborted");
+      this.write(dialogResponse(req, await this.opts.askQuestion(req, signal)));
     } catch {
-      this.write({ type: "extension_ui_response", id, cancelled: true });
+      this.write(dialogResponse(req, null));
     }
   }
 
@@ -304,6 +426,8 @@ class PiSession implements ProviderSession {
   async interrupt() {
     if (!this.running) return;
     this.interrupted = true;
+    // A pending dialog blocks the tool that opened it, and so the abort.
+    this.turnAbort.abort();
     await this.request({ type: "clear_queue" });
     await this.request({ type: "abort" });
   }
@@ -330,5 +454,6 @@ export function piProvider(): Provider {
         throw e;
       }
     },
+    catalog: fetchCatalog,
   };
 }

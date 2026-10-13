@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Item } from "@casm/protocol";
-import { normalize, parseSession, type PiMessage } from "../src/providers/pi.ts";
+import { dialogQuestion, dialogResponse, normalize, parseCatalog, parseSession, type PiMessage } from "../src/providers/pi.ts";
 
 type Tool = Extract<Item, { kind: "tool" }>;
 
@@ -110,4 +110,54 @@ test("parseSession follows the active branch and upserts tool results", () => {
 test("an empty or header-only session has no items", () => {
   assert.deepEqual(parseSession(""), []);
   assert.deepEqual(parseSession(line({ type: "session", version: 3, id: "x", cwd: "/" })), []);
+});
+
+// extension_ui_request shapes from docs/rpc-extension-ui.md and a live rpc run.
+test("select, input and editor dialogs become questions; answers map to extension_ui_response", () => {
+  const select = dialogQuestion({ type: "extension_ui_request", id: "u1", method: "select", title: "Pick a color", options: ["red", "green", "blue"], timeout: 60000 });
+  assert.deepEqual(select, {
+    id: "u1",
+    prompts: [{ id: "select", text: "Pick a color", kind: "select", options: [{ label: "red" }, { label: "green" }, { label: "blue" }] }],
+  });
+  assert.deepEqual(dialogResponse(select!, { select: "green" }), { type: "extension_ui_response", id: "u1", value: "green" });
+  assert.deepEqual(dialogResponse(select!, { select: ["blue"] }), { type: "extension_ui_response", id: "u1", value: "blue" });
+  assert.deepEqual(dialogResponse(select!, null), { type: "extension_ui_response", id: "u1", cancelled: true });
+  assert.deepEqual(dialogResponse(select!, {}), { type: "extension_ui_response", id: "u1", cancelled: true });
+
+  const input = dialogQuestion({ type: "extension_ui_request", id: "u2", method: "input", title: "Your name", placeholder: "type something..." });
+  assert.deepEqual(input!.prompts, [{ id: "input", text: "Your name", kind: "text", placeholder: "type something..." }]);
+  assert.deepEqual(dialogResponse(input!, { input: "" }), { type: "extension_ui_response", id: "u2", value: "" });
+
+  const editor = dialogQuestion({ type: "extension_ui_request", id: "u3", method: "editor", title: "Edit", prefill: "Line 1\nLine 2" });
+  assert.deepEqual(editor!.prompts, [{ id: "editor", text: "Edit", kind: "text", multiline: true, placeholder: "Line 1\nLine 2" }]);
+  assert.deepEqual(dialogResponse(editor!, { editor: "Line 1" }), { type: "extension_ui_response", id: "u3", value: "Line 1" });
+
+  assert.equal(dialogQuestion({ type: "extension_ui_request", id: "u4", method: "notify", message: "hi" }), null);
+  assert.equal(dialogQuestion({ type: "extension_ui_request", id: "u5", method: "confirm", title: "Sure?" }), null);
+});
+
+const llama = "llama-server=http://127.0.0.1:8080";
+const fullMap = { minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" };
+
+test("catalog: thinking levels per model, default from get_state, provider-qualified duplicates", () => {
+  const catalog = parseCatalog(
+    [
+      { id: "laguna-xs-2.1", name: "laguna-xs-2.1", provider: llama, reasoning: true, thinkingLevelMap: fullMap },
+      { id: "plain", name: "Plain", provider: llama, reasoning: false },
+      { id: "capped", provider: llama, reasoning: true, thinkingLevelMap: { minimal: null } },
+      { id: "dup", name: "Dup", provider: "a", reasoning: false },
+      { id: "dup", name: "Dup", provider: "b", reasoning: false },
+    ],
+    { id: "laguna-xs-2.1", provider: llama },
+  );
+  assert.deepEqual(catalog, {
+    models: [
+      { id: "laguna-xs-2.1", name: "laguna-xs-2.1", description: llama, isDefault: true, efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
+      { id: "plain", name: "Plain", description: llama, isDefault: false, efforts: ["off"] },
+      { id: "capped", name: "capped", description: llama, isDefault: false, efforts: ["off", "low", "medium", "high"] },
+      { id: "a/dup", name: "Dup (a)", description: "a", isDefault: false, efforts: ["off"] },
+      { id: "b/dup", name: "Dup (b)", description: "b", isDefault: false, efforts: ["off"] },
+    ],
+    modes: [],
+  });
 });

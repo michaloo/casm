@@ -44,7 +44,8 @@ struct ChatView: View {
                 .modifier(ComposerColumn())
             }
             ForEach(chat.questions) { request in
-                QuestionCard(request: request) { answers in
+                QuestionCard(request: request,
+                             takesShortcut: chat.permissions.isEmpty && request.id == chat.questions.first?.id) { answers in
                     Task { await chat.answer(request, answers) }
                 }
                 .disabled(!online)

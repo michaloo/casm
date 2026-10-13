@@ -113,7 +113,7 @@ final class DebugControl {
             if let chat { chat.expanded.formUnion(chat.items.suffix(Int(cmd["last"] ?? "20") ?? 20).map(\.id)) }
         case "scroll":
             let t0 = CACurrentMediaTime()
-            scroller?(ScrollPosition(y: cmd["to"] == "top" ? 0 : max(0, contentHeight - viewportHeight)))
+            scroller?(ScrollPosition(edge: cmd["to"] == "top" ? .top : .bottom))
             afterIdle { self.log(String(format: "scroll to %@: %.1f ms", cmd["to"] ?? "bottom", (CACurrentMediaTime() - t0) * 1000)) }
         case "views":
             for w in NSApp.windows {

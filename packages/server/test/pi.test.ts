@@ -1,7 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Item } from "@casm/protocol";
-import { dialogQuestion, dialogResponse, normalize, parseCatalog, parseSession, type PiMessage } from "../src/providers/pi.ts";
+import {
+  argumentHint,
+  customPlan,
+  dialogQuestion,
+  dialogResponse,
+  normalize,
+  outputDelta,
+  parseCatalog,
+  parseCommands,
+  parseSession,
+  planEntries,
+  sessionUsage,
+  type PiMessage,
+} from "../src/providers/pi.ts";
 
 type Tool = Extract<Item, { kind: "tool" }>;
 
@@ -55,7 +68,7 @@ test("errors, aborts, empty blocks and long tool output", () => {
     [{ kind: "tool", id: "c", name: "bash", input: {}, status: "error" }],
   );
   assert.deepEqual(normalize(assistant(7, [{ type: "text", text: "  " }], { stopReason: "error", errorMessage: "503 overloaded" }), tools), [
-    { kind: "notice", id: "7:error", text: "503 overloaded" },
+    { kind: "notice", id: "7:error", text: "503 overloaded", level: "error" },
   ]);
   const [big] = normalize(
     { role: "toolResult", toolCallId: "x", toolName: "read", content: [{ type: "text", text: "y".repeat(9000) }], isError: true },
@@ -100,7 +113,7 @@ test("parseSession follows the active branch and upserts tool results", () => {
     { kind: "user", id: "u1", text: "hello" },
     { kind: "reasoning", id: "102:0", text: "greet" },
     { kind: "assistant", id: "102:1", text: "Hi!" },
-    { kind: "notice", id: "c1", text: "Context compacted: Greeted the user." },
+    { kind: "notice", id: "c1", text: "Context compacted: Greeted the user.", level: "info" },
     { kind: "user", id: "u2", text: "list files" },
     { kind: "tool", id: "call_9", name: "bash", input: { command: "ls" }, status: "done", output: "a.txt" },
     { kind: "assistant", id: "108:0", text: "One file." },
@@ -160,4 +173,166 @@ test("catalog: thinking levels per model, default from get_state, provider-quali
     ],
     modes: [],
   });
+});
+
+// --- chat features. Shapes from a live `pi --mode rpc` run (pi 1.1.0, laguna-xs-2.1,
+// examples/extensions/todo.ts loaded with -e).
+
+const usage = (input: number, output: number, cacheRead: number, total = 0) => ({
+  input,
+  output,
+  cacheRead,
+  cacheWrite: 0,
+  reasoning: 0,
+  totalTokens: input + output + cacheRead,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total },
+});
+
+test("user images become ImageData; image data above ~1 MB is omitted", () => {
+  const tools = new Map<string, Tool>();
+  const small = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABA";
+  const items = normalize(
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "What colour is this square? One word." },
+        { type: "image", data: small, mimeType: "image/png" },
+        { type: "image", data: "A".repeat(1_500_000), mimeType: "image/jpeg" },
+      ],
+      timestamp: 1,
+    },
+    tools,
+    "u1",
+  );
+  assert.deepEqual(items, [
+    {
+      kind: "user",
+      id: "u1",
+      text: "What colour is this square? One word.",
+      images: [{ mediaType: "image/png", data: small }, { mediaType: "image/jpeg" }],
+    },
+  ]);
+  // An image-only prompt still shows up.
+  assert.deepEqual(normalize({ role: "user", content: [{ type: "image", data: small, mimeType: "image/png" }], timestamp: 2 }, tools, "u2"), [
+    { kind: "user", id: "u2", text: "", images: [{ mediaType: "image/png", data: small }] },
+  ]);
+});
+
+test("todo tool results carry the list as a plan with a stable id", () => {
+  const tools = new Map<string, Tool>();
+  normalize(assistant(10, [{ type: "toolCall", id: "c1", name: "todo", arguments: { action: "toggle", id: 1 } }], { stopReason: "toolUse" }), tools);
+  const items = normalize(
+    {
+      role: "toolResult",
+      toolCallId: "c1",
+      toolName: "todo",
+      content: [{ type: "text", text: "Todo #1 completed" }],
+      details: { action: "toggle", todos: [{ id: 1, text: "write tests", done: true }, { id: 2, text: "ship it", done: false }], nextId: 3 },
+      isError: false,
+      timestamp: 11,
+    },
+    tools,
+  );
+  assert.deepEqual(items[1], {
+    kind: "plan",
+    id: "plan:todo",
+    entries: [
+      { text: "write tests", status: "completed" },
+      { text: "ship it", status: "pending" },
+    ],
+  });
+});
+
+test("planEntries accepts the extension todo shapes and rejects anything else", () => {
+  assert.deepEqual(planEntries([{ step: 1, text: "a", completed: true }, { content: "b", status: "in-progress" }, { title: "c", status: "done" }]), [
+    { text: "a", status: "completed" },
+    { text: "b", status: "in_progress" },
+    { text: "c", status: "completed" },
+  ]);
+  assert.deepEqual(planEntries([]), []);
+  assert.equal(planEntries(undefined), null);
+  assert.equal(planEntries([{ id: 1 }]), null);
+  assert.equal(planEntries(["x"]), null);
+  // plan-mode extension: pi.appendEntry("plan-mode", { enabled, todos, executing })
+  assert.deepEqual(customPlan({ customType: "plan-mode", data: { enabled: false, todos: [{ step: 1, text: "Read code", completed: false }] } }), {
+    kind: "plan",
+    id: "plan:plan-mode",
+    entries: [{ text: "Read code", status: "pending" }],
+  });
+  assert.equal(customPlan({ customType: "my-ext", data: { count: 42 } }), null);
+});
+
+test("history: custom messages and plans; a failed response followed by a retry becomes a warning", () => {
+  const jsonl = [
+    msg("u1", null, { role: "user", content: "What colour?", timestamp: 1 }),
+    msg("a1", "u1", assistant(2, [], { stopReason: "error", errorMessage: "503 overloaded" })),
+    msg("a2", "a1", assistant(3, [{ type: "text", text: "Red" }])),
+    line({ type: "custom_message", id: "cm", parentId: "a2", timestamp: "t", customType: "plan-mode-execute", content: "Executing plan", display: true }),
+    line({ type: "custom_message", id: "cm2", parentId: "cm", timestamp: "t", customType: "hidden", content: "secret", display: false }),
+    line({ type: "custom", id: "pm", parentId: "cm2", timestamp: "t", customType: "plan-mode", data: { todos: [{ step: 1, text: "Read", completed: true }] } }),
+    msg("a3", "pm", assistant(4, [], { stopReason: "error", errorMessage: "fatal" })),
+  ].join("\n");
+  assert.deepEqual(parseSession(jsonl), [
+    { kind: "user", id: "u1", text: "What colour?" },
+    { kind: "notice", id: "2:error", text: "Retried after: 503 overloaded", level: "warning" },
+    { kind: "assistant", id: "3:0", text: "Red" },
+    { kind: "notice", id: "cm", text: "Executing plan", level: "info" },
+    { kind: "plan", id: "plan:plan-mode", entries: [{ text: "Read", status: "completed" }] },
+    { kind: "notice", id: "4:error", text: "fatal", level: "error" },
+  ]);
+});
+
+test("sessionUsage: context from the last valid response, totals over every entry, window from the model list", () => {
+  const llama = "llama-server=http://127.0.0.1:8080";
+  const a = (ts: number, u: object, extra: Partial<PiMessage> = {}) =>
+    assistant(ts, [{ type: "text", text: "x" }], { model: "laguna-xs-2.1", provider: llama, usage: u as PiMessage["usage"], ...extra });
+  const jsonl = [
+    msg("u1", null, { role: "user", content: "hi", timestamp: 1 }),
+    msg("a1", "u1", a(2, usage(14, 40, 3138))),
+    msg("a2", "a1", a(3, usage(14, 3, 3525, 0.5))),
+    msg("a3", "a2", a(4, usage(0, 0, 0), { stopReason: "aborted" })),
+    line({ type: "usage", id: "w", parentId: "a3", timestamp: "t", kind: "cache_warm", provider: llama, model: "laguna-xs-2.1", usage: usage(0, 0, 100, 0.25) }),
+  ].join("\n");
+  const windows = (p: string, m: string) => (p === llama && m === "laguna-xs-2.1" ? 65536 : undefined);
+  assert.deepEqual(sessionUsage(jsonl, windows), {
+    model: "laguna-xs-2.1",
+    contextTokens: 3542,
+    contextWindow: 65536,
+    inputTokens: 14 + 3138 + 14 + 3525 + 100,
+    outputTokens: 43,
+    costUsd: 0.75,
+  });
+  // After a compaction the context size is unknown until the next response.
+  const compacted = jsonl + "\n" + line({ type: "compaction", id: "c", parentId: "w", timestamp: "t", summary: "s", firstKeptEntryId: "a2", tokensBefore: 3542 });
+  assert.equal(sessionUsage(compacted)?.contextTokens, undefined);
+  assert.equal(sessionUsage(msg("u1", null, { role: "user", content: "hi", timestamp: 1 })), null);
+});
+
+test("outputDelta streams the new part of cumulative tool output snapshots", () => {
+  assert.equal(outputDelta("", "1\n"), "1\n");
+  assert.equal(outputDelta("1\n", "1\n2\n"), "2\n");
+  assert.equal(outputDelta("1\n2\n", "1\n2\n"), "");
+  // pi keeps the tail once output is large: continue after the previous tail.
+  assert.equal(outputDelta("aaaa\nbbbb\n", "bbbb\ncccc\n"), "cccc\n");
+});
+
+test("commands: get_commands entries with kinds; argument hints from prompt template frontmatter", () => {
+  assert.equal(argumentHint("---\ndescription: Repeat a word in capitals\nargument-hint: <word>\n---\nReply with $1"), "<word>");
+  assert.equal(argumentHint('---\nargument-hint: "[focus]"\n---\nx'), "[focus]");
+  assert.equal(argumentHint("no frontmatter\nargument-hint: x"), undefined);
+  const commands = parseCommands(
+    [
+      { name: "todos", description: "Show all todos on the current branch", source: "extension", sourceInfo: { path: "/x/todo.ts" } },
+      { name: "shout", description: "Repeat a word in capitals", source: "prompt", sourceInfo: { path: "/w/.pi/prompts/shout.md" } },
+      { name: "skill:fedora-compute", description: "Use the fedora box", source: "skill" },
+      { name: "bare", source: "extension" },
+    ],
+    new Map([["shout", "<word>"]]),
+  );
+  assert.deepEqual(commands, [
+    { name: "todos", description: "Show all todos on the current branch", kind: "command" },
+    { name: "shout", description: "Repeat a word in capitals", argumentHint: "<word>", kind: "command" },
+    { name: "skill:fedora-compute", description: "Use the fedora box", kind: "skill" },
+    { name: "bare", kind: "command" },
+  ]);
 });

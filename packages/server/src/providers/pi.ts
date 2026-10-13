@@ -5,17 +5,36 @@
 // pi has no permission system of its own. Extensions can ask through dialogs
 // (extension_ui_request): `confirm` goes through askPermission; `select`,
 // `input` and `editor` become questions.
+//
+// pi has no built-in todo tool. Todo lists written by extensions are mapped to
+// Item.plan when they use the shape of pi's example extensions: a tool result
+// with `details.todos` (examples/extensions/todo.ts) or a custom entry with
+// `data.todos` (examples/extensions/plan-mode).
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import type { Answers, Catalog, Item, ModelInfo, QuestionRequest } from "@casm/protocol";
+import { basename } from "node:path";
+import type { Answers, Catalog, Command, ImageData, Item, ModelInfo, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
 import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
+// History drops image data above this many base64 characters (~1 MB decoded).
+const MAX_HISTORY_IMAGE = 1_400_000;
 
 // --- normalization (shared by history and live events)
 
 type Block = { type: string; [k: string]: unknown };
 type Tool = Extract<Item, { kind: "tool" }>;
+type Notice = Extract<Item, { kind: "notice" }>;
+type Plan = Extract<Item, { kind: "plan" }>;
+
+export type PiUsage = {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  totalTokens?: number;
+  cost?: { total?: number };
+};
 
 export type PiMessage = {
   role: string;
@@ -31,6 +50,10 @@ export type PiMessage = {
   output?: string;
   exitCode?: number;
   summary?: string;
+  details?: unknown;
+  model?: string;
+  provider?: string;
+  usage?: PiUsage;
 };
 
 function blocks(content: unknown): Block[] {
@@ -48,6 +71,63 @@ function text(content: unknown): string {
     .join("\n");
 }
 
+// User content: text blocks joined, image blocks as ImageData.
+function userContent(content: unknown): { text: string; images?: ImageData[] } {
+  const parts: string[] = [];
+  const images: ImageData[] = [];
+  for (const b of blocks(content)) {
+    if (b.type === "text") parts.push(String(b.text));
+    else if (b.type === "image") {
+      const data = typeof b.data === "string" ? b.data : undefined;
+      images.push({ mediaType: String(b.mimeType ?? "image/png"), ...(data && data.length <= MAX_HISTORY_IMAGE ? { data } : {}) });
+    }
+  }
+  return { text: parts.join("\n").trim(), ...(images.length ? { images } : {}) };
+}
+
+// A todo list in one of the shapes pi extensions use: {text|content|title,
+// status?, done?|completed?}. Null when `todos` isn't such a list.
+export function planEntries(todos: unknown): PlanEntry[] | null {
+  if (!Array.isArray(todos)) return null;
+  const out: PlanEntry[] = [];
+  for (const t of todos as Record<string, unknown>[]) {
+    if (!t || typeof t !== "object") return null;
+    const label = str(t.text) ?? str(t.content) ?? str(t.title);
+    if (!label) return null;
+    const s = String(t.status ?? "").replace("-", "_");
+    const status: PlanEntry["status"] =
+      s === "pending" || s === "in_progress" || s === "completed"
+        ? s
+        : t.done === true || t.completed === true || s === "done"
+          ? "completed"
+          : "pending";
+    out.push({ text: label, status });
+  }
+  return out;
+}
+
+const todosOf = (v: unknown) => (v && typeof v === "object" ? (v as { todos?: unknown }).todos : undefined);
+
+// A custom entry (appendEntry) that carries a todo list, as a plan.
+export function customPlan(entry: { customType?: string; data?: unknown }): Plan | null {
+  const entries = planEntries(todosOf(entry.data));
+  return entries ? { kind: "plan", id: `plan:${entry.customType ?? "custom"}`, entries } : null;
+}
+
+// Tokens in the model context after this response (pi's calculateContextTokens).
+export function contextTokens(u: PiUsage | undefined): number {
+  if (!u) return 0;
+  return u.totalTokens || (u.input ?? 0) + (u.output ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
+}
+
+// Usage carried by one assistant message; null for aborted/failed/empty ones.
+export function messageUsage(m: PiMessage): Usage | null {
+  if (m.role !== "assistant" || m.stopReason === "aborted" || m.stopReason === "error") return null;
+  const ctx = contextTokens(m.usage);
+  if (!ctx) return null;
+  return { ...(m.model ? { model: m.model } : {}), contextTokens: ctx };
+}
+
 // Turns one pi message into items. Assistant blocks are keyed by the message
 // timestamp, which is the same live and on disk. `tools` carries tool calls so
 // a later toolResult can complete them; completed tools are returned again so
@@ -57,8 +137,8 @@ export function normalize(msg: PiMessage, tools: Map<string, Tool>, fallbackId =
   const out: Item[] = [];
   switch (msg.role) {
     case "user": {
-      const t = text(msg.content).trim();
-      if (t) out.push({ kind: "user", id: fallbackId || key, text: t });
+      const u = userContent(msg.content);
+      if (u.text || u.images) out.push({ kind: "user", id: fallbackId || key, ...u });
       break;
     }
     case "assistant":
@@ -75,7 +155,10 @@ export function normalize(msg: PiMessage, tools: Map<string, Tool>, fallbackId =
           out.push(item);
         }
       });
-      if (msg.stopReason === "error" && msg.errorMessage) out.push({ kind: "notice", id: `${key}:error`, text: msg.errorMessage });
+      if (msg.stopReason === "error" && msg.errorMessage)
+        out.push({ kind: "notice", id: `${key}:error`, text: msg.errorMessage, level: "error" });
+      else if (msg.stopReason === "length")
+        out.push({ kind: "notice", id: `${key}:length`, text: "The response hit the output token limit and was cut off.", level: "warning" });
       break;
     case "toolResult": {
       const id = String(msg.toolCallId);
@@ -90,6 +173,8 @@ export function normalize(msg: PiMessage, tools: Map<string, Tool>, fallbackId =
       };
       tools.set(id, done);
       out.push(done);
+      const entries = planEntries(todosOf(msg.details));
+      if (entries) out.push({ kind: "plan", id: `plan:${done.name}`, entries });
       break;
     }
     case "bashExecution":
@@ -105,17 +190,27 @@ export function normalize(msg: PiMessage, tools: Map<string, Tool>, fallbackId =
     case "custom":
       if (msg.display) {
         const t = text(msg.content).trim();
-        if (t) out.push({ kind: "notice", id: key, text: t });
+        if (t) out.push({ kind: "notice", id: key, text: t, level: "info" });
       }
       break;
   }
   return out;
 }
 
-type Entry = { type: string; id?: string; parentId?: string | null; message?: PiMessage; summary?: string };
+type Entry = {
+  type: string;
+  id?: string;
+  parentId?: string | null;
+  message?: PiMessage;
+  summary?: string;
+  customType?: string;
+  data?: unknown;
+  content?: unknown;
+  display?: boolean;
+  usage?: PiUsage;
+};
 
-// Normalizes a session file along the active branch (last entry back to the root).
-export function parseSession(jsonl: string): Item[] {
+function entriesOf(jsonl: string): Entry[] {
   const entries: Entry[] = [];
   for (const line of jsonl.split("\n")) {
     if (!line.trim()) continue;
@@ -124,21 +219,98 @@ export function parseSession(jsonl: string): Item[] {
       if (e.id) entries.push(e);
     } catch {}
   }
+  return entries;
+}
+
+// The active branch: last entry back to the root.
+function activePath(entries: Entry[]): Entry[] {
   const byId = new Map(entries.map((e) => [e.id!, e]));
   const path: Entry[] = [];
   for (let e = entries.at(-1); e; e = e.parentId ? byId.get(e.parentId) : undefined) path.unshift(e);
+  return path;
+}
 
+// Normalizes a session file along the active branch.
+export function parseSession(jsonl: string): Item[] {
   const tools = new Map<string, Tool>();
   const items = new Map<string, Item>();
-  for (const e of path) {
+  const put = (item: Item) => items.set(item.id, item);
+  // A failed response directly followed by another one was retried by pi.
+  let failed: Notice | null = null;
+  for (const e of activePath(entriesOf(jsonl))) {
     if (e.type === "message" && e.message) {
+      const m = e.message;
+      if (failed && m.role === "assistant") put({ ...failed, text: `Retried after: ${failed.text}`, level: "warning" });
+      if (m.role !== "system") failed = null;
       // A tool result replaces its call in place.
-      for (const item of normalize(e.message, tools, e.id)) items.set(item.id, item);
+      for (const item of normalize(m, tools, e.id)) {
+        put(item);
+        if (item.kind === "notice" && item.level === "error" && m.role === "assistant") failed = item;
+      }
     } else if (e.type === "compaction" || e.type === "branch_summary") {
-      items.set(e.id!, { kind: "notice", id: e.id!, text: `${e.type === "compaction" ? "Context compacted" : "Branch summary"}: ${e.summary ?? ""}`.trim() });
+      const label = e.type === "compaction" ? "Context compacted" : "Branch summary";
+      put({ kind: "notice", id: e.id!, text: `${label}: ${e.summary ?? ""}`.trim(), level: "info" });
+    } else if (e.type === "custom_message" && e.display) {
+      const t = text(e.content).trim();
+      if (t) put({ kind: "notice", id: e.id!, text: t, level: "info" });
+    } else if (e.type === "custom") {
+      const plan = customPlan(e);
+      if (plan) put(plan);
     }
   }
   return [...items.values()];
+}
+
+// Last known usage from a session file: context of the latest valid assistant
+// response on the active branch (unknown right after a compaction), and token
+// and cost totals over every entry, as pi's get_session_stats counts them.
+// `contextWindow` comes from the model list.
+export function sessionUsage(jsonl: string, contextWindow?: (provider: string, model: string) => number | undefined): Usage | null {
+  const entries = entriesOf(jsonl);
+  let input = 0;
+  let output = 0;
+  let cost = 0;
+  let any = false;
+  const add = (u: PiUsage | undefined) => {
+    if (!u) return;
+    any = true;
+    input += (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
+    output += u.output ?? 0;
+    cost += u.cost?.total ?? 0;
+  };
+  for (const e of entries) {
+    if (e.type === "usage" || e.type === "compaction" || e.type === "branch_summary") add(e.usage);
+    else if (e.type === "message" && (e.message?.role === "assistant" || e.message?.role === "toolResult")) add(e.message.usage);
+  }
+  let last: PiMessage | undefined;
+  let ctx: number | undefined;
+  for (const e of activePath(entries)) {
+    if (e.type === "compaction") ctx = undefined;
+    if (e.type !== "message" || e.message?.role !== "assistant") continue;
+    last = e.message;
+    const u = messageUsage(e.message);
+    if (u) ctx = u.contextTokens;
+  }
+  if (!any && !last) return null;
+  const window = last?.provider && last.model ? contextWindow?.(last.provider, last.model) : undefined;
+  return {
+    ...(last?.model ? { model: last.model } : {}),
+    ...(ctx !== undefined ? { contextTokens: ctx } : {}),
+    ...(window ? { contextWindow: window } : {}),
+    inputTokens: input,
+    outputTokens: output,
+    ...(cost > 0 ? { costUsd: cost } : {}),
+  };
+}
+
+// The part of a cumulative tool output snapshot not yet streamed. Snapshots
+// keep the tail when output grows large, so after a cut the overlap is found
+// by the previous tail.
+export function outputDelta(prev: string, next: string): string {
+  if (next.startsWith(prev)) return next.slice(prev.length);
+  const tail = prev.slice(-Math.min(200, Math.ceil(prev.length / 2)));
+  const at = tail ? next.lastIndexOf(tail) : -1;
+  return at >= 0 ? next.slice(at + tail.length) : next;
 }
 
 // --- dialogs and catalog
@@ -174,7 +346,14 @@ export function dialogResponse(req: QuestionRequest, answers: Answers | null): R
   return value === undefined ? { type: "extension_ui_response", id: req.id, cancelled: true } : { type: "extension_ui_response", id: req.id, value };
 }
 
-type PiModel = { id: string; name?: string; provider: string; reasoning?: boolean; thinkingLevelMap?: Record<string, string | null> };
+type PiModel = {
+  id: string;
+  name?: string;
+  provider: string;
+  reasoning?: boolean;
+  thinkingLevelMap?: Record<string, string | null>;
+  contextWindow?: number;
+};
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -209,12 +388,35 @@ export function parseCatalog(models: PiModel[], current?: { id: string; provider
   };
 }
 
-// A short-lived `pi --mode rpc --no-session`: no session file, no inference.
-function fetchCatalog(): Promise<Catalog> {
+type PiCommand = { name: string; description?: string; source?: string; sourceInfo?: { path?: string } };
+
+// The `argument-hint` frontmatter of a prompt template (get_commands omits it).
+export function argumentHint(markdown: string): string | undefined {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(markdown);
+  const m = fm && /^argument-hint:[ \t]*(.+)$/m.exec(fm[1]);
+  return m ? m[1].trim().replace(/^(["'])(.*)\1$/, "$2") || undefined : undefined;
+}
+
+// get_commands: extension commands, prompt templates and skills (`skill:name`).
+export function parseCommands(commands: PiCommand[], hints: Map<string, string> = new Map()): Command[] {
+  return commands.map((c): Command => {
+    const hint = hints.get(c.name);
+    return {
+      name: c.name,
+      ...(c.description ? { description: c.description } : {}),
+      ...(hint ? { argumentHint: hint } : {}),
+      kind: c.source === "skill" ? "skill" : "command",
+    };
+  });
+}
+
+// A short-lived `pi --mode rpc --no-session` (no session file, no inference)
+// that answers `cmds` and exits. Resolves with the responses by command id.
+function piQuery(cmds: Rec[], cwd?: string): Promise<Map<string, Rec>> {
   return new Promise((resolve, reject) => {
     const args = ["--mode", "rpc", "--no-session"];
     if (process.env.CASM_PI_ARGS) args.push(...process.env.CASM_PI_ARGS.split(" ").filter(Boolean));
-    const proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
     const responses = new Map<string, Rec>();
     let buf = "";
     let stderr = "";
@@ -225,14 +427,10 @@ function fetchCatalog(): Promise<Catalog> {
       clearTimeout(timer);
       proc.stdin.end();
       if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGTERM");
-      if (err) return reject(err);
-      const models = responses.get("models")!;
-      const state = responses.get("state");
-      if (!models.success) return reject(new Error(`pi get_available_models: ${String(models.error)}`));
-      const current = (state?.data as { model?: { id: string; provider: string } } | undefined)?.model;
-      resolve(parseCatalog((models.data as { models: PiModel[] }).models, current));
+      if (err) reject(err);
+      else resolve(responses);
     };
-    const timer = setTimeout(() => finish(new Error("pi catalog timed out")), 30_000);
+    const timer = setTimeout(() => finish(new Error("pi query timed out")), 30_000);
     proc.on("error", (e) => finish(e));
     proc.on("exit", (code) => finish(new Error(`pi exited with code ${code}: ${stderr.trim()}`)));
     proc.stdin.on("error", () => {});
@@ -247,14 +445,59 @@ function fetchCatalog(): Promise<Catalog> {
         buf = buf.slice(i + 1);
         try {
           const r = JSON.parse(line) as Rec;
-          if (r.type === "response" && (r.id === "state" || r.id === "models")) responses.set(r.id, r);
+          if (r.type === "response" && r.id && cmds.some((c) => c.id === r.id)) responses.set(r.id, r);
         } catch {}
-        if (responses.size === 2) return finish();
+        if (responses.size === cmds.length) return finish();
       }
     });
-    proc.stdin.write(JSON.stringify({ type: "get_state", id: "state" }) + "\n");
-    proc.stdin.write(JSON.stringify({ type: "get_available_models", id: "models" }) + "\n");
+    for (const c of cmds) proc.stdin.write(JSON.stringify(c) + "\n");
   });
+}
+
+function ok(r: Rec | undefined, what: string): unknown {
+  if (!r?.success) throw new Error(`pi ${what}: ${String(r?.error ?? "no response")}`);
+  return r.data;
+}
+
+// Context windows by `provider/id`, filled by every model listing.
+let windows: Map<string, number> | null = null;
+
+function rememberModels(models: PiModel[]) {
+  windows = new Map(models.filter((m) => m.contextWindow).map((m) => [`${m.provider}/${m.id}`, m.contextWindow!]));
+}
+
+async function fetchCatalog(): Promise<Catalog> {
+  const r = await piQuery([
+    { type: "get_state", id: "state" },
+    { type: "get_available_models", id: "models" },
+  ]);
+  const { models } = ok(r.get("models"), "get_available_models") as { models: PiModel[] };
+  rememberModels(models);
+  const current = (r.get("state")?.data as { model?: { id: string; provider: string } } | undefined)?.model;
+  return parseCatalog(models, current);
+}
+
+async function contextWindows(): Promise<Map<string, number>> {
+  if (!windows) {
+    const r = await piQuery([{ type: "get_available_models", id: "models" }]);
+    rememberModels((ok(r.get("models"), "get_available_models") as { models: PiModel[] }).models);
+  }
+  return windows!;
+}
+
+async function fetchCommands(cwd: string): Promise<Command[]> {
+  const r = await piQuery([{ type: "get_commands", id: "commands" }], cwd);
+  const { commands } = ok(r.get("commands"), "get_commands") as { commands: PiCommand[] };
+  const hints = new Map<string, string>();
+  await Promise.all(
+    commands
+      .filter((c) => c.source === "prompt" && c.sourceInfo?.path)
+      .map(async (c) => {
+        const hint = argumentHint(await readFile(c.sourceInfo!.path!, "utf8").catch(() => ""));
+        if (hint) hints.set(c.name, hint);
+      }),
+  );
+  return parseCommands(commands, hints);
 }
 
 // --- RPC process
@@ -272,6 +515,14 @@ class PiSession implements ProviderSession {
   private lastError: string | undefined;
   private turnAbort = new AbortController();
   private dead = false;
+  // Streamed output already sent per running tool call.
+  private toolOutput = new Map<string, string>();
+  // Ids of the notices that later events update in place.
+  private retryNotice: string | null = null;
+  private failedNotice: string | null = null;
+  private compactionNotice: string | null = null;
+  private summaryRetryNotice: string | null = null;
+  private noticeSeq = 0;
 
   constructor(opts: OpenOptions) {
     this.opts = opts;
@@ -347,27 +598,128 @@ class PiSession implements ProviderSession {
         }
         return;
       }
+      case "message_end": {
+        const m = r.message as PiMessage;
+        // Our own prompts (and steers) are emitted by the manager when sent.
+        if (m.role === "user") return;
+        if (m.role === "assistant") {
+          this.lastError = m.stopReason === "error" ? m.errorMessage || "pi reported an error" : undefined;
+          this.failedNotice = m.stopReason === "error" && m.errorMessage ? `${m.timestamp}:error` : null;
+        }
+        if (m.role === "toolResult") this.toolOutput.delete(String(m.toolCallId));
+        for (const item of normalize(m, this.tools)) emit({ type: "item", item });
+        const usage = messageUsage(m);
+        if (usage) {
+          emit({ type: "usage", usage });
+          void this.stats();
+        }
+        return;
+      }
+      case "tool_execution_update": {
+        const id = String(r.toolCallId);
+        const next = text((r.partialResult as { content?: unknown } | undefined)?.content);
+        const prev = this.toolOutput.get(id) ?? "";
+        const delta = outputDelta(prev, next);
+        this.toolOutput.set(id, next);
+        if (delta) emit({ type: "toolOutput", itemId: id, text: delta });
+        return;
+      }
+      case "auto_retry_start": {
+        // The failed response's error notice turns into the retry notice.
+        this.retryNotice ??= this.failedNotice ?? this.noticeId("retry");
+        const secs = Math.round(Number(r.delayMs ?? 0) / 1000);
+        const why = str(r.errorMessage) ? `: ${r.errorMessage}` : "";
+        this.notice(this.retryNotice, "warning", `Retrying (attempt ${r.attempt}/${r.maxAttempts}) in ${secs}s${why}`);
+        return;
+      }
+      case "auto_retry_end": {
+        const id = this.retryNotice ?? this.noticeId("retry");
+        this.retryNotice = null;
+        if (r.success) this.notice(id, "info", `Retry succeeded (attempt ${r.attempt})`);
+        else this.notice(id, "error", `Retry failed after ${r.attempt} attempts${str(r.finalError) ? `: ${r.finalError}` : ""}`);
+        return;
+      }
+      case "compaction_start":
+        this.compactionNotice = this.noticeId("compaction");
+        this.notice(this.compactionNotice, "info", `Compacting context (${String(r.reason ?? "manual")})…`);
+        return;
+      case "compaction_end": {
+        const id = this.compactionNotice ?? this.noticeId("compaction");
+        this.compactionNotice = null;
+        const result = r.result as { summary?: string } | undefined;
+        if (result) this.notice(id, "info", `Context compacted: ${result.summary ?? ""}`.trim());
+        else if (r.aborted) this.notice(id, "warning", "Compaction aborted");
+        else this.notice(id, "error", `Compaction failed${str(r.errorMessage) ? `: ${r.errorMessage}` : ""}`);
+        void this.stats();
+        return;
+      }
+      case "summarization_retry_scheduled": {
+        this.summaryRetryNotice ??= this.noticeId("summary-retry");
+        const secs = Math.round(Number(r.delayMs ?? 0) / 1000);
+        const why = str(r.errorMessage) ? `: ${r.errorMessage}` : "";
+        this.notice(this.summaryRetryNotice, "warning", `Retrying summarization (attempt ${r.attempt}/${r.maxAttempts}) in ${secs}s${why}`);
+        return;
+      }
+      case "summarization_retry_finished":
+        if (this.summaryRetryNotice) this.notice(this.summaryRetryNotice, "info", "Summarization retry finished");
+        this.summaryRetryNotice = null;
+        return;
+      case "extension_error": {
+        const where = [str(r.extensionPath) && basename(String(r.extensionPath)), str(r.event)].filter(Boolean).join(", ");
+        this.notice(this.noticeId("extension-error"), "error", `Extension error${where ? ` (${where})` : ""}: ${String(r.error ?? "unknown")}`);
+        return;
+      }
+      case "entry_appended": {
+        const plan = customPlan((r.entry ?? {}) as { customType?: string; data?: unknown });
+        if (plan) emit({ type: "item", item: plan });
+        return;
+      }
       case "message_update": {
         const ev = r.assistantMessageEvent as { type: string; delta?: string };
         if (ev.type === "text_delta") emit({ type: "delta", kind: "assistant", text: ev.delta ?? "" });
         else if (ev.type === "thinking_delta") emit({ type: "delta", kind: "reasoning", text: ev.delta ?? "" });
         return;
       }
-      case "message_end": {
-        const m = r.message as PiMessage;
-        // Our own prompts (and steers) are emitted by the manager when sent.
-        if (m.role === "user") return;
-        if (m.role === "assistant") this.lastError = m.stopReason === "error" ? m.errorMessage || "pi reported an error" : undefined;
-        for (const item of normalize(m, this.tools)) emit({ type: "item", item });
-        return;
-      }
       case "agent_settled":
         this.endTurn(r.aborted === true || this.interrupted ? "interrupted" : this.lastError ? "failed" : "completed", this.lastError);
         return;
       case "extension_ui_request":
+        if (r.method === "notify") {
+          const level = r.notifyType === "warning" || r.notifyType === "error" ? r.notifyType : "info";
+          if (str(r.message)) this.notice(`notify:${r.id}`, level, String(r.message));
+          return;
+        }
         void this.dialog(r);
         return;
     }
+  }
+
+  private noticeId(kind: string): string {
+    return `${kind}:${Date.now()}:${++this.noticeSeq}`;
+  }
+
+  private notice(id: string, level: Notice["level"], text: string) {
+    this.opts.emit({ type: "item", item: { kind: "notice", id, text, level } });
+  }
+
+  // Session totals and the context window, as pi reports them.
+  private async stats() {
+    const r = await this.request({ type: "get_session_stats" });
+    if (!r.success) return;
+    const d = r.data as {
+      tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+      cost?: number;
+      contextUsage?: { tokens?: number | null; contextWindow?: number };
+    };
+    const t = d.tokens ?? {};
+    const usage: Usage = {
+      inputTokens: (t.input ?? 0) + (t.cacheRead ?? 0) + (t.cacheWrite ?? 0),
+      outputTokens: t.output ?? 0,
+    };
+    if (typeof d.contextUsage?.tokens === "number") usage.contextTokens = d.contextUsage.tokens;
+    if (d.contextUsage?.contextWindow) usage.contextWindow = d.contextUsage.contextWindow;
+    if (d.cost) usage.costUsd = d.cost;
+    this.opts.emit({ type: "usage", usage });
   }
 
   private endTurn(outcome: "completed" | "interrupted" | "failed", error?: string) {
@@ -409,14 +761,19 @@ class PiSession implements ProviderSession {
     }
   }
 
-  send(text: string, _itemId: string) {
+  send(text: string, _itemId: string, images?: ImageData[]) {
+    const native = images?.filter((i) => i.data).map((i) => ({ type: "image", data: i.data, mimeType: i.mediaType }));
+    const extra = native?.length ? { images: native } : {};
     if (this.running) {
-      void this.request({ type: "steer", message: text });
+      // `steer` refuses extension commands; `prompt` with streamingBehavior runs
+      // them at once and steers everything else (templates and skills expand).
+      if (text.startsWith("/")) void this.request({ type: "prompt", message: text, streamingBehavior: "steer", ...extra });
+      else void this.request({ type: "steer", message: text, ...extra });
       return;
     }
     this.running = true;
     this.turnAbort = new AbortController();
-    void this.request({ type: "prompt", message: text }).then((r) => {
+    void this.request({ type: "prompt", message: text, ...extra }).then((r) => {
       const disposition = (r.data as { disposition?: string } | undefined)?.disposition;
       if (!r.success) this.endTurn("failed", String(r.error ?? "prompt rejected"));
       else if (disposition === "handled") this.endTurn("completed");
@@ -455,5 +812,17 @@ export function piProvider(): Provider {
       }
     },
     catalog: fetchCatalog,
+    async usage(sessionId) {
+      let jsonl: string;
+      try {
+        jsonl = await readFile(sessionId, "utf8");
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw e;
+      }
+      const known = await contextWindows().catch(() => new Map<string, number>());
+      return sessionUsage(jsonl, (provider, model) => known.get(`${provider}/${model}`));
+    },
+    commands: fetchCommands,
   };
 }

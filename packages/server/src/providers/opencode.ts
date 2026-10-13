@@ -1,13 +1,21 @@
 // OpenCode via one shared `opencode serve` per provider: HTTP API for sessions,
 // prompts and permission replies, one /global/event SSE stream routed by session.
 // History comes from the server's `session/:id/message`.
+//
+// Images are sent as `file` parts with data URLs. The todo list (todowrite
+// tool, todo.updated) becomes one Item.plan per turn, keyed by the turn's user
+// message. Retries (session.status retry, retry parts), compaction parts and
+// message errors become notices. "/name args" for a known command (GET
+// /command, which also lists skills) runs through POST /session/:id/command.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
-import type { Answers, Catalog, Item, QuestionRequest } from "@casm/protocol";
+import type { Answers, Catalog, Command, ImageData, Item, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
 import type { OpenOptions, Provider, ProviderEvent, ProviderSession } from "./types.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
+// History drops image data above this many base64 characters (~1 MB decoded).
+const MAX_HISTORY_IMAGE = 1_400_000;
 // Keep an unused server around briefly so a reload or history read doesn't respawn it.
 const IDLE_SHUTDOWN_MS = 30_000;
 
@@ -18,6 +26,8 @@ type ToolState = {
   input?: unknown;
   output?: string;
   error?: string;
+  // Running bash tools carry the output so far in metadata.output.
+  metadata?: { output?: unknown; todos?: unknown };
 };
 
 export type OcPart = {
@@ -32,14 +42,41 @@ export type OcPart = {
   tool?: string;
   callID?: string;
   state?: ToolState;
+  // file parts
+  mime?: string;
+  filename?: string;
+  url?: string;
+  // retry parts
+  attempt?: number;
+  error?: OcError;
+  // compaction parts
+  auto?: boolean;
+  overflow?: boolean;
 };
 
 type OcError = { name?: string; data?: { message?: string } };
 
-export type OcMessage = {
-  info: { id: string; sessionID: string; role: "user" | "assistant"; error?: OcError };
-  parts: OcPart[];
+export type OcTokens = { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } };
+
+export type OcMessageInfo = {
+  id: string;
+  sessionID: string;
+  role: "user" | "assistant";
+  error?: OcError;
+  // assistant only
+  parentID?: string;
+  providerID?: string;
+  modelID?: string;
+  cost?: number;
+  tokens?: OcTokens;
+  summary?: unknown;
 };
+
+export type OcMessage = { info: OcMessageInfo; parts: OcPart[] };
+
+export type OcTodo = { content: string; status: string; priority?: string };
+
+export type OcCommand = { name: string; description?: string; source?: string; hints?: string[] };
 
 type OcPermission = {
   id: string;
@@ -66,7 +103,7 @@ export type OcProviders = {
   providers: {
     id: string;
     name?: string;
-    models: Record<string, { id?: string; name?: string; status?: string; variants?: Record<string, unknown> }>;
+    models: Record<string, { id?: string; name?: string; status?: string; variants?: Record<string, unknown>; limit?: { context?: number } }>;
   }[];
   default: Record<string, string>;
 };
@@ -81,8 +118,33 @@ function truncate(text: string): string {
   return text.length > MAX_TOOL_OUTPUT ? text.slice(0, MAX_TOOL_OUTPUT) + "\n…(truncated)" : text;
 }
 
+// The todo list as plan entries; cancelled items count as done.
+export function planEntries(todos: OcTodo[]): PlanEntry[] {
+  return todos.map((t) => ({
+    text: t.status === "cancelled" ? `${t.content} (cancelled)` : t.content,
+    status: t.status === "in_progress" || t.status === "completed" ? t.status : t.status === "cancelled" ? "completed" : "pending",
+  }));
+}
+
+// One plan per turn, updated in place.
+export const planId = (userMessageId: string) => `${userMessageId}:plan`;
+export const retryId = (userMessageId: string) => `${userMessageId}:retry`;
+
+function errorItem(messageId: string, e: OcError): Item {
+  return { kind: "notice", id: `${messageId}:error`, text: errorText(e), level: "error" };
+}
+
 // One assistant part as an item, or null when there is nothing to show yet.
-export function normalizePart(p: OcPart): Item | null {
+// `turn` is the user message the part answers (assistant info.parentID).
+export function normalizePart(p: OcPart, turn?: string): Item | null {
+  if (p.type === "retry")
+    return { kind: "notice", id: retryId(turn ?? p.messageID), text: `Retry attempt ${p.attempt ?? "?"}: ${errorText(p.error)}`, level: "warning" };
+  if (p.type === "compaction")
+    return { kind: "notice", id: p.id, text: `Context compacted${p.overflow ? " (context overflow)" : p.auto ? " (auto)" : ""}`, level: "info" };
+  if (p.type === "tool" && p.tool === "todowrite" && p.state?.status === "completed") {
+    const todos = (p.state.metadata?.todos ?? (p.state.input as { todos?: unknown } | undefined)?.todos) as OcTodo[] | undefined;
+    if (Array.isArray(todos)) return { kind: "plan", id: planId(turn ?? p.messageID), entries: planEntries(todos) };
+  }
   if (p.type === "text" && !p.synthetic && !p.ignored && p.text?.trim()) return { kind: "assistant", id: p.id, text: p.text };
   if (p.type === "reasoning" && p.text?.trim()) return { kind: "reasoning", id: p.id, text: p.text };
   if (p.type === "tool" && p.state) {
@@ -95,8 +157,27 @@ export function normalizePart(p: OcPart): Item | null {
   return null;
 }
 
+// Image attachments of a user message. Non-image files (@-mentioned text
+// files) are dropped; their content is a synthetic text part.
+function userImages(parts: OcPart[]): ImageData[] {
+  return parts
+    .filter((p) => p.type === "file" && p.mime?.startsWith("image/"))
+    .map((p) => {
+      const m = /^data:[^;,]*;base64,(.*)$/s.exec(p.url ?? "");
+      const data = m && m[1].length <= MAX_HISTORY_IMAGE ? m[1] : undefined;
+      return { mediaType: p.mime!, ...(data ? { data } : {}) };
+    });
+}
+
 export function normalizeMessages(messages: OcMessage[]): Item[] {
   const out: Item[] = [];
+  // Repeated items (a turn's plan or retry notice) stay at their first position with the latest content.
+  const at = new Map<string, number>();
+  const push = (item: Item) => {
+    const i = at.get(item.id);
+    if (i === undefined) at.set(item.id, out.push(item) - 1);
+    else out[i] = item;
+  };
   for (const m of messages) {
     if (m.info.role === "user") {
       const text = m.parts
@@ -104,17 +185,91 @@ export function normalizeMessages(messages: OcMessage[]): Item[] {
         .map((p) => p.text ?? "")
         .join("\n")
         .trim();
-      if (text) out.push({ kind: "user", id: m.info.id, text });
+      const images = userImages(m.parts);
+      if (text || images.length) push({ kind: "user", id: m.info.id, text, ...(images.length ? { images } : {}) });
+      for (const p of m.parts) if (p.type === "compaction") push(normalizePart(p)!);
       continue;
     }
     for (const p of m.parts) {
-      const item = normalizePart(p);
-      if (item) out.push(item);
+      const item = normalizePart(p, m.info.parentID);
+      if (item) push(item);
     }
-    if (m.info.error && m.info.error.name !== "MessageAbortedError")
-      out.push({ kind: "notice", id: `${m.info.id}:error`, text: errorText(m.info.error) });
+    if (m.info.error && m.info.error.name !== "MessageAbortedError") push(errorItem(m.info.id, m.info.error));
   }
   return out;
+}
+
+// --- usage
+
+// Tokens of the prompt the model last saw, as cass counts them.
+const promptTokens = (t: OcTokens) => (t.input ?? 0) + (t.cache?.read ?? 0) + (t.cache?.write ?? 0);
+
+// Session usage from its assistant messages: context of the latest one that
+// reported tokens, input/output/cost totals over all of them.
+export function sessionUsage(infos: OcMessageInfo[], contextWindow?: (model: string) => number | undefined): Usage | null {
+  let input = 0;
+  let output = 0;
+  let cost = 0;
+  let last: OcMessageInfo | undefined;
+  for (const i of infos) {
+    if (i.role !== "assistant" || !i.tokens) continue;
+    input += promptTokens(i.tokens);
+    output += (i.tokens.output ?? 0) + (i.tokens.reasoning ?? 0);
+    cost += i.cost ?? 0;
+    if (promptTokens(i.tokens) > 0 && (!last || i.id > last.id)) last = i;
+  }
+  if (!last) return null;
+  const model = last.providerID && last.modelID ? `${last.providerID}/${last.modelID}` : undefined;
+  const window = model ? contextWindow?.(model) : undefined;
+  return {
+    ...(model ? { model } : {}),
+    contextTokens: promptTokens(last.tokens!),
+    ...(window ? { contextWindow: window } : {}),
+    inputTokens: input,
+    outputTokens: output,
+    ...(cost > 0 ? { costUsd: cost } : {}),
+  };
+}
+
+// --- commands
+
+export function parseCommands(list: OcCommand[]): Command[] {
+  return list.map((c) => {
+    // hints are the template's placeholders: $ARGUMENTS or $1, $2, ...
+    const hint = (c.hints ?? []).map((h) => (h === "$ARGUMENTS" ? "[arguments]" : `<${h.replace(/^\$/, "arg")}>`)).join(" ");
+    return {
+      name: c.name,
+      ...(c.description ? { description: c.description } : {}),
+      ...(hint ? { argumentHint: hint } : {}),
+      kind: c.source === "skill" ? ("skill" as const) : ("command" as const),
+    };
+  });
+}
+
+// "/name args" -> { name, args }, or null for other text.
+export function parseSlash(text: string): { name: string; args: string } | null {
+  const m = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  return m ? { name: m[1], args: (m[2] ?? "").trim() } : null;
+}
+
+// Prompt parts for images.
+export function imageParts(images: ImageData[] | undefined) {
+  return (images ?? [])
+    .filter((i) => i.data)
+    .map((i, n) => ({
+      type: "file" as const,
+      mime: i.mediaType,
+      filename: `image-${n + 1}.${i.mediaType.split("/")[1]?.replace("jpeg", "jpg") ?? "png"}`,
+      url: `data:${i.mediaType};base64,${i.data}`,
+    }));
+}
+
+// The part of a cumulative tool output snapshot not yet streamed.
+export function outputDelta(prev: string, next: string): string {
+  if (next.startsWith(prev)) return next.slice(prev.length);
+  const tail = prev.slice(-200);
+  const i = tail ? next.lastIndexOf(tail) : -1;
+  return i >= 0 ? next.slice(i + tail.length) : next;
 }
 
 function errorText(e: OcError | undefined): string {
@@ -194,6 +349,21 @@ class OpencodeServer {
   private listeners = new Map<string, Set<Listener>>();
   private refs = 0;
   private idleTimer: NodeJS.Timeout | null = null;
+  private windows: Promise<Map<string, number>> | null = null;
+
+  // Context window by "provider/model", from the configured providers.
+  async contextWindows(): Promise<Map<string, number>> {
+    const p = (this.windows ??= this.request<OcProviders>("GET", "/config/providers", homedir()).then((r) => {
+      const m = new Map<string, number>();
+      for (const prov of r.providers)
+        for (const [key, model] of Object.entries(prov.models)) if (model.limit?.context) m.set(`${prov.id}/${key}`, model.limit.context);
+      return m;
+    }));
+    return p.catch(() => {
+      if (this.windows === p) this.windows = null;
+      return new Map();
+    });
+  }
 
   async acquire(): Promise<() => void> {
     this.refs++;
@@ -284,6 +454,7 @@ class OpencodeServer {
     if (!this.proc) return;
     this.proc = null;
     this.ready = null;
+    this.windows = null;
     this.stream?.abort();
     this.stream = null;
     const all = [...this.listeners.values()].flatMap((s) => [...s]);
@@ -339,6 +510,16 @@ class OpencodeSession implements ProviderSession {
   private roles = new Map<string, string>();
   private partTypes = new Map<string, string>();
   private toolStatus = new Map<string, string>();
+  // Output streamed so far by running tool parts.
+  private toolOutput = new Map<string, string>();
+  // The current turn's user message (plans and retry notices are keyed by it).
+  private userMessage: string | undefined;
+  private errored = new Set<string>();
+  // Assistant message infos with tokens, for usage totals (seeded from history on resume).
+  private usageInfos = new Map<string, OcMessageInfo>();
+  // Bumped when a turn ends, so a late HTTP failure of a finished turn is ignored.
+  private turnSeq = 0;
+  private sawBusy = false;
 
   constructor(opts: OpenOptions, server: OpencodeServer) {
     this.opts = opts;
@@ -353,11 +534,27 @@ class OpencodeSession implements ProviderSession {
       this.release();
       throw new Error("closed");
     }
+    // Warm the context window lookup so usage events aren't delayed.
+    void this.server.contextWindows();
     const id =
       this.opts.resumeId ?? (await this.server.request<{ id: string }>("POST", "/session", this.opts.cwd, {})).id;
     this.unlisten = this.server.listen(id, { onEvent: (e) => this.handle(e), onClosed: (err) => this.finish(err) });
     this.opts.emit({ type: "sessionId", id });
+    if (this.opts.resumeId) {
+      try {
+        const messages = await this.server.request<OcMessage[]>("GET", `/session/${id}/message`, this.opts.cwd);
+        for (const m of messages) if (m.info.role === "assistant" && m.info.tokens && !this.usageInfos.has(m.info.id)) this.usageInfos.set(m.info.id, m.info);
+      } catch {
+        // Totals then count from this process on.
+      }
+    }
     return id;
+  }
+
+  private async emitUsage() {
+    const windows = await this.server.contextWindows();
+    const usage = sessionUsage([...this.usageInfos.values()], (m) => windows.get(m));
+    if (usage) this.emit({ type: "usage", usage });
   }
 
   private emit(e: ProviderEvent) {
@@ -368,23 +565,57 @@ class OpencodeSession implements ProviderSession {
     const p = e.properties;
     switch (e.type) {
       case "message.updated": {
-        const info = p.info as OcMessage["info"];
+        const info = p.info as OcMessageInfo;
         this.roles.set(info.id, info.role);
-        if (info.error && info.error.name !== "MessageAbortedError") this.error = errorText(info.error);
+        if (info.role === "user") this.userMessage = info.id;
+        if (info.error && info.error.name !== "MessageAbortedError") {
+          this.error = errorText(info.error);
+          if (!this.errored.has(info.id)) this.errored.add(info.id), this.emit({ type: "item", item: errorItem(info.id, info.error) });
+        }
+        // Tokens are filled in when a step finishes.
+        if (info.role === "assistant" && info.tokens && promptTokens(info.tokens) > 0) {
+          const prev = this.usageInfos.get(info.id)?.tokens;
+          if (JSON.stringify(prev) !== JSON.stringify(info.tokens) || this.usageInfos.get(info.id)?.cost !== info.cost) {
+            this.usageInfos.set(info.id, info);
+            void this.emitUsage();
+          }
+        }
         return;
       }
       case "message.part.updated": {
         const part = p.part as OcPart;
         this.partTypes.set(part.id, part.type);
+        if (part.type === "compaction") {
+          this.emit({ type: "item", item: normalizePart(part)! });
+          return;
+        }
         if (this.roles.get(part.messageID) !== "assistant") return;
-        const item = normalizePart(part);
+        // The todo list arrives as todo.updated.
+        if (part.type === "tool" && part.tool === "todowrite") return;
+        const item = normalizePart(part, this.userMessage);
         if (!item) return;
         if (item.kind === "tool") {
-          // Running updates repeat with streamed output; only status changes matter.
-          if (part.state?.status === "pending" || this.toolStatus.get(item.id) === item.status) return;
-          this.toolStatus.set(item.id, item.status);
-        } else if (!part.time?.end) return;
+          if (part.state?.status === "pending") return;
+          if (this.toolStatus.get(item.id) !== item.status) {
+            this.toolStatus.set(item.id, item.status);
+            this.emit({ type: "item", item });
+          }
+          // Running updates repeat with the output so far.
+          const out = part.state?.metadata?.output;
+          if (item.status === "running" && typeof out === "string") {
+            const delta = outputDelta(this.toolOutput.get(item.id) ?? "", out);
+            this.toolOutput.set(item.id, out);
+            if (delta) this.emit({ type: "toolOutput", itemId: item.id, text: delta });
+          } else if (item.status !== "running") this.toolOutput.delete(item.id);
+          return;
+        }
+        if (item.kind !== "notice" && !part.time?.end) return;
         this.emit({ type: "item", item });
+        return;
+      }
+      case "todo.updated": {
+        const todos = p.todos as OcTodo[];
+        this.emit({ type: "item", item: { kind: "plan", id: planId(this.userMessage ?? String(p.sessionID)), entries: planEntries(todos) } });
         return;
       }
       case "message.part.delta": {
@@ -400,9 +631,15 @@ class OpencodeSession implements ProviderSession {
         return;
       }
       case "session.status": {
-        const status = (p.status as { type: string }).type;
-        if (status === "busy") this.busy = true;
-        else if (status === "idle" && this.busy) this.endTurn();
+        const status = p.status as { type: string; attempt?: number; message?: string; next?: number };
+        if (status.type === "busy") (this.busy = true), (this.sawBusy = true);
+        else if (status.type === "idle" && this.busy) this.endTurn();
+        else if (status.type === "retry") {
+          this.sawBusy = true;
+          const wait = status.next ? Math.max(0, Math.round((status.next - Date.now()) / 1000)) : 0;
+          const text = `Retry attempt ${status.attempt ?? "?"}: ${status.message ?? "request failed"}${wait ? ` (retrying in ${wait}s)` : ""}`;
+          this.emit({ type: "item", item: { kind: "notice", id: retryId(this.userMessage ?? String(p.sessionID)), text, level: "warning" } });
+        }
         return;
       }
       case "permission.asked":
@@ -456,6 +693,8 @@ class OpencodeSession implements ProviderSession {
     const interrupted = this.interrupted;
     const error = this.error;
     this.busy = false;
+    this.sawBusy = false;
+    this.turnSeq++;
     this.interrupted = false;
     this.error = undefined;
     this.turnAbort.abort();
@@ -470,13 +709,30 @@ class OpencodeSession implements ProviderSession {
     void this.close();
   }
 
-  send(text: string, _itemId: string) {
+  send(text: string, _itemId: string, images?: ImageData[]) {
     const { config, cwd } = this.opts;
+    const seq = this.turnSeq;
+    const files = imageParts(images);
     void this.sessionId
-      .then((id) => {
+      .then(async (id) => {
         this.busy = true;
+        const slash = parseSlash(text);
+        if (slash) {
+          const commands = await this.server.request<OcCommand[]>("GET", "/command", cwd).catch(() => []);
+          if (commands.some((c) => c.name === slash.name)) {
+            // Blocks until the command's turn is done; the event stream drives the turn.
+            return this.server.request("POST", `/session/${id}/command`, cwd, {
+              command: slash.name,
+              arguments: slash.args,
+              model: config.model,
+              agent: config.mode,
+              variant: config.effort,
+              ...(files.length ? { parts: files } : {}),
+            });
+          }
+        }
         return this.server.request("POST", `/session/${id}/prompt_async`, cwd, {
-          parts: [{ type: "text", text }],
+          parts: [...(text.trim() ? [{ type: "text", text }] : []), ...files],
           model: modelRef(config.model),
           agent: config.mode,
           variant: config.effort,
@@ -484,7 +740,8 @@ class OpencodeSession implements ProviderSession {
         });
       })
       .catch((e) => {
-        if (this.closed) return;
+        // A failure after the turn got going is reported by the event stream.
+        if (this.closed || seq !== this.turnSeq || this.sawBusy) return;
         this.busy = false;
         this.emit({ type: "turnEnded", outcome: "failed", error: e instanceof Error ? e.message : String(e) });
       });
@@ -519,6 +776,29 @@ export function opencodeProvider(): Provider {
       const release = await server.acquire();
       try {
         return normalizeMessages(await server.request<OcMessage[]>("GET", `/session/${sessionId}/message`, cwd));
+      } finally {
+        release();
+      }
+    },
+    async usage(sessionId, cwd) {
+      const release = await server.acquire();
+      try {
+        const [messages, windows] = await Promise.all([
+          server.request<OcMessage[]>("GET", `/session/${sessionId}/message`, cwd),
+          server.contextWindows(),
+        ]);
+        return sessionUsage(
+          messages.map((m) => m.info),
+          (m) => windows.get(m),
+        );
+      } finally {
+        release();
+      }
+    },
+    async commands(cwd) {
+      const release = await server.acquire();
+      try {
+        return parseCommands(await server.request<OcCommand[]>("GET", "/command", cwd));
       } finally {
         release();
       }

@@ -277,11 +277,29 @@ struct MemoryEntryRow: View {
                     Text(date, format: .relative(presentation: .named)).font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Text(Markdown.inline(entry.text)).textSelection(.enabled)
+            let note = Self.split(entry.text)
+            if let description = note.description {
+                Text(description).font(.callout).foregroundStyle(.secondary)
+            }
+            MarkdownView(blocks: Markdown.blocks(for: note.body, id: "memory-\(entry.id)"))
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Memory files often start with YAML front matter (name, description, metadata). Show the
+    /// description as a subtitle and the rest as markdown, not the raw header.
+    static func split(_ text: String) -> (description: String?, body: String) {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---",
+              let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" })
+        else { return (nil, text) }
+        let header = lines[1..<end]
+        let description = header.first { $0.hasPrefix("description:") }
+            .map { $0.dropFirst("description:".count).trimmingCharacters(in: .whitespaces) }
+        let body = lines[(end + 1)...].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return (description, body)
     }
 
     static func parse(_ string: String) -> Date? {

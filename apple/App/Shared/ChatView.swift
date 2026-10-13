@@ -421,7 +421,8 @@ struct ToolRow: View {
             }
             .buttonStyle(.plain)
             if expanded {
-                if let input = call.input {
+                // A lone command is already in the summary line; don't repeat it as JSON.
+                if let input = call.input, !(input.isOnlyCommand) {
                     ToolSection(title: "Input", text: input.prettyPrinted)
                 }
                 if let output = call.output, !output.isEmpty {
@@ -677,4 +678,12 @@ private struct ScrollSpot: Equatable {
     var offset: CGFloat
     var height: CGFloat
     var atBottom: Bool
+}
+
+extension JSONValue {
+    /// `{"command": "…"}` and nothing else.
+    var isOnlyCommand: Bool {
+        if case .object(let o) = self { return o.count == 1 && o["command"]?.stringValue != nil }
+        return false
+    }
 }

@@ -86,6 +86,14 @@ final class ComposerLogicTests: XCTestCase {
         XCTAssertNil(AgentConfigChoice.config(model: "haiku", effort: "low", mode: "default", catalog: nil).mode)
     }
 
+    func testMemoryFrontMatter() {
+        let note = MemoryEntryRow.split("---\nname: x\ndescription: Short summary\nmetadata:\n  type: reference\n---\n\nBody **text**.")
+        XCTAssertEqual(note.description, "Short summary")
+        XCTAssertEqual(note.body, "Body **text**.")
+        XCTAssertNil(MemoryEntryRow.split("Plain memory").description)
+        XCTAssertEqual(MemoryEntryRow.split("Plain memory").body, "Plain memory")
+    }
+
     func testNotificationKinds() {
         XCTAssertEqual(Notifier.kind(from: .running, to: .waiting, focusedOnAgent: false), .needsYou)
         XCTAssertEqual(Notifier.kind(from: .running, to: .idle, focusedOnAgent: false), .finished)

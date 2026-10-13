@@ -1,8 +1,9 @@
 import XCTest
 
-/// Drives the iOS app against a running casm server (scripts/run-dev.sh's server on 127.0.0.1:7373):
-/// open an agent, switch mode, send, answer a permission and a question. Screenshots go to
-/// $CASM_SHOTS (default /tmp/casm-shots). Needs an agent named "writer" in project "Playground".
+/// Drives the iOS app against a running casm server. Expects (create with the CLI first):
+///   casm project create /tmp/casm-scratch/ios --name "iOS Scratch" --group Scratch
+///   casm run --project "iOS Scratch" --name ios-scratch --model haiku --mode default "Reply with just: ready"
+/// Runner env (prefix with TEST_RUNNER_ for xcodebuild): CASM_URL, CASM_TOKEN, CASM_SHOTS.
 @MainActor
 final class FlowTests: XCTestCase {
     let env = ProcessInfo.processInfo.environment
@@ -13,12 +14,14 @@ final class FlowTests: XCTestCase {
         app = XCUIApplication()
         app.launchEnvironment["CASM_DEV_URL"] = env["CASM_URL"] ?? "ws://127.0.0.1:7373"
         app.launchEnvironment["CASM_DEV_TOKEN"] = env["CASM_TOKEN"] ?? ""
+        app.launchEnvironment["CASM_DEV_NAME"] = env["CASM_HOST_NAME"] ?? "macbook"
         app.launchEnvironment["CASM_EXP"] = env["CASM_EXP"] ?? ""
         app.launch()
     }
 
     func shot(_ name: String) {
         let dir = env["CASM_SHOTS"] ?? "/tmp/casm-shots"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let png = XCUIScreen.main.screenshot().pngRepresentation
         try? png.write(to: URL(fileURLWithPath: "\(dir)/\(name).png"))
         let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
@@ -39,58 +42,95 @@ final class FlowTests: XCTestCase {
         app.buttons["Send"].tap()
     }
 
-    /// Just opens the agent; for layout checks (`-only-testing:CasmiOSUITests/FlowTests/testOpenChat`).
-    func testOpenChat() throws {
-        XCTAssertTrue(element("writer").waitForExistence(timeout: 10))
-        element("writer").tap()
+    func openAgent() {
+        XCTAssertTrue(element("ios-scratch").waitForExistence(timeout: 15), "agent list loaded")
+        element("ios-scratch").tap()
         XCTAssertTrue(app.textFields["Message"].waitForExistence(timeout: 10))
-        sleep(2)
-        shot("i-open-\(env["CASM_EXP"] ?? "")")
+        sleep(1)
     }
 
-    func testMainFlows() throws {
-        XCTAssertTrue(element("writer").waitForExistence(timeout: 10), "agent list loaded")
-        shot("i01-sidebar")
+    /// The turn is over when the round button is Send again (Interrupt while busy).
+    func waitIdle(_ timeout: TimeInterval = 90) {
+        XCTAssertTrue(app.buttons["Send"].waitForExistence(timeout: timeout), "turn finished")
+    }
 
-        element("writer").tap()
-        XCTAssertTrue(app.textFields["Message"].waitForExistence(timeout: 10))
+    func testSidebarAndProjectDetails() throws {
+        XCTAssertTrue(element("ios-scratch").waitForExistence(timeout: 15))
+        XCTAssertTrue(element("Scratch").exists, "group label shown")
+        shot("ios-01-sidebar")
+
+        element("Details of iOS Scratch").tap()
+        XCTAssertTrue(element("AGENTS.md").waitForExistence(timeout: 10))
         sleep(1)
-        shot("i02-chat")
-
-        // Mode popover: switch to "Always ask" so the next write needs a permission.
-        app.buttons.matching(NSPredicate(format: "label ENDSWITH 'mode' OR label == 'Always ask' OR label == 'Bypass'")).firstMatch.tap()
-        let search = app.textFields.matching(NSPredicate(format: "placeholderValue BEGINSWITH 'Search modes'")).firstMatch
-        if !search.waitForExistence(timeout: 5) {
-            shot("dbg-after-mode-tap")
-            print("TREE\n" + app.debugDescription)
-            XCTFail("mode popover open")
-            return
+        shot("ios-02-details-agentsmd")
+        if element("Create AGENTS.md").exists {
+            element("Create AGENTS.md").tap()
+            sleep(1)
+            app.buttons["Create"].tap()
+            sleep(2)
+            shot("ios-03-details-agentsmd-created")
         }
-        shot("i03-mode-popover")
-        element("Always ask").firstMatch.tap()
+        element("Memories").tap()
+        sleep(2)
+        shot("ios-04-details-memories")
+        app.buttons["Done"].tap()
+    }
+
+    func testComposerAndModeSheet() throws {
+        openAgent()
+        shot("ios-05-chat")
+
+        // + menu: Photo Library and Paste Image.
+        app.buttons["Attach images"].tap()
+        XCTAssertTrue(element("Paste Image").waitForExistence(timeout: 5))
+        shot("ios-06-plus-menu")
+        app.tap() // dismiss
         sleep(1)
 
-        // Permission card.
-        send("Use the Write tool to create ios-check.txt containing 'ios'. Then reply 'ok'.")
-        XCTAssertTrue(app.buttons["Allow"].waitForExistence(timeout: 60), "permission card")
-        shot("i04-permission")
-        app.buttons["Allow"].tap()
-        XCTAssertTrue(app.buttons["Send"].waitForExistence(timeout: 60), "turn finished")
-        sleep(2)
-        shot("i05-after-allow")
+        // An image on the clipboard shows the paste chip.
+        UIPasteboard.general.image = Self.sampleImage()
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(element("Paste image from clipboard").waitForExistence(timeout: 5), "paste chip")
+        shot("ios-07-paste-chip")
+        element("Paste image from clipboard").tap()
+        XCTAssertTrue(app.buttons["Remove image"].waitForExistence(timeout: 5), "thumbnail attached")
+        shot("ios-08-attached")
+        app.buttons["Remove image"].tap()
 
-        // Question card.
+        // Mode sheet lists the provider's catalog (Claude: Always ask, …).
+        app.buttons.matching(NSPredicate(format: "label == 'Always ask' OR label ENDSWITH 'mode' OR label == 'Default mode'")).firstMatch.tap()
+        XCTAssertTrue(app.textFields.matching(NSPredicate(format: "placeholderValue BEGINSWITH 'Search modes'")).firstMatch
+            .waitForExistence(timeout: 5), "mode sheet")
+        shot("ios-09-mode-sheet")
+        element("Always ask").tap()
+        sleep(1)
+    }
+
+    func testPermissionAndQuestionCards() throws {
+        openAgent()
+        send("Use the Write tool to create ios-check.txt containing 'ios'. Then reply 'ok'.")
+        XCTAssertTrue(app.buttons["Allow"].waitForExistence(timeout: 90), "permission card")
+        shot("ios-10-permission")
+        app.buttons["Allow"].tap()
+        waitIdle()
+
         send("Use the AskUserQuestion tool to ask me which color I prefer: red, green or blue (single choice). Then tell me my answer.")
-        XCTAssertTrue(app.buttons["Submit"].waitForExistence(timeout: 60), "question card")
-        shot("i06-question")
+        XCTAssertTrue(app.buttons["Submit"].waitForExistence(timeout: 90), "question card")
+        shot("ios-11-question")
         element("Blue").tap()
         app.buttons["Submit"].tap()
-        XCTAssertTrue(app.buttons["Send"].waitForExistence(timeout: 60), "turn finished")
+        waitIdle()
         sleep(2)
-        shot("i07-answered")
+        shot("ios-12-answered")
+    }
 
-        // Back to the list (navigation stack).
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(element("writer").waitForExistence(timeout: 5))
+    static func sampleImage() -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 120, height: 80)).image { ctx in
+            UIColor.systemTeal.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 120, height: 80))
+            UIColor.systemPink.setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(x: 35, y: 15, width: 50, height: 50))
+        }
     }
 }

@@ -170,8 +170,6 @@ struct ChatView: View {
                 Group {
                     if let draft = chat.draft {
                         DraftRow(draft: draft)
-                    } else if chat.status == .running {
-                        ProgressView().controlSize(.small).padding(.leading, 4)
                     }
                 }
                 .modifier(Column(margin: margin))

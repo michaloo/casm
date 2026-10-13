@@ -83,7 +83,7 @@ final class DebugControl {
         case "reload":
             Task { await chat?.reload(); log("reloaded") }
         case "restart":
-            Task { await chat?.restart(); log("restarted") }
+            Task { await chat?.restart(); log("new session") }
         case "sheet":
             switch cmd["name"] {
             case "addHost": app.sheet = .addHost
@@ -106,7 +106,7 @@ final class DebugControl {
             if let chat { chat.expanded.formUnion(chat.items.suffix(Int(cmd["last"] ?? "20") ?? 20).map(\.id)) }
         case "scroll":
             let t0 = CACurrentMediaTime()
-            scroller?(ScrollPosition(edge: cmd["to"] == "top" ? .top : .bottom))
+            scroller?(ScrollPosition(y: cmd["to"] == "top" ? 0 : max(0, contentHeight - viewportHeight)))
             afterIdle { self.log(String(format: "scroll to %@: %.1f ms", cmd["to"] ?? "bottom", (CACurrentMediaTime() - t0) * 1000)) }
         case "views":
             for w in NSApp.windows {

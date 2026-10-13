@@ -12,15 +12,15 @@ struct QuestionCard: View {
     @State private var confirmed: [String: Bool] = [:]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Label(request.title ?? "The agent has a question", systemImage: "questionmark.bubble.fill")
                 .fontWeight(.semibold)
                 .foregroundStyle(.blue)
-            ForEach(request.prompts) { prompt in
-                PromptView(prompt: prompt, picked: binding(prompt.id, in: $picked, default: []),
-                           other: binding(prompt.id, in: $other, default: ""),
-                           text: binding(prompt.id, in: $text, default: ""),
-                           confirmed: Binding { confirmed[prompt.id] } set: { confirmed[prompt.id] = $0 })
+            // The prompts scroll when they would take more than about half the screen, so the
+            // transcript and the buttons stay visible.
+            ViewThatFits(in: .vertical) {
+                prompts
+                ScrollView { prompts }.frame(maxHeight: 300)
             }
             HStack {
                 Spacer()
@@ -33,6 +33,18 @@ struct QuestionCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.blue.opacity(0.07))
+    }
+
+    private var prompts: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(request.prompts) { prompt in
+                PromptView(prompt: prompt, picked: binding(prompt.id, in: $picked, default: []),
+                           other: binding(prompt.id, in: $other, default: ""),
+                           text: binding(prompt.id, in: $text, default: ""),
+                           confirmed: Binding { confirmed[prompt.id] } set: { confirmed[prompt.id] = $0 })
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func binding<V>(_ id: String, in dict: Binding<[String: V]>, default value: V) -> Binding<V> {

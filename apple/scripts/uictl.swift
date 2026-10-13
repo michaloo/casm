@@ -3,6 +3,7 @@
 // (we run it through Terminal, see scripts/ui).
 //
 //   uictl press <app> <title>          AXPress the first element whose title/description matches
+//   uictl showmenu <app> <title>       open the context menu of a matching element
 //   uictl dump <app> [depth]           print the AX tree (role, title, description, frame)
 //   uictl click <x> <y> [app]          left click at global point (top-left origin); with app, only if frontmost
 //   uictl clickel <app> <title>        click the centre of a matching element
@@ -42,9 +43,12 @@ func frame(_ el: AXUIElement) -> CGRect? {
     return CGRect(origin: point, size: size)
 }
 
+/// `title` may be qualified with a role, e.g. `AXTextField@Token`.
 func find(_ root: AXUIElement, _ title: String, depth: Int = 0) -> AXUIElement? {
     if depth > 40 { return nil }
-    if label(root).contains(where: { $0 == title }) { return root }
+    let parts = title.split(separator: "@", maxSplits: 1).map(String.init)
+    let (role, name) = parts.count == 2 && parts[0].hasPrefix("AX") ? (parts[0], parts[1]) : (nil, title)
+    if label(root).contains(where: { $0 == name }), role == nil || (attr(root, kAXRoleAttribute) as? String) == role { return root }
     for c in children(root) { if let hit = find(c, title, depth: depth + 1) { return hit } }
     return nil
 }
@@ -59,7 +63,14 @@ func dump(_ el: AXUIElement, _ depth: Int, _ max: Int) {
 
 func root(_ name: String) -> AXUIElement {
     guard let a = app(name) else { fail("no app \(name)") }
-    return AXUIElementCreateApplication(a.processIdentifier)
+    let el = AXUIElementCreateApplication(a.processIdentifier)
+    // With a sheet open, look inside it first so a title can't match something behind it.
+    for w in attr(el, kAXWindowsAttribute) as? [AXUIElement] ?? [] {
+        if let sheet = children(w).first(where: { (attr($0, kAXRoleAttribute) as? String) == "AXSheet" }) {
+            return sheet
+        }
+    }
+    return el
 }
 
 /// Activation from a background process is often refused, so also set AXFrontmost and raise the main window.
@@ -78,6 +89,12 @@ func requireFront(_ name: String) {
     guard NSWorkspace.shared.frontmostApplication == app(name) else { fail("\(name) is not frontmost; not clicking") }
 }
 
+/// Keyboard input goes to whatever is frontmost, so only send it to the app under test.
+func requireOurAppFront() {
+    let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+    guard ["casm", "Simulator"].contains(front) else { fail("\(front) is frontmost; not typing into it") }
+}
+
 func fail(_ msg: String) -> Never {
     FileHandle.standardError.write(Data("uictl: \(msg)\n".utf8))
     exit(1)
@@ -91,7 +108,7 @@ func click(_ p: CGPoint) {
     }
 }
 
-let keyCodes: [String: CGKeyCode] = ["return": 36, "tab": 48, "space": 49, "escape": 53, "down": 125, "up": 126, "left": 123, "right": 124, "delete": 51]
+let keyCodes: [String: CGKeyCode] = ["a": 0, "return": 36, "tab": 48, "space": 49, "escape": 53, "down": 125, "up": 126, "left": 123, "right": 124, "delete": 51]
 
 func key(_ code: CGKeyCode, _ flags: CGEventFlags = []) {
     let src = CGEventSource(stateID: .hidSystemState)
@@ -110,6 +127,8 @@ func type(_ text: String) {
             let e = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: down)
             var c = ch
             e?.keyboardSetUnicodeString(stringLength: 1, unicodeString: &c)
+            // Don't inherit modifiers from the source state (a preceding ⌘A turned "." into ⌘.).
+            e?.flags = []
             e?.post(tap: .cghidEventTap)
         }
         usleep(8_000)
@@ -133,6 +152,12 @@ case "press":
     guard let el = find(root(args[1]), args[2]) else { fail("no element \(args[2])") }
     let r = AXUIElementPerformAction(el, kAXPressAction as CFString)
     if r != .success { fail("press failed \(r.rawValue)") }
+case "showmenu":
+    // Opens an element's context menu.
+    requireFront(args[1])
+    guard let el = find(root(args[1]), args[2]) else { fail("no element \(args[2])") }
+    let r = AXUIElementPerformAction(el, "AXShowMenu" as CFString)
+    if r != .success { fail("show menu failed \(r.rawValue)") }
 case "clickel":
     requireFront(args[1])
     guard let el = find(root(args[1]), args[2]), let f = frame(el) else { fail("no element \(args[2])") }
@@ -143,6 +168,7 @@ case "click":
     if args.count > 3 { requireFront(args[3]) }
     click(CGPoint(x: Double(args[1])!, y: Double(args[2])!))
 case "type":
+    requireOurAppFront()
     type(args[1...].joined(separator: " "))
 case "key":
     var flags: CGEventFlags = []
@@ -155,6 +181,7 @@ case "key":
         }
     }
     guard let code = keyCodes[args[1]] else { fail("unknown key \(args[1])") }
+    requireOurAppFront()
     key(code, flags)
 case "closewins":
     // Closes the app's windows whose title contains the given text (e.g. our Terminal helpers).

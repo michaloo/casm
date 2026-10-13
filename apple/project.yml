@@ -58,6 +58,17 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: casm connects to agent servers on your local network.
+  CasmiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [App/iOSUITests]
+    dependencies:
+      - target: CasmiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.raczka.casm.ios.uitests
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   CasmMac:
     build:
@@ -67,3 +78,5 @@ schemes:
   CasmiOS:
     build:
       targets: {CasmiOS: all}
+    test:
+      targets: [CasmiOSUITests]

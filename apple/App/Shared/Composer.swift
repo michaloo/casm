@@ -10,6 +10,12 @@ struct Composer: View {
     @State private var text = ""
     @State private var selection: TextSelection?
     @FocusState private var focused: Bool
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var compactWidth: Bool { sizeClass == .compact }
+    #else
+    private let compactWidth = false
+    #endif
 
     private var busy: Bool { chat.status.isBusy }
     private var online: Bool { chat.host?.isOnline ?? false }
@@ -36,7 +42,8 @@ struct Composer: View {
                         .disabled(true)
                         .help("Attachments aren't supported yet")
                     if chat.agent != nil {
-                        ConfigPickers(chat: chat)
+                        // Icons only on iPhone-width screens.
+                        ConfigPickers(chat: chat).environment(\.compactPickers, compactWidth)
                     }
                     Spacer(minLength: 0)
                     if busy {
@@ -60,15 +67,25 @@ struct Composer: View {
             .padding(.bottom, 10)
             .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.secondary.opacity(0.2)))
+            #if os(macOS)
+            // Clicking the padding focuses the field. On iOS this would swallow taps on the pickers.
             .contentShape(RoundedRectangle(cornerRadius: 18))
             .onTapGesture { focused = true }
+            #endif
         }
+        #if os(iOS)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 8)
+        #else
         .padding(.horizontal, 20)
         .padding(.bottom, 14)
+        #endif
         .padding(.top, 6)
         .frame(maxWidth: 900)
         .frame(maxWidth: .infinity)
+        #if os(macOS)
         .onAppear { focused = true }
+        #endif
     }
 
     @ViewBuilder private var sendOrInterrupt: some View {
@@ -117,6 +134,9 @@ struct Composer: View {
         let message = text
         guard canSend else { return }
         text = ""
+        #if os(iOS)
+        focused = false
+        #endif
         Task { await chat.send(message) }
     }
 }
@@ -238,6 +258,8 @@ struct ModePicker: View {
                     .padding(.vertical, 8)
                     .onSubmit { if let first = filtered.first { choose(first) } }
                 Divider()
+                ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
                 ForEach(filtered) { mode in
                     Button { choose(mode) } label: {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -260,9 +282,19 @@ struct ModePicker: View {
                 if filtered.isEmpty {
                     Text("No matching modes").foregroundStyle(.secondary).padding(10)
                 }
+                }
+                }
+                .scrollBounceBehavior(.basedOnSize)
             }
             .padding(6)
+            #if os(macOS)
             .frame(width: 320)
+            .frame(maxHeight: 460)
+            #else
+            // On iPhone the popover becomes a sheet; a popover above the composer has no room.
+            .padding(.top, 10)
+            .presentationDetents([.medium, .large])
+            #endif
         }
     }
 
@@ -297,17 +329,24 @@ struct ModeIcon: View {
     }
 }
 
+extension EnvironmentValues {
+    @Entry var compactPickers = false
+}
+
 private struct PickerLabel<Icon: View>: View {
     let icon: Icon
     let title: String
+    @Environment(\.compactPickers) private var compact
 
     var body: some View {
         HStack(spacing: 5) {
             icon
-            Text(title)
+            if !compact { Text(title).lineLimit(1) }
             Image(systemName: "chevron.down").font(.caption2)
         }
         .foregroundStyle(.secondary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
     }
 }
 

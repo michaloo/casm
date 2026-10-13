@@ -5,9 +5,20 @@ import SwiftUI
 struct ChatView: View {
     @Environment(AppModel.self) private var app
     @Bindable var chat: ChatModel
-    @State private var position = ScrollPosition(edge: .bottom)
+    // Vertical offsets only: ScrollPosition(edge:) / scrollTo(edge:) also set x = 0, which ignores
+    // the content margins and shifted the transcript sideways.
+    @State private var position = ScrollPosition()
     @State private var nearBottom = true
     @State private var scrolling = false
+    @State private var width: CGFloat = 0
+    /// Largest vertical offset, i.e. "scrolled to the bottom".
+    @State private var bottomOffset: CGFloat = 0
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var showStatusLabel: Bool { sizeClass != .compact }
+    #else
+    private let showStatusLabel = true
+    #endif
     @State private var confirmRestart = false
 
     var body: some View {
@@ -34,23 +45,32 @@ struct ChatView: View {
         #endif
         .toolbar {
             ToolbarItem {
-                StatusBadge(status: chat.status, showLabel: true)
+                StatusBadge(status: chat.status, showLabel: showStatusLabel)
             }
             ToolbarItemGroup {
-                Button("Reload", systemImage: "arrow.clockwise") { Task { await chat.reload() } }
-                    .help("Restart the agent process on the same session")
-                Button("Restart", systemImage: "arrow.counterclockwise.circle") { confirmRestart = true }
-                    .help("Start a new session with the same config")
+                // Reload keeps the conversation (new process, same session); New Session clears it.
+                Button("Reload Agent", systemImage: "arrow.clockwise") { Task { await chat.reload() } }
+                    .help("Reload the agent: restart its process and keep the conversation")
+                Button("New Session", systemImage: "square.and.pencil") { confirmRestart = true }
+                    .help("New session: same agent settings, empty conversation")
             }
         }
         .confirmationDialog("Start a new session?", isPresented: $confirmRestart) {
-            Button("Restart", role: .destructive) { Task { await chat.restart() } }
+            Button("New Session", role: .destructive) { Task { await chat.restart() } }
         } message: {
-            Text("The next message starts a fresh session. The current transcript stays in Claude's own store.")
+            Text("The agent keeps its settings but forgets this conversation; the next message starts a fresh session. The old transcript stays in the provider's own store.")
         }
         #if DEBUG && os(macOS)
         .onAppear { DebugControl.shared.scroller = { position = $0 } }
         #endif
+    }
+
+    private var margin: CGFloat { max(20, (width - 900) / 2) }
+
+    private func scrollToBottom() {
+        position.scrollTo(y: bottomOffset)
+        // Content may still grow this frame (first load); settle once more on the next one.
+        Task { @MainActor in position.scrollTo(y: bottomOffset) }
     }
 
     private var subtitle: String {
@@ -79,7 +99,7 @@ struct ChatView: View {
                                     DebugControl.shared.log(String(format: "reveal %d→%d rows: %.0f ms", before, chat.visibleItems.count, (CACurrentMediaTime() - t0) * 1000))
                                 }
                                 #endif
-                                if let anchor { position.scrollTo(id: anchor, anchor: .top) }
+                                if let anchor { position.scrollTo(id: anchor, anchor: .topLeading) }
                             }
                         }
                         // A new identity per window, so onAppear fires again if it stays visible.
@@ -88,25 +108,35 @@ struct ChatView: View {
                 ForEach(chat.visibleItems) { item in
                     ItemRow(item: item, expanded: $chat.expanded)
                         .modifier(HoverSelectable(scrolling: scrolling))
+                        .modifier(Column(margin: margin))
                 }
-                if let draft = chat.draft {
-                    DraftRow(draft: draft)
-                } else if chat.status == .running {
-                    ProgressView().controlSize(.small).padding(.leading, 4)
+                Group {
+                    if let draft = chat.draft {
+                        DraftRow(draft: draft)
+                    } else if chat.status == .running {
+                        ProgressView().controlSize(.small).padding(.leading, 4)
+                    }
                 }
+                .modifier(Column(margin: margin))
             }
             .scrollTargetLayout()
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .frame(maxWidth: 900)
-            .frame(maxWidth: .infinity)
         }
+        // Side margins are padding inside each full-width row. Content margins on the scroll view
+        // (or padding around the stack) left the transcript shifted sideways after programmatic
+        // scrolls on iOS, because ScrollPosition offsets ignore them. Wide windows centre a 900 pt column.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .contentMargins(.vertical, 16, for: .scrollContent)
         .accessibilityIdentifier("transcript")
         .onScrollPhaseChange { _, phase in scrolling = phase != .idle }
-        .scrollPosition($position)
+        .scrollPosition(Exp.noPosition ? .constant(ScrollPosition()) : $position)
         // Keeps the bottom in place when content grows, so prepending older pages doesn't jump
         // and streaming text stays in view.
-        .defaultScrollAnchor(.bottom)
+        .defaultScrollAnchor(Exp.noAnchor ? nil : .bottom)
+        .onScrollGeometryChange(for: CGFloat.self) { geo in
+            max(0, geo.contentSize.height + geo.contentInsets.top + geo.contentInsets.bottom - geo.containerSize.height) - geo.contentInsets.top
+        } action: { _, y in
+            bottomOffset = y
+        }
         .onScrollGeometryChange(for: Bool.self) { geo in
             Exp.noGeo || geo.contentSize.height - geo.visibleRect.maxY < 80
         } action: { _, near in
@@ -128,7 +158,7 @@ struct ChatView: View {
         .overlay(alignment: .bottomTrailing) {
             if !nearBottom {
                 Button("Jump to bottom", systemImage: "arrow.down") {
-                    position.scrollTo(edge: .bottom)
+                    scrollToBottom()
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderedProminent)
@@ -137,7 +167,7 @@ struct ChatView: View {
             }
         }
         .onChange(of: chat.scrollToBottomRequest) {
-            position.scrollTo(edge: .bottom)
+            scrollToBottom()
         }
     }
 }
@@ -285,6 +315,23 @@ struct PermissionBanner: View {
     let respond: (PermissionDecision) -> Void
 
     var body: some View {
+        // Buttons beside the request when there's room, below it on narrow screens.
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 10) {
+                summary
+                Spacer()
+                buttons
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                summary
+                HStack { Spacer(); buttons }
+            }
+        }
+        .padding(12)
+        .background(.orange.opacity(0.12))
+    }
+
+    private var summary: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "hand.raised.fill").foregroundStyle(.orange).font(.title3)
             VStack(alignment: .leading, spacing: 2) {
@@ -293,7 +340,12 @@ struct PermissionBanner: View {
                     Text(detail).font(.callout.monospaced()).foregroundStyle(.secondary).lineLimit(4)
                 }
             }
-            Spacer()
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder private var buttons: some View {
+        HStack(spacing: 8) {
             Button("Deny", role: .destructive) { respond(.deny) }
             if request.canAlwaysAllow {
                 Button("Always allow") { respond(.allowAlways) }
@@ -302,8 +354,7 @@ struct PermissionBanner: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
         }
-        .padding(12)
-        .background(.orange.opacity(0.12))
+        .fixedSize()
     }
 }
 
@@ -342,6 +393,8 @@ struct StatusBadge: View {
         }
         .font(.caption)
         .help(label)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
     }
 
     private var label: String {
@@ -351,5 +404,16 @@ struct StatusBadge: View {
         case .idle: "Idle"
         case .unknown(let raw): raw
         }
+    }
+}
+
+/// A full-width transcript row with the column's side margins inside it.
+private struct Column: ViewModifier {
+    let margin: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, margin)
     }
 }

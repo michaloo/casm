@@ -5,7 +5,23 @@ import Observation
 /// The open transcript of one agent: history pages merged with live events.
 @MainActor @Observable
 final class ChatModel {
-    let agentId: String
+    /// Empty until the first message creates the agent of a new-agent chat.
+    private(set) var agentId: String
+    /// Set while this chat is a project's empty new-agent chat: the composer picks provider and
+    /// config locally, and the first message creates the agent with them.
+    private(set) var newAgent: NewAgent?
+    /// Called once the first message created the agent (to select it).
+    @ObservationIgnored var onCreated: ((Agent) -> Void)?
+    /// The first message while agent.create runs, shown as sent (and kept in `items` until the
+    /// agent's own copy of it arrives).
+    private(set) var firstMessage: Item?
+    private static let firstMessageID = "local-first-message"
+
+    struct NewAgent: Equatable {
+        var projectId: String
+        var provider: ProviderID
+        var config = AgentConfig()
+    }
     /// Nil for the debug synthetic transcript.
     private(set) weak var host: HostModel?
 
@@ -48,7 +64,20 @@ final class ChatModel {
         self.agentId = agentId
     }
 
-    var agent: Agent? { host?.agent(agentId) }
+    /// An empty chat for a project; sending the first message creates the agent.
+    init(host: HostModel, newAgentIn projectId: String) {
+        self.host = host
+        agentId = ""
+        let providers = host.info?.providers ?? [.claude]
+        newAgent = NewAgent(projectId: projectId, provider: providers.contains(.claude) ? .claude : providers.first ?? .claude)
+    }
+
+    var agent: Agent? { newAgent == nil ? host?.agent(agentId) : nil }
+    var provider: ProviderID? { newAgent?.provider ?? agent?.provider }
+    var config: AgentConfig? { newAgent?.config ?? agent?.config }
+    var project: Project? { (newAgent?.projectId ?? agent?.projectId).flatMap { host?.project($0) } }
+    /// Where composer drafts are kept: per agent, or per project for a new-agent chat.
+    var draftKey: String { Drafts.key(host: host?.id, agent: newAgent.map { "new:\($0.projectId)" } ?? agentId) }
     var status: AgentStatus { agent?.status ?? .idle }
     var canLoadOlder: Bool { windowStart > 0 || (historyStart ?? 0) > 0 }
 
@@ -71,13 +100,13 @@ final class ChatModel {
     // MARK: Lifecycle
 
     func open() {
-        guard let host else { return }
+        guard let host, newAgent == nil else { return }
         host.register(self)
         Task { await resync() }
     }
 
     func close() {
-        guard let host else { return }
+        guard let host, newAgent == nil else { return }
         host.unregister(self)
         let client = host.client, id = agentId
         Task { try? await client.unsubscribe(agentId: id) }
@@ -202,6 +231,9 @@ final class ChatModel {
     }
 
     private func upsert(_ item: Item) {
+        if case .user(let id, _, _) = item, id != Self.firstMessageID, index[Self.firstMessageID] != nil {
+            setItems(items.filter { $0.id != Self.firstMessageID })
+        }
         if let i = index[item.id] {
             items[i] = item
         } else {
@@ -225,6 +257,11 @@ final class ChatModel {
     }
 
     private func setItems(_ new: [Item]) {
+        // The agent's copy of the first message replaces the local one.
+        var new = new
+        if new.contains(where: { if case .user(let id, _, _) = $0 { id != Self.firstMessageID } else { false } }) {
+            new.removeAll { $0.id == Self.firstMessageID }
+        }
         // Keep the same newest rows in view: the window is anchored to the end.
         let shown = items.count - windowStart
         for item in new where index[item.id] == nil { expandIfShell(item) }
@@ -240,6 +277,7 @@ final class ChatModel {
     func send(_ text: String, images: [ImageData] = []) async -> Bool {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let host, !text.isEmpty || !images.isEmpty else { return false }
+        if newAgent != nil { return await create(text, images: images) }
         do {
             let result = try await host.client.send(agentId: agentId, text: text, images: images)
             // Queued and deferred messages show in the pending strip above the composer.
@@ -250,6 +288,39 @@ final class ChatModel {
             self.error = error.localizedDescription
             return false
         }
+    }
+
+    /// Creates the new agent with the first message as its prompt, then becomes its chat: the
+    /// same model (and composer) stays on screen, subscribed to the agent's first turn.
+    private func create(_ text: String, images: [ImageData]) async -> Bool {
+        guard let host, let new = newAgent else { return false }
+        var params = CreateAgentParams(projectId: new.projectId, provider: new.provider, config: new.config,
+                                       prompt: text.isEmpty ? nil : text)
+        if !images.isEmpty { params.images = images }
+        firstMessage = .user(id: Self.firstMessageID, text: text, images: images)
+        defer { firstMessage = nil }
+        do {
+            let agent = try await host.client.createAgent(params)
+            host.upsert(agent)
+            agentId = agent.id
+            newAgent = nil
+            error = nil
+            if let firstMessage { upsert(firstMessage) }
+            open()
+            onCreated?(agent)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Picks the new agent's provider; model, effort and mode ids belong to one provider, so
+    /// they start over with its defaults.
+    func setProvider(_ provider: ProviderID) {
+        guard newAgent != nil, newAgent?.provider != provider else { return }
+        newAgent?.provider = provider
+        newAgent?.config = AgentConfig()
     }
 
     /// "!command": runs in the agent's cwd as its own turn. The server refuses it while a turn runs.
@@ -422,6 +493,15 @@ final class ChatModel {
     /// Merges a config change on the server ("" clears a field). The server applies it when the
     /// session is next opened: right away if idle, after the turn otherwise.
     func updateConfig(_ patch: AgentConfig) async {
+        if var new = newAgent {
+            // Not created yet: keep the choice for agent.create.
+            func merge(_ value: String?, into field: inout String?) { if let value { field = value.isEmpty ? nil : value } }
+            merge(patch.model, into: &new.config.model)
+            merge(patch.mode, into: &new.config.mode)
+            merge(patch.effort, into: &new.config.effort)
+            newAgent = new
+            return
+        }
         guard let host else { return }
         do {
             host.upsert(try await host.client.updateAgent(UpdateAgentParams(id: agentId, config: patch)))

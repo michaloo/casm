@@ -27,7 +27,9 @@ for every method result, notification, event and item variant. A live test runs 
 ## Driving a DEBUG build
 
 `scripts/run-dev.sh` starts the app against `ws://127.0.0.1:7373` (adds the host on first launch from
-`CASM_DEV_URL`/`CASM_DEV_TOKEN`). `scripts/casmctl` then sends commands that call the same model
+`CASM_DEV_URL`/`CASM_DEV_TOKEN`). The DEBUG build shares its bundle id (and saved hosts) with an installed casm.app;
+`CASM_DEV_SUITE=<name>` gives it its own host list and Keychain entries instead, so it can run beside the
+installed app against a dev server (docs/development.md) without seeing production hosts. `scripts/casmctl` then sends commands that call the same model
 methods as the UI and log to `/tmp/casm-app.log`:
 
 ```sh
@@ -49,7 +51,8 @@ captured by `cacheDisplay`.
 
 `scripts/ui` runs `uictl` inside Terminal, which needs Accessibility and Screen Recording permission
 (System Settings → Privacy & Security). It starts one minimized Terminal window as a server and
-refuses to click or type unless casm or the Simulator is frontmost.
+refuses to click or type unless casm or the Simulator is frontmost. `<app>` may be `pid:<n>` to pick the DEBUG build
+when the installed casm.app is running too. `click` takes global points (the menu bar is above the window).
 
 ```sh
 scripts/ui clickel casm "Always ask"                 # click an element by its AX title

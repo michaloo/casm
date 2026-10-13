@@ -7,6 +7,8 @@ import Observation
 
 enum Selection: Hashable {
     case agent(host: UUID, agent: String)
+    /// A project's empty chat: the first message creates an agent there.
+    case project(host: UUID, project: String)
     /// A host's schedules; `agent` narrows the list to the ones that message that agent.
     case schedules(host: UUID, agent: String? = nil)
     #if DEBUG
@@ -16,7 +18,7 @@ enum Selection: Hashable {
 
 @MainActor @Observable
 final class AppModel {
-    private let store = HostStore()
+    private let store = HostStore.app
     private(set) var hosts: [HostModel] = []
     var selection: Selection? {
         didSet { if selection != oldValue { selectionChanged() } }
@@ -115,13 +117,18 @@ final class AppModel {
     }
 
     func removeHost(_ host: HostModel) {
-        if case .agent(host.id, _) = selection { selection = nil }
+        switch selection {
+        case .agent(host.id, _), .project(host.id, _), .schedules(host.id, _): selection = nil
+        default: break
+        }
         host.stop()
         store.remove(host.id)
         hosts.removeAll { $0.id == host.id }
     }
 
     private func selectionChanged() {
+        // A new-agent chat that just created this agent stays: it is already that agent's chat.
+        if case .agent(let hostID, let agentID) = selection, let chat, chat.host?.id == hostID, chat.agentId == agentID { return }
         chat?.close()
         chat = nil
         switch selection {
@@ -130,6 +137,11 @@ final class AppModel {
             let chat = ChatModel(host: host, agentId: agentID)
             self.chat = chat
             chat.open()
+        case .project(let hostID, let projectID):
+            guard let host = host(hostID) else { return }
+            let chat = ChatModel(host: host, newAgentIn: projectID)
+            chat.onCreated = { [weak self] agent in self?.selection = .agent(host: hostID, agent: agent.id) }
+            self.chat = chat
         case .schedules:
             break
         #if DEBUG
@@ -154,6 +166,19 @@ final class AppModel {
         try? store.upsert(HostEntry(name: env["CASM_DEV_NAME"] ?? "local", url: url), token: token)
     }
     #endif
+}
+
+extension HostStore {
+    /// The app's host list. DEBUG runs with `CASM_DEV_SUITE` keep their own list (and tokens), so a
+    /// dev build never shows or replaces the installed app's hosts.
+    static var app: HostStore {
+        #if DEBUG
+        if let suite = ProcessInfo.processInfo.environment["CASM_DEV_SUITE"], !suite.isEmpty {
+            return HostStore(suite: suite, keychainService: "casm.host-token.\(suite)")
+        }
+        #endif
+        return HostStore()
+    }
 }
 
 /// One server connection with its projects and agents.

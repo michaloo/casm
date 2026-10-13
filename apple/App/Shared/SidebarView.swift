@@ -291,6 +291,8 @@ struct ProjectNode: View {
         .draggable(ProjectDrag.payload(project, host: host.id))
         #endif
         .help(project.path)
+        // Selecting a project opens its new-agent chat (archived projects take no new agents).
+        .modifier(SelectionTag(selection: archived ? nil : .project(host: host.id, project: project.id)))
         .contextMenu { menu }
     }
 
@@ -334,6 +336,7 @@ struct ProjectNode: View {
                 message: "Removes the project\(count > 0 ? " and its \(count) agent\(count == 1 ? "" : "s")" : "") from casm. The folder \(project.path) and the agents' transcripts on disk are not touched.",
                 confirm: "Delete") {
                     if case .agent(host.id, let agentID) = app.selection, host.agent(agentID)?.projectId == project.id { app.selection = nil }
+                    if app.selection == .project(host: host.id, project: project.id) { app.selection = nil }
                     Task { await host.delete(project) }
                 }
         }
@@ -495,5 +498,14 @@ struct ProviderIcon: View {
             .scaledToFit()
             .frame(width: size, height: size)
             .accessibilityLabel(provider.rawValue)
+    }
+}
+
+/// Tags a sidebar row only when it has a selection; an Optional tag wouldn't match `List`'s selection.
+private struct SelectionTag: ViewModifier {
+    let selection: Selection?
+
+    func body(content: Content) -> some View {
+        if let selection { content.tag(selection) } else { content }
     }
 }

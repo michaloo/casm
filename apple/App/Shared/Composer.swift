@@ -39,7 +39,7 @@ struct Composer: View {
 
     @State private var scheduling: ScheduleEditor.Mode?
     private var hasUsage: Bool {
-        guard let host = chat.host, let provider = chat.agent?.provider else { return false }
+        guard let host = chat.host, let provider = chat.provider else { return false }
         return host.limits[provider]?.windows.isEmpty == false
     }
     private var hasSchedules: Bool { chat.host.map { !$0.schedules(for: chat.agentId).filter(\.enabled).isEmpty } ?? false }
@@ -49,12 +49,14 @@ struct Composer: View {
         scheduling = .new(agentId: chat.agentId, prompt: text, once: true)
     }
 
-    private var draftKey: String { Drafts.key(host: chat.host?.id, agent: chat.agentId) }
+    private var draftKey: String { chat.draftKey }
+    /// A project's new-agent chat: no agent yet for "!", "/", "@" or Send Later.
+    private var creating: Bool { chat.newAgent != nil }
 
     private var busy: Bool { chat.status.isBusy }
     private var online: Bool { chat.host?.isOnline ?? false }
     /// A leading "!" runs the rest as a shell command in the agent's cwd.
-    private var shellMode: Bool { text.hasPrefix("!") }
+    private var shellMode: Bool { !creating && text.hasPrefix("!") }
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var canSend: Bool {
         guard online else { return false }
@@ -68,7 +70,7 @@ struct Composer: View {
     }
 
     private var context: CompletionContext? {
-        guard !shellMode, let caret else { return nil }
+        guard !shellMode, !creating, let caret else { return nil }
         return CompletionContext.at(caret, in: text)
     }
 
@@ -80,7 +82,7 @@ struct Composer: View {
                 HStack(spacing: 8) {
                     if working > 0 { ActivityPill(count: working) }
                     if let host = chat.host { SchedulesChip(host: host, agentId: chat.agentId) }
-                    if let host = chat.host, let provider = chat.agent?.provider { UsageChip(host: host, provider: provider) }
+                    if let host = chat.host, let provider = chat.provider { UsageChip(host: host, provider: provider) }
                 }
             }
             VStack(alignment: .leading, spacing: 10) {
@@ -104,7 +106,7 @@ struct Composer: View {
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.green)
                 }
-                TextField("Message the agent", text: $text, selection: $selection, axis: .vertical)
+                TextField(creating ? "Message a new agent" : "Message the agent", text: $text, selection: $selection, axis: .vertical)
                     .accessibilityLabel("Message")
                     .textFieldStyle(.plain)
                     .font(shellMode ? .system(size: 14, design: .monospaced) : .system(size: Theme.proseSize))
@@ -124,7 +126,7 @@ struct Composer: View {
                     #endif
                 HStack(spacing: 14) {
                     attachButton
-                    if chat.agent != nil {
+                    if chat.provider != nil {
                         // Icons only on iPhone-width screens.
                         ConfigPickers(chat: chat).environment(\.compactPickers, compactWidth)
                     }
@@ -241,7 +243,7 @@ struct Composer: View {
             // Not disabled: the menu is built before the user copies something.
             Button("Paste Image", systemImage: "doc.on.clipboard") { pasteImages() }
             Divider()
-            Button("Send Later…", systemImage: "calendar.badge.clock", action: sendLater)
+            Button("Send Later…", systemImage: "calendar.badge.clock", action: sendLater).disabled(creating)
         } label: {
             Image(systemName: "plus").accessibilityLabel("Attach images")
                 .frame(minWidth: 44, minHeight: 44)
@@ -264,7 +266,7 @@ struct Composer: View {
         Menu {
             Button("Attach Images…", systemImage: "photo") { pickingFiles = true }
             Divider()
-            Button("Send Later…", systemImage: "calendar.badge.clock", action: sendLater)
+            Button("Send Later…", systemImage: "calendar.badge.clock", action: sendLater).disabled(creating)
         } label: {
             Image(systemName: "plus").accessibilityLabel("Attach or send later")
         }
@@ -503,18 +505,38 @@ struct ConfigPickers: View {
     let chat: ChatModel
 
     var body: some View {
-        if let agent = chat.agent, let host = chat.host {
-            let catalog = host.catalog(for: agent.provider)
+        if let provider = chat.provider, let config = chat.config, let host = chat.host {
+            let catalog = host.catalog(for: provider)
             let models = catalog?.models ?? []
-            let model = models.first { $0.id == agent.config.model } ?? (agent.config.model == nil ? models.first { $0.isDefault == true } : nil)
+            let model = models.first { $0.id == config.model } ?? (config.model == nil ? models.first { $0.isDefault == true } : nil)
             // m2: no raw ids while the catalog loads.
-            let modelName = catalog == nil ? "…" : (model?.displayName ?? agent.config.model ?? "Default model")
+            let modelName = catalog == nil ? "…" : (model?.displayName ?? config.model ?? "Default model")
+
+            if chat.newAgent != nil, let providers = host.info?.providers, providers.count > 1 {
+                // Only before the agent exists; an agent keeps its provider.
+                Menu {
+                    ForEach(providers, id: \.self) { p in
+                        Button {
+                            chat.setProvider(p)
+                        } label: {
+                            Text(MemoryGroupView.providerName(p))
+                            if p == provider { Image(systemName: "checkmark") }
+                        }
+                    }
+                } label: {
+                    PickerLabel(icon: ProviderIcon(provider: provider), title: MemoryGroupView.providerName(provider))
+                }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Provider")
+            }
 
             Menu {
                 ForEach(models) { m in
                     Button {
                         // Clear an effort the new model doesn't accept.
-                        let dropEffort = agent.config.effort.map { !(m.efforts ?? []).contains($0) } ?? false
+                        let dropEffort = config.effort.map { !(m.efforts ?? []).contains($0) } ?? false
                         Task { await chat.updateConfig(AgentConfig(model: m.id, effort: dropEffort ? "" : nil)) }
                     } label: {
                         Text(m.displayName)
@@ -538,18 +560,18 @@ struct ConfigPickers: View {
                         Task { await chat.updateConfig(AgentConfig(effort: "")) }
                     } label: {
                         Text("Default")
-                        if agent.config.effort == nil { Image(systemName: "checkmark") }
+                        if config.effort == nil { Image(systemName: "checkmark") }
                     }
                     ForEach(efforts, id: \.self) { e in
                         Button {
                             Task { await chat.updateConfig(AgentConfig(effort: e)) }
                         } label: {
                             Text(e.effortName)
-                            if agent.config.effort == e { Image(systemName: "checkmark") }
+                            if config.effort == e { Image(systemName: "checkmark") }
                         }
                     }
                 } label: {
-                    PickerLabel(icon: Image(systemName: "brain"), title: agent.config.effort?.effortName ?? "Default effort")
+                    PickerLabel(icon: Image(systemName: "brain"), title: config.effort?.effortName ?? "Default effort")
                 }
                 .menuStyle(.button)
                 .menuIndicator(.hidden)
@@ -557,7 +579,7 @@ struct ConfigPickers: View {
                 .help("Reasoning effort")
             }
 
-            ModePicker(chat: chat, provider: agent.provider, modes: catalog?.modes ?? [], current: agent.config.mode)
+            ModePicker(chat: chat, provider: provider, modes: catalog?.modes ?? [], current: config.mode)
         }
     }
 }

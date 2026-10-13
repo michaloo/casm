@@ -460,7 +460,8 @@ struct ConfigPickers: View {
             let catalog = host.catalog(for: agent.provider)
             let models = catalog?.models ?? []
             let model = models.first { $0.id == agent.config.model } ?? (agent.config.model == nil ? models.first { $0.isDefault == true } : nil)
-            let modelName = model?.displayName ?? agent.config.model ?? "Default model"
+            // m2: no raw ids while the catalog loads.
+            let modelName = catalog == nil ? "…" : (model?.displayName ?? agent.config.model ?? "Default model")
 
             Menu {
                 ForEach(models) { m in
@@ -541,7 +542,7 @@ struct ModePicker: View {
         } label: {
             PickerLabel(icon: ModeIcon(provider: provider, mode: selected?.id ?? current ?? "")
                             .foregroundStyle(Self.isUnsafe(current) ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary)),
-                        title: selected?.displayName ?? current ?? "Default mode")
+                        title: modes.isEmpty ? "…" : (selected?.displayName ?? current ?? "Default mode"))
         }
         .fixedSize()
         .help("Permission mode")

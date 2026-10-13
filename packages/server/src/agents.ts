@@ -259,6 +259,8 @@ export class AgentManager {
     const l = this.live.get(id);
     if (!l?.turnId || !l.session) return;
     l.queue = [];
+    // Cancel open prompts first: an agent can't stop a tool that waits on one.
+    for (const p of [...l.pending.values()]) p.reject(new Error("interrupted"));
     await l.session.interrupt();
   }
 

@@ -46,6 +46,8 @@ struct ChatView: View {
                 }
                 .modifier(ComposerColumn())
             }
+            LimitBanner(chat: chat).modifier(ComposerColumn())
+            PendingStrip(chat: chat).modifier(ComposerColumn())
             Composer(chat: chat, working: app.workingSubagents(of: chat.agentId, on: chat.host))
         }
         .navigationTitle(chat.agent?.name ?? "Transcript")
@@ -260,6 +262,8 @@ struct ItemRow: View {
             NoticeRow(text: text, level: level)
         case .plan(_, let entries):
             PlanRow(entries: entries)
+        case .subagent(let run):
+            SubagentRow(run: run)
         case .unknown(_, let kind):
             Text("Unsupported item: \(kind)").font(.caption).foregroundStyle(.tertiary)
         }

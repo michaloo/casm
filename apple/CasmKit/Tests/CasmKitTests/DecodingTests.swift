@@ -129,7 +129,7 @@ private func fixture(_ name: String) throws -> Data {
         let events = notifications.compactMap { if case .agentEvent(_, let e) = $0 { e } else { nil } }
         #expect(events.contains { if case .delta = $0 { true } else { false } })
         #expect(events.contains { if case .permissionResolved = $0 { true } else { false } })
-        #expect(events.contains { if case .turnEnded(_, .interrupted, _) = $0 { true } else { false } })
+        #expect(events.contains { if case .turnEnded(_, .interrupted, _, _) = $0 { true } else { false } })
         #expect(notifications.contains { if case .agentStatus(_, .waiting) = $0 { true } else { false } })
         #expect(notifications.contains { if case .agentRemoved = $0 { true } else { false } })
     }

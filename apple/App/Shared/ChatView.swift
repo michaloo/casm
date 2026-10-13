@@ -37,7 +37,7 @@ struct ChatView: View {
                     Task { await chat.answer(request, answers) }
                 }
             }
-            Composer(chat: chat, working: app.workingSubagents(of: chat.agentId))
+            Composer(chat: chat, working: app.workingSubagents(of: chat.agentId, on: chat.host))
         }
         .navigationTitle(chat.agent?.name ?? "Transcript")
         #if os(macOS)
@@ -67,6 +67,14 @@ struct ChatView: View {
 
     private var margin: CGFloat { max(20, (width - 900) / 2) }
 
+    /// "34k / 200k context" from the latest `usage` event.
+    private var contextText: String? {
+        guard let used = chat.usage?.contextTokens else { return nil }
+        let k = { (n: Double) in n >= 1000 ? "\(Int((n / 1000).rounded()))k" : "\(Int(n))" }
+        if let window = chat.usage?.contextWindow { return "\(k(used)) / \(k(window)) context" }
+        return "\(k(used)) context"
+    }
+
     private func scrollToBottom() {
         position.scrollTo(y: bottomOffset)
         // Content may still grow this frame (first load); settle once more on the next one.
@@ -75,7 +83,7 @@ struct ChatView: View {
 
     private var subtitle: String {
         guard let agent = chat.agent else { return "\(chat.items.count) items" }
-        return [agent.provider.rawValue, agent.config.model, agent.config.mode, agent.cwd].compactMap { $0 }.joined(separator: " · ")
+        return [agent.provider.rawValue, agent.config.model, agent.config.mode, agent.cwd, contextText].compactMap { $0 }.joined(separator: " · ")
     }
 
     private var transcript: some View {
@@ -169,6 +177,10 @@ struct ChatView: View {
         .onChange(of: chat.scrollToBottomRequest) {
             scrollToBottom()
         }
+        // Follow new items (and growing tool output) while the reader is at the bottom.
+        .onChange(of: chat.items.last) {
+            if nearBottom { scrollToBottom() }
+        }
     }
 }
 
@@ -180,8 +192,8 @@ struct ItemRow: View {
 
     var body: some View {
         switch item {
-        case .user(_, let text):
-            UserBubble(text: text)
+        case .user(_, let text, let images):
+            UserBubble(text: text, images: images)
         case .assistant(let id, let text):
             MarkdownView(blocks: Markdown.blocks(for: text, id: id))
         case .reasoning(let id, let text):
@@ -192,8 +204,10 @@ struct ItemRow: View {
             }
         case .tool(let call):
             ToolRow(call: call, expanded: binding(call.id))
-        case .notice(_, let text):
-            Text(text).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+        case .notice(_, let text, let level):
+            NoticeRow(text: text, level: level)
+        case .plan(_, let entries):
+            PlanRow(entries: entries)
         case .unknown(_, let kind):
             Text("Unsupported item: \(kind)").font(.caption).foregroundStyle(.tertiary)
         }
@@ -206,16 +220,101 @@ struct ItemRow: View {
 
 struct UserBubble: View {
     let text: String
+    var images: [ImageData] = []
 
     var body: some View {
         HStack {
             Spacer(minLength: 60)
-            Text(Markdown.inline(text))
-                .modifier(Selectable())
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .trailing, spacing: 6) {
+                if !images.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(Array(images.enumerated()), id: \.offset) { _, image in ImageThumbnail(image: image) }
+                    }
+                }
+                if !text.isEmpty { bubble }
+            }
         }
+    }
+
+    private var bubble: some View {
+        Text(Markdown.inline(text))
+            .modifier(Selectable())
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// An image attached to a prompt; history may leave out the data of very large ones.
+struct ImageThumbnail: View {
+    let image: ImageData
+
+    var body: some View {
+        Group {
+            if let data = image.data.flatMap({ Data(base64Encoded: $0) }), let picture = Self.decode(data) {
+                picture.resizable().scaledToFill()
+            } else {
+                Image(systemName: "photo").font(.title2).foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 96, height: 96)
+        .background(.quaternary)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private static func decode(_ data: Data) -> Image? {
+        #if os(macOS)
+        NSImage(data: data).map(Image.init(nsImage:))
+        #else
+        UIImage(data: data).map(Image.init(uiImage:))
+        #endif
+    }
+}
+
+struct NoticeRow: View {
+    let text: String
+    let level: NoticeLevel?
+
+    var body: some View {
+        HStack(spacing: 5) {
+            switch level {
+            case .warning: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            case .error: Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+            default: EmptyView()
+            }
+            Text(text)
+                .foregroundStyle(level == .error ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+        }
+        .font(.caption)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// The agent's todo list.
+struct PlanRow: View {
+    let entries: [PlanEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label("Plan", systemImage: "checklist").font(.callout.weight(.medium)).foregroundStyle(.secondary)
+            ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    switch entry.status {
+                    case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    case .inProgress: Image(systemName: "circle.dotted.circle").foregroundStyle(.blue)
+                    default: Image(systemName: "circle").foregroundStyle(.tertiary)
+                    }
+                    Text(entry.text)
+                        .strikethrough(entry.status == .completed, color: .secondary)
+                        .foregroundStyle(entry.status == .completed ? .secondary : .primary)
+                        .fontWeight(entry.status == .inProgress ? .medium : .regular)
+                }
+                .font(.callout)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

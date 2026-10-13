@@ -42,8 +42,15 @@ final class AppModel {
     func host(_ id: UUID) -> HostModel? { hosts.first { $0.id == id } }
 
     /// Running agents on any host that were created by this agent (cross-host subagents).
-    func workingSubagents(of agentID: String) -> Int {
-        hosts.reduce(0) { n, host in n + host.agents.count { $0.parent?.agentId == agentID && $0.status.isBusy } }
+    /// `serverId` pins the parent to the right server when the server reports one.
+    func workingSubagents(of agentID: String, on host: HostModel?) -> Int {
+        let serverID = host?.info?.id
+        return hosts.reduce(0) { n, h in
+            n + h.agents.count { a in
+                guard let p = a.parent, p.agentId == agentID, a.status.isBusy else { return false }
+                return p.serverId == nil || serverID == nil || p.serverId == serverID
+            }
+        }
     }
 
     func addHost(name: String, url: URL, token: String) throws {
@@ -220,12 +227,19 @@ final class HostModel: Identifiable {
     }
 
     func subagents(of agentID: String) -> [Agent] {
-        agents.filter { $0.parent?.agentId == agentID && $0.archivedAt == nil }.sorted { $0.createdAt < $1.createdAt }
+        agents.filter { $0.parent?.agentId == agentID && isLocalParent($0.parent) && $0.archivedAt == nil }
+            .sorted { $0.createdAt < $1.createdAt }
     }
 
     private func hasLocalParent(_ agent: Agent) -> Bool {
-        guard let parent = agent.parent?.agentId else { return false }
-        return agents.contains { $0.id == parent }
+        guard let parent = agent.parent, isLocalParent(parent) else { return false }
+        return agents.contains { $0.id == parent.agentId }
+    }
+
+    /// A parent on this server (servers that don't report ids can't tell, so assume yes).
+    private func isLocalParent(_ parent: AgentParent?) -> Bool {
+        guard let serverID = parent?.serverId, let own = info?.id else { return true }
+        return serverID == own
     }
 
     /// Projects in tree order with their depth, for pickers.

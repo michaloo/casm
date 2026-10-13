@@ -34,7 +34,7 @@ import Testing
         let union = Self.schema(notification: "agent.event")["properties"]!["event"]!.branches
             .first { $0.constant(of: "type") == "item" }!["properties"]!["item"]!
         let kinds = union.branches.compactMap { $0.constant(of: "kind") }
-        #expect(kinds.count >= 5)
+        #expect(Set(kinds).isSuperset(of: ["user", "assistant", "reasoning", "tool", "notice", "plan"]))
         for branch in union.branches {
             for sample in SampleGenerator.samples(branch) {
                 let item = try decode(Item.self, sample)
@@ -57,7 +57,7 @@ import Testing
             }
         }
         #expect(seen.isSuperset(of: ["turnStarted", "item", "delta", "permission", "permissionResolved",
-                                     "question", "questionResolved", "turnEnded"]))
+                                     "question", "questionResolved", "toolOutput", "usage", "turnEnded"]))
     }
 
     @Test func everyNotification() throws {
@@ -113,7 +113,7 @@ import Testing
             ("agent.create", CreateAgentParams(projectId: "p", provider: .claude, name: "n", cwd: "/", config: AgentConfig(model: "m", mode: "default", effort: "low"), tags: [], prompt: "hi")),
             ("agent.update", UpdateAgentParams(id: "a", config: AgentConfig(model: "m"))),
             ("agent.history", HistoryParams(id: "a", before: 1, limit: 2)),
-            ("agent.send", SendParams(id: "a", text: "t", whenBusy: .queue)),
+            ("agent.send", SendParams(id: "a", text: "t", images: [ImageData(mediaType: "image/png", data: "AA==")], whenBusy: .queue)),
             ("agent.answerQuestion", AnswerQuestionParams(id: "a", requestId: "r", answers: ["q": .strings(["x"]), "c": .bool(true), "t": .string("s")])),
             ("agent.respondPermission", RespondPermissionParams(id: "a", requestId: "r", decision: .allowAlways, message: "m")),
         ]

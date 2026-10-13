@@ -109,7 +109,10 @@ struct ProjectNode: View {
     @State private var expanded = true
 
     var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
+        if host.childProjects(of: project.id).isEmpty && host.agents(in: project.id).isEmpty {
+            label
+        } else {
+            DisclosureGroup(isExpanded: $expanded) {
             ForEach(host.childProjects(of: project.id)) { child in
                 ProjectNode(host: host, project: child)
             }
@@ -117,14 +120,19 @@ struct ProjectNode: View {
                 AgentRow(agent: agent)
                     .tag(Selection.agent(host: host.id, agent: agent.id))
             }
-        } label: {
-            Label(project.name, systemImage: "folder")
-                .help(project.path ?? "")
-                .contextMenu {
-                    Button("New Agent…") { app.sheet = .newAgent(host, projectId: project.id) }
-                    Button("New Subproject…") { app.sheet = .newProject(host) }
-                }
+            } label: {
+                label
+            }
         }
+    }
+
+    private var label: some View {
+        Label(project.name, systemImage: "folder")
+            .help(project.path ?? "")
+            .contextMenu {
+                Button("New Agent…") { app.sheet = .newAgent(host, projectId: project.id) }
+                Button("New Project…") { app.sheet = .newProject(host) }
+            }
     }
 }
 

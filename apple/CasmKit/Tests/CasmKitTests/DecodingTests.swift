@@ -19,7 +19,7 @@ private func fixture(_ name: String) throws -> Data {
         #expect(items[0] == .user(id: "u1", text: "Write hello.txt"))
         #expect(items[1] == .assistant(id: "a1:0", text: "## Done\n\n- created `hello.txt`\n\n```bash\ncat hello.txt\n```"))
         #expect(items[2] == .reasoning(id: "a1:1", text: "The user wants a file."))
-        #expect(items[7] == .notice(id: "n1", text: "Session resumed"))
+        #expect(items[7] == .notice(id: "n1", text: "Session resumed", level: nil))
         #expect(items[8] == .unknown(id: "d1", kind: "diff"))
     }
 
@@ -150,5 +150,40 @@ private func fixture(_ name: String) throws -> Data {
         #expect(store.load().isEmpty)
         #expect(store.token(for: host.id) == nil)
         UserDefaults.standard.removePersistentDomain(forName: suite)
+    }
+}
+
+@Suite struct ChatFeatureDecoding {
+    @Test func plansNoticesImagesToolOutputUsage() throws {
+        let raw = #"""
+        [{"type": "item", "item": {"kind": "plan", "id": "p1", "entries": [
+            {"text": "Read the code", "status": "completed"},
+            {"text": "Fix the bug", "status": "in_progress"},
+            {"text": "Ship", "status": "pending"}]}},
+         {"type": "item", "item": {"kind": "notice", "id": "n1", "text": "Retrying in 5s", "level": "warning"}},
+         {"type": "item", "item": {"kind": "user", "id": "u1", "text": "look", "images": [{"mediaType": "image/png", "data": "AA=="}, {"mediaType": "image/jpeg"}]}},
+         {"type": "toolOutput", "itemId": "toolu_1", "text": "line 1\n"},
+         {"type": "usage", "usage": {"model": "haiku", "contextTokens": 34000, "contextWindow": 200000, "costUsd": 0.01}}]
+        """#
+        let events = try JSONDecoder().decode([AgentEvent].self, from: Data(raw.utf8))
+        #expect(events[0] == .item(.plan(id: "p1", entries: [
+            PlanEntry(text: "Read the code", status: .completed),
+            PlanEntry(text: "Fix the bug", status: .inProgress),
+            PlanEntry(text: "Ship", status: .pending)])))
+        #expect(events[1] == .item(.notice(id: "n1", text: "Retrying in 5s", level: .warning)))
+        #expect(events[2] == .item(.user(id: "u1", text: "look", images: [
+            ImageData(mediaType: "image/png", data: "AA=="), ImageData(mediaType: "image/jpeg", data: nil)])))
+        #expect(events[3] == .toolOutput(itemId: "toolu_1", text: "line 1\n"))
+        guard case .usage(let usage) = events[4] else { Issue.record("usage"); return }
+        #expect(usage.contextTokens == 34000 && usage.contextWindow == 200000 && usage.model == "haiku")
+        let again = try JSONDecoder().decode([AgentEvent].self, from: JSONEncoder().encode(events))
+        #expect(again == events)
+    }
+
+    @Test func parentsOldAndNew() throws {
+        let old = try JSONDecoder().decode(AgentParent.self, from: Data(#"{"host": "ubuntu", "agentId": "a"}"#.utf8))
+        #expect(old.serverId == nil && old.host == "ubuntu")
+        let new = try JSONDecoder().decode(AgentParent.self, from: Data(#"{"serverId": "s1", "agentId": "a"}"#.utf8))
+        #expect(new.serverId == "s1" && new.host == nil)
     }
 }

@@ -6,6 +6,8 @@ public struct OK: Codable, Sendable { public var ok: Bool }
 struct ByID: Codable, Sendable { var id: String }
 
 public struct ServerInfo: Codable, Sendable, Hashable {
+    /// Stable server id; `AgentParent.serverId` refers to it. Absent on older servers.
+    public var id: String?
     public var name: String
     public var version: String
     public var `protocol`: Int
@@ -118,6 +120,7 @@ public enum WhenBusy: String, Codable, Sendable { case queue, steer }
 public struct SendParams: Codable, Sendable {
     public var id: String
     public var text: String
+    public var images: [ImageData]?
     public var whenBusy: WhenBusy?
 }
 
@@ -173,7 +176,7 @@ public extension RPCClient {
 
     @discardableResult
     func send(agentId: String, text: String, whenBusy: WhenBusy? = nil) async throws -> SendResult {
-        try await call("agent.send", SendParams(id: agentId, text: text, whenBusy: whenBusy))
+        try await call("agent.send", SendParams(id: agentId, text: text, images: nil, whenBusy: whenBusy))
     }
 
     func interrupt(agentId: String) async throws {

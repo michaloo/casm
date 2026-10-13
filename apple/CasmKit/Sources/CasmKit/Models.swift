@@ -159,9 +159,89 @@ public struct AgentConfig: Codable, Sendable, Hashable {
     }
 }
 
+/// The agent that created this one, possibly on another server. `serverId` matches that server's
+/// `server.info` id; `host` is only a display hint. (Servers before protocol 1.x sent `host` only.)
 public struct AgentParent: Codable, Sendable, Hashable {
-    public var host: String
+    public var serverId: String?
     public var agentId: String
+    public var host: String?
+}
+
+public struct ImageData: Codable, Sendable, Hashable {
+    public var mediaType: String
+    /// Base64; history may omit it for very large images.
+    public var data: String?
+
+    public init(mediaType: String, data: String?) {
+        self.mediaType = mediaType
+        self.data = data
+    }
+}
+
+public enum PlanStatus: OpenEnum {
+    case pending, inProgress, completed
+    case unknown(String)
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "pending": self = .pending
+        case "in_progress": self = .inProgress
+        case "completed": self = .completed
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .pending: "pending"
+        case .inProgress: "in_progress"
+        case .completed: "completed"
+        case .unknown(let raw): raw
+        }
+    }
+}
+
+public struct PlanEntry: Codable, Sendable, Hashable {
+    public var text: String
+    public var status: PlanStatus
+
+    public init(text: String, status: PlanStatus) {
+        self.text = text
+        self.status = status
+    }
+}
+
+public enum NoticeLevel: OpenEnum {
+    case info, warning, error
+    case unknown(String)
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "info": self = .info
+        case "warning": self = .warning
+        case "error": self = .error
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .info: "info"
+        case .warning: "warning"
+        case .error: "error"
+        case .unknown(let raw): raw
+        }
+    }
+}
+
+/// Context and cost, as far as the agent reports them.
+public struct Usage: Codable, Sendable, Hashable {
+    public var model: String?
+    public var contextTokens: Double?
+    public var contextWindow: Double?
+    public var inputTokens: Double?
+    public var outputTokens: Double?
+    public var costUsd: Double?
 }
 
 public struct Agent: Codable, Sendable, Hashable, Identifiable {
@@ -222,15 +302,18 @@ public struct ToolCall: Codable, Sendable, Hashable {
 /// One normalized transcript entry, discriminated by `kind`. History and live
 /// events share this shape; clients upsert by `id`.
 public enum Item: Codable, Sendable, Hashable, Identifiable {
-    case user(id: String, text: String)
+    case user(id: String, text: String, images: [ImageData] = [])
     case assistant(id: String, text: String)
     case reasoning(id: String, text: String)
     case tool(ToolCall)
-    case notice(id: String, text: String)
+    /// Status lines (interrupts, retries, compaction, warnings), upserted by id.
+    case notice(id: String, text: String, level: NoticeLevel? = nil)
+    /// The agent's todo list; each update replaces the entries.
+    case plan(id: String, entries: [PlanEntry])
     /// A kind this client doesn't know yet.
     case unknown(id: String, kind: String)
 
-    private enum CodingKeys: String, CodingKey { case kind, id, text }
+    private enum CodingKeys: String, CodingKey { case kind, id, text, images, level, entries }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -246,10 +329,13 @@ public enum Item: Codable, Sendable, Hashable, Identifiable {
 
     private static func decodeKnown(kind: String, id: String, _ c: KeyedDecodingContainer<CodingKeys>, _ decoder: Decoder) throws -> Item {
         switch kind {
-        case "user": .user(id: id, text: try c.decode(String.self, forKey: .text))
+        case "user": .user(id: id, text: try c.decode(String.self, forKey: .text),
+                           images: try c.decodeIfPresent([ImageData].self, forKey: .images) ?? [])
         case "assistant": .assistant(id: id, text: try c.decode(String.self, forKey: .text))
         case "reasoning": .reasoning(id: id, text: try c.decode(String.self, forKey: .text))
-        case "notice": .notice(id: id, text: try c.decode(String.self, forKey: .text))
+        case "notice": .notice(id: id, text: try c.decode(String.self, forKey: .text),
+                               level: try c.decodeIfPresent(NoticeLevel.self, forKey: .level))
+        case "plan": .plan(id: id, entries: try c.decode([PlanEntry].self, forKey: .entries))
         case "tool": .tool(try ToolCall(from: decoder))
         default: .unknown(id: id, kind: kind)
         }
@@ -258,10 +344,24 @@ public enum Item: Codable, Sendable, Hashable, Identifiable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .user(let id, let text), .assistant(let id, let text), .reasoning(let id, let text), .notice(let id, let text):
+        case .assistant(let id, let text), .reasoning(let id, let text):
             try c.encode(kind, forKey: .kind)
             try c.encode(id, forKey: .id)
             try c.encode(text, forKey: .text)
+        case .user(let id, let text, let images):
+            try c.encode(kind, forKey: .kind)
+            try c.encode(id, forKey: .id)
+            try c.encode(text, forKey: .text)
+            if !images.isEmpty { try c.encode(images, forKey: .images) }
+        case .notice(let id, let text, let level):
+            try c.encode(kind, forKey: .kind)
+            try c.encode(id, forKey: .id)
+            try c.encode(text, forKey: .text)
+            try c.encodeIfPresent(level, forKey: .level)
+        case .plan(let id, let entries):
+            try c.encode(kind, forKey: .kind)
+            try c.encode(id, forKey: .id)
+            try c.encode(entries, forKey: .entries)
         case .tool(let call):
             try c.encode(kind, forKey: .kind)
             try call.encode(to: encoder)
@@ -273,7 +373,8 @@ public enum Item: Codable, Sendable, Hashable, Identifiable {
 
     public var id: String {
         switch self {
-        case .user(let id, _), .assistant(let id, _), .reasoning(let id, _), .notice(let id, _), .unknown(let id, _): id
+        case .user(let id, _, _), .assistant(let id, _), .reasoning(let id, _), .notice(let id, _, _), .plan(let id, _),
+             .unknown(let id, _): id
         case .tool(let call): call.id
         }
     }
@@ -285,6 +386,7 @@ public enum Item: Codable, Sendable, Hashable, Identifiable {
         case .reasoning: "reasoning"
         case .tool: "tool"
         case .notice: "notice"
+        case .plan: "plan"
         case .unknown(_, let kind): kind
         }
     }
@@ -475,11 +577,14 @@ public enum AgentEvent: Codable, Sendable, Hashable {
     case permissionResolved(requestId: String)
     case question(QuestionRequest)
     case questionResolved(requestId: String)
+    /// Appends to a running tool item's output; the final tool item replaces it.
+    case toolOutput(itemId: String, text: String)
+    case usage(Usage)
     case turnEnded(turnId: String, outcome: TurnOutcome, error: String?)
     /// A type this client doesn't know yet, or a known type with an unexpected body.
     case unknown(type: String)
 
-    private enum CodingKeys: String, CodingKey { case type, turnId, item, kind, text, request, requestId, outcome, error }
+    private enum CodingKeys: String, CodingKey { case type, turnId, item, kind, text, request, requestId, outcome, error, itemId, usage }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -500,6 +605,8 @@ public enum AgentEvent: Codable, Sendable, Hashable {
         case "permissionResolved": .permissionResolved(requestId: try c.decode(String.self, forKey: .requestId))
         case "question": .question(try c.decode(QuestionRequest.self, forKey: .request))
         case "questionResolved": .questionResolved(requestId: try c.decode(String.self, forKey: .requestId))
+        case "toolOutput": .toolOutput(itemId: try c.decode(String.self, forKey: .itemId), text: try c.decode(String.self, forKey: .text))
+        case "usage": .usage(try c.decode(Usage.self, forKey: .usage))
         case "turnEnded":
             .turnEnded(turnId: try c.decode(String.self, forKey: .turnId),
                        outcome: try c.decode(TurnOutcome.self, forKey: .outcome),
@@ -533,6 +640,13 @@ public enum AgentEvent: Codable, Sendable, Hashable {
         case .questionResolved(let requestId):
             try c.encode("questionResolved", forKey: .type)
             try c.encode(requestId, forKey: .requestId)
+        case .toolOutput(let itemId, let text):
+            try c.encode("toolOutput", forKey: .type)
+            try c.encode(itemId, forKey: .itemId)
+            try c.encode(text, forKey: .text)
+        case .usage(let usage):
+            try c.encode("usage", forKey: .type)
+            try c.encode(usage, forKey: .usage)
         case .turnEnded(let turnId, let outcome, let error):
             try c.encode("turnEnded", forKey: .type)
             try c.encode(turnId, forKey: .turnId)

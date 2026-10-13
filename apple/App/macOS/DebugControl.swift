@@ -78,6 +78,13 @@ final class DebugControl {
                 await chat?.updateConfig(AgentConfig(model: cmd["model"], mode: cmd["mode"], effort: cmd["effort"]))
                 log("config now \(String(describing: chat?.agent?.config))")
             }
+        case "event":
+            // Feeds a raw AgentEvent (JSON) into the open chat, e.g. to preview toolOutput or usage.
+            guard let json = cmd["json"], let event = try? JSONDecoder().decode(AgentEvent.self, from: Data(json.utf8)) else {
+                return log("event: bad json")
+            }
+            chat?.apply(event)
+            log("applied \(event)")
         case "interrupt":
             Task { await chat?.interrupt(); log("interrupted") }
         case "reload":

@@ -18,6 +18,8 @@ final class ChatModel {
     private(set) var draft: Draft?
     private(set) var permissions: [PermissionRequest] = []
     private(set) var questions: [QuestionRequest] = []
+    /// Latest context/cost report of the live session.
+    private(set) var usage: Usage?
     private(set) var loading = false
     private(set) var loadingOlder = false
     var error: String?
@@ -170,6 +172,13 @@ final class ChatModel {
             if !questions.contains(where: { $0.id == request.id }) { questions.append(request) }
         case .questionResolved(let requestId):
             questions.removeAll { $0.id == requestId }
+        case .toolOutput(let itemId, let text):
+            if let i = index[itemId], case .tool(var call) = items[i] {
+                call.output = (call.output ?? "") + text
+                items[i] = .tool(call)
+            }
+        case .usage(let usage):
+            self.usage = usage
         case .turnEnded(_, let outcome, let error):
             draft = nil
             permissions = []

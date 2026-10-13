@@ -234,15 +234,24 @@ public enum Item: Codable, Sendable, Hashable, Identifiable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        let kind = try c.decode(String.self, forKey: .kind)
-        let id = try c.decode(String.self, forKey: .id)
+        let kind = (try? c.decode(String.self, forKey: .kind)) ?? ""
+        let id = (try? c.decode(String.self, forKey: .id)) ?? ""
+        do {
+            self = try Self.decodeKnown(kind: kind, id: id, c, decoder)
+        } catch {
+            // A newer server may add kinds or change fields; one odd item must not fail the whole message.
+            self = .unknown(id: id, kind: kind)
+        }
+    }
+
+    private static func decodeKnown(kind: String, id: String, _ c: KeyedDecodingContainer<CodingKeys>, _ decoder: Decoder) throws -> Item {
         switch kind {
-        case "user": self = .user(id: id, text: try c.decode(String.self, forKey: .text))
-        case "assistant": self = .assistant(id: id, text: try c.decode(String.self, forKey: .text))
-        case "reasoning": self = .reasoning(id: id, text: try c.decode(String.self, forKey: .text))
-        case "notice": self = .notice(id: id, text: try c.decode(String.self, forKey: .text))
-        case "tool": self = .tool(try ToolCall(from: decoder))
-        default: self = .unknown(id: id, kind: kind)
+        case "user": .user(id: id, text: try c.decode(String.self, forKey: .text))
+        case "assistant": .assistant(id: id, text: try c.decode(String.self, forKey: .text))
+        case "reasoning": .reasoning(id: id, text: try c.decode(String.self, forKey: .text))
+        case "notice": .notice(id: id, text: try c.decode(String.self, forKey: .text))
+        case "tool": .tool(try ToolCall(from: decoder))
+        default: .unknown(id: id, kind: kind)
         }
     }
 
@@ -293,6 +302,136 @@ public enum PermissionDecision: String, Codable, Sendable {
     case allow, allowAlways, deny
 }
 
+// MARK: Questions
+
+public enum QuestionKind: OpenEnum {
+    case select, text, confirm
+    case unknown(String)
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "select": self = .select
+        case "text": self = .text
+        case "confirm": self = .confirm
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .select: "select"
+        case .text: "text"
+        case .confirm: "confirm"
+        case .unknown(let raw): raw
+        }
+    }
+}
+
+public struct QuestionOption: Codable, Sendable, Hashable {
+    public var label: String
+    public var description: String?
+
+    public init(label: String, description: String? = nil) {
+        self.label = label
+        self.description = description
+    }
+}
+
+/// One prompt of a question. `select` uses `options` (`multiple`, `allowOther`); `text` uses
+/// `multiline`, `placeholder` and `secret`; `confirm` is yes/no.
+public struct QuestionPrompt: Codable, Sendable, Hashable, Identifiable {
+    public var id: String
+    public var text: String
+    public var header: String?
+    public var kind: QuestionKind
+    public var options: [QuestionOption]?
+    public var multiple: Bool?
+    public var allowOther: Bool?
+    public var multiline: Bool?
+    public var placeholder: String?
+    public var secret: Bool?
+
+    public init(id: String, text: String, header: String? = nil, kind: QuestionKind, options: [QuestionOption]? = nil,
+                multiple: Bool? = nil, allowOther: Bool? = nil, multiline: Bool? = nil, placeholder: String? = nil, secret: Bool? = nil) {
+        self.id = id
+        self.text = text
+        self.header = header
+        self.kind = kind
+        self.options = options
+        self.multiple = multiple
+        self.allowOther = allowOther
+        self.multiline = multiline
+        self.placeholder = placeholder
+        self.secret = secret
+    }
+}
+
+public struct QuestionRequest: Codable, Sendable, Hashable, Identifiable {
+    public var id: String
+    public var title: String?
+    public var prompts: [QuestionPrompt]
+
+    public init(id: String, title: String? = nil, prompts: [QuestionPrompt]) {
+        self.id = id
+        self.title = title
+        self.prompts = prompts
+    }
+}
+
+/// select: option label(s) or free text; text: the text; confirm: a boolean.
+public enum AnswerValue: Codable, Sendable, Hashable {
+    case string(String)
+    case strings([String])
+    case bool(Bool)
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let b = try? c.decode(Bool.self) { self = .bool(b) }
+        else if let a = try? c.decode([String].self) { self = .strings(a) }
+        else { self = .string(try c.decode(String.self)) }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let s): try c.encode(s)
+        case .strings(let a): try c.encode(a)
+        case .bool(let b): try c.encode(b)
+        }
+    }
+}
+
+// MARK: Catalog
+
+public struct ModelInfo: Codable, Sendable, Hashable, Identifiable {
+    public var id: String
+    public var name: String?
+    public var description: String?
+    public var isDefault: Bool?
+    /// Reasoning effort levels this model accepts (`AgentConfig.effort`); nil or empty means none.
+    public var efforts: [String]?
+
+    public var displayName: String { name ?? id }
+}
+
+public struct ModeInfo: Codable, Sendable, Hashable, Identifiable {
+    public var id: String
+    public var name: String?
+    public var description: String?
+
+    public var displayName: String { name ?? id }
+}
+
+public struct Catalog: Codable, Sendable, Hashable {
+    public var models: [ModelInfo]
+    public var modes: [ModeInfo]
+
+    public init(models: [ModelInfo] = [], modes: [ModeInfo] = []) {
+        self.models = models
+        self.modes = modes
+    }
+}
+
 public enum TurnOutcome: OpenEnum {
     case completed, interrupted, failed
     case unknown(String)
@@ -328,25 +467,38 @@ public enum AgentEvent: Codable, Sendable, Hashable {
     case delta(kind: DeltaKind, text: String)
     case permission(PermissionRequest)
     case permissionResolved(requestId: String)
+    case question(QuestionRequest)
+    case questionResolved(requestId: String)
     case turnEnded(turnId: String, outcome: TurnOutcome, error: String?)
+    /// A type this client doesn't know yet, or a known type with an unexpected body.
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey { case type, turnId, item, kind, text, request, requestId, outcome, error }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try c.decode(String.self, forKey: .type)
+        let type = (try? c.decode(String.self, forKey: .type)) ?? ""
+        do {
+            self = try Self.decodeKnown(type: type, c)
+        } catch {
+            self = .unknown(type: type)
+        }
+    }
+
+    private static func decodeKnown(type: String, _ c: KeyedDecodingContainer<CodingKeys>) throws -> AgentEvent {
         switch type {
-        case "turnStarted": self = .turnStarted(turnId: try c.decode(String.self, forKey: .turnId))
-        case "item": self = .item(try c.decode(Item.self, forKey: .item))
-        case "delta": self = .delta(kind: try c.decode(DeltaKind.self, forKey: .kind), text: try c.decode(String.self, forKey: .text))
-        case "permission": self = .permission(try c.decode(PermissionRequest.self, forKey: .request))
-        case "permissionResolved": self = .permissionResolved(requestId: try c.decode(String.self, forKey: .requestId))
+        case "turnStarted": .turnStarted(turnId: try c.decode(String.self, forKey: .turnId))
+        case "item": .item(try c.decode(Item.self, forKey: .item))
+        case "delta": .delta(kind: try c.decode(DeltaKind.self, forKey: .kind), text: try c.decode(String.self, forKey: .text))
+        case "permission": .permission(try c.decode(PermissionRequest.self, forKey: .request))
+        case "permissionResolved": .permissionResolved(requestId: try c.decode(String.self, forKey: .requestId))
+        case "question": .question(try c.decode(QuestionRequest.self, forKey: .request))
+        case "questionResolved": .questionResolved(requestId: try c.decode(String.self, forKey: .requestId))
         case "turnEnded":
-            self = .turnEnded(turnId: try c.decode(String.self, forKey: .turnId),
-                              outcome: try c.decode(TurnOutcome.self, forKey: .outcome),
-                              error: try c.decodeIfPresent(String.self, forKey: .error))
-        default: self = .unknown(type: type)
+            .turnEnded(turnId: try c.decode(String.self, forKey: .turnId),
+                       outcome: try c.decode(TurnOutcome.self, forKey: .outcome),
+                       error: try c.decodeIfPresent(String.self, forKey: .error))
+        default: .unknown(type: type)
         }
     }
 
@@ -368,6 +520,12 @@ public enum AgentEvent: Codable, Sendable, Hashable {
             try c.encode(request, forKey: .request)
         case .permissionResolved(let requestId):
             try c.encode("permissionResolved", forKey: .type)
+            try c.encode(requestId, forKey: .requestId)
+        case .question(let request):
+            try c.encode("question", forKey: .type)
+            try c.encode(request, forKey: .request)
+        case .questionResolved(let requestId):
+            try c.encode("questionResolved", forKey: .type)
             try c.encode(requestId, forKey: .requestId)
         case .turnEnded(let turnId, let outcome, let error):
             try c.encode("turnEnded", forKey: .type)

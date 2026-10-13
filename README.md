@@ -248,13 +248,35 @@ casm tracks each provider's subscription limits and copes with running out:
 
 ## Pending messages
 
-Everything waiting to be sent is stored in the server database and visible:
+Messages waiting for their agent to become available are stored in the server database and visible:
 
 - **queued**: sent while the agent was busy; goes after the running turn.
 - **limit**: hit a usage limit; retried after the reset. Holds back the messages behind it.
-- **scheduled**: sent with `at` (`casm send <agent> "…" --at 18:30`, `--at "in 2h"`, or an ISO time).
 
 `casm pending [agent]` lists them, together with agents waiting for a permission or an answer
 (protocol `pending.list` / `agent.pending`, MCP `list_pending`). `casm cancel <agent> <id>` or
-`--all` cancels (`agent.cancelPending`). Interrupting an agent drops its queued and limit messages
-but keeps scheduled ones. Agents report `pending: {count, next}` so clients can badge them.
+`--all` cancels (`agent.cancelPending`); interrupting an agent drops its pending messages. Agents
+report `pending: {count, next}` so clients can badge them.
+
+## Schedules
+
+Schedules are host-level jobs: on a cadence they **message an existing agent** or **create a new
+agent** from a preset (project, agent type, model/mode, name) with a prompt. They're stored in the
+server database and listed with their next run and last result.
+
+```sh
+casm schedule add --every 30m --agent reviewer "Any new failing tests?"
+casm schedule add --cron "0 9 * * 1-5" --project api --provider codex --mode auto --name standup "Summarise yesterday's commits"
+casm schedule add --at 18:30 --agent writer "Continue the draft"      # once
+casm send writer --at "in 2h" "…"                                     # shorthand for a once schedule
+casm schedules [--agent a]
+casm schedule run | enable | disable | rm <schedule>
+```
+
+- **Cadence:** a 5-field cron in the server's local time, `every N minutes`, or `once` at a time
+  (it disables itself after running).
+- **Busy or limited agents:** a schedule's message to an agent that is busy or over a usage limit
+  becomes a pending message, or is skipped with `--skip-if-busy` (`whenBusy: "skip"`).
+- **Missed runs:** a run missed while the server was down happens once when it's back.
+- **Protocol:** `schedule.list/create/update/delete/runNow`, notifications `schedule.changed` /
+  `schedule.removed`. Deleting an agent deletes its schedules.

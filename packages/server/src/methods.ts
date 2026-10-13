@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
+import type { Scheduler } from "./schedules.ts";
 import { searchFiles } from "./fs-search.ts";
 import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts";
 import type { PeerPool } from "./peers.ts";
@@ -13,7 +14,14 @@ export type Handlers = { [M in MethodName]: (p: Params<M>, conn: Conn) => Result
 
 export type Identity = { id: string; name: string; version: string };
 
-export function createHandlers(store: Store, agents: AgentManager, notify: Notify, identity: Identity, peers: PeerPool): Handlers {
+export function createHandlers(
+  store: Store,
+  agents: AgentManager,
+  notify: Notify,
+  identity: Identity,
+  peers: PeerPool,
+  schedules: () => Scheduler,
+): Handlers {
   const getProject = (id: string) => {
     const p = store.getProject(id);
     if (!p) throw new RpcError(ErrorCode.NotFound, `project ${id} not found`);
@@ -117,6 +125,7 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
     "agent.delete": async (p) => {
       getAgent(p.id);
       await agents.remove(p.id);
+      schedules().agentRemoved(p.id);
       store.deleteAgent(p.id);
       notify("agent.removed", { agentId: p.id });
       return { ok: true };
@@ -131,7 +140,15 @@ export function createHandlers(store: Store, agents: AgentManager, notify: Notif
       conn.subscriptions.delete(p.id);
       return { ok: true };
     },
-    "agent.send": (p) => agents.send(p.id, { text: p.text, images: p.images }, p.whenBusy, p.whenLimited, p.at),
+    "agent.send": (p) => agents.send(p.id, { text: p.text, images: p.images }, p.whenBusy, p.whenLimited),
+    "schedule.list": (p) => ({ schedules: schedules().list(p.agentId) }),
+    "schedule.create": (p) => schedules().create(p),
+    "schedule.update": (p) => schedules().update(p),
+    "schedule.delete": (p) => {
+      schedules().delete(p.id);
+      return { ok: true };
+    },
+    "schedule.runNow": (p) => schedules().runNow(p.id),
     "agent.pending": (p) => {
       getAgent(p.id);
       return { messages: agents.pendingMessages(p.id) };

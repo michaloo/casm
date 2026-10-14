@@ -532,6 +532,12 @@ test("schedules message an agent or create one, and busy agents get pending mess
   assert.equal((await client.call("schedule.runNow", { id: skip.id })).outcome, "skipped");
   await client.call("agent.interrupt", { id: a.id });
   await client.call("agent.wait", { id: a.id });
+  // A kept failed message doesn't make an idle agent busy.
+  await client.call("agent.send", { id: a.id, text: "no-session" });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal((await client.call("agent.pending", { id: a.id })).messages[0].reason, "failed");
+  assert.equal((await client.call("schedule.runNow", { id: skip.id })).outcome, "sent");
+  await client.call("agent.wait", { id: a.id });
 
   // A once schedule creating a new agent from a preset disables itself after running.
   const at = new Date(Date.now() + 3600_000).toISOString();

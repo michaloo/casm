@@ -8,7 +8,7 @@ async function login(page: Page) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   if (page.viewportSize()!.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
   await page.getByRole("button", { name: /Agent 00/ }).click();
-  await expect(page.getByText("Message 319", { exact: false })).toBeVisible();
+  await expect(page.locator(".item").last()).toBeVisible();
 }
 async function send(page: Page, text: string) {
   await page.getByLabel("Message").fill(text);
@@ -49,7 +49,7 @@ test("bottom working indicator follows selected agent and clears after completio
 });
 
 for (const width of [1440, 375]) {
-  test(`status changes preserve reader position and pinned composer at width ${width}`, async ({ page }) => {
+  test(`status changes preserve reader position and pinned composer at width ${width}`, async ({ page, isMobile }) => {
     await page.setViewportSize({ width, height: 812 });
     let notify: (status: string, failed?: boolean) => void = () => { throw new Error("Socket not ready"); };
     await page.routeWebSocket("**", (socket) => {
@@ -70,9 +70,10 @@ for (const width of [1440, 375]) {
     await login(page);
     const scroller = page.locator("[data-virtuoso-scroller]");
     await scroller.hover();
-    await page.mouse.wheel(0, -700);
+    if (isMobile) await scroller.evaluate((el) => el.scrollBy(0, -700));
+    else await page.mouse.wheel(0, -700);
     await expect(page.getByRole("button", { name: "Latest ↓" })).toBeVisible();
-    // Let the native wheel scroll settle before comparing exact reader coordinates.
+    // Let scrolling settle before comparing exact reader coordinates.
     await page.waitForTimeout(250);
     const before = await scroller.evaluate((element) => element.scrollTop);
     const composer = (await page.locator(".composer").boundingBox())!;

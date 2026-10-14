@@ -13,7 +13,9 @@ async function login(page: any) {
 }
 async function send(page: any, text: string) {
   await page.getByLabel("Message").fill(text);
-  await page.getByLabel("Message").press("Enter");
+  if (await page.evaluate(() => matchMedia("(pointer: coarse)").matches))
+    await page.getByRole("button", { name: /^(Send|Queue)$/, exact: true }).click();
+  else await page.getByLabel("Message").press("Enter");
   await expect(page.getByLabel("Message")).toHaveValue("");
 }
 test("every sidebar row selects, pending never hides composer, send/steer/interrupt and permission", async ({
@@ -274,7 +276,7 @@ test("Vite SPA fallback restores a deep-linked agent on an isolated dev server",
 
 for (const scheme of ["light", "dark"] as const)
   for (const device of ["desktop", "mobile"] as const) {
-    test(`visual transcript · ${device} · ${scheme}`, async ({ page }) => {
+    test(`visual transcript · ${device} · ${scheme}`, async ({ page, isMobile }) => {
       const size =
         device === "desktop"
           ? { width: 1440, height: 900 }
@@ -294,7 +296,8 @@ for (const scheme of ["light", "dark"] as const)
       const scroller = page.locator("[data-virtuoso-scroller]");
       await expect(page.locator(".prose img")).toBeVisible();
       await scroller.hover();
-      await page.mouse.wheel(0, -100000);
+      if (isMobile) await scroller.evaluate((el) => el.scrollTo(0, 0));
+      else await page.mouse.wheel(0, -100000);
       await expect(
         page.getByRole("heading", { name: "A calmer place to work" }),
       ).toBeVisible();
@@ -320,7 +323,8 @@ for (const scheme of ["light", "dark"] as const)
                 );
                 return false;
               }
-              await page.mouse.wheel(0, size.height * 0.35);
+              if (isMobile) await scroller.evaluate((el, delta) => el.scrollBy(0, delta), size.height * 0.35);
+              else await page.mouse.wheel(0, size.height * 0.35);
               return false;
             },
             { timeout: 10000, intervals: [100, 150, 250] },

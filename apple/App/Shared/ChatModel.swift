@@ -294,8 +294,8 @@ final class ChatModel {
     /// same model (and composer) stays on screen, subscribed to the agent's first turn.
     private func create(_ text: String, images: [ImageData]) async -> Bool {
         guard let host, let new = newAgent else { return false }
-        var params = CreateAgentParams(projectId: new.projectId, provider: new.provider, config: new.config,
-                                       prompt: text.isEmpty ? nil : text)
+        var params = CreateAgentParams(projectId: new.projectId, provider: new.provider, name: Self.agentName(from: text),
+                                       config: new.config, prompt: text.isEmpty ? nil : text)
         if !images.isEmpty { params.images = images }
         firstMessage = .user(id: Self.firstMessageID, text: text, images: images)
         defer { firstMessage = nil }
@@ -313,6 +313,24 @@ final class ChatModel {
             self.error = error.localizedDescription
             return false
         }
+    }
+
+    /// A name for an agent started from its first message: the first line, whitespace collapsed,
+    /// cut at a word boundary to about 40 characters. Nil (the server's default) without text.
+    static func agentName(from text: String, limit: Int = 40) -> String? {
+        let line = text.split(whereSeparator: \.isNewline).first { !$0.allSatisfy(\.isWhitespace) } ?? ""
+        let words = line.split(whereSeparator: \.isWhitespace)
+        guard !words.isEmpty else { return nil }
+        var name = ""
+        for word in words {
+            let next = name.isEmpty ? String(word) : name + " " + word
+            if next.count > limit {
+                // One long word: cut it rather than return nothing.
+                return (name.isEmpty ? String(word.prefix(limit)) : name) + "…"
+            }
+            name = next
+        }
+        return name
     }
 
     /// Picks the new agent's provider; model, effort and mode ids belong to one provider, so

@@ -1,6 +1,6 @@
 {
   "protocol": 1,
-  "transport": "JSON-RPC 2.0 over WebSocket; Authorization: Bearer <token> on the upgrade request; GET /health is unauthenticated",
+  "transport": "JSON-RPC 2.0 over WebSocket; Authorization: Bearer <token> on the upgrade request; GET /health is unauthenticated; a request's optional top-level \"host\" (a peer name or server id) forwards it to that peer, and notifications relayed from the peer carry the same \"host\"",
   "errors": {
     "ParseError": -32700,
     "InvalidRequest": -32600,
@@ -10,7 +10,8 @@
     "NotFound": 1001,
     "Busy": 1002,
     "Conflict": 1003,
-    "Limited": 1004
+    "Limited": 1004,
+    "Unreachable": 1005
   },
   "methods": {
     "server.info": {
@@ -5945,6 +5946,18 @@
       },
       "required": [
         "projectId"
+      ]
+    },
+    "peer.disconnected": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host"
       ]
     }
   }

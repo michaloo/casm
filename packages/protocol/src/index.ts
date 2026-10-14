@@ -1,6 +1,8 @@
 // Wire protocol shared by the casm server, the CLI and (via JSON Schema codegen) the Swift apps.
 // JSON-RPC 2.0 over one WebSocket. Requests are listed in `methods`; server
-// notifications in `notifications`.
+// notifications in `notifications`. A request with a `host` (a peer's name or
+// server id) is forwarded to that peer server; notifications relayed from it
+// carry the same `host`.
 import { z } from "zod";
 
 export const PROTOCOL_VERSION = 1;
@@ -574,6 +576,8 @@ export const notifications = {
   "schedule.changed": z.object({ schedule: Schedule }),
   "schedule.removed": z.object({ scheduleId: z.string() }),
   "project.removed": z.object({ projectId: z.string() }),
+  // The connection to a peer dropped; subscriptions made through it are gone.
+  "peer.disconnected": z.object({ host: z.string() }),
 } as const;
 
 export type Notifications = typeof notifications;
@@ -593,10 +597,12 @@ export const ErrorCode = {
   Busy: 1002,
   Conflict: 1003,
   Limited: 1004,
+  // A forwarded request's peer could not be reached or did not answer.
+  Unreachable: 1005,
 } as const;
 
-export type RpcRequest = { jsonrpc: "2.0"; id: number | string; method: string; params?: unknown };
+export type RpcRequest = { jsonrpc: "2.0"; id: number | string; method: string; params?: unknown; host?: string };
 export type RpcResponse =
   | { jsonrpc: "2.0"; id: number | string; result: unknown }
   | { jsonrpc: "2.0"; id: number | string | null; error: { code: number; message: string; data?: unknown } };
-export type RpcNotification = { jsonrpc: "2.0"; method: string; params: unknown };
+export type RpcNotification = { jsonrpc: "2.0"; method: string; params: unknown; host?: string };

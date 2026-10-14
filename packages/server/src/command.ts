@@ -2,7 +2,7 @@
 //   casm serve [--listen host:port]
 //   casm token create <name> | list | revoke <name>
 //   casm peer add <name> <ws-url> <token> | list | rm <name>
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -20,6 +20,9 @@ const VERSION = "0.0.1";
 const DEFAULT_LISTEN = "127.0.0.1:7373";
 
 const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");
+// How the CLI on this machine reaches this server; rewritten on every start.
+const LOCAL_FILE = "local.json";
+const LOCAL_TOKEN = "local-cli";
 
 function readConfig(): { listen?: string; name?: string } {
   try {
@@ -61,12 +64,22 @@ const usage = `usage:
   casm serve [--listen host:port] [--name n]
                                       (default ${DEFAULT_LISTEN}, or "listen" in ${join(home, "config.json")};
                                       name defaults to "name" there, $CASM_NAME, or the hostname)
+                                      (writes ${join(home, LOCAL_FILE)}: this machine's CLI then uses this server)
   casm token create <name>            print a new client token
   casm token list
   casm token revoke <name>
   casm peer add <name> <ws-url> <token>   another casm server this one's agents may use (verified now)
   casm peer list [--probe]
   casm peer rm <name>`;
+
+// The CLI on this machine uses the server through this file, so `casm -H <peer>`
+// goes through the server's peers. A fresh token each start; the old one is revoked.
+function writeLocalCredential(store: Store, url: string) {
+  store.revokeToken(LOCAL_TOKEN);
+  const file = join(home, LOCAL_FILE);
+  writeFileSync(`${file}.tmp`, JSON.stringify({ url, token: store.createToken(LOCAL_TOKEN) }) + "\n", { mode: 0o600 });
+  renameSync(`${file}.tmp`, file);
+}
 
 export async function serverCommand(argv: string[]) {
   const { values, positionals } = parseArgs({
@@ -86,7 +99,8 @@ export async function serverCommand(argv: string[]) {
     const name = values.name ?? process.env.CASM_NAME ?? readConfig().name;
     const server = await startServer({ store, providers: availableProviders(), host, port, version: VERSION, name, log });
     log(`agents: ${server.agents.providerIds().join(", ") || "none found on PATH"}`);
-    if (store.listTokens().length === 0) log('no client tokens yet: run "casm token create <name>"');
+    writeLocalCredential(store, server.url);
+    if (store.listTokens().length === 1) log('no client tokens for other machines yet: run "casm token create <name>"');
     const stop = async () => {
       log("shutting down");
       await server.close();

@@ -51,7 +51,8 @@ enum Markdown {
         let t = line.trimmingCharacters(in: .whitespaces)
         for (open, close) in [("$$", "$$"), ("\\[", "\\]")] where t.count > open.count + close.count && t.hasPrefix(open) && t.hasSuffix(close) {
             let inner = t.dropFirst(open.count).dropLast(close.count).trimmingCharacters(in: .whitespaces)
-            return inner.isEmpty ? nil : inner
+            // "$$a$$ and $$b$$" is two inline formulas in a sentence, not one block.
+            return inner.isEmpty || inner.contains(open) || inner.contains(close) ? nil : inner
         }
         return nil
     }
@@ -118,7 +119,9 @@ enum Markdown {
             index += 1
             let trimmed = line.drop(while: { $0 == " " })
             if var open = fence {
-                if trimmed.hasPrefix(open.marker) && trimmed.allSatisfy({ $0 == open.marker.first }) {
+                let closes = open.marker == "\\]" ? trimmed.trimmingCharacters(in: .whitespaces) == "\\]"
+                    : trimmed.hasPrefix(open.marker) && trimmed.allSatisfy({ $0 == open.marker.first })
+                if closes {
                     blocks.append(.code(language: open.language, open.lines.joined(separator: "\n")))
                     fence = nil
                 } else {
@@ -131,9 +134,9 @@ enum Markdown {
                 // No native LaTeX renderer: display math reads best as source in a code block.
                 flushAll()
                 blocks.append(.code(language: "math", math))
-            } else if trimmed.trimmingCharacters(in: .whitespaces) == "$$" {
+            } else if ["$$", "\\["].contains(trimmed.trimmingCharacters(in: .whitespaces)) {
                 flushAll()
-                fence = ("$$", "math", [])
+                fence = (trimmed.trimmingCharacters(in: .whitespaces) == "$$" ? "$$" : "\\]", "math", [])
             } else if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 flushAll()
                 let marker = trimmed.prefix(while: { $0 == trimmed.first })

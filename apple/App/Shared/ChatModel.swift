@@ -12,6 +12,9 @@ final class ChatModel {
     private(set) var newAgent: NewAgent?
     /// Called once the first message created the agent (to select it).
     @ObservationIgnored var onCreated: ((Agent) -> Void)?
+    /// Set when the app moved on to another chat; a create still in flight then doesn't take the
+    /// view back, and a failed one leaves its text in the project's draft.
+    @ObservationIgnored private var detached = false
     /// The first message while agent.create runs, shown as sent (and kept in `items` until the
     /// agent's own copy of it arrives).
     private(set) var firstMessage: Item?
@@ -106,6 +109,7 @@ final class ChatModel {
     }
 
     func close() {
+        detached = true
         guard let host, newAgent == nil else { return }
         host.unregister(self)
         let client = host.client, id = agentId
@@ -310,11 +314,14 @@ final class ChatModel {
             newAgent = nil
             error = nil
             if let firstMessage { upsert(firstMessage) }
+            // Left meanwhile: the agent runs and is in the sidebar; don't pull the user back.
+            guard !detached else { return true }
             open()
             onCreated?(agent)
             return true
         } catch {
             self.error = error.localizedDescription
+            if detached { Drafts.shared.save(draftKey, text: text, images: images) }
             return false
         }
     }

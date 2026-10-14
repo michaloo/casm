@@ -2441,3 +2441,21 @@ button.danger.quiet:hover { background: var(--attention-soft); }
   .schedule-form-actions > button { flex: 1 1 0; }
   .schedule-delete, .schedule-delete button { min-height: 44px; font-size: 15px; }
 }
+
+.new-project { width: min(560px, calc(100vw - 40px)); height: auto; max-height: min(900px, 90dvh); }
+.new-project-form { min-width: 0; }
+.new-project-form label { margin: 14px 0 6px; font-weight: 550; }
+.new-project-form input { width: 100%; min-width: 0; min-height: 44px; }
+.new-project-form p { margin: 8px 0; font-size: 13px; overflow-wrap: anywhere; }
+.new-project-form [role="combobox"] { font-family: var(--mono); }
+.project-group-fields { display: flex; flex-wrap: wrap; gap: 8px; }
+.project-group-fields input { flex: 1 1 160px; }
+.project-group-fields select { min-width: 0; max-width: 100%; min-height: 44px; }
+.folder-suggestions { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid var(--line); border-radius: 10px; max-height: 200px; overflow-y: auto; }
+.folder-suggestions button { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 8px; border: 0; background: transparent; text-align: left; font: 12px/1.5 var(--mono); }
+.folder-suggestions button span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-suggestions button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+@media (max-width: 650px) {
+  .new-project { width: 100%; height: var(--viewport-height, 100dvh); max-height: none; }
+  .new-project-form input, .new-project-form select { font-size: 16px; }
+}

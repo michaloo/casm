@@ -586,7 +586,8 @@ async function run(c: CasmClient) {
           const tgt = x.target.type === "agent" ? `→ ${names.get(x.target.agentId) ?? shortId(x.target.agentId)}` : `new ${x.target.provider} agent`;
           const next = x.enabled && x.nextRunAt ? `next ${new Date(x.nextRunAt).toLocaleString()}` : "disabled";
           const last = x.lastRun ? `  last ${x.lastRun.outcome}${x.lastRun.error ? `: ${x.lastRun.error}` : ""}` : "";
-          console.log(`${shortId(x.id)}  ${x.name}  ${cad}  ${tgt}  ${next}${last}`);
+          // The default name is the target; don't print it twice.
+          console.log(`${shortId(x.id)}  ${x.name === tgt ? "" : `${x.name}  `}${cad}  ${tgt}  ${next}${last}`);
         }
       });
     }

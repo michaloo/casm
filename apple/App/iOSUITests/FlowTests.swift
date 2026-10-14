@@ -173,6 +173,7 @@ final class FlowTests: XCTestCase {
         shot("ios-16-thinking-streaming")
         let thinking = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Thinking'"))
         waitIdle(180)
+        guard thinking.count > 0 else { return XCTFail("no Thinking row after the turn") }
         let last = thinking.element(boundBy: thinking.count - 1)
         last.tap()
         sleep(1)

@@ -297,11 +297,19 @@ for (const scheme of ["light", "dark"] as const)
       const scroller = page.locator("[data-virtuoso-scroller]");
       await expect(page.locator(".item").first()).toBeVisible();
       await scroller.hover();
-      if (isMobile) await scroller.evaluate((el) => el.scrollTo(0, 0));
-      else await page.mouse.wheel(0, -100000);
-      await expect(
-        page.getByRole("heading", { name: "A calmer place to work" }),
-      ).toBeVisible();
+      // Virtuoso lands on the newest row after mounting and remeasures rows as
+      // they render, so a single jump to the top can be undone. Keep returning
+      // to the top until the first heading is on screen.
+      const heading = page.getByRole("heading", { name: "A calmer place to work" });
+      await expect
+        .poll(async () => {
+          if (await heading.isVisible()) return true;
+          if (isMobile) await scroller.evaluate((el) => el.scrollTo(0, 0));
+          else await page.mouse.wheel(0, -100000);
+          return false;
+        }, { timeout: 15000, intervals: [100, 150, 250] })
+        .toBe(true);
+      await expect(heading).toBeVisible();
       await page.screenshot({
         path: `/tmp/casm-web-visual-${device}-${scheme}.png`,
       });

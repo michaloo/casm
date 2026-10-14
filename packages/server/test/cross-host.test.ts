@@ -30,7 +30,7 @@ const provider: Provider = {
     const sid = opts.resumeId ?? `native-x${++sessions}`;
     setImmediate(() => opts.emit({ type: "sessionId", id: sid }));
     return {
-      send(text) {
+      send(text, itemId) {
         void (async () => {
           await new Promise((r) => setTimeout(r, 10));
           let reply = `echo: ${text}`;
@@ -41,7 +41,7 @@ const provider: Provider = {
             const a = await opts.askQuestion({ id: "q-1", prompts: [{ id: "color", text: "Color?", kind: "text" }] }, abort.signal);
             reply = `answer: ${JSON.stringify(a)}`;
           }
-          histories.set(sid, [...(histories.get(sid) ?? []), { kind: "user", id: `u${text}`, text }, { kind: "assistant", id: `a${text}`, text: reply }]);
+          histories.set(sid, [...(histories.get(sid) ?? []), { kind: "user", id: itemId, text }, { kind: "assistant", id: `a${text}`, text: reply }]);
           opts.emit({ type: "item", item: { kind: "assistant", id: `a${text}`, text: reply } });
           opts.emit({ type: "turnEnded", outcome: "completed" });
         })();
@@ -242,6 +242,9 @@ test("create_agent, send, wait, list_agents and get_history on a peer; parent is
   assert.equal(listed.data[0].parent.agentId, parentId);
   const h = await tool("get_history", { host: "beta", agent: "child", limit: 2 });
   assert.equal(h.text, "(2 earlier entries)\nuser: again\nassistant: echo: again");
+  const history = await beta.client.call("agent.history", { id: child.id });
+  const sender = { serverId: alphaId, agentId: parentId, name: (await alpha.client.call("agent.get", { id: parentId })).name };
+  assert.deepEqual(history.items.filter((item) => item.kind === "user").map((item) => item.sender), [sender, sender]);
 });
 
 test("create_agent takes a folder inside the project, resolved on the peer", async () => {
@@ -309,6 +312,24 @@ test("casm run links the child from CASM_* env or --parent", async () => {
   });
   assert.deepEqual(await run(["--parent", "s2/a2"], { CASM_SERVER_ID: "srv", CASM_AGENT_ID: "agt" }), { serverId: "s2", agentId: "a2" });
   assert.equal(await run(["--parent", "none"], { CASM_SERVER_ID: "srv", CASM_AGENT_ID: "agt" }), null);
+});
+
+test("CLI sends carry agent provenance across hosts while human sends stay untagged", async () => {
+  const cli = join(import.meta.dirname, "../../cli/src/main.ts");
+  const project = beta.store.listProjects()[0];
+  const recipient = await beta.client.call("agent.create", { projectId: project.id, provider: "claude" });
+  const origin = await alpha.client.call("server.info", {});
+  const env = { ...process.env, CASM_URL: alpha.url, CASM_TOKEN: alpha.token,
+    CASM_SERVER_ID: origin.id, CASM_AGENT_ID: parentId, CASM_AGENT_NAME: "stale name" };
+  await promisify(execFile)(process.execPath, [cli, "-H", "beta", "send", recipient.id, "same text"], { env });
+  await beta.client.call("agent.wait", { id: recipient.id });
+  await promisify(execFile)(process.execPath, [cli, "-H", "beta", "send", recipient.id, "same text"], {
+    env: { ...env, CASM_SERVER_ID: "", CASM_AGENT_ID: "", CASM_AGENT_NAME: "" },
+  });
+  await beta.client.call("agent.wait", { id: recipient.id });
+  const users = (await beta.client.call("agent.history", { id: recipient.id })).items.filter((item) => item.kind === "user");
+  assert.deepEqual(users[0].sender, { serverId: origin.id, agentId: parentId, name: alpha.store.getAgent(parentId)!.name });
+  assert.equal(users[1].sender, undefined);
 });
 
 // Clients (the CLI on a server machine) reach peers through their own server:

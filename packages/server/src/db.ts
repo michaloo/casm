@@ -1,8 +1,8 @@
 // The only persistent state: projects, agents (config + native session id),
-// client tokens and peer servers. Transcripts live in each provider's own store.
+// client tokens, peers and message sender metadata. Transcripts live in each provider's own store.
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type { Agent, AgentConfig, AgentParent, ImageData, Project, ProviderId, Schedule } from "@casm/protocol";
+import type { Agent, AgentConfig, AgentParent, MessageSender, ImageData, Project, ProviderId, Schedule } from "@casm/protocol";
 
 export type StoredAgent = Omit<Agent, "status" | "deferred" | "pending">;
 
@@ -16,6 +16,7 @@ export type Pending = {
   seq: number;
   text: string;
   images?: ImageData[];
+  sender?: MessageSender;
   reason: PendingReason;
   notBefore: string | null;
   note: string | null;
@@ -44,6 +45,7 @@ function toPending(r: Row): Pending {
     seq: r.seq as number,
     text: r.text as string,
     images: r.images ? JSON.parse(r.images as string) : undefined,
+    sender: r.sender ? JSON.parse(r.sender as string) : undefined,
     reason: r.reason as PendingReason,
     notBefore: (r.not_before as string | null) ?? null,
     note: (r.note as string | null) ?? null,
@@ -100,6 +102,12 @@ CREATE TABLE IF NOT EXISTS pending (
   note TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS message_senders (
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  item_id TEXT NOT NULL,
+  sender TEXT NOT NULL,
+  PRIMARY KEY (agent_id, item_id)
 );
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
@@ -169,6 +177,7 @@ export class Store {
     // columns added since (databases older than 800edae are not supported).
     this.db.exec(SCHEMA);
     this.addColumn("agents", "effective_model", "TEXT");
+    this.addColumn("pending", "sender", "TEXT");
   }
 
   // Columns added after release; CREATE TABLE IF NOT EXISTS leaves older tables as they were.
@@ -349,7 +358,7 @@ export class Store {
       .get(p.agentId) as Row;
     this.db
       .prepare(
-        "INSERT INTO pending (id, agent_id, seq, text, images, reason, not_before, note, attempts, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO pending (id, agent_id, seq, text, images, sender, reason, not_before, note, attempts, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         id,
@@ -357,6 +366,7 @@ export class Store {
         (edge.s as number | null) ?? 0,
         p.text,
         p.images?.length ? JSON.stringify(p.images) : null,
+        p.sender ? JSON.stringify(p.sender) : null,
         p.reason,
         p.notBefore,
         p.note,
@@ -364,6 +374,20 @@ export class Store {
         now(),
       );
     return toPending(this.db.prepare("SELECT * FROM pending WHERE id = ?").get(id) as Row);
+  }
+
+  saveMessageSender(agentId: string, itemId: string, sender: MessageSender) {
+    this.db.prepare("INSERT OR REPLACE INTO message_senders (agent_id, item_id, sender) VALUES (?, ?, ?)").run(agentId, itemId, JSON.stringify(sender));
+  }
+
+  messageSender(agentId: string, itemId: string): MessageSender | undefined {
+    const row = this.db.prepare("SELECT sender FROM message_senders WHERE agent_id = ? AND item_id = ?").get(agentId, itemId) as Row | undefined;
+    return row ? JSON.parse(row.sender as string) : undefined;
+  }
+
+  // An authoritative healthy account refresh makes limit-deferred work due.
+  releaseLimited(agentId: string): number {
+    return Number(this.db.prepare("UPDATE pending SET reason = 'queued', not_before = NULL WHERE agent_id = ? AND reason = 'limit'").run(agentId).changes);
   }
 
   removePending(id: string): boolean {

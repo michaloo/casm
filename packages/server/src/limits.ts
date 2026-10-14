@@ -21,6 +21,8 @@ export function resetTime(text: string, now = new Date()): Date | undefined {
   if (epoch) return new Date(Number(epoch[1]) * 1000);
   const iso = text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/);
   if (iso && !Number.isNaN(Date.parse(iso[0]))) return new Date(iso[0]);
+  const retry = text.match(/retry[-_ ]after["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)/i);
+  if (retry) return new Date(now.getTime() + Number(retry[1]) * 1000);
   const rel = text.match(/in (\d+(?:\.\d+)?)\s*(second|sec|minute|min|hour|hr|day)s?\b/i);
   if (rel) {
     const unit = { s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[rel[2][0].toLowerCase() as "s" | "m" | "h" | "d"];
@@ -41,13 +43,24 @@ export function resetTime(text: string, now = new Date()): Date | undefined {
   return undefined;
 }
 
-// When to retry: a minute after the reset, else back off 15 min, doubling, up to 3 h.
+// Transport throttles without account/quota language are short-lived. Explicit
+// usage windows still use the conservative subscription-reset backoff.
+export function transientRateLimit(message: string): boolean {
+  return /\b429\b|too many requests|rate[ -]?limit/i.test(message) &&
+    !/usage|quota|credit|five.hour|seven.day|weekly|daily|subscription/i.test(message);
+}
+
+// Respect known reset times; transient throttles back off from 30s to 5min,
+// while unknown subscription limits back off from 15min to 3h.
 export function retryAt(hit: LimitHit, attempts: number, now = new Date()): Date {
+  const transient = transientRateLimit(hit.message);
   if (hit.resetsAt) {
-    const t = Date.parse(hit.resetsAt) + 60_000;
+    const t = Date.parse(hit.resetsAt) + (transient ? 1000 : 60_000);
     if (t > now.getTime()) return new Date(t);
   }
-  return new Date(now.getTime() + Math.min(15 * 60_000 * 2 ** attempts, 3 * 3600_000));
+  return new Date(now.getTime() + (transient
+    ? Math.min(30_000 * 2 ** attempts, 5 * 60_000)
+    : Math.min(15 * 60_000 * 2 ** attempts, 3 * 3600_000)));
 }
 
 type Window = ProviderLimits["windows"][number];

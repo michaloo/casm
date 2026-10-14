@@ -1,3 +1,4 @@
+import { toolImages } from "./tool-images.ts";
 // Claude Code via the Claude Agent SDK: one long-lived query() per open
 // session, fed by an async input queue. History comes from Claude's own JSONL.
 import { z } from "zod";
@@ -408,6 +409,7 @@ export class Normalizer {
       input: prev?.input ?? call?.input,
       status: b.is_error ? "error" : "done",
       output: toolOutput(b.content),
+      ...toolImages(b.content),
     };
     this.calls.delete(id);
     this.tools.set(id, done);

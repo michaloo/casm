@@ -1420,6 +1420,24 @@
             "items": {
               "type": "object",
               "properties": {
+                "sender": {
+                  "type": "object",
+                  "properties": {
+                    "serverId": {
+                      "type": "string"
+                    },
+                    "agentId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "serverId",
+                    "agentId"
+                  ]
+                },
                 "id": {
                   "type": "string"
                 },
@@ -2555,6 +2573,24 @@
               "type": "string"
             }
           },
+          "sender": {
+            "type": "object",
+            "properties": {
+              "serverId": {
+                "type": "string"
+              },
+              "agentId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "serverId",
+              "agentId"
+            ]
+          },
           "prompt": {
             "type": "string"
           },
@@ -3104,6 +3140,24 @@
                           "mediaType"
                         ]
                       }
+                    },
+                    "sender": {
+                      "type": "object",
+                      "properties": {
+                        "serverId": {
+                          "type": "string"
+                        },
+                        "agentId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "serverId",
+                        "agentId"
+                      ]
                     }
                   },
                   "required": [
@@ -3183,6 +3237,23 @@
                     },
                     "output": {
                       "type": "string"
+                    },
+                    "images": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "mediaType": {
+                            "type": "string"
+                          },
+                          "data": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "mediaType"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -3431,6 +3502,24 @@
                                   "mediaType"
                                 ]
                               }
+                            },
+                            "sender": {
+                              "type": "object",
+                              "properties": {
+                                "serverId": {
+                                  "type": "string"
+                                },
+                                "agentId": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "serverId",
+                                "agentId"
+                              ]
                             }
                           },
                           "required": [
@@ -3510,6 +3599,23 @@
                             },
                             "output": {
                               "type": "string"
+                            },
+                            "images": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "mediaType": {
+                                    "type": "string"
+                                  },
+                                  "data": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "mediaType"
+                                ]
+                              }
                             }
                           },
                           "required": [
@@ -4115,6 +4221,24 @@
           "text": {
             "type": "string"
           },
+          "sender": {
+            "type": "object",
+            "properties": {
+              "serverId": {
+                "type": "string"
+              },
+              "agentId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "serverId",
+              "agentId"
+            ]
+          },
           "images": {
             "type": "array",
             "items": {
@@ -4290,6 +4414,24 @@
                           "mediaType"
                         ]
                       }
+                    },
+                    "sender": {
+                      "type": "object",
+                      "properties": {
+                        "serverId": {
+                          "type": "string"
+                        },
+                        "agentId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "serverId",
+                        "agentId"
+                      ]
                     }
                   },
                   "required": [
@@ -4369,6 +4511,23 @@
                     },
                     "output": {
                       "type": "string"
+                    },
+                    "images": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "mediaType": {
+                            "type": "string"
+                          },
+                          "data": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "mediaType"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -4739,6 +4898,24 @@
             "items": {
               "type": "object",
               "properties": {
+                "sender": {
+                  "type": "object",
+                  "properties": {
+                    "serverId": {
+                      "type": "string"
+                    },
+                    "agentId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "serverId",
+                    "agentId"
+                  ]
+                },
                 "id": {
                   "type": "string"
                 },
@@ -4853,53 +5030,6 @@
         },
         "required": [
           "queued"
-        ]
-      }
-    },
-    "agent.takePending": {
-      "params": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "messageId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "messageId"
-        ]
-      },
-      "result": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "text": {
-            "type": "string"
-          },
-          "images": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "mediaType": {
-                  "type": "string"
-                },
-                "data": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "mediaType"
-              ]
-            }
-          }
-        },
-        "required": [
-          "text"
         ]
       }
     },
@@ -5251,6 +5381,24 @@
                               "mediaType"
                             ]
                           }
+                        },
+                        "sender": {
+                          "type": "object",
+                          "properties": {
+                            "serverId": {
+                              "type": "string"
+                            },
+                            "agentId": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "serverId",
+                            "agentId"
+                          ]
                         }
                       },
                       "required": [
@@ -5330,6 +5478,23 @@
                         },
                         "output": {
                           "type": "string"
+                        },
+                        "images": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "mediaType": {
+                                "type": "string"
+                              },
+                              "data": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "mediaType"
+                            ]
+                          }
                         }
                       },
                       "required": [

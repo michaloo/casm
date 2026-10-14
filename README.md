@@ -18,6 +18,8 @@ Which agent for what:
   who know what they're doing: it has no built-in permission system, so its
   tools run without asking.
 
+[Providers](docs/providers.md) has the verified feature matrix per provider.
+
 casm does not provide sandboxing or containers, import sessions, or synchronize
 sessions and files between machines. Agents work with their host's tools and
 provider permissions. Full-text session search is the separate tool

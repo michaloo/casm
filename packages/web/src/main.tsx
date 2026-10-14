@@ -606,6 +606,10 @@ function App() {
               identity={<HostIdentity name={h.name} state={state} detail={working ? `${working} working` : undefined} />}
               menu={<HostMenu host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
                   openAgent={(a) => choose({ host: h.id, project: a.projectId, id: a.id })}
+                  openProject={project => {
+                    setHosts(list => list.map(item => item.id === h.id ? { ...item, projects: [...item.projects.filter(p => p.id !== project.id), project] } : item));
+                    choose({ host: h.id, project: project.id });
+                  }}
                   detail={working ? `${working} working` : undefined} />}>
               {h.error && <p className="host-error" title={h.error}>{h.error}</p>}
               {!h.error && !h.loading && !h.projects.length && <p className="sidebar-empty">No projects on this host yet.</p>}

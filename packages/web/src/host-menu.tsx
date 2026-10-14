@@ -1,3 +1,4 @@
+import { NewProject } from "./new-project";
 import { useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Agent, Project } from "@casm/protocol";
@@ -33,15 +34,16 @@ export function HostIdentity({ name, state, detail }: { name: string; state: Hos
 }
 
 /** The host row's ⋯ button: a menu with on-demand usage, schedules and settings. */
-export function HostMenu({ host, name, state, detail, rpc, agents, projects, openAgent }: {
+export function HostMenu({ host, name, state, detail, rpc, agents, projects, openAgent, openProject }: {
   host: string; name: string; state: HostState; detail?: string; rpc: Rpc | null; agents: Agent[]; projects: Project[];
-  openAgent?: (agent: Agent) => void;
+  openAgent?: (agent: Agent) => void; openProject: (project: Project) => void;
 }) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [newProject, setNewProject] = useState(false);
   const [view, setView] = useState<View>("menu");
   useAnchoredPosition(open, trigger, panel, view);
   const online = state === "online" || state === "slow";
@@ -75,6 +77,9 @@ export function HostMenu({ host, name, state, detail, rpc, agents, projects, ope
         <button type="button" role="menuitem" onClick={() => { panel.current?.hidePopover(); setSettings(true); }}>
           <span>Settings</span><small>Global instructions, memories, and agent prompt</small>
         </button>
+        <button type="button" role="menuitem" disabled={!online} onClick={() => { panel.current?.hidePopover(); setNewProject(true); }}>
+          <span>New project…</span><small>Add an existing folder on this host</small>
+        </button>
       </> : <>
         <div className="host-panel-heading">
           <button type="button" className="host-panel-back" aria-label="Back to host menu" title="Back" onClick={() => show("menu")}>‹</button>
@@ -87,6 +92,9 @@ export function HostMenu({ host, name, state, detail, rpc, agents, projects, ope
             openAgent={openAgent && ((agent) => { panel.current?.hidePopover(); openAgent(agent); })} />}
       </>}
     </div>, document.body)}
+    {newProject && <NewProject host={host} name={name} projects={projects} rpc={rpc} online={online}
+      close={() => { setNewProject(false); trigger.current?.focus(); }}
+      created={project => { setNewProject(false); openProject(project); }} />}
     {settings && <HostSettings host={host} name={name} rpc={rpc} online={online} projects={projects}
       close={() => { setSettings(false); trigger.current?.focus(); }} />}
   </>;

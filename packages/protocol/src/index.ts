@@ -367,6 +367,9 @@ export const McpServer = z.object({
   tools: z.number().int().nonnegative(),
   toolsKnown: z.boolean().optional(),
   error: z.string().optional(),
+  // False for a server this agent can't toggle although McpStatus.canToggle is
+  // set (pi toggles only the servers casm adds to its session).
+  canToggle: z.boolean().optional(),
 });
 export type McpServer = z.infer<typeof McpServer>;
 export const McpStatus = z.object({

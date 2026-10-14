@@ -39,7 +39,7 @@ export function McpPanel({ rpc, host, id, name, close }: { rpc: Rpc; host: strin
         {server.error && <p className="error">{server.error}</p>}
         <div className="settings-actions">
           {status.reconnect === "server" && <button type="button" disabled={busy || server.status === "disabled"} onClick={() => void run(() => rpc.call("agent.mcpReconnect", { id, server: server.name }, host))}>Reconnect {server.name}</button>}
-          {status.canToggle && <button type="button" disabled={busy} onClick={() => void run(() => rpc.call("agent.mcpToggle", { id, server: server.name, enabled: server.status === "disabled" }, host))}>{server.status === "disabled" ? "Enable" : "Disable"} {server.name}</button>}
+          {status.canToggle && server.canToggle !== false && <button type="button" disabled={busy} onClick={() => void run(() => rpc.call("agent.mcpToggle", { id, server: server.name, enabled: server.status === "disabled" }, host))}>{server.status === "disabled" ? "Enable" : "Disable"} {server.name}</button>}
         </div>
       </article>)}
     </div>

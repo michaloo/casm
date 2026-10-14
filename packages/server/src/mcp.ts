@@ -23,6 +23,10 @@ export function casmMcpEntry(provider: AgentProviderId, url: string, token: stri
       return { type: "http", url, headers: auth };
     case "codex":
       return { url, http_headers: auth };
+    // Registered for the session by pi-extension.ts. Direct exposure declares
+    // the tools to the model like Claude's and Codex's, not only to codemode.
+    case "pi":
+      return { url, headers: auth, exposure: "direct", description: "casm: create, message and wait for coding agents on this host and its peers" };
     default:
       return null;
   }

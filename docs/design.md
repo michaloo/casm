@@ -108,7 +108,10 @@ commands and MCP controls are refused with that reason. They are never moved to
 another provider; they can still be renamed, archived or deleted.
 
 Agent-to-agent orchestration is available through the CLI and opt-in per-agent
-MCP tools. MCP credentials identify their calling agent. A peer child executes
+MCP tools. MCP credentials identify their calling agent. Claude and Codex take
+the casm server in their session configuration; pi gets it, with
+`config.mcpServers`, from a casm extension that registers them for that pi
+session only. A peer child executes
 and stores its state on its own host; forwarding is coordination, not migration
 or synchronization. Peer disconnects invalidate subscriptions and require
 clients to reconnect and reload.

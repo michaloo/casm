@@ -488,16 +488,17 @@ export class AgentManager {
     l.lastReply = null;
     this.emit(id, { type: "turnStarted", turnId: l.turnId });
     this.statusChanged(id);
-    this.guard(id, l, () => l.session!.shell(command, randomUUID()));
+    this.guard(id, l, () => l.session!.shell(command, randomUUID(), l.turnId!));
   }
 
   // A provider that throws while starting work must not leave the agent "running".
   private guard(id: string, l: Live, start: () => void) {
+    const turnId = l.turnId;
     try {
       start();
     } catch (e) {
       if (!l.turnId) throw new RpcError(-32603, e instanceof Error ? e.message : String(e));
-      this.endTurn(id, l, "failed", e instanceof Error ? e.message : String(e));
+      if (l.turnId === turnId) this.endTurn(id, l, "failed", e instanceof Error ? e.message : String(e));
       throw new DispatchFailed(-32603, e instanceof Error ? e.message : String(e));
     }
   }
@@ -507,7 +508,7 @@ export class AgentManager {
     if (prompt.sender) this.store.saveMessageSender(id, itemId, prompt.sender);
     const images = prompt.images?.length ? prompt.images : undefined;
     this.emit(id, { type: "item", item: { kind: "user", id: itemId, text: prompt.text, images, ...(prompt.sender ? { sender: prompt.sender } : {}) } });
-    this.guard(id, l, () => l.session!.send(prompt.text, itemId, images));
+    this.guard(id, l, () => l.session!.send(prompt.text, itemId, images, l.turnId!));
     l.delivered = [...l.delivered.slice(-99), itemId];
   }
 
@@ -595,6 +596,8 @@ export class AgentManager {
         this.emit(id, { type: "usage", usage: l.lastUsage });
         return;
       case "turnEnded":
+        if (e.turnId !== undefined && e.turnId !== l.turnId) return;
+        if (e.recycleSession) l.reloadAfterTurn = true;
         this.endTurn(id, l, e.outcome, e.error, e.outcome === "failed" ? this.limitHit(id, l, e.error) : null);
         return;
       case "closed":

@@ -797,10 +797,11 @@ class ClaudeSession implements ProviderSession {
   private compactId: string | null = null;
   private rateNotices = new Set<string>();
   private seen = new Set<string>();
+  private casmTurnId?: string;
   // The running user shell command, then the end of its turn: the result of
   // the transcript append (or a fallback timer if none comes).
   private shellRun: { proc: ChildProcess; interrupted: boolean } | null = null;
-  private shellEnd: { outcome: "completed" | "interrupted"; timer: NodeJS.Timeout } | null = null;
+  private shellEnd: { turnId?: string; outcome: "completed" | "interrupted"; timer: NodeJS.Timeout } | null = null;
   // Resumed sessions replay the stored transcript first so plan updates apply
   // to tasks created before the reload.
   private ready: Promise<void>;
@@ -960,6 +961,9 @@ class ClaudeSession implements ProviderSession {
         this.rateLimit(m.rate_limit_info);
         return;
       case "result": {
+        if (this.seen.has(m.uuid)) return;
+        this.seen.add(m.uuid);
+        const turnId = this.casmTurnId;
         if (this.shellEnd) {
           this.endShell();
           return;
@@ -968,8 +972,8 @@ class ClaudeSession implements ProviderSession {
         this.interrupted = false;
         for (const item of this.n.endTurn()) this.item(item);
         this.resultUsage(m.total_cost_usd, m.modelUsage);
-        if (m.subtype === "success") emit({ type: "turnEnded", outcome: m.is_error ? "failed" : "completed", error: m.is_error ? m.result : undefined });
-        else emit({ type: "turnEnded", outcome: interrupted ? "interrupted" : "failed", error: interrupted ? undefined : (m.errors ?? []).join("; ") || m.subtype });
+        if (m.subtype === "success") emit({ type: "turnEnded", outcome: m.is_error ? "failed" : "completed", error: m.is_error ? m.result : undefined, ...(turnId ? { turnId } : {}) });
+        else emit({ type: "turnEnded", outcome: interrupted ? "interrupted" : "failed", error: interrupted ? undefined : (m.errors ?? []).join("; ") || m.subtype, ...(turnId ? { turnId } : {}) });
         return;
       }
     }
@@ -1064,7 +1068,8 @@ class ClaudeSession implements ProviderSession {
     this.opts.emit({ type: "usage", usage: { ...totals(costUsd, modelUsage), ...(w ? { contextWindow: w } : {}) } });
   }
 
-  send(text: string, itemId: string, images?: ImageData[]) {
+  send(text: string, itemId: string, images?: ImageData[], turnId?: string) {
+    this.casmTurnId = turnId;
     this.input.push({
       type: "user",
       message: { role: "user", content: promptContent(text, images) },
@@ -1078,7 +1083,8 @@ class ClaudeSession implements ProviderSession {
   // transcript without a model turn (shouldQuery: false), so the model sees it
   // with the next prompt. The append reports a zero-turn result, which ends
   // the turn. The record's uuid is the item id, so history matches.
-  shell(command: string, itemId: string) {
+  shell(command: string, itemId: string, turnId?: string) {
+    this.casmTurnId = turnId;
     const { cwd, config, emit } = this.opts;
     const item: ToolItem = { kind: "tool", id: itemId, name: "shell", origin: "user", input: { command }, status: "running" };
     this.item(item);
@@ -1107,8 +1113,9 @@ class ClaudeSession implements ProviderSession {
       const output = toolOutput([all.trimEnd(), error].filter(Boolean).join("\n"));
       this.item({ ...item, status: exitCode === 0 ? "done" : "error", output });
       this.shellEnd = {
+        turnId,
         outcome: run.interrupted ? "interrupted" : "completed",
-        timer: setTimeout(() => this.endShell(), 15_000),
+        timer: setTimeout(() => this.endShell(true), 15_000),
       };
       this.input.push({
         type: "user",
@@ -1122,13 +1129,15 @@ class ClaudeSession implements ProviderSession {
     proc.on("close", (code, signal) => finish(code ?? 128 + (signal ? (osConstants.signals[signal] ?? 0) : 0)));
   }
 
-  private endShell() {
+  private endShell(recycleSession = false) {
     if (!this.shellEnd) return;
     clearTimeout(this.shellEnd.timer);
-    const { outcome } = this.shellEnd;
+    const { outcome, turnId } = this.shellEnd;
     this.shellEnd = null;
     this.interrupted = false;
-    this.opts.emit({ type: "turnEnded", outcome });
+    // If the native acknowledgement never arrived, resume with a fresh process.
+    // Otherwise its late result could masquerade as the next prompt's result.
+    this.opts.emit({ type: "turnEnded", outcome, ...(turnId ? { turnId } : {}), ...(recycleSession ? { recycleSession: true } : {}) });
   }
 
   async interrupt() {

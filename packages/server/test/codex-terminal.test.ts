@@ -53,6 +53,7 @@ createInterface({input: process.stdin}).on('line', line => {
   notify('item/completed',{threadId:'thread',turnId:'turn',item:{...command,status:'completed',aggregatedOutput:'done'}});
   notify('turn/completed',{threadId:'thread',turn:{id:'turn',status:'completed'}});
   input({stdin:'late'});
+  notify('turn/completed',{threadId:'thread',turn:{id:'turn',status:'failed',error:{message:'late duplicate'}}});
   notify('warning',{threadId:'thread',message:'test-fence'});
 });
 `, { mode: 0o755 });
@@ -74,7 +75,7 @@ createInterface({input: process.stdin}).on('line', line => {
     else process.env.CASM_CODEX_PATH = oldPath;
     rmSync(dir, { recursive: true, force: true });
   });
-  session.send("run tests", "user-1");
+  session.send("run tests", "user-1", undefined, "manager-turn");
   await fence.promise;
   const tools = events.flatMap((e) => e.type === "item" && e.item.kind === "tool" ? [e.item] : []);
   const inputs = tools.filter((item) => item.name === "terminal");
@@ -85,4 +86,5 @@ createInterface({input: process.stdin}).on('line', line => {
   assert.equal((inputs[3].input as { command?: string }).command, undefined);
   assert.deepEqual(tools.filter((item) => item.id === "shell").map((item) => item.status), ["running", "done"]);
   assert.equal(events.filter((e) => e.type === "turnEnded").length, 1);
+  assert.equal(events.find((e) => e.type === "turnEnded")?.turnId, "manager-turn");
 });

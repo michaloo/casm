@@ -569,6 +569,7 @@ class OpencodeSession implements ProviderSession {
   private usageInfos = new Map<string, OcMessageInfo>();
   // Bumped when a turn ends, so a late HTTP failure of a finished turn is ignored.
   private turnSeq = 0;
+  private casmTurnId?: string;
   private sawBusy = false;
   // The running turn is a user shell command (its tool part is the command).
   private shellTurn = false;
@@ -783,6 +784,7 @@ class OpencodeSession implements ProviderSession {
   }
 
   private endTurn() {
+    const turnId = this.casmTurnId;
     const interrupted = this.interrupted;
     const error = this.error;
     this.busy = false;
@@ -793,8 +795,8 @@ class OpencodeSession implements ProviderSession {
     this.error = undefined;
     this.turnAbort.abort();
     this.turnAbort = new AbortController();
-    if (interrupted) this.emit({ type: "turnEnded", outcome: "interrupted" });
-    else this.emit({ type: "turnEnded", outcome: error ? "failed" : "completed", error });
+    if (interrupted) this.emit({ type: "turnEnded", outcome: "interrupted", ...(turnId ? { turnId } : {}) });
+    else this.emit({ type: "turnEnded", outcome: error ? "failed" : "completed", error, ...(turnId ? { turnId } : {}) });
   }
 
   private finish(error: string) {
@@ -803,7 +805,8 @@ class OpencodeSession implements ProviderSession {
     void this.close();
   }
 
-  send(text: string, itemId: string, images?: ImageData[]) {
+  send(text: string, itemId: string, images?: ImageData[], turnId?: string) {
+    this.casmTurnId = turnId;
     const { config, cwd } = this.opts;
     const seq = this.turnSeq;
     const files = imageParts(images);
@@ -837,22 +840,24 @@ class OpencodeSession implements ProviderSession {
           system: config.systemPrompt,
         });
       })
-      .catch((e) => this.sendFailed(seq, e));
+      .catch((e) => this.sendFailed(seq, e, turnId));
   }
 
   // A failure after the turn got going is reported by the event stream.
-  private sendFailed(seq: number, e: unknown) {
+  private sendFailed(seq: number, e: unknown, turnId?: string) {
     if (this.closed || seq !== this.turnSeq || this.sawBusy) return;
     this.busy = false;
     this.shellTurn = false;
-    this.emit({ type: "turnEnded", outcome: "failed", error: e instanceof Error ? e.message : String(e) });
+    this.turnSeq++;
+    this.emit({ type: "turnEnded", outcome: "failed", error: e instanceof Error ? e.message : String(e), ...(turnId ? { turnId } : {}) });
   }
 
   // POST /session/:id/shell runs the command in the session's directory and
   // stores it as a tool call the model sees on the next prompt. It blocks until
   // the command is done; the event stream drives the turn like a prompt's. The
   // item id is the tool part's.
-  shell(command: string, _itemId: string) {
+  shell(command: string, _itemId: string, turnId?: string) {
+    this.casmTurnId = turnId;
     const { config, cwd } = this.opts;
     const seq = this.turnSeq;
     this.shellTurn = true;
@@ -862,7 +867,7 @@ class OpencodeSession implements ProviderSession {
         const agent = config.mode ?? (await this.server.request<{ default_agent?: string }>("GET", "/config", cwd).catch(() => null))?.default_agent ?? "build";
         return this.server.request("POST", `/session/${id}/shell`, cwd, { agent, command, model: modelRef(config.model) });
       })
-      .catch((e) => this.sendFailed(seq, e));
+      .catch((e) => this.sendFailed(seq, e, turnId));
   }
 
   async interrupt() {

@@ -29,7 +29,9 @@ export type ProviderEvent =
   | { type: "usage"; usage: Usage }
   // Account/subscription limits as the agent last reported them (provider-wide).
   | { type: "limits"; limits: Omit<ProviderLimits, "provider" | "updatedAt"> }
-  | { type: "turnEnded"; outcome: TurnOutcome; error?: string }
+  // Echo the manager token, captured when dispatching work. A late completion
+  // must never finish a subsequent turn on the same native session.
+  | { type: "turnEnded"; outcome: TurnOutcome; error?: string; turnId?: string; recycleSession?: boolean }
   // The process is gone; the manager drops the session and reopens on next send.
   | { type: "closed"; error?: string };
 
@@ -49,11 +51,11 @@ export type OpenOptions = {
 // One live provider process bound to one native session.
 export interface ProviderSession {
   // Starts a turn, or folds the text into the running turn (steer).
-  send(text: string, itemId: string, images?: ImageData[]): void;
+  send(text: string, itemId: string, images?: ImageData[], turnId?: string): void;
   // Runs a user shell command as its own turn: emit a tool item with id
   // `itemId` (name "shell", input {command}), toolOutput while it runs, the
   // finished item, then turnEnded. Record it in the agent's history/context.
-  shell(command: string, itemId: string): void;
+  shell(command: string, itemId: string, turnId?: string): void;
   interrupt(): Promise<void>;
   close(): Promise<void>;
 }

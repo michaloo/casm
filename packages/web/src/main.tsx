@@ -1,5 +1,5 @@
 import { ComposerPickers } from "./composer-pickers";
-import { ProjectSettingsButton } from "./project-settings";
+import { ProjectMenu } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
 import { replaceHistory } from "./state";
@@ -21,7 +21,7 @@ import { FileLinksContext, insideRoot } from "./file-links";
 import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
 import { ProviderIcon } from "./provider-icon";
 import { HostSection } from "./host-section";
-import { HostMenu, type HostState } from "./host-menu";
+import { HostIdentity, HostMenu, hostStateLabel, type HostState } from "./host-menu";
 import { schedulesChanged } from "./host-schedules";
 import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
@@ -602,11 +602,11 @@ function App() {
               : (h.latencyMs ?? 0) > SLOW_HOST_MS ? "slow" : "online";
             const working = h.agents.filter((a) => a.status !== "idle" && !a.archivedAt).length;
             return (
-            <HostSection key={h.id} host={h.id} name={h.name} heading={
-                <HostMenu host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
+            <HostSection key={h.id} host={h.id} name={h.name} status={`${hostStateLabel(state)}${working ? ` · ${working} working` : ""}`}
+              identity={<HostIdentity name={h.name} state={state} detail={working ? `${working} working` : undefined} />}
+              menu={<HostMenu host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
                   openAgent={(a) => choose({ host: h.id, project: a.projectId, id: a.id })}
-                  detail={working ? `${working} working` : undefined} />
-              }>
+                  detail={working ? `${working} working` : undefined} />}>
               {h.error && <p className="host-error" title={h.error}>{h.error}</p>}
               {!h.error && !h.loading && !h.projects.length && <p className="sidebar-empty">No projects on this host yet.</p>}
               {[...h.projects]
@@ -640,7 +640,7 @@ function App() {
                       {!expanded && agents.length > 0 && <span className="project-count" aria-hidden="true">{agents.length}</span>}
                       <span className="project-new">＋</span>
                     </button>
-                    <ProjectSettingsButton host={h.id} project={p} agentCount={h.agents.filter((a) => a.projectId === p.id && !a.archivedAt).length}
+                    <ProjectMenu host={h.id} project={p} agentCount={h.agents.filter((a) => a.projectId === p.id && !a.archivedAt).length}
                       rpc={rpc.current} online={state === "online" || state === "slow"} newAgent={() => choose({ host: h.id, project: p.id })} />
                     </div>
                     {expanded && !agents.length && <p className="sidebar-empty project-empty">No agents yet</p>}

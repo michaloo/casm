@@ -220,18 +220,20 @@ nav button {
   background: none;
   text-align: left;
 }
-.host-trigger {
+nav .host-collapse {
+  flex: 1;
+  min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 26px auto minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px 7px 7px;
+  gap: 0;
+  padding: 7px 8px 7px 0;
   border-radius: 10px;
+  color: var(--muted);
 }
-.host-trigger[aria-expanded="true"] {
-  background: var(--raised);
-  border-color: var(--line);
-}
+nav .host-collapse > .host-icon { margin-right: 10px; }
+nav .host-collapse .host-label { color: var(--text); }
+nav .host-collapse > .chevron { justify-self: center; }
 .host-icon {
   position: relative;
   display: grid;
@@ -305,18 +307,6 @@ nav button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.host-chevron {
-  width: 7px;
-  height: 7px;
-  margin: 0 3px 3px;
-  border: solid var(--muted);
-  border-width: 0 1.5px 1.5px 0;
-  transform: rotate(45deg);
-  transition: transform 0.18s var(--ease);
-}
-.host-trigger[aria-expanded="true"] .host-chevron {
-  transform: translateY(3px) rotate(-135deg);
 }
 .host-error {
   margin: 0 8px 8px 50px;
@@ -1723,8 +1713,9 @@ textarea::placeholder {
     font-size: 14px;
     padding: 0 14px;
   }
-  .host-trigger {
+  nav .host-collapse {
     min-height: 54px;
+    grid-template-columns: 40px auto minmax(0, 1fr);
   }
   .host-name {
     font-size: 16px;
@@ -2237,10 +2228,17 @@ button.danger:hover {
 }
 
 .host-heading { display: flex; align-items: center; gap: 2px; }
-nav .host-collapse { display: grid; place-items: center; flex: 0 0 28px; width: 28px; min-height: 44px; padding: 0; }
-.host-heading .host-trigger { min-width: 0; flex: 1; }
-.host-collapse[aria-expanded="false"] .chevron { transform: rotate(-45deg); }
-@media (max-width: 650px) { nav .host-collapse { flex-basis: 44px; width: 44px; } }
+.host-collapse[aria-expanded="false"] .chevron { transform: translateX(-1px) rotate(-45deg); }
+/* One ⋯ button for every sidebar row with a menu: same place, size and glyph.
+   Pointer devices show it on hover or focus; touch screens always show it. */
+nav .row-more { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border-radius: 7px; color: var(--muted); }
+nav .row-more:hover, nav .row-more:focus-visible, nav .row-more[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }
+.more-glyph { width: 16px; height: 16px; fill: currentColor; }
+@media (hover: hover) and (pointer: fine) {
+  nav .row-more { opacity: 0; transition: opacity 0.12s var(--ease); }
+  nav .host-heading:hover .row-more, nav .project-row:hover .row-more, nav .row-more:focus-visible, nav .row-more[aria-expanded="true"] { opacity: 1; }
+}
+@media (max-width: 650px) { nav .row-more { flex-basis: 44px; width: 44px; height: 44px; } .more-glyph { width: 18px; height: 18px; } }
 
 .message-sender { min-width: 0; overflow-wrap: anywhere; }
 nav .agent-held { color: var(--attention); gap: 0; }
@@ -2312,11 +2310,8 @@ nav .agent-held.failed { color: var(--attention); font-weight: 550; }
 .slash-palette p, .command-notice { font-size: 13px; margin: 8px; overflow-wrap: anywhere; }
 .mcp-panel h3, .mcp-panel p { overflow-wrap: anywhere; }
 
-nav .project-settings-trigger { display: grid; place-items: center; flex: 0 0 32px; width: 32px; min-height: 44px; padding: 0; font-size: 20px; color: var(--muted); }
-nav .project-settings-trigger:hover, nav .project-settings-trigger:focus-visible { color: var(--accent); background: var(--accent-soft); }
 .project-info dt { color: var(--muted); margin-top: 16px; }
 .project-info dd { margin: 4px 0 16px; overflow-wrap: anywhere; }
-@media (max-width: 650px) { nav .project-settings-trigger { flex-basis: 44px; width: 44px; } }
 /* Project files: links in transcripts, the preview dialog and the browser. */
 a.file-link { overflow-wrap: anywhere; cursor: pointer; }
 a.file-link code { color: inherit; }

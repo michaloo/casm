@@ -94,9 +94,10 @@ for (const width of [1440, 375]) {
   test(`project Files tab browses, previews and downloads at ${width}${width === 375 ? " mobile" : ""}`, async ({ page }) => {
     await login(page, width);
     if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
-    await page.getByRole("button", { name: "Settings for Test project", exact: true }).click();
+    await page.getByRole("button", { name: "Project options for Test project", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Files/ }).click();
     const panel = page.getByRole("dialog", { name: "Test project project settings" });
-    await panel.getByRole("button", { name: "Files", exact: true }).click();
+    await expect(panel.getByRole("button", { name: "Files", exact: true })).toHaveAttribute("aria-pressed", "true");
     const list = panel.getByRole("list", { name: /^Files in / });
     await expect(list).toBeVisible();
     const names = await list.locator(".file-name").allTextContents();

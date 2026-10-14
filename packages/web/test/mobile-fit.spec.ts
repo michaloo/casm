@@ -35,7 +35,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 360, height: 780 }
     await agents.click();
     await expect(page.getByRole("button", { name: /Agent 00/ })).toBeVisible();
     await expectFits(page, "sidebar");
-    await page.getByRole("button", { name: /host menu/ }).click();
+    await page.getByRole("button", { name: /^Host options for / }).first().click();
     await page.getByRole("menuitem", { name: /Schedules/ }).click();
     await expect(page.getByRole("dialog", { name: /schedules/ })).toBeVisible();
     await expectFits(page, "host menu");

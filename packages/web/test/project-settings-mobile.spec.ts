@@ -27,9 +27,21 @@ for (const width of [1440, 375]) test(`project settings mobile view edit conflic
     await page.getByRole("button", { name: "Agents", exact: true }).click();
     await page.getByRole("button", { name: "Toggle Test host host", exact: true }).click();
   }
-  const host = page.locator("section.host").filter({ has: page.getByRole("button", { name: `${hostName}, online · host menu` }) });
-  const trigger = host.getByRole("button", { name: "Settings for Test project", exact: true });
+  const host = page.locator("section.host").filter({ has: page.getByRole("button", { name: `Host options for ${hostName}`, exact: true }) });
+  const trigger = host.getByRole("button", { name: "Project options for Test project", exact: true });
   await trigger.focus(); await trigger.press("Enter");
+  const menu = page.getByRole("menu", { name: "Project options for Test project" });
+  await expect(menu.getByRole("menuitem", { name: /Settings/ })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitem", { name: /Files/ })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitem", { name: /New agent here/ })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await trigger.press("Enter");
+  await expect(menu.getByRole("menuitem", { name: /Settings/ })).toBeFocused();
+  await page.keyboard.press("Enter");
   const panel = page.getByRole("dialog", { name: "Test project project settings" });
   await expect(panel.getByRole("heading", { name: "Project rules" })).toBeVisible();
   await panel.getByRole("button", { name: "Edit instructions", exact: true }).click();
@@ -69,6 +81,7 @@ for (const width of [1440, 375]) test(`project settings mobile view edit conflic
   // Missing files are created with a null SHA precondition.
   rmSync(file);
   await trigger.click();
+  await page.getByRole("menuitem", { name: /^Settings/ }).click();
   await panel.getByRole("button", { name: "Create AGENTS.md", exact: true }).click();
   await editor.fill("# Created project instructions");
   await panel.getByRole("button", { name: "Save instructions", exact: true }).click();

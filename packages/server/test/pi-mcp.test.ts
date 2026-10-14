@@ -102,7 +102,7 @@ test("pi agents get casm tools and config.mcpServers; native MCP status, reconne
   // Catalog and command queries run their own short-lived `--no-session` processes.
   const sessions = async () => (await pi.log()).filter((l) => l.argv && !l.argv.includes("--no-session"));
   const [start] = await sessions();
-  assert.ok(start.argv.some((a: string) => a.endsWith("providers/pi-extension.ts")), "the MCP extension is loaded");
+  assert.match(start.argv[start.argv.indexOf("-e") + 1], /providers\/pi-extension\.ts$/);
   const servers = JSON.parse(start.servers);
   assert.deepEqual(servers.docs, docs);
   assert.equal(servers.casm.url, `http://127.0.0.1:${server.port}/mcp`);
@@ -156,7 +156,7 @@ test("pi MCP: command output is not a transcript notice; other notifications sti
   const notices = events.flatMap((e) => (e.type === "item" && e.item.kind === "notice" ? [e.item.text] : []));
   assert.deepEqual(notices, ["unrelated status line"]);
   const [start] = await pi.log();
-  assert.equal(start.argv.some((a: string) => a.endsWith("pi-extension.ts")), false);
+  assert.equal(start.argv.includes("-e"), false);
   assert.equal(start.servers, null);
 });
 

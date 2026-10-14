@@ -1,7 +1,6 @@
 import { ProjectSettingsButton } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
-import { PermissionCard } from "./permission-card";
 import { replaceHistory } from "./state";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -753,20 +752,41 @@ function App() {
           <>
             <div className="pending" aria-label="Pending requests">
               {c.permissions.map((p) => (
-                <PermissionCard
-                  key={p.id}
-                  request={p}
-                  online={online}
-                  respond={(decision, rule) =>
-                    void run(() =>
-                      rpc.current!.call(
-                        "agent.respondPermission",
-                        { id: selection.id!, requestId: p.id, decision, ...(rule !== undefined ? { rule } : {}) },
-                        selection.host,
-                      ),
-                    )
-                  }
-                />
+                <div className="card" key={p.id}>
+                  <strong>{p.title ?? `Permission: ${p.toolName}`}</strong>
+                  <pre>{JSON.stringify(p.input, null, 2)}</pre>
+                  {(
+                    [
+                      "allow",
+                      ...(p.canAlwaysAllow ? ["allowAlways"] : []),
+                      "deny",
+                    ] as const
+                  ).map((d) => (
+                    <button
+                      key={d}
+                      disabled={!online}
+                      onClick={() =>
+                        void run(() =>
+                          rpc.current!.call(
+                            "agent.respondPermission",
+                            {
+                              id: selection.id!,
+                              requestId: p.id,
+                              decision: d as "allow" | "allowAlways" | "deny",
+                            },
+                            selection.host,
+                          ),
+                        )
+                      }
+                    >
+                      {d === "allow"
+                        ? "Allow"
+                        : d === "deny"
+                          ? "Deny"
+                          : "Always allow"}
+                    </button>
+                  ))}
+                </div>
               ))}
               {c.questions.map((q) => (
                 <Question

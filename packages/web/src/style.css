@@ -1438,21 +1438,11 @@ textarea::placeholder {
   color: var(--muted);
 }
 .card input,
-.card textarea,
 .card select {
   display: block;
   width: 100%;
   margin-top: 5px;
   font-size: 13px;
-}
-.card textarea {
-  font: 12px/1.4 var(--mono);
-  resize: vertical;
-}
-.permission-rule code,
-.permission-rule small {
-  display: block;
-  margin-top: 5px;
 }
 .card button {
   margin-right: 7px;

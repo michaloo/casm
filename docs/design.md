@@ -101,10 +101,6 @@ vary by provider; unavailable information must remain explicit. The server's
 runtime `NODE_ENV` is removed from inherited provider environments so it cannot
 change agent builds or dependency installation.
 
-pi has no permission system; casm loads its own gate extension into every pi
-session, with casm's permission card, live modes and allow rules kept in pi's
-settings files ([pi permissions](pi-permissions.md)).
-
 OpenCode support was removed; its adapter is archived on the `opencode` branch.
 Agents stored with a retired provider stay listed with `Agent.unavailable` set.
 Their history returns one notice instead of a transcript, and sends, shell

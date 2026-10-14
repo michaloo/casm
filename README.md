@@ -136,14 +136,6 @@ requests are available through `permissions`, `approve`, `deny`, `questions` and
 `answer`, or in the web client. Use `--json` for scripting and `-H worker` to
 address a peer. `casm --help` lists all commands and wait exit codes.
 
-pi agents run behind casm's permission extension, with modes `default`,
-`acceptEdits` and `bypass`. **Always allow** saves an allow rule (bash command
-pattern, project path glob or tool name) in pi's own settings: the project's
-`.pi/settings.json` if pi trusts the project and it exists, otherwise
-`~/.pi/agent/settings.json` under `casmPermissions.projects["<project path>"]`.
-Edit or delete entries there to change or remove rules; casm stores none. See
-[pi permissions](docs/pi-permissions.md).
-
 Files inside project folders are readable, not writable: `casm cat <path>`
 prints a text file and `casm get <path> [-o out]` downloads one, also from a
 peer with `-H`. The web client previews paths that agents mention (or

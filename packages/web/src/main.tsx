@@ -22,6 +22,8 @@ import { modelLabels } from "./model-label";
 import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type CollapsedProjects } from "./project-collapse";
 import { Question } from "./question";
 import { ChatWorking } from "./chat-working";
+import { newMessageId, sendMode, visiblePending } from "./outbox";
+import { PendingRows } from "./pending-strip";
 import "./style.css";
 // Same threshold the server uses for a slow peer probe.
 const SLOW_HOST_MS = 2000;
@@ -44,6 +46,7 @@ const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, 
     </button>
   );
 });
+const mac = /Mac|iPhone|iPad/.test(navigator.platform);
 function App() {
   const [token, setToken] = useState(localStorage.getItem("casm.token") ?? "");
   const [entry, setEntry] = useState("");
@@ -126,6 +129,8 @@ function App() {
   const redraw = () => render((x) => x + 1);
   const [error, setError] = useState("");
   const deferredSteers = useRef(new Map<string, string>()).current;
+  // Status text of pending rows with an action in flight, by key(host, id).
+  const rowNotes = useRef(new Map<string, string>()).current;
   const [sidebar, showSidebar] = useState(false);
   const [collapsed, setCollapsed] = useState<CollapsedProjects>(() => readCollapsed(localStorage));
   const toggleProject = (host: string, project: string) => {
@@ -146,7 +151,9 @@ function App() {
   const [model, setModel] = useState("");
   const [mode, setMode] = useState("");
   const [catalog, setCatalog] = useState<Catalog>({ models: [], modes: [] });
-  const [sending, setSending] = useState(false);
+  // Only creating a new agent waits for the server; sends to existing agents
+  // show at once and reconcile by message id.
+  const [creating, setCreating] = useState(false);
   const run = async (fn: () => Promise<unknown>) => {
     try {
       setError("");
@@ -194,6 +201,14 @@ function App() {
   }
   const buffers = useRef(new Map<string, any[]>()).current;
   const refreshes = useRef(0);
+  // Reloads a chat whose peer dropped, retrying while it stays selected.
+  function resubscribe(host: string, id: string, r: Rpc, delay = 1600) {
+    setTimeout(() => {
+      const s = selected.current;
+      if (rpc.current !== r || s?.host !== host || s.id !== id || chat(key(host, id)).loaded) return;
+      load(host, id, true).catch(() => resubscribe(host, id, r, Math.min(delay * 2, 15000)));
+    }, delay);
+  }
   async function refresh() {
     const r = rpc.current!;
     const info = await r.call("server.info", {});
@@ -281,9 +296,12 @@ function App() {
         )
           void run(refresh);
         if (n.method === "peer.disconnected") {
+          // Its subscriptions are gone: every chat cached for that host must
+          // subscribe and read history again when shown, and the open one
+          // retries until the peer is back.
+          for (const [k, cached] of chats) if (k.startsWith(`${p.host}/`)) cached.loaded = false;
           const s = selected.current;
-          if (s && s.host === p.host && s.id)
-            setTimeout(() => void run(() => load(s.host, s.id!, true)), 1600);
+          if (s && s.host === p.host && s.id) resubscribe(s.host, s.id, r);
         }
       },
       () => void run(refresh),
@@ -298,6 +316,9 @@ function App() {
     ? key(selection.host, selection.id ?? `new:${selection.project}`)
     : "";
   const c = chat(ckey);
+  const rows = visiblePending(c);
+  const busy = !!agent && agent.status !== "idle";
+  const primary = sendMode(agent?.status, rows.length);
   const models = modelLabels(model, agent?.effectiveModel, catalog.models);
   const sessionModel = modelLabels(agent?.config.model, agent?.effectiveModel, catalog.models);
   if (selection && host)
@@ -307,8 +328,10 @@ function App() {
       selection.id ? `agent:${selection.id}` : `project:${selection.project}`,
     );
   useEffect(() => {
+    // Not run(): opening a chat must not clear an error just reported (say a
+    // failed first send to an agent created a moment ago).
     if (selection?.id && online)
-      void run(() => load(selection.host, selection.id!));
+      load(selection.host, selection.id!).catch((e) => setError(String((e as Error).message)));
     if (agent) {
       setProvider(agent.provider);
       setModel(agent.config.model ?? "");
@@ -344,15 +367,18 @@ function App() {
     select(s);
     showSidebar(false);
   }
+  // Clears the composer at once and shows the message where it will land: in
+  // the transcript, or in the queue. The server's copy replaces it by id.
   async function send(steer = false) {
-    if (!selection || (!c.input.trim() && !c.images.length) || sending) return;
+    if (!selection || (!c.input.trim() && !c.images.length) || creating) return;
     const s = selection;
     const text = c.input;
     const images = c.images;
-    setSending(true);
-    await run(async () => {
-      let id = s.id;
-      if (!id) {
+    let id = s.id;
+    let target = c;
+    if (!id) {
+      setCreating(true);
+      try {
         const a = await rpc.current!.call(
           "agent.create",
           {
@@ -377,47 +403,100 @@ function App() {
               : h,
           ),
         );
-        const destination = chat(key(s.host, id));
+        // The draft moves to the new agent: if its send fails, it is kept
+        // there only, not also in the project's composer.
+        target = chat(key(s.host, id));
         restoreDraft(
-          destination,
+          target,
           hostsRef.current.find((h) => h.id === s.host)?.name ?? s.host,
           `agent:${id}`,
         );
-        destination.input = text;
-        destination.images = images;
-        saveDraft(destination, true);
+        target.input = text;
+        target.images = images;
+        saveDraft(target, true);
+        if (c.input === text) c.input = "";
+        if (c.images === images) c.images = [];
+        saveDraft(c, true);
         choose({ ...s, id });
-      } else if (
-        agent &&
-        (agent.config.model !== model || agent.config.mode !== mode)
-      )
-        await rpc.current!.call(
-          "agent.update",
-          { id, config: { model, mode } },
-          s.host,
-        );
+      } catch (e) {
+        setError(String((e as Error).message));
+        return;
+      } finally {
+        setCreating(false);
+      }
+    }
+    const agentId = id;
+    const current = hostsRef.current.find((h) => h.id === s.host)?.agents.find((a) => a.id === agentId);
+    const messageId =
+      target.retry && target.retry.text === text && target.retry.images === images ? target.retry.id : newMessageId();
+    target.retry = undefined;
+    const queued = !steer && sendMode(current?.status, visiblePending(target).length) === "queue";
+    const row = { id: messageId, agentId, text, ...(images.length ? { imageCount: images.length } : {}), reason: "queued" as const, createdAt: new Date().toISOString() };
+    const item: Item = { kind: "user", id: messageId, text, ...(images.length ? { images } : {}) };
+    if (queued) target.outbox = [...(target.outbox ?? []), row];
+    else if (!target.items.some((i) => i.id === messageId)) target.items = [...target.items, item];
+    if (target.input === text) target.input = "";
+    if (target.images === images) target.images = [];
+    saveDraft(target, true);
+    redraw();
+    try {
+      setError("");
+      // Only a real change: an unset model is "" in the picker.
+      if (current && ((current.config.model ?? "") !== model || (current.config.mode ?? "") !== mode))
+        await rpc.current!.call("agent.update", { id: agentId, config: { model, mode } }, s.host);
       const result = await rpc.current!.call(
         "agent.send",
-        { id, text, images, whenBusy: steer ? "steer" : "queue" },
+        { id: agentId, text, images, messageId, whenBusy: steer ? "steer" : "queue" },
         s.host,
       );
-      if (steer && result.queued && result.pendingId) {
-        deferredSteers.set(key(s.host, result.pendingId), result.deferredUntil
-          ? `Steer deferred until ${new Date(result.deferredUntil).toLocaleString()} · saved for later`
-          : "Steer queued · saved for later");
+      if (result.queued) {
+        // It waits after all (a steer to a limited agent, a queue we didn't know of).
+        target.items = target.items.filter((i) => i !== item);
+        if (!queued) target.outbox = [...(target.outbox ?? []), row];
+        if (steer && result.pendingId)
+          deferredSteers.set(key(s.host, result.pendingId), result.deferredUntil
+            ? `Steer deferred until ${new Date(result.deferredUntil).toLocaleString()} · saved for later`
+            : "Steer queued · saved for later");
+        await refreshPending(s.host, agentId).catch(() => {});
       }
-      if (c.input === text) c.input = "";
-      if (c.images === images) c.images = [];
-      const destination = chat(key(s.host, id));
-      if (destination.input === text) destination.input = "";
-      if (destination.images === images) destination.images = [];
-      saveDraft(c, true);
-      saveDraft(destination, true);
-      if (result.queued) await refreshPending(s.host, id);
-      await load(s.host, id);
+      target.outbox = target.outbox?.filter((o) => o.id !== messageId);
+      await load(s.host, agentId);
+    } catch (e) {
+      // Back in the composer, unless something new was typed meanwhile; the
+      // same message sent again keeps its id, in case this one did arrive.
+      target.outbox = target.outbox?.filter((o) => o.id !== messageId);
+      target.items = target.items.filter((i) => i !== item);
+      if (!target.input && !target.images.length) {
+        target.input = text;
+        target.images = images;
+        target.retry = { id: messageId, text, images };
+        saveDraft(target, true);
+      }
+      setError(String((e as Error).message));
+    }
+    redraw();
+  }
+  // Runs a pending-row action; the row shows `note` (or is hidden) until the
+  // server's queue confirms. A row that is already gone needs no error.
+  function pendingAction(host: string, agentId: string, messageId: string, note: string | null, call: () => Promise<unknown>) {
+    const target = chat(key(host, agentId));
+    const hidden = (target.hidden ??= new Set());
+    const k = key(host, messageId);
+    if (note) rowNotes.set(k, note);
+    else hidden.add(messageId);
+    redraw();
+    void (async () => {
+      try {
+        await call();
+      } catch (e) {
+        const message = String((e as Error).message);
+        if (!/no such pending/i.test(message)) setError(message);
+      }
+      await refreshPending(host, agentId).catch(() => {});
+      hidden.delete(messageId);
+      rowNotes.delete(k);
       redraw();
-    });
-    setSending(false);
+    })();
   }
   if (!token)
     return (
@@ -658,47 +737,30 @@ function App() {
                   }
                 />
               ))}
-              {c.pending.map((p) => (
-                <div className="pending-row" key={p.id}>
-                  <span>
-                    {p.text}
-                    <small>
-                      {deferredSteers.get(key(selection.host, p.id)) ?? p.reason}
-                      {p.note ? ` · ${p.note}` : ""}
-                    </small>
-                  </span>
-                  <button
-                    disabled={!online}
-                    onClick={() =>
-                      void run(async () => {
-                        await rpc.current!.call(
-                          "agent.cancelPending",
-                          { id: selection.id!, messageId: p.id },
-                          selection.host,
-                        );
-                        c.pending = c.pending.filter((x) => x.id !== p.id);
-                        redraw();
-                      })
-                    }
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    disabled={!online}
-                    onClick={() =>
-                      void run(() =>
-                        rpc.current!.call(
-                          "agent.steerPending",
-                          { id: selection.id!, messageId: p.id },
-                          selection.host,
-                        ),
-                      )
-                    }
-                  >
-                    Send now
-                  </button>
-                </div>
-              ))}
+              <PendingRows
+                rows={rows}
+                unconfirmed={new Set((c.outbox ?? []).filter((o) => !c.pending.some((p) => p.id === o.id)).map((o) => o.id))}
+                online={online}
+                labels={new Map(rows.flatMap((p) => {
+                  const note = rowNotes.get(key(selection.host, p.id)) ?? deferredSteers.get(key(selection.host, p.id));
+                  return note ? [[p.id, note] as const] : [];
+                }))}
+                actions={{
+                  sendNow: (p) => pendingAction(selection.host, selection.id!, p.id, null, () =>
+                    rpc.current!.call("agent.steerPending", { id: selection.id!, messageId: p.id }, selection.host)),
+                  retry: (p) => pendingAction(selection.host, selection.id!, p.id, "Retrying…", () =>
+                    rpc.current!.call("agent.retryPending", { id: selection.id!, messageId: p.id }, selection.host)),
+                  cancel: (p) => pendingAction(selection.host, selection.id!, p.id, null, () =>
+                    rpc.current!.call("agent.cancelPending", { id: selection.id!, messageId: p.id }, selection.host)),
+                  edit: (p, text) => {
+                    c.pending = c.pending.map((x) => (x.id === p.id ? { ...x, text } : x));
+                    pendingAction(selection.host, selection.id!, p.id, "Saving…", () =>
+                      rpc.current!.call("agent.editPending", { id: selection.id!, messageId: p.id, text }, selection.host).catch((e) => {
+                        throw /no such pending/i.test(String(e.message)) ? new Error("That message was sent before the edit was saved.") : e;
+                      }));
+                  },
+                }}
+              />
             </div>
             <ChatWorking running={online && agent?.status === "running"} />
             <form
@@ -801,13 +863,20 @@ function App() {
                     !e.nativeEvent.isComposing
                   ) {
                     e.preventDefault();
-                    void send();
+                    // Enter queues behind a running turn; Cmd/Ctrl+Enter steers into it.
+                    void send(busy && (e.metaKey || e.ctrlKey));
                   }
                 }}
               />
               <div className="actions">
-                <small>Enter to send · Shift+Enter for newline</small>
-                {agent && agent.status !== "idle" && (
+                <small className="send-hint">
+                  {busy
+                    ? <>Enter to queue · <kbd>{mac ? "⌘" : "Ctrl"}+Enter</kbd> to steer · Shift+Enter for newline</>
+                    : primary === "queue"
+                      ? "Enter to queue after the waiting messages · Shift+Enter for newline"
+                      : "Enter to send · Shift+Enter for newline"}
+                </small>
+                {busy && (
                   <>
                     <button
                       type="button"
@@ -826,15 +895,19 @@ function App() {
                     </button>
                     <button
                       type="button"
-                      disabled={!online || (!c.input.trim() && !c.images.length) || sending}
+                      title={`Send into the running turn (${mac ? "⌘" : "Ctrl"}+Enter)`}
+                      disabled={!online || (!c.input.trim() && !c.images.length) || creating}
                       onClick={() => void send(true)}
                     >
                       Steer
                     </button>
                   </>
                 )}
-                <button disabled={!online || (!c.input.trim() && !c.images.length) || sending}>
-                  {agent?.status === "running" ? "Queue" : "Send"}
+                <button
+                  title={primary === "queue" ? "Send after the running turn and the waiting messages (Enter)" : "Send (Enter)"}
+                  disabled={!online || (!c.input.trim() && !c.images.length) || creating}
+                >
+                  {primary === "queue" ? "Queue" : "Send"}
                 </button>
               </div>
             </form>
@@ -896,7 +969,7 @@ function Transcript({
       requestAnimationFrame(() =>
         ref.current?.scrollToIndex({ index: "LAST" }),
       );
-  }, [c.pending.length, c.permissions.length, c.questions.length]);
+  }, [visiblePending(c).length, c.permissions.length, c.questions.length]);
   const first = 100000 + c.start;
   return (
     <div

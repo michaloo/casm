@@ -65,7 +65,8 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 360, height: 780 }
     expect(await message.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
     for (const select of await page.locator(".composer select").all())
       expect(await select.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
-    const sendButton = page.getByRole("button", { name: "Send", exact: true });
+    // "Queue" while the agent is busy (the second width finds it still waiting).
+    const sendButton = page.getByRole("button", { name: /^(Send|Queue)$/ });
     expect((await sendButton.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await message.fill(`Check ${"/very/long/unbroken/path".repeat(12)} and ${"0123456789abcdef".repeat(6)}`);
     await sendButton.click();

@@ -11,5 +11,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
+  "exclude": ["packages/web"],
   "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts", "packages/*/scripts/**/*.ts", "scripts/**/*.ts"]
 }

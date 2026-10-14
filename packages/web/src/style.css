@@ -1,0 +1,390 @@
+:root {
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+  color: #24272b;
+  background: #fff;
+  color-scheme: light dark;
+  --bg: #fff;
+  --panel: #f5f6f7;
+  --line: #dfe2e5;
+  --muted: #6c737c;
+  --selected: #e4edf9;
+  --accent: #245fa3;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+button,
+select,
+input {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  padding: 6px 10px;
+}
+button {
+  cursor: pointer;
+}
+button:hover {
+  background: var(--selected);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+small {
+  color: var(--muted);
+  font-size: 12px;
+}
+h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  margin: 16px 8px 4px;
+}
+h2 button {
+  border: 0;
+  background: none;
+  font-weight: 650;
+  width: 100%;
+  text-align: left;
+}
+.app {
+  height: 100dvh;
+  display: flex;
+  overflow: hidden;
+}
+aside {
+  width: 290px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  min-height: 65px;
+  padding: 10px 20px;
+}
+header small {
+  display: block;
+}
+aside nav {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 0 8px 20px;
+}
+nav button {
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+nav .project {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-top: 8px;
+}
+nav .agent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 8px 9px 16px;
+  flex-wrap: wrap;
+}
+nav .agent-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+nav .agent small {
+  margin-left: 14px;
+}
+.selected {
+  background: var(--selected) !important;
+}
+.dot {
+  height: 7px;
+  width: 7px;
+  border-radius: 50%;
+  background: #8b939c;
+  flex-shrink: 0;
+}
+.dot.running {
+  background: #38916a;
+}
+.dot.waiting {
+  background: #c28a28;
+}
+footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding: 10px;
+  font-size: 12px;
+}
+.chat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.transcript {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.item {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  overflow-wrap: anywhere;
+}
+.item p {
+  margin: 6px 0;
+}
+.item pre,
+.card pre {
+  overflow: auto;
+  max-height: 320px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  background: var(--panel);
+  padding: 10px;
+}
+.item table {
+  display: block;
+  overflow: auto;
+  border-collapse: collapse;
+}
+.item td,
+.item th {
+  border: 1px solid var(--line);
+  padding: 6px;
+}
+.item img {
+  max-width: 100%;
+}
+.item.user {
+  background: var(--panel);
+  border-radius: 6px;
+}
+.item.notice {
+  color: var(--muted);
+}
+summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.composer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  padding: 12px 20px;
+  background: var(--bg);
+}
+.pickers {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.pickers select {
+  min-width: 0;
+  max-width: 45%;
+}
+textarea {
+  resize: vertical;
+  width: 100%;
+  min-height: 70px;
+  max-height: 180px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 7px;
+}
+.actions small {
+  margin-right: auto;
+}
+.actions button:last-child {
+  background: var(--accent);
+  color: white;
+}
+.pending {
+  flex-shrink: 0;
+  max-height: 28dvh;
+  overflow: auto;
+  background: var(--panel);
+}
+.pending-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 20px;
+  border-top: 1px solid var(--line);
+}
+.pending-row > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pending-row small {
+  display: block;
+}
+.card {
+  margin: 10px 20px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.card label {
+  display: block;
+  margin: 8px 0;
+}
+.card input,
+.card select {
+  display: block;
+  width: 100%;
+}
+.card button {
+  margin-right: 8px;
+}
+.card pre {
+  max-height: 100px;
+}
+.error {
+  color: #b33e36;
+}
+.banner {
+  padding: 6px 20px;
+  display: flex;
+  justify-content: space-between;
+}
+.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 25px;
+}
+.older {
+  display: block;
+  margin: 12px auto;
+}
+.latest {
+  position: absolute;
+  bottom: 12px;
+  right: 20px;
+}
+.login {
+  display: grid;
+  place-items: center;
+  height: 100dvh;
+}
+.login form {
+  width: min(350px, 90vw);
+}
+.login input {
+  width: 100%;
+  margin-bottom: 12px;
+}
+.mobile {
+  display: none;
+}
+a {
+  color: var(--accent);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #dde1e6;
+    --bg: #181b20;
+    --panel: #20242a;
+    --line: #363d46;
+    --muted: #a2aab5;
+    --selected: #293c54;
+    --accent: #3976bb;
+  }
+  .error {
+    color: #ed9a91;
+  }
+}
+@media (max-width: 650px) {
+  aside {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    width: 100%;
+  }
+  aside.open {
+    display: flex;
+  }
+  .mobile {
+    display: block;
+  }
+  header {
+    padding: 8px 12px;
+  }
+  .item {
+    padding: 12px;
+  }
+  .composer {
+    padding: 10px;
+  }
+  .actions small {
+    font-size: 10px;
+    max-width: 120px;
+  }
+  .actions {
+    gap: 5px;
+  }
+  .actions button {
+    padding: 6px;
+  }
+  .pending-row {
+    padding: 8px 10px;
+  }
+  .card {
+    margin: 8px 10px;
+  }
+  .chat header strong {
+    display: block;
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

@@ -2065,3 +2065,50 @@ nav .agent-held { color: var(--waiting); gap: 0; }
 nav .agent-held.failed { color: var(--danger); }
 .agent-held > span:first-child { flex-shrink: 0; }
 .agent-held-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.host-settings {
+  width: min(960px, calc(100vw - 40px));
+  height: min(900px, 90dvh);
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.host-settings[open] { display: flex; flex-direction: column; }
+.host-settings::backdrop { background: #15101e88; }
+.host-settings > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.host-settings h2 { margin: 0; font-size: 20px; min-width: 0; overflow-wrap: anywhere; }
+.host-settings h3 { margin-top: 0; }
+.host-settings h4 { margin: 8px 0; }
+.host-settings > nav { display: flex; flex: 0 0 auto; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.host-settings > nav button { flex: 1; width: auto; text-align: center; padding: 8px; }
+.host-settings > nav button[aria-pressed="true"] { background: var(--selected); color: var(--accent); }
+.host-settings button { min-width: 44px; min-height: 44px; }
+.settings-content { padding: 20px; overflow: auto; overscroll-behavior: contain; min-height: 0; }
+.settings-content section, .settings-card { min-width: 0; }
+.settings-card { margin: 14px 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.settings-card summary, .memory-entry summary { min-height: 44px; padding-block: 10px; cursor: pointer; overflow-wrap: anywhere; }
+.settings-path { display: block; margin: 8px 0; color: var(--muted); overflow-wrap: anywhere; font-size: 13px; }
+.settings-content code { overflow-wrap: anywhere; }
+.settings-content label { display: block; margin-block: 12px; }
+.settings-content textarea { width: 100%; min-height: 220px; resize: vertical; display: block; font: 16px/1.5 var(--mono); margin-top: 8px; }
+.settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block: 12px; }
+.settings-latest { margin-top: 16px; border-top: 1px solid var(--line); }
+.settings-latest button { margin: 4px; }
+.settings-toggle { display: flex !important; align-items: center; gap: 10px; min-height: 44px; }
+.settings-toggle input { width: 20px; height: 20px; }
+.memory-entry { margin-block: 8px; border-top: 1px solid var(--line); }
+.memory-entry summary small { display: block; color: var(--muted); font-size: 14px; }
+@media (max-width: 650px) {
+  .host-settings { position: fixed; inset: var(--viewport-top, 0px) 0 auto; width: 100%; height: var(--viewport-height, 100dvh); margin: 0; border: 0; border-radius: 0; }
+  .host-settings > header { padding: max(8px, env(safe-area-inset-top)) 12px 8px; }
+  .host-settings > nav { padding: 8px; gap: 2px; }
+  .host-settings > nav button { font-size: 14px; }
+  .settings-content { padding: 12px max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .settings-card { padding: 12px; }
+}

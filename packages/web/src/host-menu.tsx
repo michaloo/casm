@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { Agent, Project } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { HostUsage, useAnchoredPosition } from "./host-usage";
+import { HostSettings } from "./host-settings";
 import { HostSchedules } from "./host-schedules";
 
 export type HostState = "online" | "slow" | "offline" | "connecting";
@@ -26,6 +27,7 @@ export function HostMenu({ host, name, state, detail, rpc, agents, projects }: {
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const [settings, setSettings] = useState(false);
   const [view, setView] = useState<View>("menu");
   useAnchoredPosition(open, trigger, panel, view);
   const online = state === "online" || state === "slow";
@@ -70,8 +72,8 @@ export function HostMenu({ host, name, state, detail, rpc, agents, projects }: {
         <button type="button" role="menuitem" onClick={() => show("schedules")}>
           <span>Schedules</span><small>Recurring and one-off prompts</small>
         </button>
-        <button type="button" role="menuitem" disabled aria-disabled="true">
-          <span>Settings</span><small>Coming later</small>
+        <button type="button" role="menuitem" onClick={() => { panel.current?.hidePopover(); setSettings(true); }}>
+          <span>Settings</span><small>Global instructions, memories, and agent prompt</small>
         </button>
       </> : <>
         <div className="host-panel-heading">
@@ -84,5 +86,7 @@ export function HostMenu({ host, name, state, detail, rpc, agents, projects }: {
           : <HostSchedules host={host} rpc={rpc} online={online} agents={agents} projects={projects} />}
       </>}
     </div>, document.body)}
+    {settings && <HostSettings host={host} name={name} rpc={rpc} online={online} projects={projects}
+      close={() => { setSettings(false); trigger.current?.focus(); }} />}
   </>;
 }

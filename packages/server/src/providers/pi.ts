@@ -413,6 +413,12 @@ function thinkingLevels(m: PiModel): string[] {
   });
 }
 
+// The model a session runs, as casm names it: config.model when that names it
+// (bare or provider/id, as the catalog may), else the bare id.
+export function modelName(model: { id: string; provider?: string }, configured?: string): string {
+  return configured && (configured === model.id || configured === `${model.provider}/${model.id}`) ? configured : model.id;
+}
+
 // get_available_models plus the default model from get_state. Ids are bare
 // unless several providers share one, then `provider/id` (both work for --model).
 export function parseCatalog(models: PiModel[], current?: { id: string; provider: string }): Catalog {
@@ -570,6 +576,7 @@ class PiSession implements ProviderSession {
   private compactionNotice: string | null = null;
   private summaryRetryNotice: string | null = null;
   private noticeSeq = 0;
+  private model: string | undefined;
   // The running user shell command: its RPC id and tool item.
   private shellRun: { id: string; item: Tool } | null = null;
   // MCP servers casm added to this session (pi-extension.ts).
@@ -611,9 +618,16 @@ class PiSession implements ProviderSession {
     this.proc.stdin.on("error", () => {});
 
     void this.request({ type: "get_state" }).then((r) => {
-      const data = r.data as { sessionFile?: string } | undefined;
+      const data = r.data as { sessionFile?: string; model?: { id: string; provider: string } } | undefined;
       if (r.success && data?.sessionFile) opts.emit({ type: "sessionId", id: data.sessionFile });
+      if (r.success && data?.model?.id) this.reportModel(data.model);
     });
+  }
+
+  // The session's model; an assistant message may show a switch (/model, an extension).
+  private reportModel(model: { id: string; provider?: string }) {
+    const name = modelName(model, this.opts.config.model);
+    if (name !== this.model) (this.model = name), this.opts.emit({ type: "model", model: name });
   }
 
   private exited(error: string | undefined) {
@@ -673,6 +687,7 @@ class PiSession implements ProviderSession {
           return;
         }
         if (m.role === "assistant") {
+          if (m.model) this.reportModel({ id: m.model, provider: m.provider });
           this.lastError = m.stopReason === "error" ? m.errorMessage || "pi reported an error" : undefined;
           this.failedNotice = m.stopReason === "error" && m.errorMessage ? `${m.timestamp}:error` : null;
         }

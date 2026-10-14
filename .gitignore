@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 .casm-dev/
+
+# Per-task git worktrees for parallel agents (casm run --cwd .worktrees/<task>)
+.worktrees/

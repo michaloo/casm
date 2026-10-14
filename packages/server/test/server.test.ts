@@ -807,6 +807,10 @@ test("schedules message an agent or create one, and busy agents get pending mess
   await client.call("agent.send", { id: a.id, text: "slow" });
   await new Promise((r) => setTimeout(r, 30));
   assert.equal((await client.call("schedule.runNow", { id: every.id })).outcome, "queued");
+  const scheduledSender = (await client.call("agent.pending", { id: a.id })).messages[0].sender!;
+  assert.deepEqual(scheduledSender.schedule, { id: every.id, name: every.name });
+  assert.equal(scheduledSender.agentId, `schedule:${every.id}`);
+  assert.equal(scheduledSender.host, (await client.call("server.info", {})).name);
   const skip = await client.call("schedule.create", { cadence: { type: "every", minutes: 5 }, target: { type: "agent", agentId: a.id, whenBusy: "skip" }, prompt: "ping" });
   assert.equal((await client.call("schedule.runNow", { id: skip.id })).outcome, "skipped");
   await client.call("agent.interrupt", { id: a.id });
@@ -838,6 +842,8 @@ test("schedules message an agent or create one, and busy agents get pending mess
   const created = await client.call("agent.get", { id: ran.lastRun!.agentId! });
   assert.match(created.name, /^nightly · /);
   assert.equal((await client.call("agent.wait", { id: created.id })).lastReply, "echo: do the nightly");
+  const authored = store.db.prepare("SELECT sender FROM message_senders WHERE agent_id = ?").get(created.id)!;
+  assert.deepEqual(JSON.parse(authored.sender as string).schedule, { id: once.id, name: once.name });
 
   // Deleting the agent removes its schedules.
   await client.call("agent.delete", { id: a.id });

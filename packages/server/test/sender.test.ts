@@ -16,7 +16,7 @@ test("sender persists through queued restart delivery, native ID aliases and his
   let store = new Store(file);
   const project = store.createProject({ name: "sender", path: dir });
   const recipient = store.createAgent({ projectId: project.id, name: "recipient", provider: "claude", cwd: dir, config: {} });
-  const source = { serverId: "remote-server", agentId: "remote-agent", name: "Coordinator" };
+  const source = { serverId: "remote-server", agentId: "remote-agent", name: "Coordinator", host: "remote-host", schedule: { id: "schedule-id", name: "Coordinator" } };
   const queued = store.addPending({ agentId: recipient.id, text: "identical", sender: source, reason: "queued", notBefore: null, note: null });
   const token = store.createToken("test");
   store.close();

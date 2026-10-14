@@ -255,14 +255,14 @@ function runParent(): { serverId: string; agentId: string; host?: string } | und
 
 // Agent sessions supply their origin explicitly; ordinary shells send no sender.
 function messageSender() {
-  const { CASM_SERVER_ID: serverId, CASM_AGENT_ID: agentId, CASM_AGENT_NAME: name } = process.env;
-  return serverId && agentId ? { serverId, agentId, ...(name ? { name } : {}) } : undefined;
+  const { CASM_SERVER_ID: serverId, CASM_AGENT_ID: agentId, CASM_AGENT_NAME: name, CASM_SERVER_NAME: host } = process.env;
+  return serverId && agentId ? { serverId, agentId, ...(name ? { name } : {}), ...(host ? { host } : {}) } : undefined;
 }
 
 function renderItem(i: Item): string {
   switch (i.kind) {
     case "user":
-      return `\n> ${i.text.replaceAll("\n", "\n> ")}${i.images?.length ? `\n> [${i.images.length} image(s)]` : ""}`;
+      return `\n${i.sender ? `from ${i.sender.schedule?.name ?? i.sender.name ?? i.sender.agentId}${i.sender.host ? ` · ${i.sender.host}` : ""}\n` : ""}> ${i.text.replaceAll("\n", "\n> ")}${i.images?.length ? `\n> [${i.images.length} image(s)]` : ""}`;
     case "assistant":
       return `\n${i.text}`;
     case "reasoning":

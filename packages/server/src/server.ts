@@ -154,11 +154,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     // Forward the sender's name snapshot from its origin before crossing hosts.
     // This is provenance for trusted clients, not a new authorization mechanism.
     if (method === "agent.send" || method === "agent.create") {
-      const p = params as { sender?: { serverId: string; agentId: string; name?: string } };
-      if (p.sender?.serverId === identity.id) {
+      const p = params as { sender?: { serverId: string; agentId: string; name?: string; host?: string; schedule?: { id: string; name: string } } };
+      if (p.sender?.serverId === identity.id && !p.sender.schedule) {
         const source = opts.store.getAgent(p.sender.agentId);
         if (!source) throw new RpcError(ErrorCode.NotFound, "sender agent not found");
-        params = { ...p, sender: { ...p.sender, name: source.name } };
+        params = { ...p, sender: { ...p.sender, name: source.name, host: identity.name } };
       }
     }
     const peer = peers.find(ref);

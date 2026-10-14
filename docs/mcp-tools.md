@@ -51,6 +51,12 @@ for this server. `agent` accepts an ID, an ID prefix or an exact name.
 
 ## Example
 
+In the web client, an orchestrating agent's tool calls and subagents look like this:
+
+![casm MCP tool calls in a transcript](media/web-orchestration.png)
+
+From the CLI:
+
 The agent `lead` (with `--casm-tools`) was asked to start a helper on the
 peer `worker` and report its reply. Its transcript:
 

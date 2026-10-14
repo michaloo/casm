@@ -16,11 +16,16 @@ import type { Catalog, Command, Item, ProviderId, ProviderLimits } from "@casm/p
 
 const home = process.env.SHOWCASE_HOME ?? "/tmp/demo";
 const port = Number(process.env.SHOWCASE_PORT ?? 7497);
-rmSync(home, { recursive: true, force: true });
-mkdirSync(home, { recursive: true });
+// casm state and the token live next to the demo folder, not inside it, so
+// folder completion shows only the demo projects.
+const state = `${home}.state`;
+for (const dir of [home, state]) {
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+}
 
 // Global instruction files the host settings show: isolated, never the account's own.
-const settings = `${home}/.casm/host-settings`;
+const settings = `${state}/host-settings`;
 for (const [key, dir, file] of [
   ["CLAUDE_CONFIG_DIR", "claude", "CLAUDE.md"],
   ["CODEX_HOME", "codex", "AGENTS.md"],
@@ -90,9 +95,9 @@ write(`${code}/acme-api/docs/rounding.md`, "# Rounding\n\nOrder totals are summe
 write(`${code}/web-shop/package.json`, JSON.stringify({ name: "web-shop", private: true, scripts: { dev: "vite", build: "vite build" } }, null, 2) + "\n");
 write(`${code}/web-shop/src/checkout.tsx`, "export function Checkout({ total }: { total: number }) {\n  return <button className=\"pay\">Pay {total.toFixed(2)} €</button>;\n}\n");
 write(`${code}/web-shop/AGENTS.md`, "# web-shop\n\nReact + Vite storefront for acme-api.\n");
+write(`${code}/docs-site/README.md`, "# docs-site\n\nThe public documentation site.\n");
 write(`${code}/infra/README.md`, "# infra\n\nDeploy scripts and dashboards.\n");
 write(`${code}/infra/deploy.sh`, "#!/usr/bin/env bash\nset -euo pipefail\nrsync -a dist/ web:/srv/shop/\n");
-write(`${code}/dotfiles/README.md`, "# dotfiles\n");
 
 // ---------------------------------------------------------------- transcripts
 const P = (name: string) => `${code}/${name}`;
@@ -139,7 +144,8 @@ const leadHistory: Item[] = [
   { kind: "tool", id: "ld-3", name: "mcp__casm__create_agent", input: { project: "acme-api", provider: "codex", name: "tests: orders", prompt: "Add property tests for orderTotal" }, status: "done", output: "{\"host\":\"studio\",\"name\":\"tests: orders\",\"status\":\"running\"}" },
   { kind: "tool", id: "ld-4", name: "mcp__casm__create_agent", input: { host: "buildbox", project: "web-shop", provider: "claude", name: "storefront build", prompt: "Build and smoke-test the storefront" }, status: "done", output: "{\"host\":\"buildbox\",\"name\":\"storefront build\",\"status\":\"running\"}" },
   { kind: "subagent", id: "ld-sub", title: "Draft the release note", agentType: "general-purpose", status: "done", summary: "Release note drafted in CHANGELOG.md (3 lines).", usage: { totalTokens: 18400, toolUses: 4, durationMs: 21000 } },
-  { kind: "tool", id: "ld-5", name: "mcp__casm__wait", input: { agent: "tests: orders" }, status: "running" },
+  { kind: "tool", id: "ld-5", name: "mcp__casm__wait", input: { agent: "tests: orders" }, status: "done", output: "{\"status\":\"idle\",\"lastReply\":\"Added a property test over 1000 random carts; all 3 tests pass.\"}" },
+  { kind: "assistant", id: "ld-6", text: "Status:\n\n| Part | Agent | Host | State |\n| --- | --- | --- | --- |\n| API tests | tests: orders | studio | done, 3 passing |\n| Storefront | storefront build | buildbox | done, smoke test green |\n| Release note | subagent | studio | drafted |\n\nReady to tag **0.3.1**." },
 ];
 
 const checkout: Item[] = [
@@ -163,6 +169,12 @@ const testsChild: Item[] = [
   { kind: "user", id: "tc-1", text: "Add property tests for orderTotal", sender: { serverId: "studio", agentId: "lead", name: "release lead", host: "studio" } },
   { kind: "tool", id: "tc-2", name: "shell", input: { command: "npm test" }, status: "done", output: "✔ totals are exact to the cent\n✔ property: total equals sum of cents (1000 runs)\nℹ pass 3" },
   { kind: "assistant", id: "tc-3", text: "Added a property test over 1000 random carts; all 3 tests pass." },
+];
+
+const storefront: Item[] = [
+  { kind: "user", id: "sf-1", text: "Build and smoke-test the storefront", sender: { serverId: "studio", agentId: "lead", name: "release lead", host: "studio" } },
+  { kind: "tool", id: "sf-2", name: "Bash", input: { command: "npm run build && npx playwright test smoke" }, status: "done", output: "vite v8 building for production...\n✓ 212 modules transformed.\n  3 passed (4.1s)" },
+  { kind: "assistant", id: "sf-3", text: "Build is clean and the 3 smoke tests pass; the Pay button shows **99.99 €** for order 3." },
 ];
 
 const deployHistory: Item[] = [
@@ -333,7 +345,7 @@ function fakeProvider(id: ProviderId, histories: Map<string, Item[]>, usage: Map
 type Seed = { name: string; provider: ProviderId; project: string; history: Item[]; model?: string; mode?: string; parent?: string; ctx?: number };
 
 async function host(name: string, hostPort: number, projects: { name: string; group?: string; tags?: string[] }[], seeds: Seed[], ids: ProviderId[]) {
-  const dir = `${home}/.casm/${name}`;
+  const dir = `${state}/${name}`;
   mkdirSync(`${dir}/state`, { recursive: true });
   const store = new Store(`${dir}/casm.db`);
   const histories = new Map<string, Item[]>();
@@ -372,10 +384,10 @@ async function host(name: string, hostPort: number, projects: { name: string; gr
 const buildbox = await host(
   "buildbox",
   port + 1,
-  [{ name: "web-shop" }, { name: "infra", group: "ops" }],
+  [{ name: "web-shop" }],
   [
-    { name: "storefront build", provider: "claude", project: "web-shop", history: [], model: "sonnet" },
-    { name: "deploy dry-run", provider: "opencode", project: "infra", history: deployHistory, model: "local/qwen3-coder" },
+    { name: "storefront build", provider: "claude", project: "web-shop", history: storefront, model: "sonnet" },
+    { name: "deploy dry-run", provider: "opencode", project: "web-shop", history: deployHistory, model: "local/qwen3-coder" },
   ],
   ["claude", "codex", "opencode"],
 );
@@ -387,7 +399,6 @@ const studio = await host(
     { name: "acme-api", group: "work", tags: ["node"] },
     { name: "web-shop", group: "work" },
     { name: "infra", group: "ops" },
-    { name: "dotfiles" },
   ],
   [
     { name: "fix order totals", provider: "claude", project: "acme-api", history: fixTotals, model: "opus", ctx: 58_000 },
@@ -408,13 +419,13 @@ studio.store.setPeer({ name: "buildbox", url: `ws://127.0.0.1:${port + 1}`, toke
 // Schedules (through the scheduler, so next runs are computed).
 const sched = studio.server.scheduler;
 await sched.create({ name: "nightly triage", cadence: { type: "cron", expr: "0 7 * * 1-5" }, target: { type: "newAgent", projectId: studio.projectIds.get("infra")!, provider: "claude", config: { model: "haiku" }, name: "nightly triage" }, prompt: "Summarize yesterday's commits and open issues in three bullets." });
-await sched.create({ cadence: { type: "every", minutes: 30 }, target: { type: "agent", agentId: studio.byName.get("api review")!, whenBusy: "skip" }, prompt: "Re-run the review on anything that changed since your last pass." });
+await sched.create({ name: "review pass", cadence: { type: "every", minutes: 30 }, target: { type: "agent", agentId: studio.byName.get("api review")!, whenBusy: "skip" }, prompt: "Re-run the review on anything that changed since your last pass." });
 await sched.create({ name: "release reminder", cadence: { type: "once", at: new Date(Date.now() + 2 * 3_600_000).toISOString() }, target: { type: "agent", agentId: studio.byName.get("release lead")! }, prompt: "Check whether the storefront build finished and post the release note." });
 
 const token = studio.store.createToken("showcase");
-writeFileSync(`${home}/web-token`, token);
-writeFileSync(`${home}/agents.json`, JSON.stringify(Object.fromEntries(studio.byName), null, 2));
-console.log(`showcase: ${studio.server.url} (peer buildbox on ${port + 1}); token in ${home}/web-token`);
+writeFileSync(`${state}/web-token`, token);
+writeFileSync(`${state}/agents.json`, JSON.stringify(Object.fromEntries(studio.byName), null, 2));
+console.log(`showcase: ${studio.server.url} (peer buildbox on ${port + 1}); token in ${state}/web-token`);
 // Open client sockets can keep close() waiting; don't outlive the capture script.
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.on(signal, () => {

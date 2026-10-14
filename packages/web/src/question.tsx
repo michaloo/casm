@@ -29,27 +29,22 @@ export function Question({
     >
       <strong>{request.title ?? "Question"}</strong>
       {request.prompts.map((p) => (
-        p.kind === "select" && p.multiple && p.allowOther ? (
+        p.kind === "select" && p.multiple ? (
           <fieldset key={p.id}>
             <legend>{p.text}</legend>
-            <label>
-              Options
-              <select
-                multiple
-                required={!other[p.id]?.trim()}
-                value={(values[p.id] as string[]) ?? []}
-                onChange={(e) => set({
-                  ...values,
-                  [p.id]: Array.from(e.target.selectedOptions, (option) => option.value),
-                })}
-              >
-                {p.options?.map((option) => (
-                  <option key={option.label} value={option.label}>
-                    {option.label}{option.description ? ` — ${option.description}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="question-options">
+              {p.options?.map((option, index) => {
+                const selected = (values[p.id] as string[]) ?? [];
+                return <label className="question-option" key={option.label}>
+                  <input type="checkbox" checked={selected.includes(option.label)}
+                    required={index === 0 && !selected.length && !(p.allowOther && other[p.id]?.trim())}
+                    onChange={(e) => set({ ...values, [p.id]: e.target.checked
+                      ? [...selected, option.label] : selected.filter((value) => value !== option.label) })} />
+                  <span><strong>{option.label}</strong>{option.description && <span className="option-description">{option.description}</span>}</span>
+                </label>;
+              })}
+            </div>
+            {p.allowOther &&
             <label>
               Other answers (one per line)
               <textarea
@@ -57,7 +52,7 @@ export function Question({
                 value={other[p.id] ?? ""}
                 onChange={(e) => setOther({ ...other, [p.id]: e.target.value })}
               />
-            </label>
+            </label>}
           </fieldset>
         ) : <label key={p.id}>
           {p.text}

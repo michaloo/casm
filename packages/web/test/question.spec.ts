@@ -27,6 +27,7 @@ async function question(page: Page, prompts: QuestionRequest["prompts"]) {
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
+  if (await page.getByRole("button", { name: "Agents", exact: true }).isVisible()) await page.getByRole("button", { name: "Agents", exact: true }).click();
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await expect(page.getByText("Answer shape", { exact: true })).toBeVisible();
   return submissions;
@@ -39,12 +40,14 @@ const multiple = {
 
 test("multiple selections and custom answers remain separate array entries on the wire", async ({ page }) => {
   const submissions = await question(page, [multiple]);
-  const options = page.getByRole("listbox", { name: "Options", exact: true });
+  const options = page.getByRole("group", { name: "Choose colors" });
   const other = page.getByLabel("Other answers (one per line)");
-  await options.selectOption(["Blue", "Green"]);
+  await options.getByRole("checkbox", { name: /Blue/ }).check();
+  await options.getByRole("checkbox", { name: "Green" }).check();
   await other.fill(" Violet, lavender \n\n Amber ");
-  await expect(options).toHaveValues(["Blue", "Green"]);
-  await options.selectOption(["Blue", "Red"]);
+  await expect(options.getByRole("checkbox", { name: /Blue/ })).toBeChecked();
+  await options.getByRole("checkbox", { name: "Green" }).uncheck();
+  await options.getByRole("checkbox", { name: "Red" }).check();
   await expect(other).toHaveValue(" Violet, lavender \n\n Amber ");
   await page.getByRole("button", { name: "Answer", exact: true }).click();
   await expect.poll(() => submissions).toEqual([expect.objectContaining({
@@ -54,17 +57,17 @@ test("multiple selections and custom answers remain separate array entries on th
 
 test("multiple allows only options or only custom answers but requires an answer", async ({ page }) => {
   const submissions = await question(page, [multiple]);
-  const options = page.getByRole("listbox", { name: "Options", exact: true });
+  const options = page.getByRole("group", { name: "Choose colors" });
   const other = page.getByLabel("Other answers (one per line)");
   const submit = page.getByRole("button", { name: "Answer", exact: true });
   await other.fill("  \n ");
   await submit.click();
-  expect(await options.evaluate((element: HTMLSelectElement) => element.validity.valueMissing)).toBe(true);
+  expect(await options.getByRole("checkbox").first().evaluate((element: HTMLInputElement) => element.validity.valueMissing)).toBe(true);
   expect(submissions).toHaveLength(0);
   await other.fill("Custom only");
   await submit.click();
   await expect.poll(() => submissions[0]?.answers).toEqual({ colors: ["Custom only"] });
-  await options.selectOption(["Green"]);
+  await options.getByRole("checkbox", { name: "Green" }).check();
   await other.fill("");
   await submit.click();
   await expect.poll(() => submissions[1]?.answers).toEqual({ colors: ["Green"] });
@@ -85,7 +88,8 @@ test("confirm, single, text, closed multiple and dismissal keep their wire shape
   await page.getByLabel("Notes").fill("Keep this text");
   await expect(page.getByLabel("Secret", { exact: true })).toHaveAttribute("type", "password");
   await page.getByLabel("Secret", { exact: true }).fill("hidden");
-  await page.getByLabel("Closed colors").selectOption(["Blue", "Green"]);
+  await page.getByRole("group", { name: "Closed colors" }).getByRole("checkbox", { name: /Blue/ }).check();
+  await page.getByRole("group", { name: "Closed colors" }).getByRole("checkbox", { name: "Green" }).check();
   await page.getByRole("button", { name: "Answer", exact: true }).click();
   await expect.poll(() => submissions[0]?.answers).toEqual({
     confirm: false, single: "Blue", custom: "Purple", text: "Keep this text", secret: "hidden", closed: ["Blue", "Green"],
@@ -111,4 +115,15 @@ test("multiline text answers preserve newlines while secret answers stay masked"
   await page.getByLabel("Private value").fill("hidden");
   await page.getByRole("button", { name: "Answer", exact: true }).click();
   await expect.poll(() => submissions[0]?.answers).toEqual({ notes: "First line\n\nLast line", secret: "hidden" });
+});
+
+test("mobile choice descriptions wrap and actions have touch targets", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await question(page, [{ ...multiple, options: [{ label: "Detailed choice", description: "A readable description with enough context to distinguish this choice from other options on a narrow phone screen." }] }]);
+  const description = page.locator(".option-description");
+  expect(await description.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect((await description.boundingBox())!.height).toBeGreaterThan(30);
+  for (const control of await page.locator(".question-option, .card button").all())
+    expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375);
 });

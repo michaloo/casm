@@ -2,7 +2,7 @@ import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 
-test.use({ isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+test.use({ isMobile: true, hasTouch: true });
 
 // Nothing may widen the page: wide content scrolls inside its own box.
 async function expectFits(page: Page, view: string) {
@@ -50,7 +50,9 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 360, height: 780 }
     for (let step = 0; step < 40; step++) {
       await page.waitForTimeout(60);
       const tool = page.locator(".tool summary").first();
-      if (!expanded && await tool.isVisible()) {
+      const toolBox = !expanded && await tool.isVisible() ? await tool.boundingBox() : null;
+      const scrollBox = (await scroller.boundingBox())!;
+      if (!expanded && toolBox && toolBox.y >= scrollBox.y && toolBox.y + toolBox.height <= scrollBox.y + scrollBox.height) {
         await tool.click();
         expanded = true;
       }
@@ -85,3 +87,23 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 360, height: 780 }
     await page.getByRole("button", { name: "Deny", exact: true }).click();
     await expect(page.getByText("Permission: Write")).toBeHidden();
   });
+
+test("composer follows visual viewport resizing and keyboard dismissal", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await page.getByRole("button", { name: /Agent 00/ }).click();
+  await page.getByLabel("Message").focus();
+  // Headless browsers do not show the OS keyboard; exercise its viewport contract.
+  for (const height of [480, 812]) {
+    await page.evaluate((height) => {
+      Object.defineProperty(visualViewport, "height", { configurable: true, value: height });
+      visualViewport!.dispatchEvent(new Event("resize"));
+    }, height);
+    await expect.poll(async () => Math.round((await page.locator(".app").boundingBox())!.height)).toBe(height);
+    const composer = (await page.locator(".composer").boundingBox())!;
+    expect(composer.y + composer.height).toBeLessThanOrEqual(height);
+  }
+});

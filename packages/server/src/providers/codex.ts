@@ -741,6 +741,8 @@ class CodexSession implements ProviderSession {
   private presets: CollaborationPreset[] = [];
   private turnId: string | null = null;
   private ended = new Set<string>();
+  private casmTurnId?: string;
+  private turnOwners = new Map<string, string | undefined>();
   // Serializes startup, turn/start, steer and interrupt.
   private chain: Promise<unknown>;
   private approvals = new Map<string, AbortController>();
@@ -904,7 +906,10 @@ class CodexSession implements ProviderSession {
         return;
       case "turn/started": {
         const id = str(rec(p.turn).id);
-        if (!this.ended.has(id)) this.turnId = id;
+        if (!this.ended.has(id)) {
+          this.turnId = id;
+          this.turnOwners.set(id, this.casmTurnId);
+        }
         this.shellPending = false;
         return;
       }
@@ -936,7 +941,11 @@ class CodexSession implements ProviderSession {
       case "turn/completed": {
         const turn = rec(p.turn);
         const id = str(turn.id);
+        if (this.ended.has(id)) return;
         this.ended.add(id);
+        if (this.turnId && this.turnId !== id) return;
+        const owner = this.turnOwners.get(id) ?? this.casmTurnId;
+        this.turnOwners.delete(id);
         if (this.turnId === id) this.turnId = null;
         this.shellPending = false;
         this.abortApprovals();
@@ -947,7 +956,7 @@ class CodexSession implements ProviderSession {
         this.tools.clear();
         const outcome = status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : "completed";
         const error = outcome === "failed" ? errorMessage(turn.error) || "turn failed" : undefined;
-        emit({ type: "turnEnded", outcome, error });
+        emit({ type: "turnEnded", outcome, error, ...(owner ? { turnId: owner } : {}) });
         return;
       }
     }
@@ -1051,14 +1060,15 @@ class CodexSession implements ProviderSession {
     return a.decision === "allowAlways" && always ? always : "accept";
   }
 
-  private enqueue(fn: () => Promise<void>) {
+  private enqueue(fn: () => Promise<void>, turnId = this.casmTurnId) {
     this.chain = this.chain.then(fn).catch((e: unknown) => {
-      this.opts.emit({ type: "turnEnded", outcome: "failed", error: e instanceof Error ? e.message : String(e) });
+      this.opts.emit({ type: "turnEnded", outcome: "failed", error: e instanceof Error ? e.message : String(e), ...(turnId ? { turnId } : {}) });
     });
     return this.chain;
   }
 
-  send(text: string, itemId: string, images?: ImageData[]) {
+  send(text: string, itemId: string, images?: ImageData[], turnId?: string) {
+    this.casmTurnId = turnId;
     void this.enqueue(async () => {
       if (!this.threadId) return; // startup failed; `closed` was emitted
       const routed = routePrompt(text, this.skills, images);
@@ -1101,7 +1111,8 @@ class CodexSession implements ProviderSession {
   // commandExecution item with source "userShell" and streamed output,
   // turn/completed) and records it in the thread, so the model sees it. The
   // item id is Codex's own.
-  shell(command: string, _itemId: string) {
+  shell(command: string, _itemId: string, turnId?: string) {
+    this.casmTurnId = turnId;
     void this.enqueue(async () => {
       if (!this.threadId) return;
       this.shellPending = true;

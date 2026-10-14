@@ -17,13 +17,15 @@ function setup() {
   const token = store.createToken("test");
   const sent: { text: string; id: string }[] = [];
   const sessions: OpenOptions[] = [];
+  const turns: string[] = [];
   const state = { throwOn: new Set<string>() };
   const provider: Provider = {
     id: "codex",
     open(opts) {
       sessions.push(opts);
       return {
-        send(text, id) {
+        send(text, id, _images, turnId) {
+          turns.push(turnId!);
           if (state.throwOn.has(text)) throw new Error(`cannot take ${text}`);
           sent.push({ text, id });
         },
@@ -37,7 +39,7 @@ function setup() {
   };
   const finish = () => sessions.at(-1)!.emit({ type: "turnEnded", outcome: "completed" });
   const fail = (error: string) => sessions.at(-1)!.emit({ type: "turnEnded", outcome: "failed", error });
-  return { dir, store, token, sent, state, provider, finish, fail };
+  return { dir, store, token, sent, state, provider, finish, fail, sessions, turns };
 }
 
 async function run(fn: (t: ReturnType<typeof setup> & { client: CasmClient; agent: string }) => Promise<void>) {
@@ -214,5 +216,24 @@ test("Retry now on a later message keeps its place when it fails again", async (
     state.throwOn.add("b");
     await assert.rejects(client.call("agent.retryPending", { id: agent, messageId: b.id }), /cannot take/);
     assert.deepEqual((await client.call("agent.pending", { id: agent })).messages.map((m) => [m.reason, m.text]), [["failed", "a"], ["failed", "b"]]);
+  });
+});
+
+test("a late completion from an earlier turn cannot finish or fail the queued successor", async () => {
+  await run(async ({ client, agent, sent, sessions, turns }) => {
+    await client.call("agent.send", { id: agent, text: "first" });
+    await client.call("agent.send", { id: agent, text: "second" });
+    await client.call("agent.send", { id: agent, text: "third" });
+    const emit = sessions[0].emit;
+    const first = turns[0];
+    emit({ type: "turnEnded", turnId: first, outcome: "completed" });
+    assert.deepEqual(sent.map((s) => s.text), ["first", "second"]);
+    emit({ type: "turnEnded", turnId: first, outcome: "failed", error: "usage limit exceeded" });
+    emit({ type: "turnEnded", turnId: first, outcome: "completed" });
+    assert.equal((await client.call("agent.get", { id: agent })).status, "running");
+    assert.deepEqual((await client.call("agent.pending", { id: agent })).messages.map((m) => m.text), ["third"]);
+    assert.deepEqual(sent.map((s) => s.text), ["first", "second"]);
+    emit({ type: "turnEnded", turnId: turns[1], outcome: "completed" });
+    assert.deepEqual(sent.map((s) => s.text), ["first", "second", "third"]);
   });
 });

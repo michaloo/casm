@@ -514,6 +514,7 @@ class PiSession implements ProviderSession {
   private buf = "";
   private stderr = "";
   private running = false;
+  private casmTurnId?: string;
   private sentUserIds: string[] = [];
   private interrupted = false;
   private lastError: string | undefined;
@@ -734,14 +735,14 @@ class PiSession implements ProviderSession {
     this.opts.emit({ type: "usage", usage });
   }
 
-  private endTurn(outcome: "completed" | "interrupted" | "failed", error?: string) {
-    if (!this.running) return;
+  private endTurn(outcome: "completed" | "interrupted" | "failed", error?: string, turnId = this.casmTurnId) {
+    if (!this.running || turnId !== this.casmTurnId) return;
     this.running = false;
     this.sentUserIds = [];
     this.interrupted = false;
     this.lastError = undefined;
     this.turnAbort.abort();
-    this.opts.emit({ type: "turnEnded", outcome, error: outcome === "failed" ? error : undefined });
+    this.opts.emit({ type: "turnEnded", outcome, error: outcome === "failed" ? error : undefined, ...(turnId ? { turnId } : {}) });
   }
 
   private async dialog(r: Rec) {
@@ -774,7 +775,7 @@ class PiSession implements ProviderSession {
     }
   }
 
-  send(text: string, itemId: string, images?: ImageData[]) {
+  send(text: string, itemId: string, images?: ImageData[], turnId?: string) {
     this.sentUserIds.push(itemId);
     const native = images?.filter((i) => i.data).map((i) => ({ type: "image", data: i.data, mimeType: i.mediaType }));
     const extra = native?.length ? { images: native } : {};
@@ -790,35 +791,38 @@ class PiSession implements ProviderSession {
       else void this.request({ type: "steer", message: text, ...extra }).then(steered);
       return;
     }
+    this.casmTurnId = turnId;
     this.running = true;
     this.turnAbort = new AbortController();
     void this.request({ type: "prompt", message: text, ...extra }).then((r) => {
       steered(r);
       const disposition = (r.data as { disposition?: string } | undefined)?.disposition;
-      if (!r.success) this.endTurn("failed", String(r.error ?? "prompt rejected"));
-      else if (disposition === "handled") this.endTurn("completed");
+      if (!r.success) this.endTurn("failed", String(r.error ?? "prompt rejected"), turnId);
+      else if (disposition === "handled") this.endTurn("completed", undefined, turnId);
     });
   }
 
   // pi runs it, streams bash_execution_update with the command's id and stores
   // a bashExecution message that reaches the model with the next prompt.
-  shell(command: string, itemId: string) {
+  shell(command: string, itemId: string, turnId?: string) {
     const item: Tool = { kind: "tool", id: itemId, name: "shell", origin: "user", input: { command }, status: "running" };
     const id = `casm-${++this.seq}`;
+    this.casmTurnId = turnId;
     this.running = true;
     this.turnAbort = new AbortController();
     this.shellRun = { id, item };
     this.opts.emit({ type: "item", item });
     void this.request({ type: "bash", command }, id).then((r) => {
+      if (turnId !== this.casmTurnId) return;
       this.shellRun = null;
       if (!r.success) {
         this.opts.emit({ type: "item", item: { ...item, status: "error", output: String(r.error ?? "bash failed") } });
-        this.endTurn(this.interrupted ? "interrupted" : "failed", String(r.error ?? "bash failed"));
+        this.endTurn(this.interrupted ? "interrupted" : "failed", String(r.error ?? "bash failed"), turnId);
         return;
       }
       const d = (r.data ?? {}) as { output?: string; exitCode?: number; cancelled?: boolean };
       this.opts.emit({ type: "item", item: shellItem(itemId, command, d.output, d.exitCode, d.cancelled) });
-      this.endTurn(d.cancelled || this.interrupted ? "interrupted" : "completed");
+      this.endTurn(d.cancelled || this.interrupted ? "interrupted" : "completed", undefined, turnId);
     });
   }
 

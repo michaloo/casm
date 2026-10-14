@@ -299,12 +299,16 @@ public struct PendingMessage: Codable, Sendable, Hashable, Identifiable {
         case queued
         /// Waiting for a usage limit to reset.
         case limit
+        /// The prompt of a turn that failed before the agent answered (`note` has the error).
+        /// Kept, never resent on its own: retry it (`agent.retryPending`) or cancel it.
+        case failed
         case unknown(String)
 
         public init?(rawValue: String) {
             switch rawValue {
             case "queued": self = .queued
             case "limit": self = .limit
+            case "failed": self = .failed
             default: self = .unknown(rawValue)
             }
         }
@@ -313,6 +317,7 @@ public struct PendingMessage: Codable, Sendable, Hashable, Identifiable {
             switch self {
             case .queued: "queued"
             case .limit: "limit"
+            case .failed: "failed"
             case .unknown(let raw): raw
             }
         }
@@ -848,6 +853,8 @@ public enum ServerNotification: Sendable {
     case providerLimits(ProviderLimits)
     case scheduleChanged(Schedule)
     case scheduleRemoved(scheduleId: String)
+    /// The server's connection to a peer dropped; subscriptions made through it are gone.
+    case peerDisconnected(host: String)
     case unknown(method: String)
 
     private struct AgentEventParams: Decodable { var agentId: String; var event: AgentEvent }
@@ -859,6 +866,7 @@ public enum ServerNotification: Sendable {
     private struct LimitsParams: Decodable { var limits: ProviderLimits }
     private struct ScheduleParams: Decodable { var schedule: Schedule }
     private struct ScheduleIDParams: Decodable { var scheduleId: String }
+    private struct PeerParams: Decodable { var host: String }
     private struct Envelope<P: Decodable>: Decodable { var params: P }
 
     /// Decodes the params of a notification envelope whose `method` is already known.
@@ -878,6 +886,7 @@ public enum ServerNotification: Sendable {
         case "provider.limits": self = .providerLimits(try params(LimitsParams.self).limits)
         case "schedule.changed": self = .scheduleChanged(try params(ScheduleParams.self).schedule)
         case "schedule.removed": self = .scheduleRemoved(scheduleId: try params(ScheduleIDParams.self).scheduleId)
+        case "peer.disconnected": self = .peerDisconnected(host: try params(PeerParams.self).host)
         default: self = .unknown(method: method)
         }
     }

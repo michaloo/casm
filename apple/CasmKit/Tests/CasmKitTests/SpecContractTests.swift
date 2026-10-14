@@ -72,6 +72,16 @@ import Testing
         }
     }
 
+    /// Every pending reason in the spec is a known case (the strip shows failed ones differently).
+    @Test func everyPendingReason() throws {
+        let reason = Self.schema(method: "agent.pending")["properties"]!["messages"]!["items"]!["properties"]!["reason"]!
+        guard case .array(let values) = reason["enum"]! else { Issue.record("reason isn't an enum"); return }
+        #expect(values.count >= 3)
+        for case .string(let raw) in values {
+            if case .unknown = PendingMessage.Reason(rawValue: raw)! { Issue.record("pending reason \(raw) not handled") }
+        }
+    }
+
     // MARK: Results
 
     /// Results of every method the app calls decode in all sample shapes.
@@ -98,6 +108,7 @@ import Testing
             "schedule.runNow": { _ = try decode(ScheduleRun.self, $0) },
             "provider.limits": { _ = try decode(LimitsResult.self, $0) },
             "agent.cancelPending": { _ = try decode(CancelPendingResult.self, $0) },
+            "agent.retryPending": { _ = try decode(SendResult.self, $0) },
             "project.setAgentsMd": { _ = try decode(AgentsMd.self, $0) },
             "project.memories": { _ = try decode(ProjectMemories.self, $0) },
             "agent.list": { _ = try decode(AgentList.self, $0) },
@@ -139,6 +150,7 @@ import Testing
             ("project.setAgentsMd", SetAgentsMdParams(id: "p", content: "c", expectedSha256: "abc", force: false)),
             ("agent.commands", CommandsParams(id: "a", refresh: true)),
             ("agent.cancelPending", CancelPendingParams(id: "a", messageId: "m")),
+            ("agent.retryPending", RetryPendingParams(id: "a", messageId: "m")),
             ("agent.answerQuestion", AnswerQuestionParams(id: "a", requestId: "r", answers: ["q": .strings(["x"]), "c": .bool(true), "t": .string("s")])),
             ("agent.respondPermission", RespondPermissionParams(id: "a", requestId: "r", decision: .allowAlways, message: "m")),
         ]

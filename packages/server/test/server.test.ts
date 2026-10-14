@@ -223,6 +223,19 @@ test("interrupt ends a running turn", async () => {
   assert.equal((await client.call("agent.wait", { id: a.id })).status, "idle");
 });
 
+test("wait after an interrupted turn has no reply rather than an older one", async () => {
+  const p = await client.call("project.create", { name: "P4b", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "first" });
+  await client.call("agent.wait", { id: a.id });
+  const sid = (await client.call("agent.get", { id: a.id })).nativeSessionId!;
+  fake.history.set(sid, [{ kind: "assistant", id: "old", text: "an older reply" }]);
+  await client.call("agent.send", { id: a.id, text: "slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  await client.call("agent.interrupt", { id: a.id });
+  const w = await client.call("agent.wait", { id: a.id });
+  assert.deepEqual([w.lastReply, w.lastTurn], [null, { outcome: "interrupted" }]);
+});
+
 test("reload resumes the same session; late events from the old process are ignored", async () => {
   const p = await client.call("project.create", { name: "P5", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "first" });

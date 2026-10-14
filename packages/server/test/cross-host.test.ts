@@ -330,6 +330,15 @@ test("CLI sends carry agent provenance across hosts while human sends stay untag
   const users = (await beta.client.call("agent.history", { id: recipient.id })).items.filter((item) => item.kind === "user");
   assert.deepEqual(users[0].sender, { serverId: origin.id, agentId: parentId, name: alpha.store.getAgent(parentId)!.name, host: origin.name });
   assert.equal(users[1].sender, undefined);
+  const messageId = "52c99a2d-5a4a-4c5f-a5e4-d80ddc000001";
+  for (let i = 0; i < 2; i++) {
+    await promisify(execFile)(process.execPath, [cli, "-H", "beta", "send", recipient.id, "retryable", "--message-id", messageId], { env });
+    await beta.client.call("agent.wait", { id: recipient.id });
+  }
+  const repeated = (await beta.client.call("agent.history", { id: recipient.id })).items.filter((item) => item.kind === "user" && item.id === messageId);
+  assert.equal(repeated.length, 1);
+  const printed = await promisify(execFile)(process.execPath, [cli, "-H", "beta", "history", recipient.id], { env });
+  assert.ok(printed.stdout.includes(`from ${alpha.store.getAgent(parentId)!.name} · ${origin.name}`));
 });
 
 // Clients (the CLI on a server machine) reach peers through their own server:

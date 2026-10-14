@@ -21,6 +21,17 @@ final class DebugControl {
     var offsetY: CGFloat = 0
     var viewportHeight: CGFloat = 0
     private var observer: NSObjectProtocol?
+    /// Rendered rows' top edge in the viewport (CASM_PROBE=1), and the row `anchor` watches.
+    private var rowY: [String: CGFloat] = [:]
+    private var anchor: (id: String, y: CGFloat, drift: CGFloat)?
+
+    func rowGone(_ id: String) { rowY[id] = nil }
+
+    func rowMoved(_ id: String, to y: CGFloat) {
+        rowY[id] = y
+        guard let a = anchor, a.id == id else { return }
+        if abs(y - a.y) > abs(a.drift) { anchor?.drift = y - a.y }
+    }
 
     func attach(_ app: AppModel) {
         self.app = app
@@ -58,6 +69,7 @@ final class DebugControl {
             }
             log("no project \(cmd["project"] ?? "")")
         case "select":
+            rowY = [:]
             let name = cmd["agent"] ?? ""
             for host in app.hosts {
                 if let agent = host.agents.first(where: { $0.name == name || $0.id == name }) {
@@ -126,10 +138,61 @@ final class DebugControl {
             }
         case "expand":
             if let chat { chat.expanded.formUnion(chat.items.suffix(Int(cmd["last"] ?? "20") ?? 20).map(\.id)) }
+        case "scroll" where cmd["by"] != nil:
+            // Positive scrolls up (towards older rows), like reading back.
+            // From AppKit's offset: SwiftUI's reported one can lag behind after programmatic scrolls.
+            let from = transcriptScrollView()?.contentView.bounds.minY ?? offsetY
+            scroller?(ScrollPosition(y: max(0, from - CGFloat(Double(cmd["by"]!) ?? 0))))
+            afterIdle { self.log(String(format: "scrolled to y=%.0f of %.0f", self.transcriptScrollView()?.contentView.bounds.minY ?? -1, self.contentHeight)) }
         case "scroll":
             let t0 = CACurrentMediaTime()
             scroller?(ScrollPosition(edge: cmd["to"] == "top" ? .top : .bottom))
             afterIdle { self.log(String(format: "scroll to %@: %.1f ms", cmd["to"] ?? "bottom", (CACurrentMediaTime() - t0) * 1000)) }
+        case "wheel":
+            // Wheel-like scrolling: `steps` small scrolls up of `by` points, one per frame.
+            let steps = Int(cmd["steps"] ?? "15") ?? 15, by = CGFloat(Double(cmd["by"] ?? "20") ?? 20)
+            func tick(_ n: Int) {
+                guard n < steps, let sv = transcriptScrollView() else {
+                    return log(String(format: "wheel done: y=%.0f of %.0f", transcriptScrollView()?.contentView.bounds.minY ?? -1,
+                                      transcriptScrollView()?.documentView?.frame.height ?? -1))
+                }
+                scroller?(ScrollPosition(y: max(0, sv.contentView.bounds.minY - by)))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { tick(n + 1) }
+            }
+            tick(0)
+        case "anchor":
+            // anchor: watch the topmost fully visible row; anchor action=report: how far it moved.
+            if cmd["action"] == "report" {
+                guard let a = anchor else { return log("anchor: none") }
+                let now = rowY[a.id].map { String(format: "%.1f", $0 - a.y) } ?? "gone"
+                log(String(format: "anchor %@: now %@ pt, max drift %.1f pt, offset %.0f/%.0f", a.id, now, a.drift, offsetY, contentHeight))
+            } else {
+                guard let top = rowY.filter({ $0.value >= 0 && $0.value < viewportHeight }).min(by: { $0.value < $1.value }) else {
+                    return log("anchor: no rows (CASM_PROBE=1?)")
+                }
+                anchor = (top.key, top.value, 0)
+                log(String(format: "anchor %@ at %.1f, offset %.0f/%.0f", top.key, top.value, offsetY, contentHeight))
+            }
+        case "stream":
+            // A turn streaming below the reader: deltas, then the final reply and a tool row, then the end.
+            guard let chat else { return }
+            let n = Int(cmd["deltas"] ?? "30") ?? 30, tag = UUID().uuidString.prefix(6)
+            chat.apply(.turnStarted(turnId: "t-\(tag)"))
+            func step(_ i: Int) {
+                switch i {
+                case ..<n:
+                    chat.apply(.delta(kind: .assistant, text: "Line \(i) of the streamed reply, long enough to wrap once in a narrow column here.\n\n"))
+                case n:
+                    chat.apply(.item(.assistant(id: "a-\(tag)", text: "The final reply replaces the draft.\n\nIt has two paragraphs.")))
+                case n + 1:
+                    chat.apply(.item(.tool(ToolCall(id: "tool-\(tag)", name: "Bash", input: .object(["command": .string("ls")]), status: .done))))
+                default:
+                    chat.apply(.turnEnded(turnId: "t-\(tag)", outcome: .completed, error: nil))
+                    return log("stream: done")
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + (Double(cmd["every"] ?? "50") ?? 50) / 1000) { step(i + 1) }
+            }
+            step(0)
         case "views":
             for w in NSApp.windows {
                 log("window \(type(of: w)) visible=\(w.isVisible) frame=\(w.frame)")
@@ -148,7 +211,17 @@ final class DebugControl {
         case "state":
             log("hosts: " + app.hosts.map { "\($0.name)=\($0.state) projects=\($0.projects.count) agents=\($0.agents.count)" }.joined(separator: ", "))
             if let chat {
-                log("chat: items=\(chat.items.count) window=\(chat.windowStart) offset=\(Int(offsetY))/\(Int(contentHeight)) start=\(chat.historyStart ?? -1) status=\(chat.status.rawValue) permissions=\(chat.permissions.count) questions=\(chat.questions.count) draft=\(chat.draft?.text.count ?? 0) error=\(chat.error ?? "-")")
+                log("chat: items=\(chat.items.count) window=\(chat.windowStart) offset=\(Int(offsetY))/\(Int(contentHeight)) start=\(chat.historyStart ?? -1) status=\(chat.status.rawValue) permissions=\(chat.permissions.count) questions=\(chat.questions.count) draft=\(chat.draft?.text.count ?? 0) error=\(chat.error ?? "-") viewport=\(Int(viewportHeight))")
+            }
+        case "geo":
+            // What AppKit's scroll views say, independent of SwiftUI's geometry callbacks.
+            for w in NSApp.windows where w.isVisible {
+                for case let sv as NSScrollView in Self.descendants(of: w.contentView?.superview ?? NSView()) {
+                    guard let doc = sv.documentView, doc.frame.height > 0 else { continue }
+                    log(String(format: "geo %@: clip y=%.0f h=%.0f doc h=%.0f insets t=%.0f b=%.0f", "\(type(of: sv))",
+                               sv.contentView.bounds.minY, sv.contentView.bounds.height, doc.frame.height,
+                               sv.contentInsets.top, sv.contentInsets.bottom))
+                }
             }
         default:
             log("unknown command \(cmd)")
@@ -161,6 +234,14 @@ final class DebugControl {
             MainActor.assumeIsolated { body() }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    private func transcriptScrollView() -> NSScrollView? {
+        for w in NSApp.windows where w.isVisible {
+            for case let sv as NSScrollView in Self.descendants(of: w.contentView?.superview ?? NSView())
+            where "\(type(of: sv))" == "HostingScrollView" && (sv.documentView?.frame.height ?? 0) > 200 { return sv }
+        }
+        return nil
     }
 
     // MARK: Scroll benchmark

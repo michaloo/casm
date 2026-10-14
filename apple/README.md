@@ -44,6 +44,10 @@ scripts/casmctl retry                             # retries the first failed pen
 scripts/casmctl interrupt | reload | restart | state | questions
 scripts/casmctl synthetic                         # 2,000-item transcript; then: bench, scroll to=top
 scripts/casmctl snapshot path=/tmp/casm-shots/x.png
+scripts/casmctl scroll by=600                      # up 600 pt; wheel steps=20 by=20 scrolls a step per frame
+scripts/casmctl stream deltas=30 every=50          # a local turn streaming into the open chat
+scripts/casmctl anchor; scripts/casmctl anchor action=report   # how far the top visible row moved (CASM_PROBE=1)
+scripts/casmctl geo                               # AppKit's scroll offsets (SwiftUI's can lag after programmatic scrolls)
 ```
 
 Snapshots render the window offscreen (no screen-recording permission needed, works while the

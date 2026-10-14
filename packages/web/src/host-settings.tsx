@@ -1,6 +1,5 @@
-import { InstructionEditor, ProjectMemories } from "./settings-shared";
+import { InstructionEditor, MemorySearch, ProjectMemories, SettingsDialog, TextEditor } from "./settings-shared";
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { AgentPromptInfo, HostAgentsMdFile, Project } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { providerNames } from "./provider-icon";
@@ -12,23 +11,15 @@ const message = (e: unknown) => e instanceof Error ? e.message : String(e);
 export function HostSettings({ host, name, rpc, online, projects, close }: {
   host: string; name: string; rpc: Rpc | null; online: boolean; projects: Project[]; close: () => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [section, setSection] = useState<Section>("instructions");
-  useEffect(() => { dialog.current?.showModal(); }, []);
-  return createPortal(<dialog ref={dialog} className="host-settings" aria-label={`${name} settings`} onClose={close}>
-    <header><h2>{name} settings</h2><button type="button" aria-label="Close settings" onClick={() => dialog.current?.close()}>×</button></header>
-    <nav aria-label="Settings sections">
-      {([ ["instructions", "AGENTS.md"], ["memories", "Memories"], ["prompt", "Agent prompt"] ] as const).map(([id, label]) =>
-        <button type="button" key={id} aria-pressed={section === id} onClick={() => setSection(id)}>{label}</button>)}
-    </nav>
-    <div className="settings-content">
-      {!online || !rpc ? <p role="status">Host offline. Reconnect to load settings.</p> : <>
-        <div hidden={section !== "instructions"}><Instructions host={host} rpc={rpc} /></div>
-        <div hidden={section !== "memories"}><Memories host={host} rpc={rpc} projects={projects} /></div>
-        <div hidden={section !== "prompt"}><HostPrompt host={host} rpc={rpc} /></div>
-      </>}
-    </div>
-  </dialog>, document.body);
+  return <SettingsDialog label={`${name} settings`} title={<>{name} <span className="settings-kind">host settings</span></>} closeLabel="Close settings"
+    sections={[["instructions", "AGENTS.md"], ["memories", "Memories"], ["prompt", "Agent prompt"]] as const} section={section} setSection={setSection} close={close}>
+    {!online || !rpc ? <p role="status">Host offline. Reconnect to load settings.</p> : <>
+      <div hidden={section !== "instructions"}><Instructions host={host} rpc={rpc} /></div>
+      <div hidden={section !== "memories"}><Memories host={host} rpc={rpc} projects={projects} /></div>
+      <div hidden={section !== "prompt"}><HostPrompt host={host} rpc={rpc} /></div>
+    </>}
+  </SettingsDialog>;
 }
 
 function Instructions({ host, rpc }: { host: string; rpc: Rpc }) {
@@ -41,7 +32,7 @@ function Instructions({ host, rpc }: { host: string; rpc: Rpc }) {
   }, [host, rpc]);
   return <section aria-label="Global agent instructions">
     <h3>Global agent instructions</h3>
-    <p>Instructions used across projects on this host. Providers sharing a file are shown together. Changes apply when their next session loads instructions.</p>
+    <p className="settings-lede">Used across every project on this host. Providers sharing a file are shown together; changes apply when their next session loads instructions.</p>
     {error && <p role="alert" className="error">{error}</p>}
     {!files && !error && <p role="status">Loading instruction files…</p>}
     {files?.map((file) => <Instruction key={file.path} file={file} host={host} rpc={rpc} saved={(next) => setFiles((list) => list?.map((f) => f.path === next.path ? next : f))} />)}
@@ -57,12 +48,15 @@ function Instruction({ file, host, rpc, saved }: { file: HostAgentsMdFile; host:
 }
 
 function Memories({ host, rpc, projects }: { host: string; rpc: Rpc; projects: Project[] }) {
-  return <section aria-label="Provider memories"><h3>Memories</h3><p>Read-only provider memories, grouped by project.</p>
+  const [query, setQuery] = useState("");
+  return <section aria-label="Provider memories"><h3>Memories</h3>
+    <p className="settings-lede">Read-only provider memories, grouped by project. Open a project to load its memories; searching loads them all.</p>
+    <MemorySearch query={query} setQuery={setQuery} />
+    {query.trim() && <p className="settings-note">Projects without matches are hidden.</p>}
     {!projects.length && <p>No projects on this host.</p>}
-    {[...projects].sort((a, b) => a.name.localeCompare(b.name)).map((project) => <ProjectMemories key={project.id} host={host} rpc={rpc} project={project} />)}
+    {[...projects].sort((a, b) => a.name.localeCompare(b.name)).map((project) => <ProjectMemories key={project.id} host={host} rpc={rpc} project={project} query={query} />)}
   </section>;
 }
-
 
 function HostPrompt({ host, rpc }: { host: string; rpc: Rpc }) {
   const [info, setInfo] = useState<AgentPromptInfo>();
@@ -83,20 +77,40 @@ function HostPrompt({ host, rpc }: { host: string; rpc: Rpc }) {
       setResetting(false);
     }).catch((e) => setError(message(e))).finally(() => setBusy(false));
   };
-  return <section aria-label="Host agent prompt"><h3>Agent prompt</h3><p>The casm prompt added when an agent session starts or resumes.</p>
+  const editor = useRef<HTMLDivElement>(null);
+  const insert = (token: string) => {
+    const area = editor.current?.querySelector("textarea");
+    if (!area) return;
+    const { selectionStart: from, selectionEnd: to } = area;
+    setText(text.slice(0, from) + token + text.slice(to));
+    requestAnimationFrame(() => { area.focus(); area.setSelectionRange(from + token.length, from + token.length); });
+  };
+  return <section aria-label="Host agent prompt"><h3>Agent prompt</h3>
+    <p className="settings-lede">The casm prompt added when an agent session starts or resumes.</p>
     {error && <p role="alert" className="error">{error}</p>}
     {!info && !error && <p role="status">Loading agent prompt…</p>}
-    {info && <>
-      <label className="settings-toggle"><input type="checkbox" checked={info.enabled} disabled={busy} onChange={(e) => update({ enabled: e.target.checked })} />Enable host agent prompt</label>
-      <p>{info.custom ? "Custom template" : "Default template"}</p>
+    {info && <div className="settings-card" data-dirty={editing && text !== info.content}>
+      <header className="settings-card-head">
+        <label className="settings-toggle"><input type="checkbox" role="switch" checked={info.enabled} disabled={busy} onChange={(e) => update({ enabled: e.target.checked })} />Enable host agent prompt</label>
+        <span className={`chip ${info.custom ? "custom" : ""}`}>{info.custom ? "Custom template" : "Default template"}</span>
+      </header>
       {info.path && <code className="settings-path">{info.path}</code>}
       {editing ? <form onSubmit={(e) => { e.preventDefault(); update({ content: text }); }}>
-        <label>Agent prompt template<textarea rows={14} value={text} onChange={(e) => setText(e.target.value)} /></label>
-        <p>Placeholders: {info.placeholders.map((p) => `{{${p}}}`).join(", ")}</p>
-        <div className="settings-actions"><button disabled={busy}>Save agent prompt</button><button type="button" disabled={busy} onClick={() => setEditing(false)}>Cancel edit</button></div>
-      </form> : <button type="button" disabled={busy} onClick={() => { setText(info.content); setEditing(true); }}>Edit agent prompt</button>}
-      {info.custom && <div className="settings-actions">{resetting ? <><span>Replace the custom template with the default?</span><button disabled={busy} onClick={() => update({ content: null })}>Confirm reset</button><button disabled={busy} onClick={() => setResetting(false)}>Keep custom prompt</button></> : <button disabled={busy} onClick={() => setResetting(true)}>Reset to default</button>}</div>}
-      <h4>Example agent preview</h4>{info.rendered ? <Prose text={info.rendered} /> : <p>The host agent prompt is disabled.</p>}
-    </>}
+        <div ref={editor}><TextEditor label="Agent prompt template" value={text} onChange={setText} dirty={text !== info.content} busy={busy} saveLabel="Save agent prompt" onCancel={() => setEditing(false)}>
+          <div className="placeholder-chips" role="group" aria-label="Insert a placeholder">
+            <span>Insert</span>{info.placeholders.map((p) => <button type="button" key={p} onClick={() => insert(`{{${p}}}`)}><code>{`{{${p}}}`}</code></button>)}
+          </div>
+        </TextEditor></div>
+      </form> : <>
+        <div className="settings-actions">
+          <button type="button" disabled={busy} onClick={() => { setText(info.content); setEditing(true); }}>Edit agent prompt</button>
+          {info.custom && (resetting
+            ? <><span>Replace the custom template with the default?</span><button className="danger" disabled={busy} onClick={() => update({ content: null })}>Confirm reset</button><button disabled={busy} onClick={() => setResetting(false)}>Keep custom prompt</button></>
+            : <button className="danger quiet" disabled={busy} onClick={() => setResetting(true)}>Reset to default</button>)}
+        </div>
+        <h4 className="settings-subhead">Preview <small>as an example agent sees it</small></h4>
+        {info.rendered ? <div className="settings-prose settings-preview"><Prose text={info.rendered} /></div> : <p className="settings-note">The host agent prompt is disabled.</p>}
+      </>}
+    </div>}
   </section>;
 }

@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { Project } from "@casm/protocol";
 import type { Rpc } from "./state";
-import { InstructionEditor, ProjectMemories, type InstructionFile } from "./settings-shared";
+import { InstructionEditor, MemorySearch, ProjectMemories, SettingsDialog, type InstructionFile } from "./settings-shared";
 import { FileBrowser, FilePreview } from "./files";
 import { RowMenu } from "./row-menu";
 
@@ -30,25 +29,24 @@ export function ProjectMenu({ host, project, agentCount, rpc, online, newAgent }
 function ProjectSettings({ host, project, agentCount, rpc, online, close, newAgent, initial }: {
   host: string; project: Project; agentCount: number; rpc: Rpc | null; online: boolean; close: () => void; newAgent: () => void; initial: Section;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [section, setSection] = useState<Section>(initial);
-  useEffect(() => { dialog.current?.showModal(); }, []);
-  return createPortal(<dialog ref={dialog} className="host-settings" aria-label={`${project.name} project settings`} onClose={close}>
-    <header><h2>{project.name} settings</h2><button type="button" aria-label="Close project settings" onClick={() => dialog.current?.close()}>×</button></header>
-    <nav aria-label="Project settings sections">{([["instructions", "AGENTS.md"], ["memories", "Memories"], ["files", "Files"], ["info", "Project info"]] as const).map(([id, name]) =>
-      <button key={id} type="button" aria-pressed={section === id} onClick={() => setSection(id)}>{name}</button>)}</nav>
-    <div className="settings-content">
-      <section hidden={section !== "info"} aria-label="Project info">
-        <h3>Project info</h3><dl className="project-info"><dt>Path</dt><dd><code className="settings-path">{project.path}</code></dd><dt>Group</dt><dd>{project.group || "No group"}</dd><dt>Agents</dt><dd>{agentCount}</dd></dl>
-        <button type="button" disabled={!online} onClick={newAgent}>New agent here</button>
+  const [query, setQuery] = useState("");
+  return <SettingsDialog label={`${project.name} project settings`} title={<>{project.name} <span className="settings-kind">project settings</span></>} closeLabel="Close project settings"
+    sections={[["instructions", "AGENTS.md"], ["memories", "Memories"], ["files", "Files"], ["info", "Project info"]] as const} section={section} setSection={setSection} close={close}>
+    <section hidden={section !== "info"} aria-label="Project info">
+      <h3>Project info</h3><dl className="project-info"><dt>Path</dt><dd><code className="settings-path">{project.path}</code></dd><dt>Group</dt><dd>{project.group || "No group"}</dd><dt>Agents</dt><dd>{agentCount}</dd></dl>
+      <button type="button" className="primary" disabled={!online} onClick={newAgent}>New agent here</button>
+    </section>
+    {!online || !rpc ? section !== "info" && <p role="status">Host offline. Reconnect to load project settings.</p> : <>
+      <div hidden={section !== "instructions"}><ProjectInstructions host={host} project={project} rpc={rpc} /></div>
+      {section === "files" && <ProjectFiles host={host} project={project} rpc={rpc} />}
+      <section hidden={section !== "memories"} aria-label="Project memories"><h3>Memories</h3><p className="settings-lede">Read-only provider memories for this project.</p>
+        <MemorySearch query={query} setQuery={setQuery} />
+        <ProjectMemories host={host} project={project} rpc={rpc} initiallyOpen query={query} />
+        {query.trim() && <p className="settings-note">Only matching memories are shown.</p>}
       </section>
-      {!online || !rpc ? section !== "info" && <p role="status">Host offline. Reconnect to load project settings.</p> : <>
-        <div hidden={section !== "instructions"}><ProjectInstructions host={host} project={project} rpc={rpc} /></div>
-        {section === "files" && <ProjectFiles host={host} project={project} rpc={rpc} />}
-        <section hidden={section !== "memories"} aria-label="Project memories"><h3>Memories</h3><p>Read-only provider memories for this project.</p><ProjectMemories host={host} project={project} rpc={rpc} initiallyOpen /></section>
-      </>}
-    </div>
-  </dialog>, document.body);
+    </>}
+  </SettingsDialog>;
 }
 
 function ProjectInstructions({ host, project, rpc }: { host: string; project: Project; rpc: Rpc }) {
@@ -74,7 +72,7 @@ function ProjectInstructions({ host, project, rpc }: { host: string; project: Pr
 function ProjectFiles({ host, project, rpc }: { host: string; project: Project; rpc: Rpc }) {
   const [dir, setDir] = useState(project.path);
   const [preview, setPreview] = useState<string>();
-  return <section aria-label="Project files"><h3>Files</h3><p>Read-only. Open a file to preview or download it.</p>
+  return <section aria-label="Project files"><h3>Files</h3><p className="settings-lede">Read-only. Open a file to preview or download it.</p>
     <FileBrowser rpc={rpc} host={host} root={project.path} dir={dir} setDir={setDir} openFile={setPreview} />
     {preview && <FilePreview rpc={rpc} host={host} path={preview} roots={[project.path]} close={() => setPreview(undefined)} />}
   </section>;

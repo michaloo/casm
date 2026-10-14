@@ -2286,14 +2286,14 @@ nav .row-more:hover, nav .row-more:focus-visible, nav .row-more[aria-expanded="t
 .settings-content section, .settings-card { min-width: 0; }
 .settings-card { margin: 14px 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
 .settings-card summary, .memory-entry summary { min-height: 44px; padding-block: 10px; cursor: pointer; overflow-wrap: anywhere; }
+.memory-entry summary small { margin-left: 18px; }
 .settings-path { display: block; margin: 8px 0; color: var(--muted); overflow-wrap: anywhere; font-size: 13px; }
 .settings-content code { overflow-wrap: anywhere; }
 .settings-content label { display: block; margin-block: 12px; }
 .settings-content textarea { width: 100%; min-height: 220px; resize: vertical; display: block; font: 14px/1.6 var(--mono); margin-top: 8px; padding: 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); }
 .settings-content textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block: 12px; }
-.settings-latest { margin-top: 16px; border-top: 1px solid var(--line); }
-.settings-latest button { margin: 4px; }
+.settings-latest { margin-top: 16px; padding-top: 4px; border-top: 1px solid var(--line); }
 .settings-toggle { display: flex !important; align-items: center; gap: 10px; min-height: 44px; }
 .settings-toggle input { width: 20px; height: 20px; }
 .memory-entry { margin-block: 8px; border-top: 1px solid var(--line); }
@@ -2305,6 +2305,69 @@ nav .row-more:hover, nav .row-more:focus-visible, nav .row-more[aria-expanded="t
   .host-settings > nav button { font-size: 14px; }
   .settings-content { padding: 12px max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
   .settings-card { padding: 12px; }
+}
+
+/* Host and project settings: a section rail beside the content on wide
+   screens, scrollable tabs on phones; editors keep their actions in reach. */
+.settings-dialog[open] { display: grid; grid-template: "head head" auto "discard discard" auto "nav content" minmax(0, 1fr) / 196px minmax(0, 1fr); }
+.settings-dialog > header { grid-area: head; }
+.settings-kind { color: var(--muted); font-weight: 500; font-size: 15px; letter-spacing: 0; }
+.settings-discard { grid-area: discard; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--attention-soft); color: var(--attention); font-weight: 600; }
+.settings-discard span { flex: 1; min-width: 12em; }
+.settings-dialog > nav { grid-area: nav; flex-direction: column; gap: 2px; margin: 0; padding: 16px 10px; border-radius: 0; border-right: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 60%, var(--overlay)); overflow: auto; }
+.settings-dialog > nav button { flex: 0 0 auto; text-align: left; padding: 8px 12px; }
+.settings-dialog > nav button[aria-pressed="true"] { background: var(--accent-soft); border-color: transparent; box-shadow: none; color: var(--accent); }
+.settings-dialog > .settings-content { grid-area: content; padding: 20px 28px 0; }
+.settings-dialog > .settings-content > * { max-width: 820px; }
+.settings-dialog > .settings-content > :last-child { padding-bottom: 24px; }
+.settings-content h3 { margin-bottom: 4px; font-size: 17px; letter-spacing: -0.015em; }
+.settings-lede { margin: 0 0 14px; color: var(--muted); max-width: 68ch; }
+.settings-note { color: var(--muted); }
+.settings-card-head { min-height: 0; padding: 0; border-bottom: 0; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 16px; }
+.settings-card-head > div { min-width: 0; flex: 1 1 16em; }
+.settings-card-head .settings-toggle { margin: 0; flex: 1 1 auto; }
+.settings-card-head .chip { margin-top: 10px; }
+.settings-card-head h4 { margin: 0; font-size: 14px; }
+.settings-card-head .settings-path { margin: 2px 0 0; font-size: 12px; }
+.settings-card details > summary { color: var(--muted); }
+.settings-prose { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); max-width: 72ch; font-size: 14px; line-height: 1.6; }
+.settings-prose h1 { font-size: 20px; } .settings-prose h2 { font-size: 17px; } .settings-prose h3 { font-size: 15px; }
+.settings-prose h1, .settings-prose h2, .settings-prose h3 { margin: 18px 0 6px; letter-spacing: -0.01em; }
+.settings-prose > :first-child, .settings-prose > div > :first-child { margin-top: 0; }
+.settings-preview { padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.settings-subhead { display: flex; align-items: baseline; gap: 8px; margin-top: 16px !important; }
+.settings-search { width: 100%; max-width: 420px; margin-bottom: 4px; padding: 8px 12px; border-radius: 10px; }
+.settings-editor-label > span { display: block; color: var(--muted); font-size: 12px; font-weight: 600; }
+.settings-dialog .settings-editor-label textarea { min-height: max(260px, calc(100% - 0px)); height: min(60dvh, 640px); font-size: 13px; line-height: 1.6; tab-size: 2; }
+.settings-editor-actions { position: sticky; bottom: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin: 12px -17px -17px; padding: 10px 16px; border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; background: color-mix(in srgb, var(--overlay) 92%, transparent); backdrop-filter: blur(6px); }
+.dirty-state { flex: 1; color: var(--faint); font-size: 12.5px; }
+.dirty-state.dirty { color: var(--warning); font-weight: 600; }
+.dirty-state.dirty::before { content: "● "; }
+.settings-card[data-dirty="true"] { border-color: color-mix(in srgb, var(--warning) 55%, var(--line)); }
+.settings-conflict { margin-top: 12px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--attention-bright) 45%, var(--line)); border-radius: 10px; background: var(--attention-soft); color: var(--text); }
+.settings-conflict p { margin: 0 0 6px; }
+.settings-conflict strong { color: var(--attention); }
+.chip { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: 999px; background: var(--raised); color: var(--muted); font-size: 12px; font-weight: 600; }
+.chip.custom { background: var(--agent-soft); color: var(--agent); }
+.settings-toggle input[role="switch"] { accent-color: var(--accent); }
+.placeholder-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.placeholder-chips button { min-height: 28px; padding: 2px 8px; border-radius: 999px; }
+.placeholder-chips code { font-size: 12px; }
+.memory-project > summary { display: flex; align-items: center; gap: 8px; color: var(--text) !important; font-weight: 600; }
+.memory-project-name { flex: 1; min-width: 0; }
+.memory-store h4 { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+@media (max-width: 650px) {
+  .settings-dialog[open] { grid-template: "head" auto "discard" auto "nav" auto "content" minmax(0, 1fr) / minmax(0, 1fr); }
+  .settings-dialog > nav { flex-direction: row; padding: 6px 12px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+  .settings-dialog > nav button { white-space: nowrap; padding: 8px 14px; font-size: 15px; }
+  .settings-dialog > .settings-content { padding: 14px max(14px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left)); }
+  .settings-kind { display: none; }
+  .settings-dialog .settings-editor-label textarea { height: 50dvh; font-size: 16px; }
+  .settings-editor-actions { margin: 12px -13px -13px; padding: 10px 12px max(10px, env(safe-area-inset-bottom)); }
+  .settings-editor-actions > button { flex: 1 1 0; white-space: nowrap; padding-inline: 10px; }
+  .dirty-state { flex-basis: 100%; }
+  .placeholder-chips button { min-height: 44px; }
+  .settings-search { max-width: none; font-size: 16px; min-height: 44px; }
 }
 
 .composer { position: relative; }

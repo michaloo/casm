@@ -35,7 +35,18 @@ for (const width of [1440, 375]) test(`host settings mobile-safe editing, memori
   await expect(panel.locator("article.settings-card")).toHaveCount(1);
   await expect(panel.locator("article h4")).toContainText("Claude · Codex · OpenCode · Pi");
   await panel.getByRole("button", { name: "Edit instructions", exact: true }).click();
-  await panel.getByRole("textbox", { name: "Global instructions", exact: true }).fill("# My saved instructions\n\nKeep this draft.");
+  const editor = panel.getByRole("textbox", { name: "Global instructions", exact: true });
+  await expect(editor).toBeFocused();
+  await expect(panel.getByText("No changes")).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Save instructions", exact: true })).toBeDisabled();
+  await editor.fill("# My saved instructions\n\nKeep this draft.");
+  await expect(panel.getByText("Unsaved changes")).toBeVisible();
+  // Closing with unsaved edits asks first, and keeps the draft.
+  await page.keyboard.press("Escape");
+  await expect(panel.getByRole("alert")).toContainText("You have unsaved changes.");
+  await panel.getByRole("button", { name: "Keep editing" }).click();
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveValue("# My saved instructions\n\nKeep this draft.");
   writeFileSync(`${testHome}/host-settings/AGENTS.md`, "# Concurrent host edit");
   await panel.getByRole("button", { name: "Save instructions", exact: true }).click();
   await expect(panel.getByRole("alert")).toContainText("Your draft has been kept");
@@ -46,10 +57,18 @@ for (const width of [1440, 375]) test(`host settings mobile-safe editing, memori
   await expect(panel.getByRole("heading", { name: "My saved instructions" })).toBeVisible();
   expect(readFileSync(`${testHome}/host-settings/AGENTS.md`, "utf8")).toContain("Keep this draft");
   await panel.getByRole("button", { name: "Memories", exact: true }).click();
-  await panel.locator("summary").filter({ hasText: /^Test project$/ }).click();
-  await expect(panel.locator("summary").filter({ hasText: "Project workflow" })).toContainText("How this project is maintained");
-  await panel.locator("summary").filter({ hasText: "Project workflow" }).click();
-  await expect(panel.getByRole("heading", { name: "Workflow details" })).toBeVisible();
+  // Search loads every project and keeps only the matches.
+  await panel.getByRole("searchbox", { name: "Search memories" }).fill("maintained");
+  await expect(panel.locator("summary").filter({ hasText: "Project workflow" }).first()).toBeVisible();
+  await panel.getByRole("searchbox", { name: "Search memories" }).fill("no such memory");
+  await expect(panel.locator("summary").filter({ hasText: "Project workflow" })).toHaveCount(0);
+  await panel.getByRole("searchbox", { name: "Search memories" }).fill("");
+  const project = panel.locator("details.memory-project").filter({ has: page.locator(".memory-project-name", { hasText: /^Test project$/ }) });
+  await project.locator("summary").first().click();
+  await expect(project.locator("summary").filter({ hasText: "Project workflow" })).toContainText("How this project is maintained");
+  await expect(project.locator("summary .count")).toHaveText("1");
+  await project.locator("summary").filter({ hasText: "Project workflow" }).click();
+  await expect(project.getByRole("heading", { name: "Workflow details" })).toBeVisible();
   await panel.getByRole("button", { name: "Agent prompt", exact: true }).click();
   const enabled = panel.getByLabel("Enable host agent prompt");
   await expect(enabled).toBeVisible();

@@ -122,10 +122,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (!parsed.success)
       return reply(client, { jsonrpc: "2.0", id, error: { code: ErrorCode.InvalidParams, message: parsed.error.message } });
     // A request for a peer is forwarded; this server's own name or id means here.
+    // It goes as sent: the peer may know params this server doesn't.
     const host = typeof req.host === "string" && req.host !== identity.name && req.host !== identity.id ? req.host : undefined;
     try {
       const handler = handlers[req.method as MethodName] as (p: unknown, c: Conn) => unknown;
-      const result = host ? await forward(client, host, req.method as MethodName, parsed.data) : await handler(parsed.data, client);
+      const result = host ? await forward(client, host, req.method as MethodName, req.params ?? {}) : await handler(parsed.data, client);
       if (id !== null) reply(client, { jsonrpc: "2.0", id, result });
     } catch (e) {
       const code = e instanceof RpcError || e instanceof CasmError ? e.code : ErrorCode.Internal;

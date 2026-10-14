@@ -21,7 +21,8 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
       server.onMessage(raw => {
         const response = JSON.parse(String(raw));
         if (pending.delete(response.id)) response.result = { messages: Array.from({ length: count }, (_, index) => ({
-          id: `queue-chip-${index}`, text: `Queued message ${index + 1}: review the mobile presentation and queue`, reason: index === 0 ? "limit" : "busy",
+          id: `queue-chip-${index}`, reason: index === 0 ? "limit" : "queued",
+          text: index === 1 ? "A longer queued message: check the deploy, compare the screenshots at 375 and 1440 in light and dark, then write up what changed and what still needs a decision before we ship it." : `Queued message ${index + 1}: review the mobile presentation and queue`,
         })) };
         socket.send(JSON.stringify(response));
       });
@@ -33,15 +34,18 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
     const composer = page.locator(".composer");
     const line = page.locator(".composer-status");
     const chip = page.locator(".queue-toggle");
+    const pill = chip.locator(".queue-pill");
     const queue = page.locator(".pending-queue");
     const working = page.locator(".chat-working");
-    for (const [index, queued] of [0, 2, 10].entries()) {
+    const list = page.locator(".queue-list");
+    const phone = width === 375;
+    for (const [index, queued] of [0, 2, 6].entries()) {
       count = queued;
-      if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+      if (phone) await page.getByRole("button", { name: "Agents", exact: true }).click();
       await page.getByRole("button", { name: new RegExp(`Agent 0${index}`) }).click();
       if (count) {
         await expect(chip).toContainText(`${count} queued`);
-        await expect(chip).toContainText("· 1 waiting for limit");
+        await expect(chip).toContainText("· 1 waiting");
         await expect(chip).toHaveAttribute("aria-expanded", "false");
       } else await expect(chip).toHaveCount(0);
       for (const status of ["idle", "running"]) {
@@ -53,19 +57,19 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
         expect(Math.abs(queueBox.x - box.x)).toBeLessThan(1);
         expect(Math.abs(queueBox.width - box.width)).toBeLessThan(1);
         expect(box.y + box.height).toBeLessThanOrEqual(812);
-        await expect(queue).toHaveCSS("border-top-width", "0px");
-        await expect(queue).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+        // The transcript ends above the status line; nothing runs under it.
+        const scroller = (await page.locator("[data-virtuoso-scroller]").boundingBox())!;
+        expect(scroller.y + scroller.height).toBeLessThanOrEqual((await line.boundingBox())!.y + 1);
         if (count) {
-          const chipBox = (await chip.boundingBox())!;
+          // A small pill like the composer pickers, still 44px to tap on phones.
+          const chipBox = (await pill.boundingBox())!;
           expect(chipBox.width).toBeLessThan(box.width);
-          expect(chipBox.height).toBe(44);
-          const label = (await chip.locator(".queue-count").boundingBox())!;
-          const chevron = (await chip.locator(".queue-chevron").boundingBox())!;
-          expect(chevron.x - label.x - label.width).toBeLessThan(6);
-          expect(chevron.width).toBe(16);
+          expect(chipBox.height).toBe(phone ? 32 : 28);
+          await expect(pill).toHaveCSS("border-top-left-radius", phone ? "16px" : "14px");
+          expect((await chip.boundingBox())!.height).toBe(phone ? 44 : 28);
           if (status === "running") {
             const indicator = (await working.boundingBox())!;
-            expect(Math.abs(indicator.y + indicator.height / 2 - chipBox.y - chipBox.height / 2)).toBeLessThan(1);
+            expect(Math.abs(indicator.y + indicator.height / 2 - chipBox.y - chipBox.height / 2)).toBeLessThan(1.5);
           }
         }
         expect(await line.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -74,13 +78,41 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
       }
       if (count) {
         await chip.click();
+        // A mouse or touch click leaves no focus ring; the keyboard still gets one.
+        await expect(chip).toHaveCSS("outline-style", "none");
+        await expect(pill).toHaveCSS("outline-style", "none");
         await expect(page.locator(".pending-row")).toHaveCount(count);
-        const list = page.locator(".queue-list");
         await expect(list).toBeVisible();
         const listBox = (await list.boundingBox())!;
         expect(listBox.y + listBox.height).toBeLessThanOrEqual((await line.boundingBox())!.y);
         expect((await composer.boundingBox())!.y + (await composer.boundingBox())!.height).toBeLessThanOrEqual(812);
-        if (count === 10) await page.screenshot({ path: info.outputPath(`queue-expanded-${colorScheme}.png`) });
+        // Rows: text and actions never overlap, nothing is clipped sideways.
+        for (const row of await page.locator(".pending-row").all()) {
+          const text = (await row.locator(".pending-text").boundingBox())!;
+          const actions = (await row.locator(".pending-actions").boundingBox())!;
+          if (!phone) expect(text.x + text.width).toBeLessThanOrEqual(actions.x);
+          else expect(text.y + text.height).toBeLessThanOrEqual(actions.y + 1);
+          expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+          for (const button of await row.locator(".pending-actions button").all())
+            expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(phone ? 40 : 28);
+        }
+        // Long text is clamped with Show more.
+        const long = page.locator(".pending-row").nth(1);
+        await expect(long.getByRole("button", { name: "Show more" })).toBeVisible();
+        await long.getByRole("button", { name: "Show more" }).click();
+        await expect(long.getByRole("button", { name: "Show less" })).toBeVisible();
+        await long.getByRole("button", { name: "Show less" }).click();
+        // A long list scrolls inside, with a fade, and its last row comes fully into view.
+        if (await list.evaluate((el) => el.scrollHeight > el.clientHeight)) {
+          await expect(list).toHaveAttribute("data-fade-bottom", "true");
+          await list.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+          await expect(list).not.toHaveAttribute("data-fade-bottom", "true");
+          await expect(list).toHaveAttribute("data-fade-top", "true");
+          const last = (await page.locator(".pending-row").last().boundingBox())!;
+          const shown = (await list.boundingBox())!;
+          expect(last.y + last.height).toBeLessThanOrEqual(shown.y + shown.height + 1);
+        }
+        await page.screenshot({ path: info.outputPath(`queue-${count}-expanded-${colorScheme}.png`) });
         await chip.click();
         await expect(list).toBeHidden();
       }

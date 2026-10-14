@@ -64,6 +64,8 @@ export type OcPart = {
   // retry parts
   attempt?: number;
   error?: OcError;
+  // text parts: casm's own item id for the prompt (userItemId)
+  metadata?: { casmItemId?: unknown };
   // compaction parts
   auto?: boolean;
   overflow?: boolean;
@@ -239,7 +241,17 @@ function userImages(parts: OcPart[]): ImageData[] {
     });
 }
 
-export function normalizeMessages(messages: OcMessage[]): Item[] {
+// The id of a user message's item: casm's own id for the prompts it sent, so
+// history and the live turn (which shows casm's id) agree. From the alias casm
+// recorded when sending (`aliases`, this process), the id casm put in the text
+// part's metadata, or for casm before native ids, msg_ + the id's hex digits.
+export function userItemId(m: OcMessage, aliases?: ReadonlyMap<string, string>): string {
+  const meta = m.parts.find((p) => p.type === "text" && typeof p.metadata?.casmItemId === "string")?.metadata?.casmItemId as string | undefined;
+  const legacy = /^msg_([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$/.exec(m.info.id);
+  return aliases?.get(m.info.id) ?? meta ?? (legacy ? legacy.slice(1).join("-") : m.info.id);
+}
+
+export function normalizeMessages(messages: OcMessage[], aliases?: ReadonlyMap<string, string>): Item[] {
   const out: Item[] = [];
   // Repeated items (a turn's plan or retry notice) stay at their first position with the latest content.
   const at = new Map<string, number>();
@@ -265,7 +277,7 @@ export function normalizeMessages(messages: OcMessage[]): Item[] {
         .join("\n")
         .trim();
       const images = userImages(m.parts);
-      if (text || images.length) push({ kind: "user", id: m.info.id, text, ...(images.length ? { images } : {}) });
+      if (text || images.length) push({ kind: "user", id: userItemId(m, aliases), text, ...(images.length ? { images } : {}) });
       for (const p of m.parts) if (p.type === "compaction") push(normalizePart(p)!);
       continue;
     }
@@ -472,6 +484,8 @@ export class OpencodeServer {
   private refs = 0;
   private idleTimer: NodeJS.Timeout | null = null;
   private windows: Promise<Map<string, number>> | null = null;
+  // casm item id by native user message id, for prompts sent from this process.
+  readonly aliases = new Map<string, string>();
   // Per-session state for casm's plugin; private to this user (mkdtemp is 0700).
   stateDir: string | null = null;
 
@@ -614,6 +628,11 @@ export class OpencodeServer {
     const p = this.proc;
     this.died("opencode serve stopped");
     p?.kill();
+  }
+
+  alias(nativeId: string, itemId: string) {
+    this.aliases.set(nativeId, itemId);
+    if (this.aliases.size > 5000) this.aliases.delete(this.aliases.keys().next().value!);
   }
 
   linkChild(child: string, parent: string) {
@@ -946,6 +965,7 @@ class OpencodeSession implements ProviderSession {
       .then(async (id) => {
         this.busy = true;
         const messageID = messageId();
+        this.server.alias(messageID, itemId);
         this.emit({ type: "userMessageId", itemId, nativeId: messageID });
         const slash = parseSlash(text);
         if (slash) {
@@ -965,7 +985,7 @@ class OpencodeSession implements ProviderSession {
         }
         return this.server.request("POST", `/session/${id}/prompt_async`, cwd, {
           messageID,
-          parts: [...(text.trim() ? [{ type: "text", text }] : []), ...files],
+          parts: [...(text.trim() ? [{ type: "text", text, metadata: { casmItemId: itemId } }] : []), ...files],
           model: modelRef(config.model),
           agent: config.mode,
           variant: config.effort,
@@ -1061,7 +1081,7 @@ export function opencodeProvider(server = new OpencodeServer()): Provider {
     async history(sessionId, cwd) {
       const release = await server.acquire();
       try {
-        return normalizeMessages(await server.request<OcMessage[]>("GET", `/session/${sessionId}/message`, cwd));
+        return normalizeMessages(await server.request<OcMessage[]>("GET", `/session/${sessionId}/message`, cwd), server.aliases);
       } finally {
         release();
       }

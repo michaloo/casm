@@ -26,6 +26,7 @@ import "./style.css";
 // Same threshold the server uses for a slow peer probe.
 const SLOW_HOST_MS = 2000;
 const noModels: ModelInfo[] = [];
+const coarsePointer = matchMedia("(pointer: coarse)");
 // Memoized: transcript deltas re-render App often, and the sidebar can hold 100+ agents.
 const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, online, models, onChoose }: {
   agent: Agent; host: string; depth: number; status: string; selected: boolean; online: boolean; models: ModelInfo[];
@@ -69,6 +70,23 @@ function App() {
     update();
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    // iOS keeps the layout viewport under the keyboard; size the app to what is visible.
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const root = document.documentElement.style;
+    const update = () => {
+      root.setProperty("--viewport-height", `${viewport.height}px`);
+      root.setProperty("--viewport-top", `${viewport.offsetTop}px`);
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
   }, []);
   const [path, setPath] = useState(location.pathname);
   const [routeError, setRouteError] = useState("");
@@ -523,6 +541,7 @@ function App() {
       <main className="chat">
         <header>
           <button className="mobile" onClick={() => showSidebar(true)}>
+            <span className="menu-glyph" aria-hidden="true" />
             Agents
           </button>
           <div>
@@ -777,6 +796,8 @@ function App() {
                   if (
                     e.key === "Enter" &&
                     !e.shiftKey &&
+                    // Touch keyboards have no Shift+Enter: Return adds a line, Send sends.
+                    !coarsePointer.matches &&
                     !e.nativeEvent.isComposing
                   ) {
                     e.preventDefault();

@@ -1352,31 +1352,62 @@ textarea::placeholder {
   }
 }
 @media (max-width: 650px) {
+  /* Phones: 16px text and controls (iOS zooms into anything smaller), 44px
+     touch targets, safe areas for the notch and home bar. */
+  :root {
+    font-size: 16px;
+  }
+  .app {
+    position: fixed;
+    top: var(--viewport-top, 0px);
+    left: 0;
+    width: 100%;
+    height: var(--viewport-height, 100dvh);
+  }
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  button,
+  select,
+  input:not([type="checkbox"], [type="radio"]) {
+    min-height: 44px;
+  }
   aside {
     display: none;
     position: absolute;
     inset: 0;
     z-index: 5;
     width: 100%;
+    border-right: 0;
   }
   aside.open {
     display: flex;
   }
   .mobile {
-    display: block;
-    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 0 14px;
+  }
+  .menu-glyph {
+    width: 16px;
+    height: 12px;
+    border-block: 2px solid currentColor;
+    background: linear-gradient(currentColor, currentColor) center / 100% 2px no-repeat;
   }
   header {
-    padding: 10px 14px;
-    min-height: 66px;
+    padding: max(8px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
+    min-height: 60px;
+  }
+  aside header {
+    padding-left: max(18px, env(safe-area-inset-left));
   }
   .chat header strong {
-    display: block;
-    max-width: 225px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: 14px;
+    font-size: 16px;
   }
   .chat > header {
     justify-content: flex-start;
@@ -1386,31 +1417,120 @@ textarea::placeholder {
   }
   .chat > header .mobile {
     flex-shrink: 0;
-    min-height: 36px;
   }
   .chat header small {
-    font-size: 11px;
+    font-size: 13px;
+  }
+  .chat > header > .error {
+    flex-shrink: 0;
+    font-size: 13px;
+  }
+  aside nav {
+    padding: 0 max(10px, env(safe-area-inset-right)) 24px max(10px, env(safe-area-inset-left));
+  }
+  footer {
+    padding: 8px max(16px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    font-size: 14px;
+  }
+  footer button {
+    font-size: 14px;
+    padding: 0 14px;
+  }
+  .host-trigger {
+    min-height: 54px;
+  }
+  .host-name {
+    font-size: 16px;
+  }
+  .host-label small,
+  nav .agent small {
+    font-size: 13px;
+  }
+  nav .project-toggle {
+    width: 40px;
+    height: 44px;
+  }
+  nav .project {
+    font-size: 15px;
+  }
+  .project-new {
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
+  }
+  nav .agent {
+    min-height: 56px;
+    margin-left: 32px;
+    width: calc(100% - 32px);
+    font-size: 16px;
+    contain-intrinsic-size: auto 58px;
+  }
+  .sidebar-empty {
+    font-size: 14px;
+  }
+  .sidebar-empty.project-empty {
+    margin-left: 44px;
+    font-size: 13px;
+  }
+  .host-panel {
+    font-size: 15px;
+  }
+  .host-panel small,
+  .host-provider-usage small,
+  .schedule-list small,
+  [role="menuitem"] small {
+    font-size: 13px;
+  }
+  .host-panel-back,
+  .host-panel-close {
+    width: 44px;
+    height: 44px;
+  }
+  .host-panel-toolbar button,
+  .schedule-actions button {
+    font-size: 14px;
+    padding: 0 12px;
+  }
+  .switch {
+    min-height: 0;
+  }
+  .schedule-list small {
+    padding-left: 0;
+  }
+  .schedule-head {
+    flex-wrap: wrap;
+  }
+  .schedule-form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .schedule-form label {
+    font-size: 13px;
   }
   .item {
-    padding: 14px 18px;
-    font-size: 14px;
+    padding: 14px 16px;
+    font-size: 16px;
+    line-height: 1.6;
   }
   .user .message-content {
     padding: 11px 14px;
   }
+  .message-role {
+    font-size: 13px;
+  }
   .tool {
-    padding-top: 5px;
-    padding-bottom: 5px;
+    padding-top: 4px;
+    padding-bottom: 4px;
   }
   .tool summary {
-    padding: 8px 9px;
-    gap: 6px;
+    min-height: 44px;
+    padding: 8px 10px;
+    gap: 8px;
   }
   .tool summary strong {
-    font-size: 11px;
+    font-size: 14px;
   }
   .tool-argument {
-    font-size: 10px;
+    font-size: 13px;
   }
   .tool summary time {
     display: none;
@@ -1422,91 +1542,141 @@ textarea::placeholder {
     padding: 0 8px 8px;
   }
   .tool-body pre {
-    font-size: 11px;
+    font-size: 13px;
   }
   .tool .status {
-    font-size: 9px;
-    padding: 2px 4px;
+    font-size: 12px;
+    padding: 2px 6px;
   }
   .thinking details,
   .plan p {
-    font-size: 12px;
+    font-size: 15px;
   }
   .thinking summary {
+    min-height: 44px;
     padding-inline: 10px;
-    gap: 6px;
+    gap: 8px;
   }
   .thinking .prose {
     margin-inline: 10px;
   }
   .subagent summary {
+    min-height: 44px;
     padding: 9px;
-    gap: 6px;
+    gap: 8px;
   }
   .row-kind {
     display: none;
   }
   .composer {
-    width: calc(100% - 24px);
-    margin: 8px auto max(12px, env(safe-area-inset-bottom));
-    padding: 10px;
-    border-radius: 12px;
+    width: calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right));
+    margin: 6px auto max(8px, env(safe-area-inset-bottom));
+    padding: 8px 10px;
+    border-radius: 14px;
   }
-  .actions {
-    gap: 5px;
-  }
-  .actions small {
-    font-size: 9px;
-    max-width: 112px;
-    line-height: 1.5;
-  }
-  .actions button {
-    padding: 6px 8px;
-    font-size: 11px;
+  .pickers {
+    gap: 6px;
+    margin-bottom: 4px;
   }
   .pickers select {
-    font-size: 10px;
-    padding: 5px 6px;
+    flex: 1 1 0;
+    max-width: none;
+    min-height: 40px;
+    padding: 4px 8px;
+    font-size: 16px !important;
+  }
+  .composer textarea {
+    min-height: 48px;
+    max-height: 30dvh;
+    padding: 8px 4px;
+    line-height: 1.45;
+    resize: none;
+  }
+  .actions {
+    gap: 8px;
+  }
+  .actions small {
+    display: none;
+  }
+  .actions button {
+    padding: 0 18px;
+    font-size: 16px;
+  }
+  .pending {
+    max-height: 45%;
   }
   .pending-row {
-    padding: 8px 14px;
-    font-size: 11px;
+    padding: 6px max(14px, env(safe-area-inset-right)) 6px max(14px, env(safe-area-inset-left));
+    font-size: 15px;
+  }
+  .pending-row > span {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden;
+  }
+  .pending-row small {
+    font-size: 13px;
   }
   .pending-row button {
-    font-size: 10px;
-    padding: 5px 7px;
+    font-size: 14px;
+    padding: 0 12px;
   }
   .card {
-    width: calc(100% - 24px);
+    width: calc(100% - 16px);
     padding: 12px;
-    margin: 10px auto;
+    margin: 8px auto;
+  }
+  .card strong {
+    font-size: 15px;
+  }
+  .card button {
+    font-size: 15px;
+    padding: 0 14px;
+    margin-top: 6px;
+  }
+  .card pre {
+    font-size: 13px;
+  }
+  .banner {
+    padding: 6px 14px;
+    font-size: 14px;
   }
   .code-block pre {
-    font-size: 11px;
+    font-size: 13px;
     padding: 12px;
     max-height: 350px;
   }
   .code-toolbar {
-    padding: 5px 8px;
+    padding: 2px 8px;
+  }
+  .code-toolbar button {
+    min-height: 36px;
   }
   .table-scroll th,
   .table-scroll td {
     padding: 8px 10px;
-    min-width: 105px;
-    font-size: 11px;
+    min-width: 96px;
+    max-width: 70vw;
+    font-size: 14px;
+    overflow-wrap: normal;
   }
   .notice {
     gap: 8px;
   }
   .latest {
-    right: 14px;
+    right: 12px;
     bottom: 10px;
+    font-size: 14px;
   }
   .prose h1 {
-    font-size: 1.5em;
+    font-size: 1.45em;
   }
   .prose h2 {
     font-size: 1.25em;
+  }
+  .login form {
+    padding: 24px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

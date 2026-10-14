@@ -166,7 +166,14 @@ final class ComposerLogicTests: XCTestCase {
         let ring = ContextRing(usage: Usage(model: "haiku", contextTokens: 34200, contextWindow: 200000, inputTokens: nil, outputTokens: nil, costUsd: 0.0123))
         // Numbers and currency follow the user's locale, so only check the stable parts.
         XCTAssertTrue(ring.details.contains("tokens (17%)"), ring.details)
-        XCTAssertTrue(ring.details.contains("Model haiku"), ring.details)
-        XCTAssertTrue(ring.details.contains("Cost") && ring.details.contains("0123"), ring.details)
+        XCTAssertFalse(ring.details.contains("Model") || ring.details.contains("Cost"), "model is in the picker; limits replace cost")
+        let limits = try! JSONDecoder().decode(ProviderLimits.self, from: Data("""
+            {"provider": "claude", "updatedAt": "2026-10-14T08:00:00Z", "windows": [
+              {"id": "five_hour", "label": "5-hour", "usedPercent": 44, "resetsAt": "2026-10-14T10:30:00Z"},
+              {"id": "seven_day", "label": "weekly"}]}
+            """.utf8))
+        let withLimits = ContextRing(usage: ring.usage, limits: limits).details
+        XCTAssertTrue(withLimits.contains("5-hour: 44% used, resets"), withLimits)
+        XCTAssertTrue(withLimits.contains("Weekly: not reported"), withLimits)
     }
 }

@@ -122,7 +122,7 @@ struct Composer: View {
                     }
                     Spacer(minLength: 0)
                     // M4: the toolbar's Working badge is the one busy cue (and Stop shows here).
-                    ContextRing(usage: chat.usage)
+                    ContextRing(usage: chat.usage, limits: chat.provider.flatMap { chat.host?.limits[$0] })
                     // M5: dictation and voice mode come back with voice (phase 2); no dead buttons until then.
                     sendOrInterrupt
                 }

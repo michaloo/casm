@@ -198,6 +198,8 @@ struct SuggestionRow: View {
 /// How full the agent's context is, like Paseo's ring; details in the tooltip (or a tap on iOS).
 struct ContextRing: View {
     let usage: Usage?
+    /// The provider's subscription windows on this host, listed under the context.
+    var limits: ProviderLimits? = nil
     @State private var showDetails = false
 
     var body: some View {
@@ -249,8 +251,14 @@ struct ContextRing: View {
                 lines.append("\(Int(used).formatted()) tokens in context")
             }
         }
-        if let cost = usage.costUsd { lines.append("Cost \(cost.formatted(.currency(code: "USD").precision(.fractionLength(2...4))))") }
-        if let model = usage.model { lines.append("Model \(model)") }
+        // Limits rather than cost and model: the model is in the picker, and on a subscription the
+        // windows are what runs out.
+        for window in limits?.windows ?? [] {
+            let name = ProviderUsage.sentenceCase(window.label ?? window.shortLabel)
+            let used = window.usedPercent.map { "\(Int($0.rounded()))% used" } ?? "not reported"
+            let resets = ISOTime.parse(window.resetsAt).map { ", resets \(ISOTime.describe($0))" } ?? ""
+            lines.append("\(name): \(used)\(resets)")
+        }
         return lines.joined(separator: "\n")
     }
 }

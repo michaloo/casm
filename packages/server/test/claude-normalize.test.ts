@@ -299,7 +299,7 @@ test("history follows the current branch across compaction", () => {
   const lines = parseLines(jsonl + "\n{broken");
   assert.deepEqual(
     chain(lines).map((l) => l.uuid),
-    ["u1", "a2", "lc0", "lc1", "cb", "cs", "cv", "cmd", "out"],
+    ["u1", "at1", "a2", "lc0", "lc1", "cb", "cs", "cv", "cmd", "out"],
   );
   assert.deepEqual(historyItems(lines), [
     { kind: "user", id: "u1", text: "Run the loop", images: undefined },
@@ -430,4 +430,20 @@ test("Claude retains the tool ID when a native task resumes without repeating to
   n.entry({ ...taskStart, subtype: "task_notification", status: "completed" });
   assert.equal(child(n.entry({ ...taskStart, run_id: "run-002" })).id, "tool-1");
   assert.equal(child(n.entry({ ...taskStart, run_id: "run-002", subtype: "task_notification", status: "failed" })).id, "tool-1");
+});
+
+test("a message steered into a running turn is in history where Claude absorbed it", () => {
+  const line = (uuid: string, parentUuid: string | null, rest: Record<string, unknown>) => JSON.stringify({ uuid, parentUuid, isSidechain: false, ...rest });
+  const text = [
+    line("u1", null, { type: "user", message: { role: "user", content: "Sleep, then say ORIGINAL" } }),
+    line("a1", "u1", { type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "text", text: "Sleeping" }] } }),
+    // As stored by Claude Code 2.x for a prompt sent while the turn runs.
+    line("q1", "a1", { type: "attachment", attachment: { type: "queued_command", prompt: "Say STEERED instead", commandMode: "prompt" } }),
+    line("x1", "q1", { type: "attachment", attachment: { type: "deferred_tools_delta", addedNames: [] } }),
+    line("a2", "x1", { type: "assistant", message: { id: "m2", role: "assistant", content: [{ type: "text", text: "STEERED" }] } }),
+  ].join("\n");
+  assert.deepEqual(
+    historyItems(parseLines(text)).map((i) => [i.kind, "text" in i ? i.text : ""]),
+    [["user", "Sleep, then say ORIGINAL"], ["assistant", "Sleeping"], ["user", "Say STEERED instead"], ["assistant", "STEERED"]],
+  );
 });

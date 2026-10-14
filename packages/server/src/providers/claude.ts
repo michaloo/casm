@@ -148,6 +148,7 @@ export type Entry = {
   compact_metadata?: { trigger?: string; pre_tokens?: number; post_tokens?: number };
   retryAttempt?: number;
   maxRetries?: number;
+  attachment?: { type?: string; prompt?: unknown; commandMode?: string };
 };
 
 type TaskCall = { tool: "TaskCreate" | "TaskUpdate" | "TodoWrite"; input: Record<string, unknown> };
@@ -174,6 +175,12 @@ export class Normalizer {
   entry<E extends Entry>(e: E): Item[] {
     if (e.parent_tool_use_id) return [];
     if (e.type === "system") return this.system(e);
+    // A message sent mid-turn (steer) is stored as a queued_command attachment.
+    if (e.type === "attachment") {
+      const a = e.attachment;
+      if (a?.type !== "queued_command" || a.commandMode !== "prompt" || typeof a.prompt !== "string" || !e.uuid) return [];
+      return a.prompt.trim() ? [{ kind: "user", id: e.uuid, text: a.prompt }] : [];
+    }
     const m = e.message as { role?: string; content?: unknown; model?: string } | undefined;
     if (!m || !e.uuid) return [];
     const uuid = e.uuid;
@@ -488,7 +495,7 @@ export function parseLines(text: string): Line[] {
   return out;
 }
 
-const CHAIN_TYPES = new Set(["user", "assistant", "system"]);
+const CHAIN_TYPES = new Set(["user", "assistant", "system", "attachment"]);
 
 // The current conversation: walk parent links back from the newest entry, so
 // abandoned branches are left out; compaction boundaries link to the

@@ -2129,3 +2129,13 @@ nav .project-settings-trigger:hover, nav .project-settings-trigger:focus-visible
 .project-info dt { color: var(--muted); margin-top: 16px; }
 .project-info dd { margin: 4px 0 16px; overflow-wrap: anywhere; }
 @media (max-width: 650px) { nav .project-settings-trigger { flex-basis: 44px; width: 44px; } }
+.provider-icon-retired {
+  background: none;
+  font-size: 11px;
+  line-height: 15px;
+  text-align: center;
+  opacity: 0.6;
+}
+.composer-unavailable {
+  color: var(--muted);
+}

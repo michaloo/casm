@@ -9,7 +9,7 @@
 #
 # The installed `casm` launcher forwards `casm service ...` here.
 # The server reads $CASM_HOME/config.json (default ~/.casm-ng) for "listen" and "name".
-# PATH is captured at install time so the server finds claude/codex/pi/opencode; re-run
+# PATH is captured at install time so the server finds claude/codex/pi; re-run
 # `install` after moving those or switching Node versions.
 set -euo pipefail
 

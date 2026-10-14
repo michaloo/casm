@@ -42,8 +42,7 @@
                         "enum": [
                           "claude",
                           "codex",
-                          "pi",
-                          "opencode"
+                          "pi"
                         ]
                       },
                       "path": {
@@ -124,8 +123,7 @@
                   "enum": [
                     "claude",
                     "codex",
-                    "pi",
-                    "opencode"
+                    "pi"
                   ]
                 },
                 "path": {
@@ -188,8 +186,7 @@
               "enum": [
                 "claude",
                 "codex",
-                "pi",
-                "opencode"
+                "pi"
               ]
             }
           }
@@ -388,8 +385,7 @@
             "enum": [
               "claude",
               "codex",
-              "pi",
-              "opencode"
+              "pi"
             ]
           },
           "refresh": {
@@ -582,8 +578,7 @@
                           "enum": [
                             "claude",
                             "codex",
-                            "pi",
-                            "opencode"
+                            "pi"
                           ]
                         },
                         "config": {
@@ -804,8 +799,7 @@
                     "enum": [
                       "claude",
                       "codex",
-                      "pi",
-                      "opencode"
+                      "pi"
                     ]
                   },
                   "config": {
@@ -977,8 +971,7 @@
                     "enum": [
                       "claude",
                       "codex",
-                      "pi",
-                      "opencode"
+                      "pi"
                     ]
                   },
                   "config": {
@@ -1196,8 +1189,7 @@
                     "enum": [
                       "claude",
                       "codex",
-                      "pi",
-                      "opencode"
+                      "pi"
                     ]
                   },
                   "config": {
@@ -1367,8 +1359,7 @@
                     "enum": [
                       "claude",
                       "codex",
-                      "pi",
-                      "opencode"
+                      "pi"
                     ]
                   },
                   "config": {
@@ -1679,8 +1670,7 @@
             "enum": [
               "claude",
               "codex",
-              "pi",
-              "opencode"
+              "pi"
             ]
           },
           "refresh": {
@@ -1702,8 +1692,7 @@
                   "enum": [
                     "claude",
                     "codex",
-                    "pi",
-                    "opencode"
+                    "pi"
                   ]
                 },
                 "plan": {
@@ -2184,8 +2173,7 @@
                   "enum": [
                     "claude",
                     "codex",
-                    "pi",
-                    "opencode"
+                    "pi"
                   ]
                 },
                 "scope": {
@@ -2279,6 +2267,9 @@
                     "pi",
                     "opencode"
                   ]
+                },
+                "unavailable": {
+                  "type": "string"
                 },
                 "cwd": {
                   "type": "string"
@@ -2506,6 +2497,9 @@
               "opencode"
             ]
           },
+          "unavailable": {
+            "type": "string"
+          },
           "cwd": {
             "type": "string"
           },
@@ -2708,8 +2702,7 @@
             "enum": [
               "claude",
               "codex",
-              "pi",
-              "opencode"
+              "pi"
             ]
           },
           "name": {
@@ -2858,6 +2851,9 @@
               "pi",
               "opencode"
             ]
+          },
+          "unavailable": {
+            "type": "string"
           },
           "cwd": {
             "type": "string"
@@ -3127,6 +3123,9 @@
               "pi",
               "opencode"
             ]
+          },
+          "unavailable": {
+            "type": "string"
           },
           "cwd": {
             "type": "string"
@@ -6557,6 +6556,9 @@
                 "opencode"
               ]
             },
+            "unavailable": {
+              "type": "string"
+            },
             "cwd": {
               "type": "string"
             },
@@ -6827,8 +6829,7 @@
               "enum": [
                 "claude",
                 "codex",
-                "pi",
-                "opencode"
+                "pi"
               ]
             },
             "plan": {
@@ -6993,8 +6994,7 @@
                       "enum": [
                         "claude",
                         "codex",
-                        "pi",
-                        "opencode"
+                        "pi"
                       ]
                     },
                     "config": {

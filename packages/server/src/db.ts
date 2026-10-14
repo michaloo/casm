@@ -2,9 +2,9 @@
 // client tokens, peers and message sender metadata. Transcripts live in each provider's own store.
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type { Agent, AgentConfig, AgentParent, MessageSender, ImageData, Project, ProviderId, ProviderLimits, Schedule } from "@casm/protocol";
+import { ProviderId, type Agent, type AgentConfig, type AgentParent, type AgentProviderId, type MessageSender, type ImageData, type Project, type ProviderLimits, type Schedule } from "@casm/protocol";
 
-export type StoredAgent = Omit<Agent, "status" | "deferred" | "pending">;
+export type StoredAgent = Omit<Agent, "status" | "deferred" | "pending" | "unavailable">;
 
 export type PendingReason = "queued" | "limit" | "failed";
 
@@ -158,7 +158,7 @@ function toAgent(r: Row): StoredAgent {
     id: r.id as string,
     projectId: r.project_id as string,
     name: r.name as string,
-    provider: r.provider as ProviderId,
+    provider: r.provider as AgentProviderId,
     cwd: r.cwd as string,
     config: JSON.parse(r.config as string),
     nativeSessionId: (r.native_session_id as string | null) ?? null,
@@ -429,7 +429,9 @@ export class Store {
   // Persist the full window snapshot: expiry and recovery use the same policy
   // before and after restart, including synthetic limits without account data.
   providerAvailability(): ProviderLimits[] {
-    return this.db.prepare("SELECT limits FROM provider_availability").all().map((r) => JSON.parse(r.limits as string));
+    // Rows of retired providers stay in old databases; nothing reads them now.
+    return this.db.prepare("SELECT limits FROM provider_availability").all().map((r) => JSON.parse(r.limits as string) as ProviderLimits)
+      .filter((l) => ProviderId.safeParse(l.provider).success);
   }
 
   saveProviderAvailability(limits: ProviderLimits) {

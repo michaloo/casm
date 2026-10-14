@@ -2,6 +2,7 @@
 // is opened on the first send and the status is derived from it.
 import { randomBytes, randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
+import { retiredProvider, type AgentProviderId } from "@casm/protocol";
 import type {
   Agent,
   AgentConfig,
@@ -101,7 +102,7 @@ export class AgentManager {
   private live = new Map<string, Live>();
   private catalogs = new Map<ProviderId, { at: number; catalog: Promise<Catalog> }>();
   // Latest account limits per provider, as sessions or queries reported them.
-  private limitsSeen = new Map<ProviderId, ProviderLimits>();
+  private limitsSeen = new Map<AgentProviderId, ProviderLimits>();
   private limitsQueried = new Set<ProviderId>();
   // Per-agent MCP bearer tokens, minted when a session opens. Memory only.
   private mcpTokens = new Map<string, string>();
@@ -134,8 +135,8 @@ export class AgentManager {
       if (pending.reason !== "limit" || !pending.notBefore) continue;
       const provider = store.getAgent(pending.agentId)?.provider;
       const until = Date.parse(pending.notBefore);
-      if (!provider || this.limitsSeen.has(provider) || !(until > Date.now())) continue;
-      legacy.set(provider, Math.max(legacy.get(provider) ?? 0, until));
+      if (!provider || retiredProvider(provider) || this.limitsSeen.has(provider) || !(until > Date.now())) continue;
+      legacy.set(provider as ProviderId, Math.max(legacy.get(provider as ProviderId) ?? 0, until));
     }
     for (const [provider, until] of legacy) {
       const limits: ProviderLimits = { provider, updatedAt: new Date().toISOString(),
@@ -228,8 +229,10 @@ export class AgentManager {
     const pending = this.store.listPending(a.id);
     const limit = pending.find((m) => m.reason === "limit" && m.notBefore);
     const times = pending.flatMap((m) => (m.notBefore ? [m.notBefore] : [])).sort();
+    const unavailable = retiredProvider(a.provider);
     return {
       ...a,
+      ...(unavailable ? { unavailable } : {}),
       status: this.status(a.id),
       deferred: limit ? { until: limit.notBefore!, reason: limit.note ?? "usage limit" } : null,
       pending: {
@@ -394,8 +397,10 @@ export class AgentManager {
     });
   }
 
-  private provider(id: ProviderId): Provider {
-    const p = this.providers.get(id);
+  private provider(id: AgentProviderId): Provider {
+    const retired = retiredProvider(id);
+    if (retired) throw new RpcError(1003, retired);
+    const p = this.providers.get(id as ProviderId);
     if (!p) throw new RpcError(1003, `provider "${id}" is not available on this host`);
     return p;
   }
@@ -451,6 +456,7 @@ export class AgentManager {
   ): { queued: boolean; deferredUntil?: string; pendingId?: string } {
     const a = this.agent(id);
     if (a.archivedAt) throw new RpcError(1003, "agent is archived");
+    this.provider(a.provider);
     if (!prompt.text.trim() && !prompt.images?.length) throw new RpcError(-32602, "nothing to send");
     const l = this.liveFor(id);
     if (prompt.id) {
@@ -495,6 +501,7 @@ export class AgentManager {
   shell(id: string, command: string) {
     const a = this.agent(id);
     if (a.archivedAt) throw new RpcError(1003, "agent is archived");
+    this.provider(a.provider);
     const l = this.liveFor(id);
     if (l.turnId) throw new RpcError(1002, "the agent is busy; run the command when it is idle");
     this.openSession(a, l);
@@ -883,7 +890,7 @@ export class AgentManager {
   }
 
   // When the provider's limits say it's blocked, the time it resets (or a guess).
-  private exhaustedUntil(provider: ProviderId): string | null {
+  private exhaustedUntil(provider: AgentProviderId): string | null {
     const seen = this.limitsSeen.get(provider);
     const times = seen?.windows.filter((w) => w.status === "exhausted").map((w) =>
       w.resetsAt ? Date.parse(w.resetsAt) : Date.parse(seen.updatedAt) + 15 * 60_000,
@@ -947,10 +954,11 @@ export class AgentManager {
     for (const agentId of new Set(this.store.listPending().map((m) => m.agentId))) this.runNext(agentId, now);
   }
 
-  private recordLimits(provider: ProviderId, update: Omit<ProviderLimits, "provider" | "updatedAt">, authoritative = false) {
+  // Only live sessions and installed providers report limits, never a retired provider.
+  private recordLimits(provider: AgentProviderId, update: Omit<ProviderLimits, "provider" | "updatedAt">, authoritative = false) {
     const prev = this.limitsSeen.get(provider);
     const limits: ProviderLimits = {
-      provider,
+      provider: provider as ProviderId,
       plan: update.plan ?? prev?.plan,
       windows: mergeWindows(authoritative ? (prev?.windows ?? []).filter((w) => update.windows.some((fresh) => fresh.id === w.id)) : prev?.windows ?? [], update.windows),
       updatedAt: new Date().toISOString(),
@@ -998,6 +1006,7 @@ export class AgentManager {
 
   async subagentHistory(id: string, subagentId: string, limit = 500): Promise<Item[]> {
     const a = this.agent(id);
+    if (retiredProvider(a.provider)) return [];
     const p = this.provider(a.provider);
     if (!a.nativeSessionId || !p.subagentHistory) return [];
     return (await p.subagentHistory(a.nativeSessionId, a.cwd, subagentId)).slice(-limit);
@@ -1007,12 +1016,13 @@ export class AgentManager {
     const a = this.agent(id);
     const live = this.live.get(id)?.lastUsage;
     if (live) return live;
-    if (!a.nativeSessionId) return null;
+    if (!a.nativeSessionId || retiredProvider(a.provider)) return null;
     return this.provider(a.provider).usage(a.nativeSessionId, a.cwd);
   }
 
   commands(id: string, refresh = false): Promise<Command[]> {
     const a = this.agent(id);
+    if (retiredProvider(a.provider)) return Promise.resolve([]);
     const key = JSON.stringify([a.provider, a.cwd]);
     const cached = this.commandCache.get(key);
     if (cached && (cached.pending || (!refresh && Date.now() - cached.at < 5 * 60_000))) return cached.promise;
@@ -1034,6 +1044,9 @@ export class AgentManager {
 
   async history(id: string, before?: number, limit = 200): Promise<{ items: Item[]; start: number; total: number }> {
     const a = this.agent(id);
+    const retired = retiredProvider(a.provider);
+    // Only the provider could read its transcript; say so instead of failing.
+    if (retired) return { items: [{ kind: "notice", id: "provider-retired", level: "warning", text: `${retired}. This agent's history is unavailable here and it can't take messages.` }], start: 0, total: 1 };
     if (!a.nativeSessionId) return { items: [], start: 0, total: 0 };
     const provider = this.provider(a.provider);
     const aliases = await provider.historyAliases?.(a.nativeSessionId, a.cwd) ?? {};

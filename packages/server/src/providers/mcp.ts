@@ -14,11 +14,3 @@ export function codexMcpServer(s: Record<string, unknown>): McpServer {
   };
 }
 
-export function opencodeMcpServers(servers: Record<string, { status: string; error?: string }>): McpServer[] {
-  return Object.entries(servers).map(([name, s]) => ({
-    name, status: s.status === "needs_auth" || s.status === "needs_client_registration" ? "needs-auth" :
-      s.status === "connected" || s.status === "disabled" || s.status === "failed" ? s.status : "pending",
-    // GET /mcp does not expose a tool inventory. Do not present zero as a known count.
-    tools: 0, toolsKnown: false, ...(s.error ? { error: s.error } : {}),
-  }));
-}

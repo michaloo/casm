@@ -7,8 +7,8 @@ and a primary web client. The current product scope and commands are in the
 
 ## Scope
 
-casm runs and coordinates Claude Code, Codex, pi and OpenCode through their
-native protocols. It manages messages, steering, queues, subagents, permission
+casm runs and coordinates Claude Code, Codex and pi through their native
+protocols. pi is the open/local provider. It manages messages, steering, queues, subagents, permission
 and question requests, schedules, and provider limits.
 
 It does not sandbox or containerize agents, import sessions (including Paseo
@@ -29,7 +29,7 @@ Web client / casm CLI / other RPC clients
                   │ authenticated WebSocket, JSON-RPC
               casm serve ── peer casm servers
                   │
-       Claude SDK / Codex app-server / pi RPC / OpenCode HTTP + SSE
+       Claude SDK / Codex app-server / pi RPC
 ```
 
 The server and CLI run TypeScript directly on Node 24+. Linux uses a systemd
@@ -91,6 +91,12 @@ streaming, permission/question translation and catalog/usage queries. Features
 vary by provider; unavailable information must remain explicit. The server's
 runtime `NODE_ENV` is removed from inherited provider environments so it cannot
 change agent builds or dependency installation.
+
+OpenCode support was removed; its adapter is archived on the `opencode` branch.
+Agents stored with a retired provider stay listed with `Agent.unavailable` set.
+Their history returns one notice instead of a transcript, and sends, shell
+commands and MCP controls are refused with that reason. They are never moved to
+another provider; they can still be renamed, archived or deleted.
 
 Agent-to-agent orchestration is available through the CLI and opt-in per-agent
 MCP tools. MCP credentials identify their calling agent. A peer child executes

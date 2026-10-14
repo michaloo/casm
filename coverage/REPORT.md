@@ -15,7 +15,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 |---|---|--:|--:|--:|--:|--:|--:|
 | Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 50 | 61 | 31 | 0 | 62% |
 | Codex (app-server) | codex-cli 0.160.1 | 225 | 64 | 112 | 49 | 0 | 57% |
-| OpenCode (serve) | opencode 1.19.0 | 147 | 35 | 66 | 46 | 0 | 43% |
 | pi (RPC mode) | pi-coding-agent 1.1.0 | 102 | 53 | 26 | 23 | 0 | 70% |
 | ACP (Agent Client Protocol) | @agentclientprotocol/sdk 1.8.0 | 68 | 33 | 24 | 11 | 0 | 75% |
 
@@ -23,61 +22,16 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 
 | Theme | Gaps |
 |---|--:|
-| Session control (fork, rewind, compact, rename, list) | 42 |
-| Agent extras (commands, skills, MCP, hooks, subagents) | 38 |
-| Rich tool content (diffs, terminals, streaming output) | 17 |
-| Input content (images, files, mentions) | 16 |
-| Interaction (permissions, questions, dialogs) | 15 |
-| Status, retries, warnings and errors | 12 |
-| Live config changes (model, mode, effort mid-session) | 12 |
-| Usage, cost and context window | 4 |
+| Agent extras (commands, skills, MCP, hooks, subagents) | 28 |
+| Session control (fork, rewind, compact, rename, list) | 25 |
+| Input content (images, files, mentions) | 15 |
+| Rich tool content (diffs, terminals, streaming output) | 14 |
+| Status, retries, warnings and errors | 10 |
+| Live config changes (model, mode, effort mid-session) | 8 |
+| Interaction (permissions, questions, dialogs) | 7 |
+| Usage, cost and context window | 3 |
 | Rich assistant output (images, files, citations) | 2 |
 | Plans and todos | 2 |
-
-### Session control (fork, rewind, compact, rename, list)
-
-- **claude** `query:rewindFiles`: No checkpoint rewind (file checkpointing isn't enabled either).
-- **codex** `notification:thread/name/updated`: Thread titles are not surfaced (Agent.name is casm's own).
-- **codex** `notification:thread/reverted`: Reverts made elsewhere are not reflected until history is re-read.
-- **codex** `request:thread/archive`: agent.update archived doesn't archive the native thread.
-- **codex** `request:thread/delete`: agent.delete doesn't delete the native thread.
-- **codex** `request:thread/fork`: No fork.
-- **codex** `request:thread/list`: Native threads can't be listed or imported as agents.
-- **codex** `request:thread/metadata/update`: Thread metadata is not exposed.
-- **codex** `request:thread/name/set`: Rename isn't propagated to the native thread.
-- **codex** `request:thread/revert`: No undo/revert of turns.
-- **codex** `request:thread/unarchive`: agent.update archived doesn't unarchive the native thread.
-- **opencode** `event:message.part.removed`: Removed parts (e.g. after revert) stay in the client until history is re-read.
-- **opencode** `event:message.removed`: Removed messages (e.g. after revert) stay in the client until history is re-read.
-- **opencode** `event:session.next.moved`: Session moves between directories are not reflected in the agent cwd.
-- **opencode** `event:session.next.revert.cleared`: No revert.
-- **opencode** `event:session.next.revert.committed`: No revert.
-- **opencode** `event:session.next.revert.staged`: No revert.
-- **opencode** `event:session.updated`: Title and other session info changes are not surfaced.
-- **opencode** `op:part.delete`: Messages can't be edited.
-- **opencode** `op:part.update`: Messages can't be edited.
-- **opencode** `op:session.delete`: agent.delete doesn't delete the native session.
-- **opencode** `op:session.deleteMessage`: Messages can't be deleted.
-- **opencode** `op:session.fork`: No fork.
-- **opencode** `op:session.list`: Native sessions can't be listed or imported as agents.
-- **opencode** `op:session.revert`: No revert/undo.
-- **opencode** `op:session.summarize`: No manual compaction.
-- **opencode** `op:session.unrevert`: No revert/undo.
-- **opencode** `op:session.update`: Rename isn't propagated to the native session.
-- **pi** `command:clone`: No clone.
-- **pi** `command:compact`: No manual compaction.
-- **pi** `command:fork`: No fork.
-- **pi** `command:get_entries`: History reads the active branch only; other branches are invisible.
-- **pi** `command:get_fork_messages`: No fork.
-- **pi** `command:get_tree`: Session tree/branches are not exposed.
-- **pi** `command:set_session_name`: Rename isn't propagated to the native session.
-- **pi** `entry:label`: Bookmarks/labels are not shown.
-- **pi** `entry:session_info`: Session name is not surfaced.
-- **pi** `event:session_info_changed`: Session names are not surfaced.
-- **pi** `ui:setTitle`: Extension-set titles are dropped.
-- **acp** `agent:session/fork`: No fork.
-- **acp** `protocol:$/cancel_request`: casm's JSON-RPC has no request cancellation (e.g. for a long agent.wait).
-- **acp** `update:session_info_update`: Agent.name is user-set; agent-generated titles aren't carried.
 
 ### Agent extras (commands, skills, MCP, hooks, subagents)
 
@@ -107,38 +61,36 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **codex** `request:thread/goal/get`: Thread goals are not exposed.
 - **codex** `request:thread/goal/set`: Thread goals are not exposed.
 - **codex** `request:thread/inject_items`: Injecting history items without a turn is not supported.
-- **opencode** `event:lsp.updated`: LSP status is not shown.
-- **opencode** `event:mcp.tools.changed`: MCP tool changes are not shown.
-- **opencode** `event:reference.updated`: Reference (context source) changes are not surfaced.
-- **opencode** `event:session.next.shell.ended`: User shell commands are not supported.
-- **opencode** `event:session.next.shell.started`: User shell commands are not supported.
-- **opencode** `event:vcs.branch.updated`: Git branch changes are not shown.
-- **opencode** `input:subtask`: Clients can't start a subagent task directly.
-- **opencode** `op:session.init`: /init (AGENTS.md generation) can't be run.
-- **opencode** `part:agent`: @agent mentions are not shown.
-- **opencode** `part:subtask`: Native subtask prompt parts are not shown; task tool parts map to Item.subagent.
 - **pi** `ui:setWidget`: Extension widgets are dropped.
 - **acp** `update:subagent_update`: Subagents aren't modelled (casm has parent links only for casm-created agents).
 
-### Rich tool content (diffs, terminals, streaming output)
+### Session control (fork, rewind, compact, rename, list)
 
-- **claude** `block:advisor_tool_result`: Server-tool result block; normalize() only reads text/thinking/tool_use, so it is dropped.
-- **claude** `block:search_result`: Inside tool results it is flattened to "[search_result]".
-- **claude** `block:server_tool_use`: Server-side web search/fetch calls are dropped; only client tool_use becomes Item.tool.
-- **claude** `block:tool_search_tool_result`: Server tool-search result block is dropped.
-- **claude** `block:web_fetch_tool_result`: Server web-fetch result is dropped.
-- **claude** `block:web_search_tool_result`: Server web-search result is dropped.
-- **claude** `sdkmessage:tool_progress`: Carries only elapsed time; Claude Code doesn't stream Bash/tool output to SDK hosts, so there is no AgentEvent.toolOutput for Claude.
-- **claude** `sdkmessage:tool_use_summary`: Tool-batch summaries are dropped.
-- **codex** `notification:item/fileChange/patchUpdated`: Patch updates while editing are not streamed.
-- **codex** `notification:turn/diff/updated`: The aggregated turn diff is not surfaced (only per-item diffs in tool output).
-- **opencode** `event:session.diff`: The session's file diff is not surfaced.
-- **opencode** `op:session.diff`: The session diff is not exposed.
-- **opencode** `part:patch`: The list of files changed in a step is dropped.
-- **pi** `assistantEvent:toolcall_delta`: Tool arguments aren't streamed.
-- **pi** `assistantEvent:toolcall_end`: The tool appears only when the assistant message ends.
-- **pi** `assistantEvent:toolcall_start`: The tool appears only when the assistant message ends, not when the call starts.
-- **acp** `toolContent:diff`: No structured diff; Codex puts diffs into the output text.
+- **claude** `query:rewindFiles`: No checkpoint rewind (file checkpointing isn't enabled either).
+- **codex** `notification:thread/name/updated`: Thread titles are not surfaced (Agent.name is casm's own).
+- **codex** `notification:thread/reverted`: Reverts made elsewhere are not reflected until history is re-read.
+- **codex** `request:thread/archive`: agent.update archived doesn't archive the native thread.
+- **codex** `request:thread/delete`: agent.delete doesn't delete the native thread.
+- **codex** `request:thread/fork`: No fork.
+- **codex** `request:thread/list`: Native threads can't be listed or imported as agents.
+- **codex** `request:thread/metadata/update`: Thread metadata is not exposed.
+- **codex** `request:thread/name/set`: Rename isn't propagated to the native thread.
+- **codex** `request:thread/revert`: No undo/revert of turns.
+- **codex** `request:thread/unarchive`: agent.update archived doesn't unarchive the native thread.
+- **pi** `command:clone`: No clone.
+- **pi** `command:compact`: No manual compaction.
+- **pi** `command:fork`: No fork.
+- **pi** `command:get_entries`: History reads the active branch only; other branches are invisible.
+- **pi** `command:get_fork_messages`: No fork.
+- **pi** `command:get_tree`: Session tree/branches are not exposed.
+- **pi** `command:set_session_name`: Rename isn't propagated to the native session.
+- **pi** `entry:label`: Bookmarks/labels are not shown.
+- **pi** `entry:session_info`: Session name is not surfaced.
+- **pi** `event:session_info_changed`: Session names are not surfaced.
+- **pi** `ui:setTitle`: Extension-set titles are dropped.
+- **acp** `agent:session/fork`: No fork.
+- **acp** `protocol:$/cancel_request`: casm's JSON-RPC has no request cancellation (e.g. for a long agent.wait).
+- **acp** `update:session_info_update`: Agent.name is user-set; agent-generated titles aren't carried.
 
 ### Input content (images, files, mentions)
 
@@ -153,29 +105,27 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **codex** `request:thread/attachment/add`: Attachments can't be sent or listed; agent.send is text only.
 - **codex** `request:thread/attachment/list`: Attachments can't be sent or listed; agent.send is text only.
 - **codex** `request:thread/attachment/remove`: Attachments can't be sent or listed; agent.send is text only.
-- **opencode** `input:agent`: agent.send is text only: no structured @agent mentions.
 - **pi** `ui:set_editor_text`: Extensions can't prefill the client's composer.
 - **acp** `content:audio`: Item and agent.send are text only.
 - **acp** `content:resource`: No embedded resources (file contents attached to a prompt).
 - **acp** `content:resource_link`: No resource links (file references attached to a prompt).
 
-### Interaction (permissions, questions, dialogs)
+### Rich tool content (diffs, terminals, streaming output)
 
-- **claude** `callback:onUserDialog`: The SDK onUserDialog callback is not wired into the provider options yet. Previously counted prospectively as mapped; restore mapped once implemented and tested.
-- **claude** `sdkmessage:system/elicitation_complete`: URL-mode elicitation completion doesn't resolve the pending question; the user must confirm by hand.
-- **codex** `notification:autoApprovalReview/strictReviewRequired`: Guardian strict-review requirement is not shown.
-- **codex** `notification:item/autoApprovalReview/completed`: Guardian auto-review of approvals is not shown.
-- **codex** `notification:item/autoApprovalReview/started`: Guardian auto-review of approvals is not shown.
-- **codex** `request:thread/approveGuardianDeniedAction`: Guardian (auto-review) denials can't be overridden.
-- **opencode** `event:permission.replied`: A reply given in another OpenCode client doesn't resolve casm's pending prompt.
-- **opencode** `event:permission.v2.asked`: v2 permission requests are not handled; casm relies on v1 permission.asked.
-- **opencode** `event:permission.v2.replied`: v2 permission replies are not handled.
-- **opencode** `event:question.rejected`: A rejection in another OpenCode client doesn't resolve casm's pending question.
-- **opencode** `event:question.replied`: A reply given in another OpenCode client doesn't resolve casm's pending question.
-- **opencode** `event:question.v2.asked`: v2 questions are not handled; casm relies on v1 question.asked.
-- **opencode** `event:question.v2.rejected`: v2 question rejections are not handled.
-- **opencode** `event:question.v2.replied`: v2 question replies are not handled.
-- **acp** `client:elicitation/complete`: URL-mode elicitation completion can't resolve a pending question.
+- **claude** `block:advisor_tool_result`: Server-tool result block; normalize() only reads text/thinking/tool_use, so it is dropped.
+- **claude** `block:search_result`: Inside tool results it is flattened to "[search_result]".
+- **claude** `block:server_tool_use`: Server-side web search/fetch calls are dropped; only client tool_use becomes Item.tool.
+- **claude** `block:tool_search_tool_result`: Server tool-search result block is dropped.
+- **claude** `block:web_fetch_tool_result`: Server web-fetch result is dropped.
+- **claude** `block:web_search_tool_result`: Server web-search result is dropped.
+- **claude** `sdkmessage:tool_progress`: Carries only elapsed time; Claude Code doesn't stream Bash/tool output to SDK hosts, so there is no AgentEvent.toolOutput for Claude.
+- **claude** `sdkmessage:tool_use_summary`: Tool-batch summaries are dropped.
+- **codex** `notification:item/fileChange/patchUpdated`: Patch updates while editing are not streamed.
+- **codex** `notification:turn/diff/updated`: The aggregated turn diff is not surfaced (only per-item diffs in tool output).
+- **pi** `assistantEvent:toolcall_delta`: Tool arguments aren't streamed.
+- **pi** `assistantEvent:toolcall_end`: The tool appears only when the assistant message ends.
+- **pi** `assistantEvent:toolcall_start`: The tool appears only when the assistant message ends, not when the call starts.
+- **acp** `toolContent:diff`: No structured diff; Codex puts diffs into the output text.
 
 ### Status, retries, warnings and errors
 
@@ -187,8 +137,6 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **codex** `notification:thread/closed`: casm only notices a closed thread when the process exits.
 - **codex** `notification:thread/status/changed`: Thread status (active, waiting on approval, system error) is not used; casm derives status itself.
 - **codex** `notification:turn/moderationMetadata`: Moderation metadata is not shown.
-- **opencode** `event:global.disposed`: Server/instance disposal is not handled; only the stream ending closes sessions.
-- **opencode** `event:server.instance.disposed`: Server/instance disposal is not handled; only the stream ending closes sessions.
 - **pi** `command:abort_retry`: A pending retry can't be cancelled on its own (only via agent.interrupt).
 - **pi** `ui:setStatus`: Extension status lines are dropped.
 
@@ -197,21 +145,26 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 - **codex** `notification:thread/settings/updated`: Model/effort/mode changes made by the agent or another client are not reflected in AgentConfig.
 - **codex** `request:modelProvider/capabilities/read`: Model/provider capabilities (e.g. image input) are not in the catalog.
 - **codex** `request:permissionProfile/list`: casm offers four fixed modes; native permission profiles are not listed.
-- **opencode** `event:catalog.updated`: The cached provider.catalog isn't invalidated when OpenCode's catalog changes.
-- **opencode** `event:models-dev.refreshed`: The cached provider.catalog isn't invalidated when the models.dev list refreshes.
-- **opencode** `event:session.next.agent.switched`: Agent (mode) switches are not reflected in AgentConfig.
-- **opencode** `event:session.next.model.switched`: Model switches are not reflected in AgentConfig.
 - **pi** `command:set_auto_compaction`: Auto-compaction can't be toggled.
 - **pi** `command:set_auto_retry`: Auto-retry can't be toggled.
 - **pi** `entry:model_change`: Model changes in the session are not shown or reflected in AgentConfig.
 - **pi** `entry:thinking_level_change`: Thinking-level changes are not shown or reflected in AgentConfig.
 - **pi** `event:thinking_level_changed`: Changes made by pi/extensions aren't reflected in AgentConfig.
 
+### Interaction (permissions, questions, dialogs)
+
+- **claude** `callback:onUserDialog`: The SDK onUserDialog callback is not wired into the provider options yet. Previously counted prospectively as mapped; restore mapped once implemented and tested.
+- **claude** `sdkmessage:system/elicitation_complete`: URL-mode elicitation completion doesn't resolve the pending question; the user must confirm by hand.
+- **codex** `notification:autoApprovalReview/strictReviewRequired`: Guardian strict-review requirement is not shown.
+- **codex** `notification:item/autoApprovalReview/completed`: Guardian auto-review of approvals is not shown.
+- **codex** `notification:item/autoApprovalReview/started`: Guardian auto-review of approvals is not shown.
+- **codex** `request:thread/approveGuardianDeniedAction`: Guardian (auto-review) denials can't be overridden.
+- **acp** `client:elicitation/complete`: URL-mode elicitation completion can't resolve a pending question.
+
 ### Usage, cost and context window
 
 - **claude** `streamdelta:compaction_delta`: Streaming compaction summary is dropped.
 - **codex** `request:account/usage/read`: Rate limits / usage are not exposed.
-- **opencode** `event:session.next.context.updated`: Context window usage is not surfaced.
 - **acp** `update:compaction_summary_chunk`: The compaction summary isn't carried.
 
 ### Rich assistant output (images, files, citations)
@@ -254,19 +207,6 @@ codex-cli 0.160.1, from codex app-server generate-json-schema. Classified by rea
 | threadItem | 17 | 0 | 2 | 0 | 89% |
 | userInput | 4 | 0 | 3 | 0 | 57% |
 | **total** | **64** | **112** | **49** | **0** | **57%** |
-
-### OpenCode (serve)
-
-opencode 1.19.0, from opencode serve: GET /doc (OpenAPI). Classified by reading packages/server/src/providers/opencode.ts. Endpoints are limited to the v1 session-facing API casm talks to (see scripts/coverage/opencode.ts).
-
-| Kind | Mapped | Ignored | Gap | Unclassified | Mapped % |
-|---|--:|--:|--:|--:|--:|
-| endpoint | 15 | 13 | 12 | 0 | 56% |
-| event | 10 | 50 | 29 | 0 | 26% |
-| inputPart | 2 | 0 | 2 | 0 | 50% |
-| message | 2 | 0 | 0 | 0 | 100% |
-| part | 6 | 3 | 3 | 0 | 67% |
-| **total** | **35** | **66** | **46** | **0** | **43%** |
 
 ### pi (RPC mode)
 

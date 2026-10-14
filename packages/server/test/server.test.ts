@@ -32,6 +32,8 @@ class FakeSession implements ProviderSession {
       if (text.includes("init-usage")) this.opts.emit({ type: "usage", usage: { model: "claude-test" } });
       // The agent process crashes (e.g. a steer that arrives as it dies).
       if (text.includes("die")) return this.opts.emit({ type: "turnEnded", outcome: "failed", error: "agent process exited" });
+      // Waits for the test to open fake.gate.
+      if (text.includes("held")) await fake.gate.promise;
       // Starts answering, then hangs until interrupted.
       if (text.includes("partial")) this.opts.emit({ type: "delta", kind: "assistant", text: "Let me" });
       if (text.includes("slow")) {
@@ -114,6 +116,7 @@ const fake = {
   commandFailure: false,
   limitHit: false,
   limitsCalls: 0,
+  gate: Promise.withResolvers<void>(),
 };
 
 const provider: Provider = {
@@ -857,7 +860,7 @@ test("messages queued and schedule runs missed while the server was down go out 
   const token = s2.createToken("t");
   const project = s2.createProject({ name: "P", path: "/tmp" });
   const agent = s2.createAgent({ projectId: project.id, name: "a", provider: "claude", cwd: "/tmp", config: {} });
-  s2.addPending({ agentId: agent.id, text: "left over", reason: "queued", notBefore: null, note: null });
+  s2.addPending({ agentId: agent.id, text: "left over, held", reason: "queued", notBefore: null, note: null });
   const missed = new Date(Date.now() - 60_000).toISOString();
   s2.saveSchedule({ id: "missed", name: "m", enabled: true, cadence: { type: "once", at: missed }, target: { type: "agent", agentId: agent.id }, prompt: "missed run", nextRunAt: missed, lastRun: null, createdAt: missed });
   const srv = await startServer({ store: s2, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
@@ -866,6 +869,7 @@ test("messages queued and schedule runs missed while the server was down go out 
     // The left-over message is running; the missed run queued behind it.
     assert.deepEqual((await c.call("agent.pending", { id: agent.id })).messages.map((m) => m.text), ["missed run"]);
     assert.equal((await c.call("schedule.list", {})).schedules[0].lastRun?.outcome, "queued");
+    fake.gate.resolve();
     for (let i = 0; i < 50 && (await c.call("agent.wait", { id: agent.id })).lastReply !== "echo: missed run"; i++) await new Promise((r) => setTimeout(r, 10));
     assert.equal((await c.call("agent.wait", { id: agent.id })).lastReply, "echo: missed run");
   } finally {

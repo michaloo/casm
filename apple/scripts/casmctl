@@ -1,6 +1,0 @@
-#!/bin/sh
-# Drives a DEBUG build of the macOS app (see App/macOS/DebugControl.swift).
-# usage: casmctl <cmd> [key=value]...   e.g. casmctl select agent=sample; casmctl send text="hi"
-cmd="$1"; shift
-json=$(python3 -c 'import json,sys; d={"cmd":sys.argv[1]}; d.update(a.split("=",1) for a in sys.argv[2:]); print(json.dumps(d))' "$cmd" "$@")
-osascript -l JavaScript -e "ObjC.import('Foundation'); \$.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately('casm.debug', $(printf '%s' "$json" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))'), \$(), true)" >/dev/null

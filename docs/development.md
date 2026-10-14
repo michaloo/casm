@@ -65,10 +65,10 @@ env $A npm run dev -- -H b info        # A's server forwards to B
 
 Both instances are named `casm-dev`, so name the peers differently (`a`, `b` above).
 
-To connect an Apple client, create a dedicated token:
+To connect a client (the web client, or the native apps on the `apple` branch), create a dedicated token:
 
 ```sh
-npm run dev -- token create apple-dev
+npm run dev -- token create web-dev
 ```
 
 Add a host named `casm-dev` pointing at `ws://127.0.0.1:7474` with that token.

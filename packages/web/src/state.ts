@@ -2,6 +2,7 @@ import type {
   Agent,
   AgentEvent,
   Item,
+  ImageData,
   MethodName,
   Params,
   Result,
@@ -11,6 +12,9 @@ import type {
   Project,
 } from "@casm/protocol";
 export type Chat = {
+  expanded?: Record<string, boolean>;
+  failed?: boolean;
+  toolTimes?: Record<string, { start: number; end?: number }>;
   items: Item[];
   start: number;
   loaded: boolean;
@@ -21,12 +25,14 @@ export type Chat = {
   questions: QuestionRequest[];
   pending: PendingMessage[];
   input: string;
+  images: ImageData[];
   draftStorageKey?: string;
   scroll?: number;
   atBottom?: boolean;
 };
 export type Host = {
   id: string;
+  serverId?: string | null;
   name: string;
   projects: Project[];
   agents: Agent[];
@@ -47,11 +53,31 @@ export function chat(k: string): Chat {
       questions: [],
       pending: [],
       input: "",
+      images: [],
     });
   return chats.get(k)!;
 }
-export function event(c: Chat, e: AgentEvent) {
+// History loads, notifications and sends can request snapshots concurrently.
+// Only the most recently requested snapshot may update this chat's queue.
+const pendingReads = new WeakMap<Chat, symbol>();
+export async function syncPending(c: Chat, read: () => Promise<{ messages: PendingMessage[] }>) {
+  const request = Symbol();
+  pendingReads.set(c, request);
+  const result = await read();
+  if (pendingReads.get(c) !== request) return false;
+  c.pending = result.messages;
+  return true;
+}
+export function event(c: Chat, e: AgentEvent, replay = false) {
+  if (e.type === "turnStarted") c.failed = false;
+  if (e.type === "turnEnded") c.failed = e.outcome === "failed";
   if (e.type === "item") {
+    if (e.item.kind === "tool" && !replay) {
+      const times = (c.toolTimes ??= {});
+      if (e.item.status === "running")
+        times[e.item.id] ??= { start: Date.now() };
+      else if (times[e.item.id]) times[e.item.id].end ??= Date.now();
+    }
     const i = c.items.findIndex((x) => x.id === e.item.id);
     if (i < 0) c.items.push(e.item);
     else c.items[i] = e.item;

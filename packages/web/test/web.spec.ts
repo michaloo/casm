@@ -35,6 +35,7 @@ test("every sidebar row selects, pending never hides composer, send/steer/interr
   ).toBeVisible();
   for (let i = 0; i < 22; i++) await send(page, `queued ${i}`);
   await expect(page.locator(".pending-row")).toHaveCount(22);
+  await page.locator(".queue-toggle").click();
   await page.screenshot({ path: "/tmp/casm-web-desktop.png" });
   const box = await page.getByLabel("Message").boundingBox();
   expect(box!.y + box!.height).toBeLessThan(900);

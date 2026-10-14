@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS agents (
   cwd TEXT NOT NULL,
   config TEXT NOT NULL DEFAULT '{}',
   native_session_id TEXT,
+  effective_model TEXT,
   parent TEXT,
   tags TEXT NOT NULL DEFAULT '[]',
   archived_at TEXT,
@@ -151,6 +152,7 @@ function toAgent(r: Row): StoredAgent {
     cwd: r.cwd as string,
     config: JSON.parse(r.config as string),
     nativeSessionId: (r.native_session_id as string | null) ?? null,
+    effectiveModel: (r.effective_model as string | null) ?? null,
     parent: r.parent ? JSON.parse(r.parent as string) : null,
     tags: JSON.parse(r.tags as string),
     archivedAt: (r.archived_at as string | null) ?? null,
@@ -170,6 +172,7 @@ export class Store {
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec(SCHEMA);
     this.migrateScheduledPending();
+    this.addColumn("agents", "effective_model", "TEXT");
   }
 
   // Projects used to nest (parent_id, optional path); now they are flat folders
@@ -190,6 +193,12 @@ export class Store {
       ALTER TABLE projects_new RENAME TO projects;
       COMMIT;
     `);
+  }
+
+  // Columns added after release; CREATE TABLE IF NOT EXISTS leaves older tables as they were.
+  private addColumn(table: string, column: string, type: string) {
+    const cols = (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((c) => c.name);
+    if (!cols.includes(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
 
   close() {
@@ -294,6 +303,7 @@ export class Store {
       tags?: string[];
       archived?: boolean;
       nativeSessionId?: string | null;
+      effectiveModel?: string | null;
     },
   ): StoredAgent | undefined {
     const sets: string[] = ["updated_at = ?"];
@@ -304,6 +314,7 @@ export class Store {
     if (patch.tags !== undefined) (sets.push("tags = ?"), vals.push(JSON.stringify(patch.tags)));
     if (patch.archived !== undefined) (sets.push("archived_at = ?"), vals.push(patch.archived ? now() : null));
     if (patch.nativeSessionId !== undefined) (sets.push("native_session_id = ?"), vals.push(patch.nativeSessionId));
+    if (patch.effectiveModel !== undefined) (sets.push("effective_model = ?"), vals.push(patch.effectiveModel));
     this.db.prepare(`UPDATE agents SET ${sets.join(", ")} WHERE id = ?`).run(...vals, id);
     return this.getAgent(id);
   }

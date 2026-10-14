@@ -37,6 +37,7 @@ class FakeSession implements ProviderSession {
         this.opts.emit({ type: "limits", limits: { windows: [{ id: "five_hour", usedPercent: 80, status: "warning" }] } });
         this.opts.emit({ type: "item", item: { kind: "subagent", id: "sa1", title: "Explore repo", status: "done", summary: "found 3 files" } });
       }
+      if (text.includes("model")) this.opts.emit({ type: "model", model: this.opts.config.model ?? "provider-default" });
       if (text.includes("question")) {
         const answers = await this.opts.askQuestion(
           { id: "q-1", prompts: [{ id: "color", text: "Pick a color", kind: "select", options: [{ label: "red" }, { label: "blue" }] }] },
@@ -376,6 +377,28 @@ test("limits reported by sessions are merged, cached and broadcast", async () =>
   assert.deepEqual(limits[0].windows, [{ id: "five_hour", usedPercent: 80, status: "warning" }]);
   assert.deepEqual(seen, [1]);
   assert.deepEqual(await client.call("agent.subagentHistory", { id: a.id, subagentId: "sa1" }), { items: [] });
+  off();
+});
+
+test("the model a session reports is the agent's effectiveModel until config.model changes", async () => {
+  const p = await client.call("project.create", { name: "P-model", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  assert.equal(a.effectiveModel, null);
+  const changed: (string | null | undefined)[] = [];
+  const off = client.on("agent.changed", (n) => n.agent.id === a.id && changed.push(n.agent.effectiveModel));
+  await client.call("agent.send", { id: a.id, text: "which model" });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal((await client.call("agent.get", { id: a.id })).effectiveModel, "provider-default");
+  assert.ok(changed.includes("provider-default"), "agent.changed carries it");
+  // Same model again: no change. Another config field keeps it.
+  const unchanged = await client.call("agent.update", { id: a.id, config: { effort: "high" } });
+  assert.equal(unchanged.effectiveModel, "provider-default");
+  // A new model makes it stale until the next session reports.
+  const updated = await client.call("agent.update", { id: a.id, config: { model: "sonnet" } });
+  assert.equal(updated.effectiveModel, null);
+  await client.call("agent.send", { id: a.id, text: "which model now" });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal((await client.call("agent.get", { id: a.id })).effectiveModel, "sonnet");
   off();
 });
 

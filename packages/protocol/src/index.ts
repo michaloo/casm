@@ -68,6 +68,11 @@ export const Agent = z.object({
   cwd: z.string(),
   config: AgentConfig,
   nativeSessionId: z.string().nullable(),
+  // The model the agent's session runs, as the provider last reported it. Set
+  // when config.model is unset too (the provider's own default, e.g. Codex's
+  // config.toml), so clients show it instead of guessing from the catalog.
+  // Null until a session reports one, and again after config.model changes.
+  effectiveModel: z.string().nullable().optional(),
   parent: AgentParent.nullable(),
   tags: z.array(z.string()),
   archivedAt: z.string().nullable(),

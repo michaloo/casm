@@ -784,7 +784,8 @@ class CodexSession implements ProviderSession {
       sandbox: mode?.sandbox,
       approvalsReviewer: mode?.approvalsReviewer,
       developerInstructions: config.systemPrompt,
-      config: config.mcpServers ? { mcp_servers: config.mcpServers } : undefined,
+      // Reasoning summaries feed Thinking rows; Codex models default to none.
+      config: { model_reasoning_summary: "detailed", ...(config.mcpServers ? { mcp_servers: config.mcpServers } : {}) },
     };
     type ThreadResponse = { thread: { id: string }; model: string; reasoningEffort: string | null };
     const res = resumeId

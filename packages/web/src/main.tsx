@@ -12,7 +12,6 @@ import type {
   QuestionRequest,
 } from "@casm/protocol";
 import { Rpc, chat, chats, event, key, type Host } from "./state";
-import { agentTree, ProjectAgents } from "./sidebar";
 import "./style.css";
 const md = (text: string) => (
   <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
@@ -223,27 +222,17 @@ function App() {
     const info = await r.call("server.info", {});
     const peers = await r.call("peer.list", {});
     const list = [
-      { id: "", name: info.name, serverId: info.id },
-      ...peers.peers.map((p) => ({
-        id: p.name,
-        name: p.name,
-        serverId: p.serverId,
-      })),
+      { id: "", name: info.name },
+      ...peers.peers.map((p) => ({ id: p.name, name: p.name })),
     ];
     const next = await Promise.all(
       list.map(async (h) => {
         try {
-          const [p, a, identity] = await Promise.all([
+          const [p, a] = await Promise.all([
             r.call("project.list", {}, h.id),
             r.call("agent.list", {}, h.id),
-            h.id ? r.call("server.info", {}, h.id) : Promise.resolve(info),
           ]);
-          return {
-            ...h,
-            serverId: identity.id,
-            projects: p.projects,
-            agents: a.agents,
-          };
+          return { ...h, projects: p.projects, agents: a.agents };
         } catch (e) {
           return {
             ...h,
@@ -321,7 +310,6 @@ function App() {
     rpc.current = r;
     return () => r.close();
   }, [token]);
-  const tree = agentTree(hosts);
   const host = hosts.find((h) => h.id === selection?.host);
   const agent = host?.agents.find((a) => a.id === selection?.id);
   const project = host?.projects.find((p) => p.id === selection?.project);
@@ -461,13 +449,35 @@ function App() {
                       {p.name}
                       <span>＋</span>
                     </button>
-                    <ProjectAgents
-                      tree={tree}
-                      host={h}
-                      project={p.id}
-                      selection={selection}
-                      choose={choose}
-                    />
+                    {h.agents
+                      .filter((a) => a.projectId === p.id)
+                      .sort(
+                        (a, b) =>
+                          a.name.localeCompare(b.name) ||
+                          a.createdAt.localeCompare(b.createdAt) ||
+                          a.id.localeCompare(b.id),
+                      )
+                      .map((a) => (
+                        <button
+                          className={`agent ${selection?.id === a.id && selection.host === h.id ? "selected" : ""}`}
+                          key={a.id}
+                          onClick={() =>
+                            choose({ host: h.id, project: p.id, id: a.id })
+                          }
+                        >
+                          <span className={`dot ${a.status}`} />
+                          <span className="agent-name">{a.name}</span>
+                          <small>
+                            {a.pending?.count
+                              ? `${a.pending.count} queued `
+                              : ""}
+                            {a.subagents?.running
+                              ? `${a.subagents.running} sub `
+                              : ""}
+                            {a.status}
+                          </small>
+                        </button>
+                      ))}
                   </div>
                 ))}
             </section>

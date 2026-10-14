@@ -25,7 +25,6 @@ export type Chat = {
   atBottom?: boolean;
 };
 export type Host = {
-  serverId: string | null;
   id: string;
   name: string;
   projects: Project[];

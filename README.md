@@ -369,9 +369,7 @@ outside your machine. `CASM_WEB_ROOT` or the server config's `web` field overrid
 the built directory (`web: false` disables serving).
 
 Hosts and peers share one connection; peer requests use the protocol's `host`
-field. Parent rows group their casm children across projects and hosts in a
-collapsible list; children link back to their parent, and same-project children
-nest under it without a duplicate project row. Click a project to draft a new agent; the first message creates it. Enter
+field. Click a project to draft a new agent; the first message creates it. Enter
 sends, Shift+Enter inserts a newline; running agents offer Queue, Steer and
 Interrupt. Thinking and tool rows expand on demand. Older history loads when you
 scroll up. Pending messages and permission/question requests sit above the pinned

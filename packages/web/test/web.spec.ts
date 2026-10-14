@@ -136,3 +136,70 @@ test("mobile composer and pending stay inside viewport", async ({ page }) => {
   await page.screenshot({ path: "/tmp/casm-web-mobile.png" });
   await page.getByRole("button", { name: "Interrupt", exact: true }).click();
 });
+
+test("parent grouping spans projects and hosts, with selectable parent links and no local duplicate", async ({
+  page,
+}) => {
+  await login(page);
+  const parent = page
+    .locator("nav .agent-branch")
+    .filter({
+      has: page.getByRole("button", { name: "Orchestrator idle", exact: true }),
+    })
+    .first();
+  const group = parent.getByRole("group", {
+    name: "Children of Orchestrator",
+    exact: true,
+  });
+  await expect(
+    parent.getByRole("button", { name: /3 casm agents/ }),
+  ).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    group.getByRole("button", { name: "Nested worker idle", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Nested worker idle", exact: true }),
+  ).toHaveCount(1);
+  await group
+    .getByRole("button", { name: "Cross-project worker idle", exact: true })
+    .click();
+  await expect(page.locator("main header strong")).toHaveText(
+    "Cross-project worker",
+  );
+  await page
+    .locator("nav .agent-branch")
+    .filter({
+      has: page.getByRole("button", {
+        name: "Cross-project worker idle",
+        exact: true,
+      }),
+    })
+    .last()
+    .getByRole("button", { name: "↳ from Orchestrator", exact: true })
+    .click();
+  await expect(page.locator("main header strong")).toHaveText("Orchestrator");
+  await group
+    .getByRole("button", { name: "Remote worker idle", exact: true })
+    .click();
+  await expect(page.locator("main header strong")).toHaveText("Remote worker");
+  await page
+    .locator("nav > section")
+    .last()
+    .getByRole("button", { name: "↳ from Orchestrator", exact: true })
+    .click();
+  await expect(page.locator("main header strong")).toHaveText("Orchestrator");
+  await parent.getByRole("button", { name: /3 casm agents/ }).click();
+  await expect(group).toHaveCount(0);
+  // A cross-project child remains selectable in its own project while collapsed.
+  await page
+    .getByRole("button", { name: "Cross-project worker idle", exact: true })
+    .click();
+  await expect(page.locator("main header strong")).toHaveText(
+    "Cross-project worker",
+  );
+  await parent.getByRole("button", { name: /3 casm agents/ }).click();
+  await expect(
+    group.getByRole("button", { name: "Nested worker idle", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: "/tmp/casm-web-tree.png" });
+});

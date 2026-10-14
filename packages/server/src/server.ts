@@ -44,6 +44,7 @@ export type RunningServer = {
   url: string;
   agents: AgentManager;
   scheduler: Scheduler;
+  peers: PeerPool;
   close: () => Promise<void>;
 };
 
@@ -158,7 +159,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
             for (const host of new Set(gone.map(([, r]) => r.ref))) send({ method: "peer.disconnected", params: { host } }, host);
           },
         });
-        client.remote.set(key, { ref, stop: unsubscribe });
+        // The client may have gone while the peer answered; its close handler already ran.
+        if (!clients.has(client)) unsubscribe();
+        else client.remote.set(key, { ref, stop: unsubscribe });
         return state;
       }
       if (method === "agent.unsubscribe") {
@@ -202,6 +205,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     url: `ws://${mcpHost}:${port}`,
     agents,
     scheduler,
+    peers,
     async close() {
       scheduler?.stop();
       await agents.shutdown();

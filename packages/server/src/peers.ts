@@ -117,6 +117,13 @@ export class PeerPool {
     }
   }
 
+  // How many local subscriptions are relayed from peers (for tests).
+  get relayed(): number {
+    let n = 0;
+    for (const subs of this.subs.values()) for (const sinks of subs.values()) n += sinks.size;
+    return n;
+  }
+
   // A typed call on the peer. agent.wait may take as long as its own timeout.
   caller(peer: StoredPeer): Call {
     return async (method, params) => {

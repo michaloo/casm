@@ -3,6 +3,8 @@ import XCTest
 /// Drives the iOS app against a running casm server. Expects (create with the CLI first):
 ///   casm project create /tmp/casm-scratch/ios --name "iOS Scratch" --group Scratch
 ///   casm run --project "iOS Scratch" --name ios-scratch --model haiku --mode default "Reply with just: ready"
+/// testFailedPendingAndThinkingRows retries a failed message if ios-scratch has one: send it a slow
+/// prompt and stop the server before it answers.
 /// Runner env (prefix with TEST_RUNNER_ for xcodebuild): CASM_URL, CASM_TOKEN, CASM_SHOTS.
 @MainActor
 final class FlowTests: XCTestCase {
@@ -150,6 +152,31 @@ final class FlowTests: XCTestCase {
         waitIdle()
         sleep(1)
         shot("ios-14-new-agent-created")
+    }
+
+    /// A prompt kept as failed (make one by stopping the server mid-turn) shows its error with
+    /// Retry; then a reasoning prompt shows a streaming Thinking row that expands when done.
+    func testFailedPendingAndThinkingRows() throws {
+        openAgent()
+        if element("Not sent").waitForExistence(timeout: 5) {
+            shot("ios-15-failed-pending")
+            app.buttons["Retry"].tap()
+            XCTAssertTrue(element("Not sent").waitForNonExistence(timeout: 10), "retried message leaves the strip")
+            waitIdle(180)
+        } else {
+            print("no failed pending message for ios-scratch; skipping that part")
+        }
+        send("ultrathink: without tools, how many squares of any size are on a chessboard? Reason, then one line.")
+        // While the turn runs the round button is Interrupt; the reasoning streams as a Thinking row.
+        XCTAssertTrue(app.buttons["Interrupt"].waitForExistence(timeout: 20), "turn running")
+        sleep(4)
+        shot("ios-16-thinking-streaming")
+        let thinking = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Thinking'"))
+        waitIdle(180)
+        let last = thinking.element(boundBy: thinking.count - 1)
+        last.tap()
+        sleep(1)
+        shot("ios-17-thinking-expanded")
     }
 
     static func sampleImage() -> UIImage {

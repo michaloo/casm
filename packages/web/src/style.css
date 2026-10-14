@@ -1006,16 +1006,28 @@ details[open] > summary:before {
 .tool summary {
   font-family: var(--mono);
 }
+.tool summary .status,
+.subagent summary .status,
+.subagent summary .row-kind,
+.tool summary time,
+.tool-icon {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .tool-icon {
   color: var(--faint);
   font: 13px/1 var(--sans);
 }
 .tool summary strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
 }
 .tool-argument {
+  min-width: 0;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1139,6 +1151,7 @@ details[open] > summary:before {
   text-transform: capitalize;
 }
 .subagent summary strong {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1829,9 +1842,6 @@ textarea::placeholder {
     min-height: 44px;
     padding: 9px;
     gap: 8px;
-  }
-  .row-kind {
-    display: none;
   }
   .composer {
     width: calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right));

@@ -339,8 +339,8 @@ export function Row({
             <span className="subagent-icon" aria-hidden="true">
               ↗
             </span>
-            <strong>{item.title}</strong>
             <span className="row-kind">Subagent</span>
+            <strong title={item.title}>{item.title}</strong>
             <span className={`status ${item.status}`}>{item.status}</span>
           </summary>
           <p className="muted">{item.activity}</p>

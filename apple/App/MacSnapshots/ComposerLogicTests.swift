@@ -67,6 +67,23 @@ final class ComposerLogicTests: XCTestCase {
         XCTAssertEqual(NoticeRow.icon(for: "Something else", level: nil).0, "info.circle")
     }
 
+    func testActivityPillsNameTheTwoKindsOfSubagents() {
+        XCTAssertEqual(ActivityPill.title(count: 1, kind: .casm), "1 casm subagent working")
+        XCTAssertEqual(ActivityPill.title(count: 2, kind: .internal), "2 internal subagents working")
+        XCTAssertTrue(ActivityPill.explanation(.casm).contains("sidebar"))
+        XCTAssertTrue(ActivityPill.explanation(.internal).contains("can't be messaged"))
+    }
+
+    func testFinishedNotificationsShowTheReply() {
+        XCTAssertEqual(Notifier.excerpt("## Done\n\nThe **build** passes. See [log](http://x).\n- `npm test`: 161 ok"),
+                       "Done The build passes. See log. npm test: 161 ok")
+        let long = Notifier.excerpt(String(repeating: "word ", count: 100))
+        XCTAssertTrue(long.hasSuffix("…") && long.count <= 181, long)
+        XCTAssertEqual(Notifier.finishedBody(reply: "All set.", outcome: "completed", error: nil), "All set.")
+        XCTAssertEqual(Notifier.finishedBody(reply: nil, outcome: "failed", error: "usage limit"), "Turn failed: usage limit")
+        XCTAssertEqual(Notifier.finishedBody(reply: nil, outcome: nil, error: nil), "The turn is done.")
+    }
+
     func testCompletionContexts() {
         XCTAssertEqual(context("/rev")?.kind, .command)
         XCTAssertEqual(context("/rev")?.query, "rev")

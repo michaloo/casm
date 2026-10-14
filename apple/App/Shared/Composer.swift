@@ -74,7 +74,16 @@ struct Composer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Schedules and usage live at the host level in the sidebar; only working subagents here.
-            if working > 0 { ActivityPill(count: working) }
+            let inside = chat.agent?.subagents?.running ?? 0
+            // Schedules that message this very agent; the host's full list is in the sidebar.
+            let scheduled = chat.host.map { !$0.schedules(for: chat.agentId).filter(\.enabled).isEmpty } ?? false
+            if working > 0 || inside > 0 || scheduled {
+                HStack(spacing: 8) {
+                    if working > 0 { ActivityPill(count: working, kind: .casm) }
+                    if inside > 0 { ActivityPill(count: inside, kind: .internal) }
+                    if let host = chat.host, scheduled { SchedulesChip(host: host, agentId: chat.agentId) }
+                }
+            }
             VStack(alignment: .leading, spacing: 10) {
                 #if os(iOS)
                 if clipboardHasImage && !shellMode {
@@ -473,20 +482,57 @@ struct TapTarget: ViewModifier {
 
 struct ActivityPill: View {
     let count: Int
+    let kind: Kind
+    @State private var explaining = false
+
+    enum Kind {
+        /// Agents this agent started through casm (shown in the sidebar).
+        case casm
+        /// Subagents the provider runs inside this agent's session.
+        case `internal`
+    }
 
     var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "smallcircle.filled.circle")
-                .foregroundStyle(.blue)
-                .modifier(PulseUnlessReduced())
-            Text("\(count) working")
-                .foregroundStyle(.secondary)
+        Button { explaining.toggle() } label: {
+            HStack(spacing: 7) {
+                Image(systemName: kind == .casm ? "smallcircle.filled.circle" : "circle.dotted.circle")
+                    .foregroundStyle(kind == .casm ? Color.blue : Color.purple)
+                    .modifier(PulseUnlessReduced())
+                Text(Self.title(count: count, kind: kind))
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.secondary.opacity(0.05), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.2)))
         }
-        .font(.callout)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Color.secondary.opacity(0.05), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.2)))
+        .buttonStyle(.plain)
+        .help(Self.explanation(kind))
+        .accessibilityHint(Self.explanation(kind))
+        // iOS has no hover tooltips; a tap explains instead (and on the Mac a click does too).
+        .popover(isPresented: $explaining) {
+            Text(Self.explanation(kind))
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 280, alignment: .leading)
+                .padding(12)
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    static func title(count: Int, kind: Kind) -> String {
+        let noun = kind == .casm ? "casm subagent" : "internal subagent"
+        return "\(count) \(noun)\(count == 1 ? "" : "s") working"
+    }
+
+    static func explanation(_ kind: Kind) -> String {
+        switch kind {
+        case .casm:
+            "Agents this agent started through casm. Each one is listed under it in the sidebar and is fully interactive: open its chat, message it, answer its questions, stop it."
+        case .internal:
+            "Subagents the provider runs inside this agent (Claude's Task/Agent tool, Codex and opencode subagents). casm shows their progress as rows in this chat but doesn't orchestrate them: they aren't in the sidebar and can't be messaged; they report back to this agent."
+        }
     }
 }
 

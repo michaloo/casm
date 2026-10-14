@@ -330,21 +330,28 @@ casm tracks each provider's subscription limits and copes with running out:
 
 Messages waiting for their agent to become available are stored in the server database and visible:
 
-- **queued**: sent while the agent was busy; goes after the running turn.
+Each agent has one queue, sent strictly in order, one message per turn.
+
+- **queued**: sent while the agent was busy (or behind other waiting messages); goes in its turn.
+  While the provider is known to be over its usage limit, the first one waits for the reset as **limit**.
 - **limit**: hit a usage limit; retried after the reset. Holds back the messages behind it.
-- **failed**: its turn failed before the agent answered it (a session that can't be resumed, a
-  server stop right after the send), so the agent's own history may not have it. That covers the
-  prompt that started the turn and any steered into it with nothing coming back after. Kept with the
-  error in `note`, never resent on its own: `casm retry <agent> <id>` (`agent.retryPending`) or
-  `casm cancel`. At startup, a kept prompt the agent's history shows as answered is dropped.
+- **failed**: its turn failed before the agent answered it (a session that can't be resumed, the
+  provider logged out or unreachable, a server stop right after the send), so the agent's own history
+  may not have it. That covers the prompt that started the turn and any steered into it with nothing
+  coming back after. Kept at the front with the error in `note` and holds the queue, never resent on
+  its own: Retry now (`casm retry <agent> <id>`, `agent.retryPending`) or `casm cancel`. At startup, a
+  kept prompt the agent's history shows as answered is dropped.
   `casm wait` exits 5 when the last turn failed (`agent.wait` returns `lastTurn`).
 
 `casm pending [agent]` lists them, together with agents waiting for a permission or an answer
 (protocol `pending.list` / `agent.pending`, MCP `list_pending`). `casm cancel <agent> <id>` or
-`--all` cancels (`agent.cancelPending`); interrupting an agent drops its pending messages. `casm send-now <agent> <id>` (`agent.steerPending`)
+`--all` cancels (`agent.cancelPending`); interrupting an agent stops its turn and keeps the queue, which
+goes on after it. `casm send-now <agent> <id>` (`agent.steerPending`)
 sends one right away with its images, into the running turn or as a new turn if the agent is idle.
 Agents report `pending: {count, next}` so clients can badge them. A recipient can observe this count
-and finish its turn to receive queued messages normally; pending messages cannot be extracted for editing.
+and finish its turn to receive queued messages normally. `agent.editPending` changes a waiting message's
+text in place. `agent.send` takes an optional client `messageId` (UUID) that becomes the pending id and
+the transcript item id; sending the same id again does not deliver it twice.
 Agent-authored sends carry explicit sender IDs/name through pending delivery and history; human sends
 remain unattributed. See [message provenance](docs/message-provenance.md) for persistence and native-provider limits.
 

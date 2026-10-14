@@ -302,7 +302,11 @@ export class AgentManager {
         : 0
       : this.store.clearPending(id);
     if (messageId && !n) throw new RpcError(1001, "no such pending message");
-    if (n) this.changed(id);
+    if (n) {
+      // The one it removed may have been holding the queue.
+      this.runNext(id);
+      this.changed(id);
+    }
     return n;
   }
 
@@ -315,11 +319,17 @@ export class AgentManager {
     this.changed(id);
   }
 
+  // "Retry now" for a message held back by a failure or a limit: one attempt
+  // right away when the agent is idle, past any limit; while it is busy the
+  // message just stops holding the queue and goes after the running turn.
   retryPending(id: string, messageId: string) {
+    this.agent(id);
     const m = this.store.listPending(id).find((x) => x.id === messageId);
-    if (!m) throw new RpcError(1001, "no such pending message");
-    if (m.reason !== "failed") throw new RpcError(-32602, `only failed messages can be retried; this one is ${m.reason}`);
-    return this.resend(id, m, "queue");
+    if (!m) throw new RpcError(1001, "no such pending message (it may have been sent or cancelled already)");
+    if (!this.live.get(id)?.turnId) return this.resend(id, m, "queue", true);
+    this.store.requeuePending(m.id);
+    this.changed(id);
+    return { queued: true, pendingId: m.id };
   }
 
   // Sends a pending message right away, its images included: into the running
@@ -338,8 +348,11 @@ export class AgentManager {
     try {
       return this.send(id, { text: m.text, images: m.images, id: m.id, sender: m.sender }, whenBusy, "queue", retryLimited);
     } catch (e) {
-      // A turn that started and failed has kept it as failed already.
-      if (!(e instanceof DispatchFailed)) this.store.addPending({ ...m, front: true });
+      // A turn that started and failed has kept it as failed already: back
+      // where it was. Anything else puts it back as it was.
+      const kept = e instanceof DispatchFailed ? this.live.get(id)?.lastTurn?.kept?.at(-1) : undefined;
+      if (kept) this.store.movePending(kept, m.seq);
+      else if (!(e instanceof DispatchFailed)) this.store.movePending(this.store.addPending(m).id, m.seq);
       throw e;
     } finally {
       this.changed(id);
@@ -442,7 +455,7 @@ export class AgentManager {
     }
     // Busy, or idle with older messages still waiting (a restart, a failed
     // start): behind them. Only steering and "Send now" go ahead of the queue.
-    const backlog = !retryLimited && this.store.listPending(id).some((m) => m.reason !== "failed");
+    const backlog = !retryLimited && this.store.listPending(id).length > 0;
     if (l.turnId || backlog) {
       const m = this.store.addPending({ agentId: id, ...prompt, reason: "queued", notBefore: null, note: null });
       if (!l.turnId) this.runNext(id);
@@ -602,22 +615,14 @@ export class AgentManager {
     if (l.reloadAfterTurn) this.dropSession(id, l);
     const a = this.store.getAgent(id);
     if (limit && a && l.prompt) {
-      // Retry the prompt that hit the limit first; anything queued waits behind it.
+      // Retry the prompt that hit the limit first, then those steered in that
+      // got no answer; anything queued waits behind them.
       const attempts = this.retryAttempts.get(id) ?? 0;
-      // A new id: the provider may have recorded the attempt under the old one.
-      this.store.addPending({
-        agentId: id,
-        ...l.prompt,
-        id: undefined,
-        reason: "limit",
-        notBefore: retryAt(limit, attempts).toISOString(),
-        note: limit.message,
-        attempts,
-        front: true,
-      });
-      // Prompts steered in that got no answer are kept too.
+      const prompt = l.prompt;
       l.prompt = null;
-      const kept = this.keepUnanswered(id, l, limit.message);
+      const kept = this.keepUnanswered(id, l, limit.message, { reason: "limit", notBefore: retryAt(limit, attempts).toISOString(), attempts });
+      // A new id: the provider may have recorded the attempt under the old one.
+      this.store.addPending({ agentId: id, ...prompt, id: undefined, reason: "limit", notBefore: retryAt(limit, attempts).toISOString(), note: limit.message, attempts, front: true });
       if (kept.length) l.lastTurn.kept = kept;
       this.changed(id);
     } else if (outcome === "failed" && a) {
@@ -644,11 +649,21 @@ export class AgentManager {
   }
 
   // Keeps the turn's prompts nothing came back for (the one that started it and
-  // any steered in later) as failed pending messages, in order. Returns their ids.
-  private keepUnanswered(id: string, l: Live, note: string): string[] {
+  // any steered in later) as failed pending messages, in order, ahead of the
+  // queue: they were sent before it, and hold it until retried or cancelled.
+  // Returns their ids.
+  private keepUnanswered(
+    id: string,
+    l: Live,
+    note: string,
+    as: { reason: "failed" | "limit"; notBefore: string | null; attempts?: number } = { reason: "failed", notBefore: null },
+  ): string[] {
     const prompts = [...(l.prompt && !l.answers ? [l.prompt] : []), ...l.steered.filter((s) => s.answersAt === l.answers).map((s) => s.prompt)];
-    // New ids, as for limits: the agent may have recorded them.
-    const ids = prompts.map((p) => this.store.addPending({ agentId: id, ...p, id: undefined, reason: "failed", notBefore: null, note }).id);
+    // New ids: the agent may have recorded them under the old ones.
+    const ids = prompts
+      .reverse()
+      .map((p) => this.store.addPending({ agentId: id, ...p, id: undefined, ...as, note, front: true }).id)
+      .reverse();
     l.prompt = null;
     l.steered = [];
     return ids;
@@ -708,9 +723,8 @@ export class AgentManager {
     return catalog;
   }
 
+  // Stops the running turn; the queue stays and goes on after it.
   async interrupt(id: string) {
-    // Interrupt also drops the agent's pending messages.
-    if (this.store.clearPending(id)) this.changed(id);
     const l = this.live.get(id);
     if (!l?.turnId || !l.session) return;
     // Cancel open prompts first: an agent can't stop a tool that waits on one.
@@ -812,34 +826,40 @@ export class AgentManager {
     return reset > Date.now() ? new Date(reset).toISOString() : null;
   }
 
-  // Sends the next pending message when the agent is idle. A "limit" message
-  // that isn't due yet holds back everything behind it.
+  // Sends the first pending message when the agent is idle, strictly in order:
+  // a "failed" one holds the queue until it is retried or cancelled, a "limit"
+  // one until its time. While the provider is known to be over its limit, the
+  // first one waits for the reset as a "limit" message.
   private runNext(id: string, now = Date.now()) {
     const a = this.store.getAgent(id);
     const l = this.liveFor(id);
     if (!a || l.turnId) return;
     if (a.archivedAt) return;
-    for (const m of this.store.listPending(id)) {
-      if (m.reason === "failed") continue;
-      const due = !m.notBefore || Date.parse(m.notBefore) <= now;
-      if (!due && m.reason === "limit") return;
-      if (!due) continue;
-      this.store.removePending(m.id);
-      // A retried limit message that hits the limit again backs off further.
-      if (m.reason === "limit") this.retryAttempts.set(id, m.attempts + 1);
-      try {
-        this.startTurn(a, l, { text: m.text, images: m.images, id: m.id, sender: m.sender });
-      } catch (e) {
-        // A turn that started and failed has kept it as failed already.
-        if (e instanceof DispatchFailed) return this.changed(id);
-        // A refusal (e.g. the folder is gone) won't pass on retry: keep it for the user.
-        if (e instanceof RpcError) this.store.addPending({ ...m, reason: "failed", notBefore: null, note: e.message, front: true });
-        // Couldn't start (e.g. provider gone): put it back with backoff.
-        else this.store.addPending({ ...m, reason: "limit", notBefore: retryAt({ message: m.note ?? "" }, m.attempts + 1).toISOString(), attempts: m.attempts + 1, front: true });
+    const m = this.store.listPending(id)[0];
+    if (!m || m.reason === "failed") return;
+    if (m.notBefore && Date.parse(m.notBefore) > now) return;
+    if (m.reason === "queued") {
+      const until = this.exhaustedUntil(a.provider);
+      if (until) {
+        this.store.removePending(m.id);
+        this.store.addPending({ ...m, reason: "limit", notBefore: until, note: `${a.provider} is over its usage limit`, front: true });
+        return this.changed(id);
       }
-      this.changed(id);
-      return;
     }
+    this.store.removePending(m.id);
+    // A retried limit message that hits the limit again backs off further.
+    if (m.reason === "limit") this.retryAttempts.set(id, m.attempts + 1);
+    try {
+      this.startTurn(a, l, { text: m.text, images: m.images, id: m.id, sender: m.sender });
+    } catch (e) {
+      // A turn that started and failed has kept it as failed already.
+      if (e instanceof DispatchFailed) return this.changed(id);
+      // A refusal (e.g. the folder is gone) won't pass on retry: keep it for the user.
+      if (e instanceof RpcError) this.store.addPending({ ...m, reason: "failed", notBefore: null, note: e.message, front: true });
+      // Couldn't start (e.g. provider gone): put it back with backoff.
+      else this.store.addPending({ ...m, reason: "limit", notBefore: retryAt({ message: m.note ?? "" }, m.attempts + 1).toISOString(), attempts: m.attempts + 1, front: true });
+    }
+    this.changed(id);
   }
 
   // At startup: a kept "failed" prompt the agent went on to answer anyway (its

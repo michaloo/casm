@@ -396,6 +396,16 @@ export class Store {
     return row ? toPending(row) : undefined;
   }
 
+  // Puts a message at a queue position (seq) it had before.
+  movePending(id: string, seq: number) {
+    this.db.prepare("UPDATE pending SET seq = ? WHERE id = ?").run(seq, id);
+  }
+
+  // Clears what held a message back (a failure, a limit): it goes in its turn.
+  requeuePending(id: string): boolean {
+    return this.db.prepare("UPDATE pending SET reason = 'queued', not_before = NULL, note = NULL WHERE id = ?").run(id).changes > 0;
+  }
+
   editPending(id: string, text: string): boolean {
     return this.db.prepare("UPDATE pending SET text = ? WHERE id = ?").run(text, id).changes > 0;
   }

@@ -241,7 +241,18 @@ struct ProjectNode: View {
                     AgentNode(host: host, agent: agent)
                 }
             } label: {
+                #if os(iOS)
+                // On iOS tapping a disclosure row only toggles it; the chevron still does that,
+                // the name opens the project's new-agent chat.
+                Button {
+                    if !archived { app.selection = .project(host: host.id, project: project.id) }
+                } label: {
+                    label.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                #else
                 label
+                #endif
             }
         }
     }

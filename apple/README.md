@@ -13,7 +13,7 @@ scripts/   casmctl (DEBUG command channel), ui + uictl.swift (real input), run-d
 brew install xcodegen
 cd apple && xcodegen generate
 xcodebuild -project Casm.xcodeproj -scheme CasmMac -derivedDataPath build/dd build
-xcodebuild -project Casm.xcodeproj -target CasmiOS -sdk iphonesimulator ARCHS=arm64 SYMROOT=$PWD/build/ios build
+xcodebuild -project Casm.xcodeproj -scheme CasmiOS -destination "id=<simulator udid>" -derivedDataPath build/ios-dd build
 (cd CasmKit && swift test)
 ```
 

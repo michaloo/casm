@@ -133,6 +133,25 @@ final class FlowTests: XCTestCase {
         shot("ios-12-answered")
     }
 
+    /// Tapping a project opens its empty new-agent chat; the first message creates the agent,
+    /// named after the message, and the chat becomes that agent's.
+    func testProjectTapStartsANewAgent() throws {
+        XCTAssertTrue(element("iOS Scratch").waitForExistence(timeout: 15))
+        element("iOS Scratch").tap()
+        XCTAssertTrue(element("New agent in iOS Scratch").waitForExistence(timeout: 10), "new-agent chat")
+        XCTAssertTrue(app.textFields["Message"].exists)
+        sleep(1)
+        shot("ios-13-new-agent-chat")
+        let name = "Reply with just the word pong \(Int.random(in: 100...999))"
+        send(name)
+        // The chat switches to the new agent (its title is the message) without losing the message.
+        XCTAssertTrue(app.navigationBars.staticTexts[name].waitForExistence(timeout: 20), "agent named after the message")
+        XCTAssertTrue(element(name).exists, "first message shown")
+        waitIdle()
+        sleep(1)
+        shot("ios-14-new-agent-created")
+    }
+
     static func sampleImage() -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 120, height: 80)).image { ctx in
             UIColor.systemTeal.setFill()

@@ -1,3 +1,4 @@
+import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
@@ -21,7 +22,7 @@ test("ten queued messages collapse, persist per agent, and reveal new failures",
     });
   });
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   const openAgent = async (name: string) => {
     await page.getByRole("button", { name: "Agents", exact: true }).click();

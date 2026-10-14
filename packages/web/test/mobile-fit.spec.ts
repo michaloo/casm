@@ -45,7 +45,10 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 360, height: 780 }
     // Walk the whole transcript (tools, code, tables, diffs); expand the first tool output on the way.
     const scroller = page.locator("[data-virtuoso-scroller]");
     await expect(page.locator(".item").first()).toBeVisible();
-    await scroller.evaluate((el) => el.scrollTo(0, 0));
+    await expect.poll(async () => {
+      await scroller.evaluate((el) => el.scrollTo(0, 0));
+      return page.getByRole("heading", { name: "A calmer place to work" }).isVisible();
+    }).toBe(true);
     let expanded = false;
     for (let step = 0; step < 40; step++) {
       await page.waitForTimeout(60);
@@ -63,7 +66,13 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 360, height: 780 }
     expect(expanded).toBe(true);
 
     await agents.click();
-    await page.getByRole("button", { name: /Agent 4\d/ }).first().click();
+    const row = page.getByRole("button", { name: /Agent 4\d/ }).first();
+    await row.scrollIntoViewIfNeeded();
+    // Let mobile WebKit finish the sidebar scroll before dispatching a touch.
+    await page.waitForTimeout(250);
+    await row.tap();
+    await expect(page.locator("main header strong")).toHaveText(/Agent 4\d/);
+    await expect(page.locator("aside")).not.toHaveClass("open");
     const message = page.getByLabel("Message");
     expect(await message.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
     for (const select of await page.locator(".composer select").all())
@@ -91,7 +100,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 360, height: 780 }
 test("composer follows visual viewport resizing and keyboard dismissal", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: "Agents", exact: true }).click();
   await page.getByRole("button", { name: /Agent 00/ }).click();

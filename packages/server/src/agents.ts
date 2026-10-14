@@ -17,6 +17,7 @@ import type {
   PermissionRequest,
   ProviderId,
   PendingMessage,
+  MessageSender,
   ProviderLimits,
   QuestionRequest,
   SubagentInfo,
@@ -27,7 +28,7 @@ import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from "./providers/types.ts";
 import { CASM_TOOL_NAMES, casmMcpEntry } from "./mcp.ts";
 import { AgentPrompt, type PromptVars } from "./agent-prompt.ts";
-import { limitFromText, mergeWindows, retryAt, type LimitHit } from "./limits.ts";
+import { limitFromText, mergeWindows, retryAt, transientRateLimit, type LimitHit } from "./limits.ts";
 
 // What sessions are told about the server that runs them.
 export type SessionContext = { serverId: string; serverName: string; mcpUrl: string | null };
@@ -84,7 +85,7 @@ const KEEP_FINISHED = 50;
 
 // id: the user item's id. A delivered pending message keeps its pending id, so
 // clients can match the bubble they showed as pending to the item that lands.
-export type Prompt = { text: string; images?: ImageData[]; id?: string };
+export type Prompt = { text: string; images?: ImageData[]; id?: string; sender?: MessageSender };
 
 export type Notify = <N extends NotificationName>(name: N, params: NotificationParams<N>, agentId?: string) => void;
 
@@ -131,6 +132,10 @@ export class AgentManager {
     return this.mcpTokens.get(token);
   }
 
+  messageSender(id: string): MessageSender {
+    return { serverId: this.context?.serverId ?? this.store.serverId(), agentId: id, name: this.agent(id).name };
+  }
+
   private mintMcpToken(agentId: string): string {
     const old = this.mcpTokenOf.get(agentId);
     if (old) this.mcpTokens.delete(old);
@@ -146,7 +151,7 @@ export class AgentManager {
   private sessionConfig(a: StoredAgent): AgentConfig {
     const ctx = this.context;
     if (!ctx) return a.config;
-    const env = { ...a.config.env, CASM_SERVER_ID: ctx.serverId, CASM_SERVER_NAME: ctx.serverName, CASM_AGENT_ID: a.id };
+    const env = { ...a.config.env, CASM_SERVER_ID: ctx.serverId, CASM_SERVER_NAME: ctx.serverName, CASM_AGENT_ID: a.id, CASM_AGENT_NAME: a.name };
     let mcpServers = a.config.mcpServers;
     let casmTools = false;
     if (a.config.casmTools && ctx.mcpUrl) {
@@ -273,6 +278,7 @@ export class AgentManager {
       id: m.id,
       agentId: m.agentId,
       text: m.text,
+      ...(m.sender ? { sender: m.sender } : {}),
       ...(m.images?.length ? { imageCount: m.images.length } : {}),
       reason: m.reason,
       ...(m.notBefore ? { notBefore: m.notBefore } : {}),
@@ -306,24 +312,15 @@ export class AgentManager {
     this.agent(id);
     const m = this.store.listPending(id).find((x) => x.id === messageId);
     if (!m) throw new RpcError(1001, "no such pending message (it may have been sent or cancelled already)");
-    return this.resend(id, m, "steer");
-  }
-
-  // Removes a pending message and returns its full prompt, e.g. to edit it.
-  takePending(id: string, messageId: string): Prompt {
-    this.agent(id);
-    const m = this.store.listPending(id).find((x) => x.id === messageId);
-    if (!m || !this.store.removePending(m.id)) throw new RpcError(1001, "no such pending message (it may have been sent or cancelled already)");
-    this.changed(id);
-    return { text: m.text, ...(m.images?.length ? { images: m.images } : {}) };
+    return this.resend(id, m, "steer", true);
   }
 
   // Takes a pending message out and sends it; if that throws, it is kept again.
-  private resend(id: string, m: ReturnType<Store["listPending"]>[number], whenBusy: "queue" | "steer") {
+  private resend(id: string, m: ReturnType<Store["listPending"]>[number], whenBusy: "queue" | "steer", retryLimited = false) {
     this.store.removePending(m.id);
     const before = new Set(this.store.listPending(id).map((x) => x.id));
     try {
-      return this.send(id, { text: m.text, images: m.images, id: m.id }, whenBusy);
+      return this.send(id, { text: m.text, images: m.images, id: m.id, sender: m.sender }, whenBusy, "queue", retryLimited);
     } catch (e) {
       // A turn that started and failed has kept it again already.
       const keptAgain = this.store.listPending(id).some((x) => !before.has(x.id) && x.reason === "failed" && x.text === m.text);
@@ -396,6 +393,7 @@ export class AgentManager {
     prompt: Prompt,
     whenBusy: "queue" | "steer" = "queue",
     whenLimited: "queue" | "fail" = "queue",
+    retryLimited = false,
   ): { queued: boolean; deferredUntil?: string; pendingId?: string } {
     const a = this.agent(id);
     if (a.archivedAt) throw new RpcError(1003, "agent is archived");
@@ -403,7 +401,7 @@ export class AgentManager {
     // A message already waiting on a limit, or the provider known to be over it: wait too.
     const waiting = this.store.listPending(id).find((m) => m.reason === "limit");
     const blocked = waiting ? null : this.exhaustedUntil(a.provider);
-    if (waiting || blocked) {
+    if (!retryLimited && (waiting || blocked)) {
       const reason = waiting?.note ?? `${a.provider} is over its usage limit`;
       const until = waiting?.notBefore ?? blocked!;
       if (whenLimited === "fail") throw new RpcError(1004, `${reason}; resets ${until}`);
@@ -453,9 +451,10 @@ export class AgentManager {
   }
 
   private sendToSession(id: string, l: Live, prompt: Prompt) {
-    const itemId = prompt.id ?? randomUUID();
+    const itemId = prompt.id ??= randomUUID();
+    if (prompt.sender) this.store.saveMessageSender(id, itemId, prompt.sender);
     const images = prompt.images?.length ? prompt.images : undefined;
-    this.emit(id, { type: "item", item: { kind: "user", id: itemId, text: prompt.text, images } });
+    this.emit(id, { type: "item", item: { kind: "user", id: itemId, text: prompt.text, images, ...(prompt.sender ? { sender: prompt.sender } : {}) } });
     this.guard(id, l, () => l.session!.send(prompt.text, itemId, images));
   }
 
@@ -513,7 +512,16 @@ export class AgentManager {
         }
         return;
       }
+      case "userMessageId": {
+        const sender = this.store.messageSender(id, e.itemId);
+        if (sender) this.store.saveMessageSender(id, e.nativeId, sender);
+        return;
+      }
       case "item":
+        if (e.item.kind === "user") {
+          const sender = this.store.messageSender(id, e.item.id);
+          if (sender) e.item = { ...e.item, sender };
+        }
         if (e.item.kind === "assistant") l.lastReply = e.item.text;
         this.emit(id, { type: "item", item: e.item });
         if (e.item.kind === "subagent") this.trackSubagent(id, l, e.item);
@@ -597,6 +605,7 @@ export class AgentManager {
       const seen = this.limitsSeen.get(a.provider);
       const blocked = seen?.windows.filter((w) => w.status === "exhausted") ?? [];
       if (blocked.length) this.recordLimits(a.provider, { windows: blocked.map((w) => ({ ...w, status: "ok" as const })) });
+      this.store.releaseLimited(id);
     }
     this.runNext(id);
   }
@@ -753,16 +762,19 @@ export class AgentManager {
     };
     // Record it so other agents of this provider wait too.
     if (a && !exhausted)
-      this.recordLimits(a.provider, { windows: [{ id: "limit", label: "usage limit", status: "exhausted", resetsAt: hit.resetsAt }] });
+      this.recordLimits(a.provider, { windows: [{ id: "limit", label: "usage limit", status: "exhausted", resetsAt: hit.resetsAt ?? retryAt(hit, 0).toISOString() }] });
+    if (a && exhausted && !exhausted.resetsAt && transientRateLimit(hit.message))
+      this.recordLimits(a.provider, { windows: [{ ...exhausted, resetsAt: retryAt(hit, 0).toISOString() }] });
     return hit;
   }
 
   // When the provider's limits say it's blocked, the time it resets (or a guess).
   private exhaustedUntil(provider: ProviderId): string | null {
     const seen = this.limitsSeen.get(provider);
-    const w = seen?.windows.find((x) => x.status === "exhausted");
-    if (!w) return null;
-    const reset = w.resetsAt ? Date.parse(w.resetsAt) : Date.parse(seen!.updatedAt) + 15 * 60_000;
+    const times = seen?.windows.filter((w) => w.status === "exhausted").map((w) =>
+      w.resetsAt ? Date.parse(w.resetsAt) : Date.parse(seen.updatedAt) + 15 * 60_000,
+    ) ?? [];
+    const reset = Math.max(0, ...times.filter(Number.isFinite));
     return reset > Date.now() ? new Date(reset).toISOString() : null;
   }
 
@@ -782,7 +794,7 @@ export class AgentManager {
       // A retried limit message that hits the limit again backs off further.
       if (m.reason === "limit") this.retryAttempts.set(id, m.attempts + 1);
       try {
-        this.startTurn(a, l, { text: m.text, images: m.images, id: m.id });
+        this.startTurn(a, l, { text: m.text, images: m.images, id: m.id, sender: m.sender });
       } catch (e) {
         // A refusal (e.g. the folder is gone) won't pass on retry: keep it for the user.
         if (e instanceof RpcError) this.store.addPending({ ...m, reason: "failed", notBefore: null, note: e.message, front: true });
@@ -813,12 +825,12 @@ export class AgentManager {
     for (const agentId of new Set(this.store.listPending().map((m) => m.agentId))) this.runNext(agentId, now);
   }
 
-  private recordLimits(provider: ProviderId, update: Omit<ProviderLimits, "provider" | "updatedAt">) {
+  private recordLimits(provider: ProviderId, update: Omit<ProviderLimits, "provider" | "updatedAt">, authoritative = false) {
     const prev = this.limitsSeen.get(provider);
     const limits: ProviderLimits = {
       provider,
       plan: update.plan ?? prev?.plan,
-      windows: mergeWindows(prev?.windows ?? [], update.windows),
+      windows: mergeWindows(authoritative ? (prev?.windows ?? []).filter((w) => update.windows.some((fresh) => fresh.id === w.id)) : prev?.windows ?? [], update.windows),
       updatedAt: new Date().toISOString(),
     };
     this.limitsSeen.set(provider, limits);
@@ -837,7 +849,21 @@ export class AgentManager {
       if ((refresh || !seen || unknown) && p.limits) {
         this.limitsQueried.add(id);
         const fresh = await p.limits().catch(() => null);
-        if (fresh) this.recordLimits(id, fresh);
+        if (fresh) {
+          this.recordLimits(id, fresh, refresh);
+          // A successful explicit account refresh can discover an upgraded plan
+          // or an early reset. An unavailable/empty response cannot release work.
+          const available = fresh.windows.length > 0 && fresh.windows.every((w) =>
+            w.status === "ok" || (w.status !== "exhausted" && w.usedPercent !== undefined && w.usedPercent < 100),
+          );
+          if (refresh && available) {
+            for (const agent of this.store.listAgents()) {
+              if (agent.provider !== id || !this.store.releaseLimited(agent.id)) continue;
+              this.changed(agent.id);
+              this.runNext(agent.id);
+            }
+          }
+        }
       }
       const latest = this.limitsSeen.get(id);
       if (latest) out.push(latest);
@@ -884,7 +910,13 @@ export class AgentManager {
   async history(id: string, before?: number, limit = 200): Promise<{ items: Item[]; start: number; total: number }> {
     const a = this.agent(id);
     if (!a.nativeSessionId) return { items: [], start: 0, total: 0 };
-    const all = await this.provider(a.provider).history(a.nativeSessionId, a.cwd);
+    const provider = this.provider(a.provider);
+    const aliases = await provider.historyAliases?.(a.nativeSessionId, a.cwd) ?? {};
+    const all = (await provider.history(a.nativeSessionId, a.cwd)).map((item) => {
+      if (item.kind !== "user") return item;
+      const sender = this.store.messageSender(id, item.id) ?? (aliases[item.id] ? this.store.messageSender(id, aliases[item.id]) : undefined);
+      return sender ? { ...item, sender } : item;
+    });
     const end = Math.min(before ?? all.length, all.length);
     const start = Math.max(0, end - limit);
     return { items: all.slice(start, end), start, total: all.length };

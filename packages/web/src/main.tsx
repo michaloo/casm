@@ -1,8 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Row, Images } from "./transcript";
 import type {
   Agent,
   Answers,
@@ -14,61 +13,13 @@ import type {
 import { Rpc, chat, chats, event, key, type Host } from "./state";
 import { resolveView, viewPath } from "./navigation";
 import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
+import { ProviderIcon } from "./provider-icon";
+import { HostUsage } from "./host-usage";
+import { AgentSummary } from "./agent-summary";
+import { agentHierarchy } from "./agent-hierarchy";
+import { modelLabels } from "./model-label";
+import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type CollapsedProjects } from "./project-collapse";
 import "./style.css";
-const md = (text: string) => (
-  <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
-);
-function Row({ item }: { item: Item }) {
-  if (item.kind === "tool")
-    return (
-      <details className="item tool">
-        <summary>
-          {item.name} · {item.status}
-        </summary>
-        <pre>{JSON.stringify(item.input, null, 2)}</pre>
-        <pre>{item.output}</pre>
-      </details>
-    );
-  if (item.kind === "reasoning")
-    return (
-      <details className="item">
-        <summary>Thinking</summary>
-        {md(item.text)}
-      </details>
-    );
-  if (item.kind === "subagent")
-    return (
-      <details className="item">
-        <summary>
-          Subagent · {item.title} · {item.status}
-        </summary>
-        <p>{item.activity}</p>
-        {md(item.summary ?? "")}
-      </details>
-    );
-  if (item.kind === "plan")
-    return (
-      <div className="item">
-        {item.entries.map((e, i) => (
-          <p key={i}>
-            {e.status === "completed" ? "✓" : "○"} {e.text}
-          </p>
-        ))}
-      </div>
-    );
-  return (
-    <article className={`item ${item.kind}`}>
-      <small>
-        {item.kind === "user"
-          ? "You"
-          : item.kind === "assistant"
-            ? "Assistant"
-            : "Notice"}
-      </small>
-      {md(item.text)}
-    </article>
-  );
-}
 function Question({
   request,
   answer,
@@ -156,6 +107,30 @@ function Question({
 function App() {
   const [token, setToken] = useState(localStorage.getItem("casm.token") ?? "");
   const [entry, setEntry] = useState("");
+  useEffect(() => {
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const update = () => {
+      document
+        .querySelector("#apple-icon")
+        ?.setAttribute(
+          "href",
+          media.matches
+            ? "/apple-touch-icon-dark.png"
+            : "/apple-touch-icon.png",
+        );
+      document
+        .querySelector("#app-manifest")
+        ?.setAttribute(
+          "href",
+          media.matches
+            ? "/manifest-dark.webmanifest"
+            : "/manifest.webmanifest",
+        );
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const [path, setPath] = useState(location.pathname);
   const [routeError, setRouteError] = useState("");
   useEffect(() => {
@@ -194,6 +169,16 @@ function App() {
   const redraw = () => render((x) => x + 1);
   const [error, setError] = useState("");
   const [sidebar, showSidebar] = useState(false);
+  const [collapsed, setCollapsed] = useState<CollapsedProjects>(() => readCollapsed(localStorage));
+  const toggleProject = (host: string, project: string) => {
+    setCollapsed((previous) => {
+      const next = { ...previous };
+      const id = projectKey(host, project);
+      if (next[id]) delete next[id]; else next[id] = true;
+      writeCollapsed(localStorage, next);
+      return next;
+    });
+  };
   const rpc = useRef<Rpc>(null);
   const [provider, setProvider] = useState<ProviderId>("claude");
   const [model, setModel] = useState("");
@@ -232,7 +217,7 @@ function App() {
       c.permissions = sub.permissions;
       c.questions = sub.questions;
       c.pending = pending.messages;
-      sub.turn.forEach((e) => event(c, e));
+      sub.turn.forEach((e) => event(c, e, true));
       buffered.forEach((e) => event(c, e));
       c.loaded = true;
     } finally {
@@ -247,17 +232,18 @@ function App() {
     const info = await r.call("server.info", {});
     const peers = await r.call("peer.list", {});
     const list = [
-      { id: "", name: info.name },
-      ...peers.peers.map((p) => ({ id: p.name, name: p.name })),
+      { id: "", name: info.name, serverId: info.id },
+      ...peers.peers.map((p) => ({ id: p.name, name: p.name, serverId: p.serverId })),
     ];
     const next = await Promise.all(
       list.map(async (h) => {
         try {
-          const [p, a] = await Promise.all([
+          const [p, a, identity] = await Promise.all([
             r.call("project.list", {}, h.id),
             r.call("agent.list", {}, h.id),
+            h.id ? r.call("server.info", {}, h.id) : Promise.resolve(info),
           ]);
-          return { ...h, projects: p.projects, agents: a.agents };
+          return { ...h, serverId: identity.id, projects: p.projects, agents: a.agents };
         } catch (e) {
           return {
             ...h,
@@ -342,6 +328,8 @@ function App() {
     ? key(selection.host, selection.id ?? `new:${selection.project}`)
     : "";
   const c = chat(ckey);
+  const models = modelLabels(model, agent?.effectiveModel, catalog.models);
+  const sessionModel = modelLabels(agent?.config.model, agent?.effectiveModel, catalog.models);
   if (selection && host)
     restoreDraft(
       c,
@@ -387,9 +375,10 @@ function App() {
     showSidebar(false);
   }
   async function send(steer = false) {
-    if (!selection || !c.input.trim() || sending) return;
+    if (!selection || (!c.input.trim() && !c.images.length) || sending) return;
     const s = selection;
     const text = c.input;
+    const images = c.images;
     setSending(true);
     await run(async () => {
       let id = s.id;
@@ -399,7 +388,7 @@ function App() {
           {
             projectId: s.project,
             provider,
-            name: text.trim().slice(0, 70),
+            name: text.trim().slice(0, 70) || "Image message",
             config: { model, mode },
           },
           s.host,
@@ -425,6 +414,7 @@ function App() {
           `agent:${id}`,
         );
         destination.input = text;
+        destination.images = images;
         saveDraft(destination, true);
         choose({ ...s, id });
       } else if (
@@ -438,12 +428,14 @@ function App() {
         );
       await rpc.current!.call(
         "agent.send",
-        { id, text, whenBusy: steer ? "steer" : "queue" },
+        { id, text, images, whenBusy: steer ? "steer" : "queue" },
         s.host,
       );
       if (c.input === text) c.input = "";
+      if (c.images === images) c.images = [];
       const destination = chat(key(s.host, id));
       if (destination.input === text) destination.input = "";
+      if (destination.images === images) destination.images = [];
       saveDraft(c, true);
       saveDraft(destination, true);
       await load(s.host, id);
@@ -479,7 +471,10 @@ function App() {
     <div className="app">
       <aside className={sidebar ? "open" : ""}>
         <header>
-          <strong>casm</strong>
+          <strong className="brand">
+            <span className="brand-glyph" aria-hidden="true" />
+            casm
+          </strong>
           <button className="mobile" onClick={() => showSidebar(false)}>
             Close
           </button>
@@ -495,6 +490,7 @@ function App() {
                 >
                   {h.name}
                 </button>
+                <HostUsage host={h.id} name={h.name} rpc={rpc.current} online={online && !h.error} />
               </h2>
               {h.error && <p className="error">{h.error}</p>}
               {[...h.projects]
@@ -506,6 +502,15 @@ function App() {
                 )
                 .map((p) => (
                   <div key={p.id}>
+                    <div className="project-row">
+                    <button className="project-toggle"
+                      aria-label={`Toggle ${p.name}`}
+                      aria-expanded={projectExpanded(collapsed, h.id, p.id, selection)}
+                      disabled={!!(selection?.id && selection.host === h.id && selection.project === p.id)}
+                      title={selection?.id && selection.host === h.id && selection.project === p.id ? "Current agent's project stays visible" : `Toggle ${p.name}`}
+                      onClick={() => toggleProject(h.id, p.id)}>
+                      {projectExpanded(collapsed, h.id, p.id, selection) ? "⌄" : "›"}
+                    </button>
                     <button
                       className={`project ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}
                       onClick={() => choose({ host: h.id, project: p.id })}
@@ -513,35 +518,30 @@ function App() {
                       {p.name}
                       <span>＋</span>
                     </button>
-                    {h.agents
-                      .filter((a) => a.projectId === p.id && !a.archivedAt)
-                      .sort(
-                        (a, b) =>
-                          a.name.localeCompare(b.name) ||
-                          a.createdAt.localeCompare(b.createdAt) ||
-                          a.id.localeCompare(b.id),
-                      )
-                      .map((a) => (
-                        <button
-                          className={`agent ${selection?.id === a.id && selection.host === h.id ? "selected" : ""}`}
-                          key={a.id}
-                          onClick={() =>
-                            choose({ host: h.id, project: p.id, id: a.id })
-                          }
-                        >
-                          <span className={`dot ${a.status}`} />
-                          <span className="agent-name">{a.name}</span>
-                          <small>
-                            {a.pending?.count
-                              ? `${a.pending.count} queued `
-                              : ""}
-                            {a.subagents?.running
-                              ? `${a.subagents.running} sub `
-                              : ""}
-                            {a.status}
-                          </small>
-                        </button>
-                      ))}
+                    </div>
+                    {projectExpanded(collapsed, h.id, p.id, selection) && agentHierarchy(h.agents, p.id, h.serverId)
+                      .map(({ agent: a, depth }) => {
+                        const state = chat(key(h.id, a.id));
+                        const status =
+                          a.status === "idle" &&
+                          (state.failed ||
+                            state.pending.some((p) => p.reason === "failed"))
+                            ? "failed"
+                            : a.status;
+                        return (
+                          <button
+                            className={`agent ${selection?.id === a.id && selection.host === h.id ? "selected" : ""}`}
+                            key={a.id}
+                            data-depth={depth}
+                            style={{ "--agent-depth": depth } as React.CSSProperties}
+                            onClick={() =>
+                              choose({ host: h.id, project: p.id, id: a.id })
+                            }
+                          >
+                            <AgentSummary agent={a} status={status} models={h.id === selection?.host && a.provider === provider ? catalog.models : []} />
+                          </button>
+                        );
+                      })}
                   </div>
                 ))}
             </section>
@@ -570,9 +570,9 @@ function App() {
             <strong>
               {agent?.name ?? project?.name ?? "Select a project"}
             </strong>
-            <small>
+            <small className="chat-model" title={agent ? sessionModel.sessionTitle : undefined}>
               {agent
-                ? `${agent.provider} · ${agent.status}`
+                ? <><ProviderIcon provider={agent.provider} /> {sessionModel.sessionLabel} · {agent.status}</>
                 : project
                   ? "New agent"
                   : "Choose a project to start a conversation"}
@@ -730,6 +730,7 @@ function App() {
               }}
             >
               <div className="pickers">
+                <ProviderIcon provider={provider} />
                 {!agent && (
                   <select
                     aria-label="Provider"
@@ -750,7 +751,7 @@ function App() {
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
                 >
-                  <option value="">Default model</option>
+                  <option value="">{models.defaultLabel}</option>
                   {model && !catalog.models.some((m) => m.id === model) && (
                     <option>{model}</option>
                   )}
@@ -760,6 +761,7 @@ function App() {
                     </option>
                   ))}
                 </select>
+                {models.showSession && <small className="model-session" title={models.sessionTitle}>Session: {models.actual}</small>}
                 <select
                   aria-label="Mode"
                   value={mode}
@@ -776,6 +778,11 @@ function App() {
                   ))}
                 </select>
               </div>
+              {c.images.length > 0 && <Images images={c.images} remove={(index) => {
+                c.images = c.images.filter((_, i) => i !== index);
+                saveDraft(c);
+                redraw();
+              }} />}
               <textarea
                 aria-label="Message"
                 placeholder="Message agent…"
@@ -784,6 +791,27 @@ function App() {
                   c.input = e.target.value;
                   saveDraft(c);
                   redraw();
+                }}
+                onPaste={(e) => {
+                  const files = Array.from(e.clipboardData.items).filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((file): file is File => file !== null);
+                  if (!files.length) return;
+                  e.preventDefault();
+                  const target = c;
+                  const text = e.clipboardData.getData("text/plain");
+                  if (text) {
+                    const { selectionStart, selectionEnd } = e.currentTarget;
+                    target.input = target.input.slice(0, selectionStart) + text + target.input.slice(selectionEnd);
+                  }
+                  void Promise.all(files.map((file) => new Promise<{ mediaType: string; data: string }>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve({ mediaType: file.type, data: String(reader.result).split(",")[1] });
+                    reader.onerror = () => reject(new Error("Could not read pasted image"));
+                    reader.readAsDataURL(file);
+                  }))).then((images) => {
+                    target.images = [...target.images, ...images];
+                    saveDraft(target);
+                    redraw();
+                  }).catch((error) => setError(String(error)));
                 }}
                 onKeyDown={(e) => {
                   if (
@@ -817,14 +845,14 @@ function App() {
                     </button>
                     <button
                       type="button"
-                      disabled={!online || !c.input.trim() || sending}
+                      disabled={!online || (!c.input.trim() && !c.images.length) || sending}
                       onClick={() => void send(true)}
                     >
                       Steer
                     </button>
                   </>
                 )}
-                <button disabled={!online || !c.input.trim() || sending}>
+                <button disabled={!online || (!c.input.trim() && !c.images.length) || sending}>
                   {agent?.status === "running" ? "Queue" : "Send"}
                 </button>
               </div>
@@ -835,6 +863,25 @@ function App() {
     </div>
   );
 }
+type TranscriptContext = {
+  start: number;
+  loading: boolean;
+  empty: boolean;
+  older: () => Promise<void>;
+};
+function TranscriptHeader({ context }: { context?: TranscriptContext }) {
+  if (!context) return null;
+  return context.start > 0 ? (
+    <button className="older" onClick={() => void context.older()}>
+      Load older messages
+    </button>
+  ) : context.empty ? (
+    <div className="empty">
+      {context.loading ? "Loading…" : "Start a conversation"}
+    </div>
+  ) : null;
+}
+const transcriptComponents = { Header: TranscriptHeader };
 function Transcript({
   ckey,
   older,
@@ -843,6 +890,7 @@ function Transcript({
   older: () => Promise<void>;
 }) {
   const c = chat(ckey);
+
   const ref = useRef<VirtuosoHandle>(null);
   const [bottom, setBottom] = useState(true);
   const following = useRef(c.atBottom ?? true);
@@ -909,23 +957,20 @@ function Transcript({
         startReached={() => {
           if (c.loaded && c.start > 0) void older();
         }}
-        itemContent={(_, item) => <Row item={item} />}
-        components={{
-          Header: () =>
-            c.start > 0 ? (
-              <button className="older" onClick={() => void older()}>
-                Load older messages
-              </button>
-            ) : (
-              <div className="empty">
-                {c.loading
-                  ? "Loading…"
-                  : !items.length
-                    ? "Start a conversation"
-                    : ""}
-              </div>
-            ),
+        itemContent={(_, item) => (
+          <Row
+            item={item}
+            time={c.toolTimes?.[item.id]}
+            expansion={(c.expanded ??= {})}
+          />
+        )}
+        context={{
+          start: c.start,
+          loading: c.loading,
+          empty: !items.length,
+          older,
         }}
+        components={transcriptComponents}
       />
       {!bottom && (
         <button

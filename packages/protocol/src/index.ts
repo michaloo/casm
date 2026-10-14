@@ -133,7 +133,12 @@ export type Usage = z.infer<typeof Usage>;
 // anything (say its session could not be resumed), so it may never have reached
 // the agent's own history. `note` has the error. It is kept, not resent, until
 // agent.retryPending or agent.cancelPending.
+// Snapshot of the agent that authored a prompt. Absent for human/legacy sends.
+export const MessageSender = z.object({ serverId: z.string(), agentId: z.string(), name: z.string().optional() });
+export type MessageSender = z.infer<typeof MessageSender>;
+
 export const PendingMessage = z.object({
+  sender: MessageSender.optional(),
   id: z.string(),
   agentId: z.string(),
   text: z.string(),
@@ -224,7 +229,7 @@ export const SubagentInfo = SubagentItem.omit({ kind: true }).extend({
 export type SubagentInfo = z.infer<typeof SubagentInfo>;
 
 export const Item = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("user"), id: z.string(), text: z.string(), images: z.array(ImageData).optional() }),
+  z.object({ kind: z.literal("user"), id: z.string(), text: z.string(), images: z.array(ImageData).optional(), sender: MessageSender.optional() }),
   z.object({ kind: z.literal("assistant"), id: z.string(), text: z.string() }),
   z.object({ kind: z.literal("reasoning"), id: z.string(), text: z.string() }),
   z.object({
@@ -531,6 +536,7 @@ export const methods = {
       config: AgentConfig.optional(),
       parent: AgentParent.optional(),
       tags: z.array(z.string()).optional(),
+      sender: MessageSender.optional(),
       prompt: z.string().optional(),
       images: z.array(ImageData).optional(),
     }),
@@ -573,6 +579,7 @@ export const methods = {
     z.object({
       id: z.string(),
       text: z.string(),
+      sender: MessageSender.optional(),
       images: z.array(ImageData).optional(),
       whenBusy: z.enum(["queue", "steer"]).optional(),
       // While the provider is known to be over its limit: "queue" (default)
@@ -611,18 +618,13 @@ export const methods = {
     z.object({ queued: z.boolean(), deferredUntil: z.string().optional(), pendingId: z.string().optional() }),
   ),
   // Sends one pending message now, with its images: steered into the running
-  // turn, or as a new turn when the agent is idle. Like agent.send, it waits
-  // (and is queued again) while a usage limit holds the agent back. NotFound
+  // turn, or as a new turn when the agent is idle.
+  // Makes one explicit retry even during a usage-limit deferral; another limit
+  // response defers it again. NotFound
   // when the message is gone (sent or cancelled meanwhile).
   "agent.steerPending": method(
     z.object({ id: z.string(), messageId: z.string() }),
     z.object({ queued: z.boolean(), deferredUntil: z.string().optional(), pendingId: z.string().optional() }),
-  ),
-  // Removes one pending message and returns its full prompt (to edit it and
-  // send it again). NotFound when it is gone.
-  "agent.takePending": method(
-    z.object({ id: z.string(), messageId: z.string() }),
-    z.object({ text: z.string(), images: z.array(ImageData).optional() }),
   ),
   // Cancels one pending message, or all of them when `messageId` is omitted.
   "agent.cancelPending": method(z.object({ id: z.string(), messageId: z.string().optional() }), z.object({ cancelled: z.number() })),

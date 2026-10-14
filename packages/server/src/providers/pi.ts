@@ -511,6 +511,7 @@ class PiSession implements ProviderSession {
   private buf = "";
   private stderr = "";
   private running = false;
+  private sentUserIds: string[] = [];
   private interrupted = false;
   private lastError: string | undefined;
   private turnAbort = new AbortController();
@@ -602,7 +603,11 @@ class PiSession implements ProviderSession {
       case "message_end": {
         const m = r.message as PiMessage;
         // Our own prompts (and steers) are emitted by the manager when sent.
-        if (m.role === "user") return;
+        if (m.role === "user") {
+          const itemId = this.sentUserIds.shift();
+          if (itemId && m.timestamp !== undefined) emit({ type: "userMessageId", itemId, nativeId: `pi:${m.timestamp}` });
+          return;
+        }
         if (m.role === "assistant") {
           this.lastError = m.stopReason === "error" ? m.errorMessage || "pi reported an error" : undefined;
           this.failedNotice = m.stopReason === "error" && m.errorMessage ? `${m.timestamp}:error` : null;
@@ -729,6 +734,7 @@ class PiSession implements ProviderSession {
   private endTurn(outcome: "completed" | "interrupted" | "failed", error?: string) {
     if (!this.running) return;
     this.running = false;
+    this.sentUserIds = [];
     this.interrupted = false;
     this.lastError = undefined;
     this.turnAbort.abort();
@@ -765,19 +771,26 @@ class PiSession implements ProviderSession {
     }
   }
 
-  send(text: string, _itemId: string, images?: ImageData[]) {
+  send(text: string, itemId: string, images?: ImageData[]) {
+    this.sentUserIds.push(itemId);
     const native = images?.filter((i) => i.data).map((i) => ({ type: "image", data: i.data, mimeType: i.mediaType }));
     const extra = native?.length ? { images: native } : {};
+    const forget = () => { this.sentUserIds = this.sentUserIds.filter((id) => id !== itemId); };
+    const steered = (response: Rec) => {
+      const disposition = (response.data as { disposition?: string } | undefined)?.disposition;
+      if (!response.success || disposition === "handled") forget();
+    };
     if (this.running) {
       // `steer` refuses extension commands; `prompt` with streamingBehavior runs
       // them at once and steers everything else (templates and skills expand).
-      if (text.startsWith("/")) void this.request({ type: "prompt", message: text, streamingBehavior: "steer", ...extra });
-      else void this.request({ type: "steer", message: text, ...extra });
+      if (text.startsWith("/")) void this.request({ type: "prompt", message: text, streamingBehavior: "steer", ...extra }).then(steered);
+      else void this.request({ type: "steer", message: text, ...extra }).then(steered);
       return;
     }
     this.running = true;
     this.turnAbort = new AbortController();
     void this.request({ type: "prompt", message: text, ...extra }).then((r) => {
+      steered(r);
       const disposition = (r.data as { disposition?: string } | undefined)?.disposition;
       if (!r.success) this.endTurn("failed", String(r.error ?? "prompt rejected"));
       else if (disposition === "handled") this.endTurn("completed");
@@ -838,6 +851,16 @@ export function piProvider(): Provider {
         return parseSession(await readFile(sessionId, "utf8"));
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw e;
+      }
+    },
+    async historyAliases(sessionId) {
+      try {
+        return Object.fromEntries(activePath(entriesOf(await readFile(sessionId, "utf8")))
+          .filter((e) => e.type === "message" && e.message?.role === "user" && e.message.timestamp !== undefined)
+          .map((e) => [e.id!, `pi:${e.message!.timestamp}`]));
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
         throw e;
       }
     },

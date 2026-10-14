@@ -682,7 +682,7 @@ test("a turn that hits a usage limit is deferred, blocks further sends and retri
   assert.equal((await client.call("agent.get", { id: b.id })).deferred, null);
 });
 
-test("a pending message is sent now or taken back with its images", async () => {
+test("pending messages retain their images when steered; interrupt clears the rest", async () => {
   const p = await client.call("project.create", { name: "P-steer-pending", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   const image = { mediaType: "image/png", data: Buffer.from("png bytes").toString("base64") };
@@ -706,21 +706,57 @@ test("a pending message is sent now or taken back with its images", async () => 
   assert.equal(user?.type === "item" && user.item.id, q1.pendingId);
   await assert.rejects(client.call("agent.steerPending", { id: a.id, messageId: q1.pendingId! }), (e: CasmError) => e.code === 1001);
 
-  // Take: removed, and the whole prompt comes back to edit.
-  assert.deepEqual(await client.call("agent.takePending", { id: a.id, messageId: q2.pendingId! }), { text: "and this", images: [image, image] });
-  assert.deepEqual((await client.call("agent.pending", { id: a.id })).messages, []);
-  assert.deepEqual((await client.call("agent.get", { id: a.id })).pending, { count: 0 });
-  await assert.rejects(client.call("agent.takePending", { id: a.id, messageId: q2.pendingId! }), (e: CasmError) => e.code === 1001);
+  // Interrupt still explicitly clears queued messages.
+  assert.equal((await client.call("agent.get", { id: a.id })).pending?.count, 1);
+  assert.equal((await client.call("agent.pending", { id: a.id })).messages[0].id, q2.pendingId);
   await client.call("agent.interrupt", { id: a.id });
   await client.call("agent.wait", { id: a.id });
+  assert.deepEqual((await client.call("agent.pending", { id: a.id })).messages, []);
+  assert.deepEqual((await client.call("agent.get", { id: a.id })).pending, { count: 0 });
 
   // Idle: send now starts a turn with it.
   const kept = store.addPending({ agentId: a.id, text: "idle one", images: [image], reason: "queued", notBefore: null, note: null });
   assert.deepEqual(await client.call("agent.steerPending", { id: a.id, messageId: kept.id }), { queued: false });
   assert.deepEqual(fake.sent.at(-1), { text: "idle one", images: [image] });
   assert.equal((await client.call("agent.wait", { id: a.id })).lastReply, "echo: idle one");
-  assert.equal((await client.call("agent.takePending", { id: a.id, messageId: "nope" }).catch((e: CasmError) => e.code)), 1001);
   off();
+});
+
+test("queued images arrive normally when the recipient goes idle", async () => {
+  const p = await client.call("project.create", { name: "P-normal-pending", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const image = { mediaType: "image/png", data: Buffer.from("png bytes").toString("base64") };
+  const events: AgentEvent[] = [];
+  const off = client.on("agent.event", (n) => n.agentId === a.id && events.push(n.event));
+  await client.call("agent.subscribe", { id: a.id });
+  fake.gate = Promise.withResolvers<void>();
+  try {
+    await client.call("agent.send", { id: a.id, text: "held" });
+    const sender = { serverId: "sender-server", agentId: "sender-agent", name: "Sender" };
+    const queued = await client.call("agent.send", { id: a.id, text: "normal delivery", images: [image, image], sender });
+    assert.deepEqual((await client.call("agent.pending", { id: a.id })).messages[0].sender, sender);
+    assert.equal((await client.call("agent.get", { id: a.id })).pending?.count, 1);
+    assert.equal((await client.call("agent.pending", { id: a.id })).messages[0].id, queued.pendingId);
+    // An older client cannot extract a queued prompt through the removed RPC.
+    await assert.rejects(
+      client.call("agent.takePending" as "agent.cancelPending", { id: a.id, messageId: queued.pendingId! }),
+      (error: CasmError) => error.code === -32601,
+    );
+    assert.equal((await client.call("agent.get", { id: a.id })).pending?.count, 1);
+    fake.gate.resolve();
+    await client.call("agent.wait", { id: a.id });
+    await client.call("agent.wait", { id: a.id });
+    assert.deepEqual(fake.sent.at(-1), { text: "normal delivery", images: [image, image] });
+    const delivered = events.find((event) => event.type === "item" && event.item.id === queued.pendingId);
+    assert.equal(delivered?.type === "item" && delivered.item.kind, "user");
+    assert.deepEqual(delivered?.type === "item" && delivered.item.kind === "user" && delivered.item.sender, sender);
+    assert.deepEqual(delivered?.type === "item" && delivered.item.kind === "user" && delivered.item.images, [image, image]);
+    assert.deepEqual((await client.call("agent.get", { id: a.id })).pending, { count: 0 });
+  } finally {
+    fake.gate.resolve();
+    fake.gate = Promise.withResolvers<void>();
+    off();
+  }
 });
 
 test("pending messages are listed and cancellable", async () => {
@@ -886,9 +922,11 @@ test("a queued message for an agent whose folder disappeared is kept as failed, 
 test("a prompt whose turn failed before any answer is kept as a failed pending message", async () => {
   const p = await client.call("project.create", { name: "P-failed", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
-  await client.call("agent.send", { id: a.id, text: "no-session please" });
+  const sender = { serverId: "remote", agentId: "coordinator", name: "Coordinator" };
+  await client.call("agent.send", { id: a.id, text: "no-session please", sender });
   const w = await client.call("agent.wait", { id: a.id });
   const [m] = (await client.call("agent.pending", { id: a.id })).messages;
+  assert.deepEqual(m.sender, sender);
   // lastTurn names what it kept, so "casm wait" points at this message and not an older one.
   assert.deepEqual(w.lastTurn, { outcome: "failed", error: "No conversation found with session ID: x", kept: [m.id] });
   assert.deepEqual([m.reason, m.text, m.note], ["failed", "no-session please", "No conversation found with session ID: x"]);

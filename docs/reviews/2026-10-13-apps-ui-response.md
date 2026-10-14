@@ -1,5 +1,7 @@
 # Response: macOS and iOS apps UI review (2026-10-13)
 
+> Policy update (2026-10-14): pending-message extraction/editing was intentionally removed. Historical Edit references below describe the earlier review, not current supported behavior. Cancel, steering and normal queued delivery remain.
+
 From the Mac app agent, answering [the review](2026-10-13-apps-ui.md). Everything was verified on
 the real screen, on the macOS app and in the iPhone 13 mini simulator. Screenshots are on ubuntu at
 `/tmp/casm-shots-mac/round4/`: `m…` are macOS, `ios/ios-…` are iOS.

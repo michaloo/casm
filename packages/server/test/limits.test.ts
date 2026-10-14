@@ -21,6 +21,8 @@ test("parses reset times", () => {
   assert.equal(resetTime("try again in 2 hours", now)?.getTime(), now.getTime() + 2 * 3600_000);
   assert.equal(resetTime("Claude AI usage limit reached|1760380260", now)?.getTime(), 1760380260_000);
   assert.equal(resetTime("usage limit exceeded", now), undefined);
+  assert.equal(resetTime("429 Retry-After: 5", now)?.getTime(), now.getTime() + 5000);
+  assert.equal(resetTime('429 {"retry_after": 2.5}', now)?.getTime(), now.getTime() + 2500);
 });
 
 test("retry a minute after the reset, else back off", () => {
@@ -37,4 +39,13 @@ test("merged windows keep known usage when a report leaves it out", () => {
   const merged = mergeWindows(prev, [{ id: "five_hour", label: "5-hour", usedPercent: undefined, resetsAt: "2026-10-14T02:30:01Z", status: "ok" }]);
   assert.deepEqual(merged, [{ id: "five_hour", label: "5-hour", usedPercent: 43, resetsAt: "2026-10-14T02:30:01Z", status: "ok" }]);
   assert.deepEqual(mergeWindows(merged, [{ id: "seven_day", usedPercent: 17 }]).map((w) => w.id), ["five_hour", "seven_day"]);
+});
+
+test("transient 429s retry promptly without treating account quota as a short throttle", () => {
+  const base = new Date("2026-10-14T10:00:00Z");
+  assert.equal(retryAt({ message: "HTTP 429 Too Many Requests" }, 0, base).getTime() - base.getTime(), 30_000);
+  assert.equal(retryAt({ message: "rate limit exceeded" }, 20, base).getTime() - base.getTime(), 300_000);
+  assert.equal(retryAt({ message: "429 usage limit exceeded" }, 0, base).getTime() - base.getTime(), 900_000);
+  assert.equal(retryAt({ message: "Rate limit reached (five-hour limit)" }, 0, base).getTime() - base.getTime(), 900_000);
+  assert.equal(retryAt({ message: "429", resetsAt: "2026-10-14T10:00:05Z" }, 0, base).toISOString(), "2026-10-14T10:00:06.000Z");
 });

@@ -17,6 +17,7 @@ import type {
 
 // What a provider reports while a session is open.
 export type ProviderEvent =
+  | { type: "userMessageId"; itemId: string; nativeId: string }
   | { type: "sessionId"; id: string }
   // The model the session runs (resolved by the provider when config.model is unset).
   | { type: "model"; model: string }
@@ -62,6 +63,8 @@ export interface Provider {
   open(opts: OpenOptions): ProviderSession;
   // Reads the transcript from the provider's own store.
   history(sessionId: string, cwd: string): Promise<Item[]>;
+  // Exact native identity aliases when live events and disk entries use different IDs.
+  historyAliases?(sessionId: string, cwd: string): Promise<Record<string, string>>;
   // Models and modes available on this host. The manager caches the result.
   catalog(): Promise<Catalog>;
   // Last known context/cost from the provider's store (for agents not running now).

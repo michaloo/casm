@@ -799,19 +799,22 @@ class OpencodeSession implements ProviderSession {
     void this.close();
   }
 
-  send(text: string, _itemId: string, images?: ImageData[]) {
+  send(text: string, itemId: string, images?: ImageData[]) {
     const { config, cwd } = this.opts;
     const seq = this.turnSeq;
     const files = imageParts(images);
     void this.sessionId
       .then(async (id) => {
         this.busy = true;
+        const messageID = `msg_${itemId.replaceAll("-", "")}`;
+        this.emit({ type: "userMessageId", itemId, nativeId: messageID });
         const slash = parseSlash(text);
         if (slash) {
           const commands = await this.server.request<OcCommand[]>("GET", "/command", cwd).catch(() => []);
           if (commands.some((c) => c.name === slash.name)) {
             // Blocks until the command's turn is done; the event stream drives the turn.
             return this.server.request("POST", `/session/${id}/command`, cwd, {
+              messageID,
               command: slash.name,
               arguments: slash.args,
               model: config.model,
@@ -822,6 +825,7 @@ class OpencodeSession implements ProviderSession {
           }
         }
         return this.server.request("POST", `/session/${id}/prompt_async`, cwd, {
+          messageID,
           parts: [...(text.trim() ? [{ type: "text", text }] : []), ...files],
           model: modelRef(config.model),
           agent: config.mode,

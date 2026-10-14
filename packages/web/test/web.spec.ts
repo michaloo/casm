@@ -270,3 +270,171 @@ test("Vite SPA fallback restores a deep-linked agent on an isolated dev server",
     await vite.close();
   }
 });
+
+for (const scheme of ["light", "dark"] as const)
+  for (const device of ["desktop", "mobile"] as const) {
+    test(`visual transcript · ${device} · ${scheme}`, async ({ page }) => {
+      const size =
+        device === "desktop"
+          ? { width: 1440, height: 900 }
+          : { width: 375, height: 812 };
+      await page.setViewportSize(size);
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto("/");
+      await page
+        .getByLabel("Server token")
+        .fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+      await page.getByRole("button", { name: "Connect", exact: true }).click();
+      if (device === "mobile")
+        await page.getByRole("button", { name: "Agents", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Visual review idle", exact: true })
+        .click();
+      const scroller = page.locator("[data-virtuoso-scroller]");
+      await expect(page.locator(".prose img")).toBeVisible();
+      await scroller.hover();
+      await page.mouse.wheel(0, -100000);
+      await expect(
+        page.getByRole("heading", { name: "A calmer place to work" }),
+      ).toBeVisible();
+      await page.screenshot({
+        path: `/tmp/casm-web-visual-${device}-${scheme}.png`,
+      });
+      const reveal = async (locator: ReturnType<typeof page.locator>) => {
+        await scroller.hover();
+        await expect
+          .poll(
+            async () => {
+              if (await locator.isVisible()) {
+                const inView = await locator.evaluate((el) => {
+                  const box = el.getBoundingClientRect();
+                  const container = el.closest("[data-virtuoso-scroller]");
+                  if (!container) return false;
+                  const root = container.getBoundingClientRect();
+                  return box.top >= root.top && box.bottom <= root.bottom;
+                });
+                if (inView) return true;
+                await locator.evaluate((el) =>
+                  el.scrollIntoView({ block: "center" }),
+                );
+                return false;
+              }
+              await page.mouse.wheel(0, size.height * 0.35);
+              return false;
+            },
+            { timeout: 10000, intervals: [100, 150, 250] },
+          )
+          .toBe(true);
+      };
+      const thinking = page.locator(".thinking summary");
+      await reveal(thinking);
+      await thinking.click();
+      await expect(
+        page.getByText(/First I will check the layout constraints/),
+      ).toBeVisible();
+      await thinking.click();
+      const tool = page
+        .locator(".tool summary")
+        .filter({ hasText: "npm run check" });
+      await reveal(tool);
+      await tool.click();
+      const more = page.getByRole("button", { name: /Show more/ });
+      await expect(more).toBeVisible();
+      await more.click();
+      await expect(
+        page.getByRole("button", { name: "Show less", exact: true }),
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: "Show less", exact: true })
+        .click();
+      await page.screenshot({
+        path: `/tmp/casm-web-tools-${device}-${scheme}.png`,
+      });
+      await tool.click();
+      const diff = page
+        .locator(".tool summary")
+        .filter({ hasText: "theme.css" });
+      await reveal(diff);
+      await diff.click();
+      await reveal(page.locator(".code-block.diff"));
+      await expect(page.locator(".diff-add").first()).toContainText("--accent");
+      await expect(page.locator(".diff-remove")).toContainText("#245fa3");
+      await page.screenshot({
+        path: `/tmp/casm-web-diff-${device}-${scheme}.png`,
+      });
+      const subagent = page.locator(".subagent summary");
+      await reveal(subagent);
+      await subagent.click();
+      await expect(
+        page.getByText(/Wide tables scroll inside their own container/),
+      ).toBeVisible();
+      await subagent.click();
+      await scroller.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      const code = page.getByRole("button", {
+        name: "Copy typescript code",
+        exact: true,
+      });
+      await expect(code).toBeVisible();
+      await expect(page.locator(".hljs-keyword").first()).toBeVisible();
+      // Force the plain-http clipboard path even on localhost, a browser secure-context exception.
+      await page.evaluate(() =>
+        Object.defineProperty(window, "isSecureContext", {
+          value: false,
+          configurable: true,
+        }),
+      );
+      await code.click();
+      await expect(code).toHaveText("Copied ✓");
+      await reveal(page.locator(".code-block").filter({ has: code }));
+      await page.screenshot({
+        path: `/tmp/casm-web-code-${device}-${scheme}.png`,
+      });
+      await reveal(page.locator(".table-scroll"));
+      await expect(page.locator(".table-scroll table")).toBeVisible();
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBe(size.width);
+      await page.screenshot({
+        path: `/tmp/casm-web-markdown-${device}-${scheme}.png`,
+      });
+      const manifest = await page.getAttribute("#app-manifest", "href");
+      expect(manifest).toBe(
+        scheme === "dark"
+          ? "/manifest-dark.webmanifest"
+          : "/manifest.webmanifest",
+      );
+      await send(page, "permission");
+      await expect(page.getByText("Permission: Write")).toBeVisible();
+      await page.screenshot({
+        path: `/tmp/casm-web-permission-${device}-${scheme}.png`,
+      });
+      await page.getByRole("button", { name: "Allow", exact: true }).click();
+      await expect(page.getByText("Permission: Write")).toHaveCount(0);
+      const manifestResponse = await page.request.get(manifest!);
+      const manifestData = await manifestResponse.json();
+      expect(manifestData.name).toBe("casm");
+      const expectedTheme = scheme === "dark" ? "dark" : "light";
+      expect(manifestData.icons).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            src: `/casm-icon-${expectedTheme}-1024.png`,
+            sizes: "1024x1024",
+          }),
+        ]),
+      );
+      for (const icon of manifestData.icons) {
+        const response = await page.request.get(icon.src);
+        expect(response.status()).toBe(200);
+        expect(response.headers()["content-type"]).toContain(icon.type);
+      }
+      for (const asset of [
+        "/favicon.svg",
+        "/favicon.png",
+        "/apple-touch-icon.png",
+        manifest!,
+      ])
+        expect((await page.request.get(asset)).status()).toBe(200);
+    });
+  }

@@ -57,6 +57,12 @@ export function createHandlers(
     if (!a) throw new RpcError(ErrorCode.NotFound, `agent ${id} not found`);
     return agents.withStatus(a);
   };
+  const sender = (source: Params<"agent.send">["sender"]) => {
+    if (!source) return undefined;
+    // Local names come from the store, not a stale or client-supplied label.
+    if (source.serverId === identity.id) return { ...source, name: getAgent(source.agentId).name };
+    return source;
+  };
   // Mode ids are a fixed per-agent list, so a wrong one (say Claude's "default"
   // sent to Codex) is rejected. Models aren't checked: agents accept ids beyond
   // their catalog (full Claude model ids, OpenCode provider/model pairs).
@@ -154,7 +160,7 @@ export function createHandlers(
         tags: p.tags,
       });
       notify("agent.changed", { agent: agents.withStatus(stored) });
-      if (p.prompt || p.images?.length) agents.send(stored.id, { text: p.prompt ?? "", images: p.images });
+      if (p.prompt || p.images?.length) agents.send(stored.id, { text: p.prompt ?? "", images: p.images, sender: sender(p.sender) });
       return getAgent(stored.id);
     },
     "agent.update": async (p) => {
@@ -188,7 +194,7 @@ export function createHandlers(
       conn.subscriptions.delete(p.id);
       return { ok: true };
     },
-    "agent.send": (p) => agents.send(p.id, { text: p.text, images: p.images }, p.whenBusy, p.whenLimited),
+    "agent.send": (p) => agents.send(p.id, { text: p.text, images: p.images, sender: sender(p.sender) }, p.whenBusy, p.whenLimited),
     "schedule.list": (p) => ({ schedules: schedules().list(p.agentId) }),
     "schedule.create": (p) => schedules().create(p),
     "schedule.update": (p) => schedules().update(p),
@@ -203,7 +209,6 @@ export function createHandlers(
     },
     "agent.retryPending": (p) => agents.retryPending(p.id, p.messageId),
     "agent.steerPending": (p) => agents.steerPending(p.id, p.messageId),
-    "agent.takePending": (p) => agents.takePending(p.id, p.messageId),
     "agent.cancelPending": (p) => ({ cancelled: agents.cancelPending(p.id, p.messageId) }),
     "pending.list": () => ({ messages: agents.pendingMessages(), blocked: agents.blocked() }),
     "agent.usage": async (p) => ({ usage: await agents.usage(p.id) }),

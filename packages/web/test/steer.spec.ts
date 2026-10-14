@@ -1,6 +1,6 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 
 test("composer Steer sends immediately while Queue remains queued", async ({ page }) => {
   const sends: string[] = [];

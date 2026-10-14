@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
 
 for (const width of [1440, 375]) test(`mobile slash commands and MCP controls at ${width}`, async ({ page }) => {

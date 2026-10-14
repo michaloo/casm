@@ -2,7 +2,7 @@ import { testHome, testWS } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { once } from "node:events";
 import WebSocket from "ws";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 
 // A genuine second RPC client; its sends never invoke the browser's send().
 async function externalClient() {

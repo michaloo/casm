@@ -1,6 +1,6 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 // A row that Virtuoso unmounts before the toggle event reaches React must still
 // remount open: the click records the expansion, not the later event.
 test("an expanded tool row stays open after leaving and re-entering the virtual range", async ({ page }) => {

@@ -1,6 +1,6 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 
 test("same-server/project nesting preserves selectable rows and excludes unrelated parents", async ({ page }) => {
   await page.routeWebSocket(/.*/, (socket) => {

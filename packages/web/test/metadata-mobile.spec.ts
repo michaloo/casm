@@ -1,6 +1,6 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 
 for (const width of [1440, 375]) test(`sender provenance and held queue metadata fit at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 812 });

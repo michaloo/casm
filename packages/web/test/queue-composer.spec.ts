@@ -2,7 +2,8 @@ import { testHome } from "./config.ts";
 // The composer and the queue: instant feedback, reconciliation by message id,
 // and no duplicates when actions or responses race.
 import { readFileSync } from "node:fs";
-import { test, expect, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 

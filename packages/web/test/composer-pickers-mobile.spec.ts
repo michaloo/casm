@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
 
 const providers = ["claude", "codex", "opencode", "pi"];

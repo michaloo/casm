@@ -1,7 +1,8 @@
 // Host and project rows open one shared modal layout from their ⋯ button: no
 // dropdown menus. + on the host row adds a project.
 import { readFileSync } from "node:fs";
-import { test, expect, type Locator } from "@playwright/test";
+import type { Locator } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
 
 async function sheetFits(dialog: Locator, width: number) {

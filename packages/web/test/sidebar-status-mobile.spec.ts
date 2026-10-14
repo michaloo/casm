@@ -1,6 +1,6 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 
 for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as const)
   test(`sidebar mobile status and aligned metadata at ${width} ${colorScheme}`, async ({ page }, info) => {

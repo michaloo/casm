@@ -32,6 +32,11 @@ final class ComposerLogicTests: XCTestCase {
         XCTAssertEqual(shown("claude-opus-5-5"), "opus")
         XCTAssertEqual(shown("claude-haiku-4-5-20251001"), "haiku", "dated ids match too")
         XCTAssertNil(shown("claude-opus-5"), "no catalog entry by that name")
+        // A configured 1M-context variant shows as its base model, marked.
+        let oneM = ConfigPickers.model(config: AgentConfig(model: "claude-opus-5-5[1m]"), effective: nil, in: models)
+        XCTAssertEqual(oneM?.id, "opus")
+        XCTAssertEqual(ConfigPickers.title(oneM, id: "claude-opus-5-5[1m]"), "Opus 5.5 · 1M")
+        XCTAssertEqual(ConfigPickers.title(nil, id: "custom-model"), "custom-model")
     }
 
     func testAgentNamesComeFromTheFirstLine() {

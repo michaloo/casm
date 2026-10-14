@@ -2,10 +2,25 @@ import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
-test("host row opens a keyboard menu, not a project, and manages schedules", async ({ page }) => {
+for (const width of [1440, 375]) test(`host row opens a keyboard menu and edits schedules at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 812 });
+  const updatedTargets: unknown[] = [];
+  await page.routeWebSocket("**", (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((raw) => {
+      const request = JSON.parse(String(raw));
+      if (request.method === "schedule.create") {
+        if (request.params.target.type === "agent") request.params.target.whenBusy = "skip";
+        else request.params.target.config = { model: "fixture-model" };
+      }
+      if (request.method === "schedule.update" && request.params.target) updatedTargets.push(request.params.target);
+      server.send(JSON.stringify(request));
+    });
+  });
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
+  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
   const trigger = page.getByRole("button", { name: /Test host, online · host menu/ });
   await expect(trigger.locator(".host-dot.online")).toHaveCount(1);
   await trigger.focus();
@@ -36,6 +51,16 @@ test("host row opens a keyboard menu, not a project, and manages schedules", asy
   const row = panel.getByRole("listitem").filter({ hasText: "Hourly check" });
   await expect(row).toContainText("Every hour · Message Agent 05");
   await expect(row).toContainText(/Next in \d/);
+  await row.getByRole("button", { name: "Edit Hourly check" }).click();
+  await expect(row.getByLabel("Prompt")).toHaveValue("status?");
+  await row.getByLabel("Minutes").fill("90");
+  await row.getByLabel("Prompt").fill("updated status?");
+  await row.getByRole("button", { name: "Save schedule" }).click();
+  await expect(row).toContainText("Every 90 minutes");
+  expect(updatedTargets[0]).toMatchObject({ type: "agent", whenBusy: "skip" });
+  await row.getByRole("button", { name: "Edit Hourly check" }).click();
+  await expect(row.getByLabel("Prompt")).toHaveValue("updated status?");
+  await row.getByRole("button", { name: "Cancel edit" }).click();
   const toggle = row.getByRole("switch", { name: "Disable Hourly check" });
   await expect(toggle).toHaveAttribute("aria-checked", "true");
   await toggle.click();
@@ -46,6 +71,22 @@ test("host row opens a keyboard menu, not a project, and manages schedules", asy
   await row.getByRole("button", { name: "Delete Hourly check" }).click();
   await row.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(panel).toContainText("No schedules on this host yet");
+  await panel.getByRole("button", { name: "New schedule" }).click();
+  await panel.getByLabel("Name").fill("New agent check");
+  await panel.getByLabel("Target", { exact: true }).selectOption("newAgent");
+  await panel.getByLabel("Prompt").fill("scheduled greeting");
+  await panel.getByRole("button", { name: "Create schedule" }).click();
+  const fresh = panel.getByRole("listitem").filter({ hasText: "New agent check" });
+  await fresh.getByRole("button", { name: "Edit New agent check" }).click();
+  await expect(fresh.getByLabel("Target", { exact: true })).toHaveValue("newAgent");
+  await fresh.getByLabel("Prompt").fill("updated scheduled greeting");
+  await fresh.getByRole("button", { name: "Save schedule" }).click();
+  await expect.poll(() => updatedTargets.length).toBe(2);
+  expect(updatedTargets[1]).toMatchObject({ type: "newAgent", config: { model: "fixture-model" } });
+  await fresh.getByRole("button", { name: "Run New agent check now" }).click();
+  await expect(fresh).toContainText("Last created");
+  await fresh.getByRole("button", { name: "Delete New agent check" }).click();
+  await fresh.getByRole("button", { name: "Delete", exact: true }).click();
   await panel.getByRole("button", { name: "Back to host menu" }).click();
   await expect(page.getByRole("menuitem", { name: /Usage/ })).toBeFocused();
 });

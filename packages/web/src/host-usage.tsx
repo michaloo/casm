@@ -5,7 +5,7 @@ import { ProviderIcon, providerNames } from "./provider-icon";
 import { usageLabel, resetLabel } from "./usage-label";
 
 /** Keeps a fixed popover next to its trigger and inside the viewport while open. */
-export function useAnchoredPosition(open: boolean, trigger: RefObject<HTMLElement | null>, panel: RefObject<HTMLElement | null>) {
+export function useAnchoredPosition(open: boolean, trigger: RefObject<HTMLElement | null>, panel: RefObject<HTMLElement | null>, layoutKey?: string) {
   useLayoutEffect(() => {
     if (!open) return;
     const position = () => {
@@ -24,7 +24,7 @@ export function useAnchoredPosition(open: boolean, trigger: RefObject<HTMLElemen
     window.addEventListener("resize", position);
     window.addEventListener("scroll", position, true);
     return () => { observer.disconnect(); window.removeEventListener("resize", position); window.removeEventListener("scroll", position, true); };
-  }, [open]);
+  }, [open, layoutKey]);
 }
 
 /** Provider limit windows for one host, read when shown. */

@@ -51,7 +51,6 @@ ExecStart="$(sd_escape "$node")" "$(sd_escape "$main")" serve
 WorkingDirectory=%h
 Environment="PATH=$(sd_escape "$PATH")"
 Environment="CASM_HOME=$(sd_escape "$casm_home")"
-Environment=NODE_ENV=production
 Restart=on-failure
 # The listen address may not exist yet at boot (e.g. Tailscale still coming up): keep retrying.
 RestartSec=5
@@ -120,7 +119,6 @@ mac_install() {
   <dict>
     <key>PATH</key><string>$(xml_escape "$PATH")</string>
     <key>CASM_HOME</key><string>$(xml_escape "$casm_home")</string>
-    <key>NODE_ENV</key><string>production</string>
   </dict>
   <key>WorkingDirectory</key><string>$(xml_escape "$HOME")</string>
   <key>RunAtLoad</key><true/>

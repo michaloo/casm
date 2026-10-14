@@ -1,3 +1,4 @@
+import { providerEnv } from "./env.ts";
 import { toolImages } from "./tool-images.ts";
 // pi via `pi --mode rpc`: one process per open session, JSONL commands on
 // stdin, responses and session events on stdout. The native session id is the
@@ -418,7 +419,7 @@ function piQuery(cmds: Rec[], cwd?: string): Promise<Map<string, Rec>> {
   return new Promise((resolve, reject) => {
     const args = ["--mode", "rpc", "--no-session"];
     if (process.env.CASM_PI_ARGS) args.push(...process.env.CASM_PI_ARGS.split(" ").filter(Boolean));
-    const proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+    const proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, env: providerEnv(), stdio: ["pipe", "pipe", "pipe"] });
     const responses = new Map<string, Rec>();
     let buf = "";
     let stderr = "";
@@ -538,7 +539,7 @@ class PiSession implements ProviderSession {
     if (config.effort) args.push("--thinking", config.effort);
     if (config.systemPrompt) args.push("--append-system-prompt", config.systemPrompt);
     if (process.env.CASM_PI_ARGS) args.push(...process.env.CASM_PI_ARGS.split(" ").filter(Boolean));
-    this.proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, env: { ...process.env, ...config.env } });
+    this.proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, env: providerEnv(config.env) });
     this.proc.stdout.setEncoding("utf8");
     this.proc.stdout.on("data", (chunk: string) => this.read(chunk));
     this.proc.stderr.setEncoding("utf8");

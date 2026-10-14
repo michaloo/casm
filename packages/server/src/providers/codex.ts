@@ -1,3 +1,4 @@
+import { providerEnv } from "./env.ts";
 import { toolImages, viewedImage } from "./tool-images.ts";
 // Codex via `codex app-server`: JSON-RPC over stdio, one process per open
 // session. The native session id is the thread id; history comes from
@@ -259,7 +260,7 @@ export function rateLimits(snapshot: unknown): Limits {
 }
 
 export async function readLimits(): Promise<Limits> {
-  const rpc = new Rpc(homedir(), process.env as Record<string, string>);
+  const rpc = new Rpc(homedir(), providerEnv());
   try {
     await rpc.initialize();
     const response = await rpc.request("account/rateLimits/read", {});
@@ -675,7 +676,7 @@ export const MODE_INFO: ModeInfo[] = [
 ];
 
 export async function readCatalog(): Promise<Catalog> {
-  const rpc = new Rpc(homedir(), process.env as Record<string, string>);
+  const rpc = new Rpc(homedir(), providerEnv());
   try {
     await rpc.initialize();
     const data: unknown[] = [];
@@ -759,7 +760,7 @@ class CodexSession implements ProviderSession {
 
   constructor(opts: OpenOptions) {
     this.opts = opts;
-    this.rpc = new Rpc(opts.cwd, { ...(process.env as Record<string, string>), ...opts.config.env });
+    this.rpc = new Rpc(opts.cwd, providerEnv(opts.config.env));
     this.rpc.onNotification = (m, p) => this.onNotification(m, p);
     this.rpc.onRequest = (m, p, id) => this.onRequest(m, p, id);
     this.rpc.onExit = (error) => {
@@ -1153,7 +1154,7 @@ async function failedTurns(rpc: Rpc, threadId: string): Promise<Map<string, Item
 }
 
 export async function readHistory(sessionId: string, cwd: string): Promise<Item[]> {
-  const rpc = new Rpc(cwd, process.env as Record<string, string>);
+  const rpc = new Rpc(cwd, providerEnv());
   try {
     await rpc.initialize();
     const byId = new Map<string, Item>();
@@ -1191,7 +1192,7 @@ export async function readHistory(sessionId: string, cwd: string): Promise<Item[
 }
 
 export async function readCommands(cwd: string): Promise<Command[]> {
-  const rpc = new Rpc(cwd, process.env as Record<string, string>);
+  const rpc = new Rpc(cwd, providerEnv());
   try {
     await rpc.initialize();
     return [...BUILTIN_COMMANDS, ...skillCommands(parseSkills(await rpc.request("skills/list", { cwds: [cwd] })))];

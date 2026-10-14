@@ -19,9 +19,10 @@ node scripts/docs-media/capture-web.ts gif-queue
 ```
 
 `capture-web.ts` starts a fresh showcase server per scene, drives the web
-client with Playwright's Chromium, and writes PNGs (palette-optimized) and
-GIFs (frames from screenshots, encoded by ffmpeg with a shared palette).
-It needs `ffmpeg` on `PATH`; a static build in `~/.local/bin` works.
+client with Playwright's Chromium, and writes 2x PNGs (squeezed with `pngquant`
+and `optipng`) and GIFs: frames from a CDP screencast (crisper than Playwright's
+VP8 video), encoded by `ffmpeg` with a shared palette, then `gifsicle -O3`.
+It needs those four tools on `PATH`.
 `SHOWCASE_PORT` (default 7497, also uses the next port) and `SHOWCASE_HOME`
 (default `/tmp/demo`, with casm's state in `/tmp/demo.state`) move it.
 
@@ -38,6 +39,8 @@ node scripts/docs-media/record-cast.ts            # every scene
 node scripts/docs-media/record-cast.ts cli-peers
 ```
 
-These agents are real and make model calls: the scenes use Claude Haiku and
+The recorder types the commands itself instead of using `asciinema rec`, so the
+typing is deterministic and re-recordings differ only in the agents' answers;
+the command output is real. These agents are real and make model calls: the scenes use Claude Haiku and
 count against your subscription. The `.cast` files are kept next to the SVGs;
 play one with `asciinema play docs/media/cli-peers.cast`.

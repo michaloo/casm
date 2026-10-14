@@ -329,9 +329,19 @@ struct MarkdownTableView: View {
     let table: MarkdownTable
 
     var body: some View {
+        // Wraps to the column's width when its columns can get narrow enough; one with too many
+        // columns for that (on an iPhone) scrolls sideways in its own box instead of widening
+        // the whole transcript.
+        ViewThatFits(in: .horizontal) {
+            grid(squeezable: true)
+            ScrollView(.horizontal, showsIndicators: false) { grid(squeezable: false) }
+        }
+    }
+
+    private func grid(squeezable: Bool) -> some View {
         let columns = table.header.count
         let rows = [table.header] + table.rows
-        TableLayout(columns: columns, minColumnWidth: 64) {
+        return TableLayout(columns: columns, minColumnWidth: 64, squeezable: squeezable) {
             ForEach(rows.indices, id: \.self) { r in
                 ForEach(0..<columns, id: \.self) { c in
                     cell(rows[r][c], column: c, header: r == 0, last: r == rows.count - 1)
@@ -364,6 +374,8 @@ struct MarkdownTableView: View {
 struct TableLayout: Layout {
     let columns: Int
     let minColumnWidth: CGFloat
+    /// Asked for its ideal width, report the narrowest it can get (for ViewThatFits).
+    var squeezable = false
 
     struct Cache {
         var widths: [CGFloat] = []
@@ -406,6 +418,11 @@ struct TableLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         guard columns > 0 else { return .zero }
+        if squeezable && proposal.width == nil {
+            // Not cached: a measurement, not the size it is placed at.
+            let widths = columnWidths(subviews, available: nil).map { min($0, minColumnWidth) }
+            return CGSize(width: widths.reduce(0, +), height: rowHeights(subviews, widths: widths).reduce(0, +))
+        }
         cache.widths = columnWidths(subviews, available: proposal.width)
         cache.heights = rowHeights(subviews, widths: cache.widths)
         return CGSize(width: cache.widths.reduce(0, +), height: cache.heights.reduce(0, +))

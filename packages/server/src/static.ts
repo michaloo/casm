@@ -1,5 +1,5 @@
-// Static files of the web client. Paths without a file extension get index.html
-// (client-side routes). Hashed assets are cached for good; everything else is
+// Static files of the web client. Paths without a file extension, and file
+// previews (/f/<absolute path>), get index.html (client-side routes). Hashed assets are cached for good; everything else is
 // revalidated, so a rebuilt client shows up on the next load.
 import { createReadStream, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -43,7 +43,7 @@ export function serveStatic(root: string, req: IncomingMessage, res: ServerRespo
   let path = join(root, rel);
   let size = rel ? file(path) : undefined;
   if (size === undefined) {
-    if (extname(rel)) return false;
+    if (extname(rel) && !pathname.startsWith("/f/")) return false;
     path = join(root, "index.html");
     size = file(path);
     if (size === undefined) return false;

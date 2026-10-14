@@ -74,6 +74,14 @@ unanswered prompts are retained for explicit recovery; queued work resumes
 through the pending-message machinery. Provider limits defer work with backoff;
 a healthy account refresh or explicit Send now can attempt recovery.
 
+Files inside project folders are readable, never writable, through casm:
+`fs.list`, `fs.read` (text previews up to 1 MiB) and `fs.downloadLink`. Paths
+must stay inside a registered project folder after symlinks and `..` are
+resolved. Downloads use `GET /dl/<token>`: an HMAC-signed link for one file that
+expires after about five minutes, signed with `$CASM_HOME/download-secret`, so
+no client token appears in a URL. Links to a peer's file wrap the peer's own
+link; the file streams through the server the client is connected to.
+
 Project AGENTS.md is editable with a content-hash conflict check. Provider
 memories are read-only views of their existing stores. casm does not generate
 or own those memories.

@@ -25,6 +25,7 @@ import { createHandlers, type Conn } from "./methods.ts";
 import { Scheduler } from "./schedules.ts";
 import { createMcp } from "./mcp.ts";
 import { PeerPool } from "./peers.ts";
+import { Files } from "./files.ts";
 import { AgentPrompt } from "./agent-prompt.ts";
 import type { Provider } from "./providers/types.ts";
 
@@ -39,8 +40,9 @@ export type ServerOptions = {
   log?: (msg: string) => void;
   // Connect timeout for peer servers (tests use a short one).
   peerTimeoutMs?: number;
-  // The state directory ($CASM_HOME): agent-prompt.md and config.json. Without
-  // it agents get the default agent prompt, which can't be changed.
+  // The state directory ($CASM_HOME): agent-prompt.md, config.json and the
+  // download-link secret. Without it agents get the default agent prompt, which
+  // can't be changed, and download links last until the server restarts.
   home?: string;
   // The built web client (packages/web/dist), served at /. Without it, / says to use a WebSocket.
   webRoot?: string;
@@ -73,8 +75,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const agents = new AgentManager(opts.store, new Map(opts.providers.map((p) => [p.id, p])), notify, new AgentPrompt(opts.home ?? null));
   const identity = { id: opts.store.serverId(), name: opts.name ?? hostname(), version: opts.version };
   const peers = new PeerPool(opts.store, opts.peerTimeoutMs);
+  const files = new Files({ store: opts.store, peers, home: opts.home });
   let scheduler: Scheduler | undefined;
-  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!);
+  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!, files);
   scheduler = new Scheduler(opts.store, agents, notify, (p) =>
     (handlers["agent.create"] as (p: Params<"agent.create">, c: Conn) => Promise<Agent>)(p, { subscriptions: new Set() }),
   );
@@ -95,6 +98,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       });
       return;
     }
+    // Signed, short-lived links stand in for a token here (see files.ts).
+    if (files.serve(req, res, log)) return;
     if (opts.webRoot && serveStatic(opts.webRoot, req, res)) return;
     res.writeHead(426, { "content-type": "text/plain" }).end("casm: connect with a WebSocket\n");
   });
@@ -189,6 +194,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         client.remote.get(key)?.stop();
         client.remote.delete(key);
         return { ok: true };
+      }
+      // The peer's link is wrapped in one of ours: the client downloads through this server.
+      if (method === "fs.downloadLink") {
+        const p = params as Params<"fs.downloadLink">;
+        return files.proxyLink(peer, p.path, p.inline, await peers.caller(peer)("fs.downloadLink", p));
       }
       return await peers.caller(peer)(method, params as never);
     } catch (e) {

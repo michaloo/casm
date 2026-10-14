@@ -350,7 +350,9 @@ struct ThinkingRow: View {
 
     /// Summaries come as light markdown (Codex bolds a heading per step) and Claude's end in blank
     /// lines: inline styles only, trimmed.
-    private var rendered: AttributedString {
+    private var rendered: AttributedString { Self.inline(text) }
+
+    static func inline(_ text: String) -> AttributedString {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return (try? AttributedString(markdown: trimmed, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(trimmed)
@@ -467,14 +469,29 @@ struct DraftRow: View {
     let draft: ChatModel.Draft
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            if draft.kind == .reasoning {
-                Image(systemName: "brain").foregroundStyle(.secondary)
+        if draft.kind == .reasoning {
+            // Streams as the Thinking row it becomes (no paragraph that collapses when it ends),
+            // previewing the latest line.
+            HStack(spacing: 4) {
+                Image(systemName: "brain").font(.system(size: 11)).frame(width: 22, height: 22)
+                Text("Thinking")
+                Text(ThinkingRow.inline(latestLine))
+                    .foregroundStyle(Theme.muted.opacity(0.8))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.leading, 4)
+                Spacer(minLength: 0)
             }
-            Text(draft.text)
-                .foregroundStyle(draft.kind == .reasoning ? .secondary : .primary)
-                .opacity(0.85)
+            .font(.system(size: Theme.toolSize))
+            .foregroundStyle(Theme.muted)
+            .padding(.vertical, 4)
+        } else {
+            Text(draft.text).opacity(0.85)
         }
+    }
+
+    private var latestLine: String {
+        draft.text.split(whereSeparator: \.isNewline).last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.map(String.init) ?? ""
     }
 }
 

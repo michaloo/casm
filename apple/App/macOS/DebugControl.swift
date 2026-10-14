@@ -45,6 +45,14 @@ final class DebugControl {
         guard let app else { return }
         let chat = app.chat
         switch cmd["cmd"] {
+        case "select" where cmd["project"] != nil:
+            for host in app.hosts {
+                if let project = host.projects.first(where: { $0.name == cmd["project"] || $0.id == cmd["project"] }) {
+                    app.selection = .project(host: host.id, project: project.id)
+                    return log("selected project \(project.name)")
+                }
+            }
+            log("no project \(cmd["project"] ?? "")")
         case "select":
             let name = cmd["agent"] ?? ""
             for host in app.hosts {

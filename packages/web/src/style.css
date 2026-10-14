@@ -1263,21 +1263,30 @@ details[open] > summary:before {
   gap: 6px;
   margin-bottom: 7px;
 }
-.pickers select {
+/* The native select is the hit target; concise text and icon form its face. */
+.composer-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
-  max-width: 45%;
-  border: 1px solid transparent;
-  background-color: color-mix(in srgb, var(--raised) 60%, var(--surface));
-  font-size: 11.5px;
-  font-weight: 500;
-  padding: 4px 9px;
-  border-radius: 99px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--raised) 60%, var(--surface));
   color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
 }
-.pickers select:hover {
-  border-color: var(--line);
-  color: var(--text);
-}
+.composer-picker-label { min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-picker-chevron { flex-shrink: 0; color: var(--faint); }
+.composer-picker select { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; font-size: 16px; }
+.composer-picker:has(select):hover { color: var(--text); border-color: var(--line-strong); }
+.composer-picker:has(select:focus-visible) { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
+.composer-picker select:focus-visible { outline: none; }
+.composer-picker-fixed { background: transparent; }
 textarea {
   resize: vertical;
   width: 100%;
@@ -1839,13 +1848,9 @@ textarea::placeholder {
     gap: 6px;
     margin-bottom: 4px;
   }
-  .pickers select {
-    flex: 1 1 0;
-    max-width: none;
-    min-height: 40px;
-    padding: 4px 8px;
-    font-size: 16px !important;
-  }
+  .composer-picker { height: 44px; border-radius: 22px; max-width: 100%; }
+  .composer-picker-label { max-width: 210px; }
+  .composer-picker:has(select[aria-label="Model"]) { flex: 1 1 calc(100% - 120px); }
   .composer textarea {
     min-height: 48px;
     max-height: 30dvh;

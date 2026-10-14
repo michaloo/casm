@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import Markdown, { type Options } from "react-markdown";
@@ -202,6 +203,16 @@ function shortInput(input: unknown) {
   return input ? JSON.stringify(input) : "";
 }
 export type ToolTime = { start: number; end?: number };
+// The toggle event fires a task after the click. A row that Virtuoso unmounts
+// in between would never record it and would remount collapsed, so record the
+// new state as soon as the summary is clicked.
+function rememberToggle(id: string, expansion: Record<string, boolean>) {
+  return (e: MouseEvent<HTMLDetailsElement>) => {
+    const summary = (e.target as Element).closest("summary");
+    if (summary?.parentElement === e.currentTarget)
+      expansion[id] = !e.currentTarget.open;
+  };
+}
 function ToolRow({
   item,
   time,
@@ -228,6 +239,7 @@ function ToolRow({
     <div className="item tool">
       <details
         open={open}
+        onClick={rememberToggle(item.id, expansion)}
         onToggle={(e) => {
           expansion[item.id] = e.currentTarget.open;
           setOpen(e.currentTarget.open);
@@ -300,6 +312,7 @@ function Disclosure({
   return (
     <details
       open={open}
+      onClick={rememberToggle(id, expansion)}
       onToggle={(e) => {
         expansion[id] = e.currentTarget.open;
         setOpen(e.currentTarget.open);

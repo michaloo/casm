@@ -123,3 +123,13 @@ the tested commit, install any changed dependencies, validate, and explicitly
 restart the service. Do not update or migrate the stable checkout automatically
 as part of development tests. Provider task notices and transcript replay do not
 make live SDK processes survive a server restart.
+
+## Browser tests
+
+After `npm run build`, run `npm test -w @casm/web`. The disposable fixture uses
+port 7495 and `/tmp/casm-web-dev` by default. Parallel worktrees must choose their
+own port and home for the entire test run, for example:
+
+```sh
+CASM_WEB_TEST_PORT=7496 CASM_WEB_TEST_HOME=/tmp/casm-web-rel npm test -w @casm/web
+```

@@ -1,10 +1,11 @@
+import { testHome, testWS } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 async function login(page: any) {
   await page.goto("/");
   await page
     .getByLabel("Server token")
-    .fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+    .fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await expect(page.getByLabel("Message")).toBeVisible();
@@ -71,7 +72,7 @@ test("streaming and history pagination keep reader position; reconnect and new a
 }) => {
   await login(page);
   process.kill(
-    Number(readFileSync("/tmp/casm-web-dev/web-pid", "utf8")),
+    Number(readFileSync(`${testHome}/web-pid`, "utf8")),
     "SIGUSR2",
   );
   await expect(
@@ -119,7 +120,7 @@ test("mobile composer and pending stay inside viewport", async ({ page }) => {
   await page.goto("/");
   await page
     .getByLabel("Server token")
-    .fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+    .fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: "Agents", exact: true }).click();
   await page.getByRole("button", { name: /Agent 00/ }).click();
@@ -234,7 +235,7 @@ test("failed sends retain drafts and missing routes show not found", async ({
   await page.goto("/h/Test%20host/a/does-not-exist");
   await expect(page.getByRole("alert")).toContainText("Agent not found");
   await expect(page.getByLabel("Message")).toHaveCount(0);
-  const archivedId = readFileSync("/tmp/casm-web-dev/web-archived-id", "utf8");
+  const archivedId = readFileSync(`${testHome}/web-archived-id`, "utf8");
   await page.goto(`/h/Test%20host/a/${archivedId}`);
   await expect(page.getByRole("alert")).toContainText("Agent not found");
   await page.goto("/h/missing-host/a/does-not-exist");
@@ -248,7 +249,7 @@ test("Vite SPA fallback restores a deep-linked agent on an isolated dev server",
   const { resolve } = await import("node:path");
   const vite = await createServer({
     root: resolve(import.meta.dirname, ".."),
-    cacheDir: "/tmp/casm-web-dev/vite-cache",
+    cacheDir: `${testHome}/vite-cache`,
     server: { host: "127.0.0.1", port: 0 },
     logLevel: "error",
   });
@@ -259,10 +260,10 @@ test("Vite SPA fallback restores a deep-linked agent on an isolated dev server",
     const route = new URL(page.url()).pathname;
     await page.addInitScript(
       (token) => localStorage.setItem("casm.token", token),
-      readFileSync("/tmp/casm-web-dev/web-token", "utf8"),
+      readFileSync(`${testHome}/web-token`, "utf8"),
     );
     const response = await page.goto(
-      `http://127.0.0.1:${address.port}${route}?server=ws://127.0.0.1:7495`,
+      `http://127.0.0.1:${address.port}${route}?server=${testWS}`,
     );
     expect(response!.status()).toBe(200);
     await expect(page.locator("main header strong")).toHaveText("Agent 00");
@@ -283,7 +284,7 @@ for (const scheme of ["light", "dark"] as const)
       await page.goto("/");
       await page
         .getByLabel("Server token")
-        .fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+        .fill(readFileSync(`${testHome}/web-token`, "utf8"));
       await page.getByRole("button", { name: "Connect", exact: true }).click();
       if (device === "mobile")
         await page.getByRole("button", { name: "Agents", exact: true }).click();

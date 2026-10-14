@@ -1,3 +1,4 @@
+import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import type { QuestionRequest } from "@casm/protocol";
@@ -24,7 +25,7 @@ async function question(page: Page, prompts: QuestionRequest["prompts"]) {
     });
   });
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await expect(page.getByText("Answer shape", { exact: true })).toBeVisible();

@@ -1,3 +1,4 @@
+import { testHome } from "./config.ts";
 // The composer and the queue: instant feedback, reconciliation by message id,
 // and no duplicates when actions or responses race.
 import { readFileSync } from "node:fs";
@@ -7,7 +8,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 
 async function open(page: Page, agent: string) {
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: new RegExp(agent) }).click();
   await expect(page.locator(".item").first()).toBeVisible();

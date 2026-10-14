@@ -1,9 +1,10 @@
+import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 
 async function login(page: Page) {
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   if (page.viewportSize()!.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
   await page.getByRole("button", { name: /Agent 00/ }).click();

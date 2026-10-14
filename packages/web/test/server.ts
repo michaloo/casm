@@ -9,11 +9,7 @@ import type {
 } from "../../server/src/providers/types.ts";
 import type { Item } from "@casm/protocol";
 import { visualItems } from "./visual-fixture.ts";
-const home = process.env.CASM_DEV_HOME;
-if (home !== "/tmp/casm-web-dev" || process.env.CASM_DEV_PORT !== "7495")
-  throw new Error(
-    "Use isolated CASM_DEV_HOME=/tmp/casm-web-dev CASM_DEV_PORT=7495",
-  );
+import { testHome as home, testPort } from "./config.ts";
 mkdirSync(home, { recursive: true });
 rmSync(`${home}/web-test.db`, { force: true });
 const store = new Store(`${home}/web-test.db`);
@@ -153,7 +149,7 @@ const server = await startServer({
   store,
   providers: [provider],
   host: "127.0.0.1",
-  port: 7495,
+  port: testPort,
   version: "web-test",
   name: "Test host",
   home,

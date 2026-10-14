@@ -1,9 +1,10 @@
+import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
 test("host usage is an optional disclosure with refresh and graceful missing-provider data", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   const toggle = page.getByRole("button", { name: /Test host, online · host menu/ });
   const panel = page.getByRole("dialog", { name: /provider usage/ }).first();
@@ -44,7 +45,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
         });
       });
       await page.goto("/");
-      await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+      await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
       await page.getByRole("button", { name: "Connect", exact: true }).click();
       if (viewport.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
       await page.getByRole("button", { name: /Agent 00/ }).click();

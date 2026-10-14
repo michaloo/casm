@@ -1,3 +1,4 @@
+import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
@@ -14,7 +15,7 @@ test("composer Steer sends immediately while Queue remains queued", async ({ pag
     });
   });
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await page.getByLabel("Message").fill("slow");
@@ -52,7 +53,7 @@ test("a truly deferred Steer explains pending delivery only on its agent", async
     });
   });
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await page.getByLabel("Message").fill("slow");

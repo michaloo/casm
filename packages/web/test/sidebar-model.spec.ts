@@ -1,9 +1,10 @@
+import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
 test("compact provider/model rows and remembered collapse preserve routed agent visibility", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   const row = page.getByRole("button", { name: /Agent 00/ });
   await row.click();

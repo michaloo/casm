@@ -1,3 +1,4 @@
+import { testHome, testWS } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { once } from "node:events";
 import WebSocket from "ws";
@@ -5,7 +6,7 @@ import { test, expect } from "@playwright/test";
 
 // A genuine second RPC client; its sends never invoke the browser's send().
 async function externalClient() {
-  const socket = new WebSocket("ws://127.0.0.1:7495", { headers: { Authorization: `Bearer ${readFileSync("/tmp/casm-web-dev/web-token", "utf8")}` } });
+  const socket = new WebSocket(testWS, { headers: { Authorization: `Bearer ${readFileSync(`${testHome}/web-token`, "utf8")}` } });
   await once(socket, "open");
   let seq = 0;
   return {
@@ -59,7 +60,7 @@ test("external queue updates survive stale load/live responses and switching cac
   });
   try {
     await page.goto("/");
-    await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+    await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     await page.getByRole("button", { name: /Agent 60/ }).click();
     await expect.poll(() => !!release).toBe(true);

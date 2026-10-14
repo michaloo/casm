@@ -1,9 +1,10 @@
+import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
 test("host row opens a keyboard menu, not a project, and manages schedules", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   const trigger = page.getByRole("button", { name: /Test host, online · host menu/ });
   await expect(trigger.locator(".host-dot.online")).toHaveCount(1);

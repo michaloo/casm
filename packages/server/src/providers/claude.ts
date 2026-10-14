@@ -1179,11 +1179,11 @@ async function readLines(sessionId: string, cwd: string): Promise<Line[]> {
 
 // A short-lived query whose input never yields: it initializes, answers
 // control requests and is closed without starting a session.
-async function withIdleQuery<T>(executable: string | undefined, cwd: string, what: string, f: (q: ReturnType<typeof query>) => Promise<T>): Promise<T> {
+async function withIdleQuery<T>(executable: string | undefined, cwd: string, what: string, f: (q: ReturnType<typeof query>) => Promise<T>, model?: string): Promise<T> {
   const idle: AsyncIterable<SDKUserMessage> = {
     [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<SDKUserMessage>>(() => {}) }),
   };
-  const q = query({ prompt: idle, options: { cwd, pathToClaudeCodeExecutable: executable, env: process.env as Record<string, string> } });
+  const q = query({ prompt: idle, options: { cwd, model, pathToClaudeCodeExecutable: executable, env: process.env as Record<string, string> } });
   let timer: NodeJS.Timeout | undefined;
   try {
     const timeout = new Promise<never>((_, reject) => {
@@ -1258,9 +1258,31 @@ function fetchCommands(executable: string | undefined, cwd: string): Promise<Com
   });
 }
 
+// A model's context window as Claude Code sizes it (no API call: "summary"
+// context usage of an idle session on that model).
+function fetchContextWindow(executable: string | undefined, model: string): Promise<number> {
+  return withIdleQuery(executable, homedir(), "context window", async (q) => (await q.getContextUsage({ detail: "summary" })).rawMaxTokens, model);
+}
+
 export function claudeProvider(): Provider {
   const executable = findClaude();
   const windows = new Map<string, number>();
+  // Models whose window lookup is running or failed recently (retried after 10 min).
+  const lookups = new Map<string, { at: number; window: Promise<number | undefined> }>();
+  // Sessions learn windows from each turn's result; a stored session read after
+  // a restart asks Claude Code once per model.
+  const contextWindow = (model: string): Promise<number | undefined> => {
+    const known = windows.get(model);
+    if (known) return Promise.resolve(known);
+    const cached = lookups.get(model);
+    if (cached && Date.now() - cached.at < 10 * 60_000) return cached.window;
+    const window = fetchContextWindow(executable, model).then(
+      (w) => (w > 0 && !windows.has(model) && windows.set(model, w), windows.get(model)),
+      () => undefined,
+    );
+    lookups.set(model, { at: Date.now(), window });
+    return window;
+  };
   return {
     id: "claude",
     open: (opts) => new ClaudeSession(opts, executable, windows),
@@ -1270,7 +1292,12 @@ export function claudeProvider(): Provider {
       return historyItems(await readLines(sessionId, cwd));
     },
     async usage(sessionId, cwd) {
-      return usageFromLines(await readLines(sessionId, cwd), windows);
+      const u = usageFromLines(await readLines(sessionId, cwd), windows);
+      if (u?.model && !u.contextWindow) {
+        const w = await contextWindow(u.model);
+        if (w) u.contextWindow = w;
+      }
+      return u;
     },
     async subagentHistory(sessionId, cwd, subagentId) {
       const lines = await readLines(sessionId, cwd);

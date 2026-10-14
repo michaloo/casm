@@ -130,3 +130,46 @@ require('node:fs').writeFileSync(process.env.ARGS_FILE, JSON.stringify(process.a
   assert.deepEqual([anew.resume, anew.sessionId], [undefined, lost]);
   assert.ok(anew.events.some((e) => e.type === "item" && e.item.kind === "notice" && e.item.text.includes("no stored conversation")));
 });
+
+test("usage read from the store gets the context window from Claude Code once per model", { timeout: 15000 }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-claude-window-"));
+  const binary = join(dir, "fake-claude");
+  const spawns = join(dir, "spawns");
+  const old = { path: process.env.CASM_CLAUDE_PATH, config: process.env.CLAUDE_CONFIG_DIR };
+  // Answers get_context_usage with a window per --model; counts its starts.
+  writeFileSync(binary, `#!${process.execPath}
+const fs = require('node:fs');
+fs.appendFileSync(${JSON.stringify(spawns)}, 'x');
+const model = (process.argv.find(a => a.startsWith('--model=')) ?? '').slice(8) || process.argv[process.argv.indexOf('--model') + 1];
+const write = m => process.stdout.write(JSON.stringify(m) + '\\n');
+require('node:readline').createInterface({input: process.stdin}).on('line', line => {
+  const m = JSON.parse(line);
+  if (m.type !== 'control_request') return;
+  const response = m.request.subtype === 'get_context_usage'
+    ? {categories: [], totalTokens: 0, maxTokens: 1, rawMaxTokens: model === 'big-model' ? 1000000 : 200000, percentage: 0, gridRows: [], model, memoryFiles: [], mcpTools: [], agents: [], isAutoCompactEnabled: true}
+    : {};
+  write({type: 'control_response', response: {subtype: 'success', request_id: m.request_id, response}});
+});
+`, { mode: 0o755 });
+  process.env.CASM_CLAUDE_PATH = binary;
+  process.env.CLAUDE_CONFIG_DIR = join(dir, "config");
+  t.after(() => {
+    for (const [k, v] of [["CASM_CLAUDE_PATH", old.path], ["CLAUDE_CONFIG_DIR", old.config]] as const)
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const projectDir = join(dir, "config", "projects", dir.replace(/[^a-zA-Z0-9]/g, "-"));
+  mkdirSync(projectDir, { recursive: true });
+  const session = (id: string, model: string) =>
+    writeFileSync(join(projectDir, `${id}.jsonl`), JSON.stringify({ type: "assistant", uuid: "a", message: { model, role: "assistant", content: [], usage: { input_tokens: 5000 } } }) + "\n");
+  session("s1", "big-model");
+  session("s2", "big-model");
+  session("s3", "small-model");
+  const provider = claudeProvider();
+  assert.deepEqual(await provider.usage("s1", dir), { model: "big-model", contextTokens: 5000, contextWindow: 1000000 });
+  assert.equal((await provider.usage("s2", dir))?.contextWindow, 1000000);
+  assert.equal((await provider.usage("s3", dir))?.contextWindow, 200000);
+  // Once per model.
+  assert.equal(readFileSync(spawns, "utf8").length, 2);
+});

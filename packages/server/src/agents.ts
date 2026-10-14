@@ -198,10 +198,13 @@ export class AgentManager {
     if (!m) throw new RpcError(1001, "no such pending message");
     if (m.reason !== "failed") throw new RpcError(-32602, `only failed messages can be retried; this one is ${m.reason}`);
     this.store.removePending(m.id);
+    const before = new Set(this.store.listPending(id).map((x) => x.id));
     try {
       return this.send(id, { text: m.text, images: m.images });
     } catch (e) {
-      this.store.addPending({ ...m, front: true });
+      // A turn that started and failed has kept it again already.
+      const keptAgain = this.store.listPending(id).some((x) => !before.has(x.id) && x.reason === "failed" && x.text === m.text);
+      if (!keptAgain) this.store.addPending({ ...m, front: true });
       throw e;
     } finally {
       this.changed(id);

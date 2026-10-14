@@ -47,8 +47,9 @@ export type RunningServer = {
   close: () => Promise<void>;
 };
 
-// `remote`: subscriptions forwarded to peers, keyed "<peer>\n<agentId>".
-type Client = Conn & { ws: WebSocket; name: string; remote: Map<string, () => void> };
+// `remote`: subscriptions forwarded to peers, keyed "<peer>\n<agentId>", with
+// the host the client named (relayed notifications carry it back).
+type Client = Conn & { ws: WebSocket; name: string; remote: Map<string, { ref: string; stop: () => void }> };
 
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? (() => {});
@@ -101,7 +102,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       log(`client connected: ${name}`);
       ws.on("close", () => {
         clients.delete(client);
-        for (const unsubscribe of client.remote.values()) unsubscribe();
+        for (const r of client.remote.values()) r.stop();
         log(`client disconnected: ${name}`);
       });
       ws.on("message", (data) => void handle(client, data.toString()));
@@ -144,24 +145,24 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       throw new RpcError(ErrorCode.NotFound, `unknown host "${ref}": not a peer of ${identity.name} (peers: ${known})`);
     }
     const key = `${peer.name}\n${(params as { id?: string }).id}`;
-    const send = (msg: object) => client.ws.send(JSON.stringify({ jsonrpc: "2.0", ...msg, host: peer.name }));
+    const send = (msg: object, host = ref) => client.ws.send(JSON.stringify({ jsonrpc: "2.0", ...msg, host }));
     try {
       if (method === "agent.subscribe") {
         const { id } = params as Params<"agent.subscribe">;
-        client.remote.get(key)?.();
+        client.remote.get(key)?.stop();
         const { state, unsubscribe } = await peers.subscribe(peer, id, {
           notify: (m, p) => send({ method: m, params: p }),
           lost: () => {
-            const gone = [...client.remote.keys()].filter((k) => k.startsWith(`${peer.name}\n`));
-            for (const k of gone) client.remote.delete(k);
-            if (gone.length) send({ method: "peer.disconnected", params: { host: peer.name } });
+            const gone = [...client.remote].filter(([k]) => k.startsWith(`${peer.name}\n`));
+            for (const [k] of gone) client.remote.delete(k);
+            for (const host of new Set(gone.map(([, r]) => r.ref))) send({ method: "peer.disconnected", params: { host } }, host);
           },
         });
-        client.remote.set(key, unsubscribe);
+        client.remote.set(key, { ref, stop: unsubscribe });
         return state;
       }
       if (method === "agent.unsubscribe") {
-        client.remote.get(key)?.();
+        client.remote.get(key)?.stop();
         client.remote.delete(key);
         return { ok: true };
       }

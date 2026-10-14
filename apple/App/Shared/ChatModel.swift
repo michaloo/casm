@@ -296,7 +296,8 @@ final class ChatModel {
     /// Creates the new agent with the first message as its prompt, then becomes its chat: the
     /// same model (and composer) stays on screen, subscribed to the agent's first turn.
     private func create(_ text: String, images: [ImageData]) async -> Bool {
-        guard let host, let new = newAgent else { return false }
+        // A second send while the first create is in flight would create a second agent into this chat.
+        guard let host, let new = newAgent, firstMessage == nil else { return false }
         var params = CreateAgentParams(projectId: new.projectId, provider: new.provider, name: Self.agentName(from: text),
                                        config: new.config, prompt: text.isEmpty ? nil : text)
         if !images.isEmpty { params.images = images }

@@ -5,10 +5,15 @@ import { CasmClient } from "@casm/client";
 import type { MethodName, Params, Result } from "@casm/protocol";
 import type { Store, StoredPeer } from "./db.ts";
 
-// A sleeping laptop must fail fast, not hang the calling agent.
-export const PEER_CONNECT_TIMEOUT_MS = 3000;
-// Calls other than agent.wait should answer quickly; a silent peer is treated as gone.
+// How long a peer may take to connect. A sleeping laptop must not hang the
+// calling agent for long, but a busy one can take seconds to answer at all.
+// "peerTimeoutMs" in config.json overrides it.
+export const PEER_CONNECT_TIMEOUT_MS = 10_000;
+// Calls other than agent.wait should answer within this (or the connect
+// timeout, if longer); a silent peer is treated as gone.
 const PEER_CALL_TIMEOUT_MS = 15_000;
+// A probe slower than this reports the peer as slow (reachable, but loaded).
+export const PEER_SLOW_MS = 2000;
 
 export type Call = <M extends MethodName>(method: M, params: Params<M>) => Promise<Result<M>>;
 
@@ -41,10 +46,14 @@ export class PeerPool {
   private subs = new Map<CasmClient, Map<string, Set<Sink>>>();
   private store: Store;
   private timeoutMs: number;
+  private callTimeoutMs: number;
+  private slowMs: number;
 
-  constructor(store: Store, timeoutMs = PEER_CONNECT_TIMEOUT_MS) {
+  constructor(store: Store, timeoutMs = PEER_CONNECT_TIMEOUT_MS, slowMs = PEER_SLOW_MS) {
     this.store = store;
     this.timeoutMs = timeoutMs;
+    this.callTimeoutMs = Math.max(PEER_CALL_TIMEOUT_MS, timeoutMs);
+    this.slowMs = slowMs;
   }
 
   list(): StoredPeer[] {
@@ -109,7 +118,7 @@ export class PeerPool {
       if (c.isOpen) void c.call("agent.unsubscribe", { id: agentId }).catch(() => {});
     };
     try {
-      const state = await withTimeout(c.call("agent.subscribe", { id: agentId }), PEER_CALL_TIMEOUT_MS, `host "${peer.name}" did not answer agent.subscribe`);
+      const state = await withTimeout(c.call("agent.subscribe", { id: agentId }), this.callTimeoutMs, `host "${peer.name}" did not answer agent.subscribe`);
       return { state, unsubscribe };
     } catch (e) {
       unsubscribe();
@@ -130,7 +139,7 @@ export class PeerPool {
       const c = await this.client(peer);
       const waitMs = method === "agent.wait" ? ((params as { timeoutMs?: number }).timeoutMs ?? 10 * 60_000) : 0;
       try {
-        return await withTimeout(c.call(method, params), PEER_CALL_TIMEOUT_MS + waitMs, `host "${peer.name}" did not answer ${method}`);
+        return await withTimeout(c.call(method, params), this.callTimeoutMs + waitMs, `host "${peer.name}" did not answer ${method}`);
       } catch (e) {
         // A timed-out or broken connection is dropped so the next call reconnects.
         if (!c.isOpen || (e instanceof Error && e.message.includes("did not answer"))) this.drop(peer.name, c);
@@ -139,10 +148,14 @@ export class PeerPool {
     };
   }
 
-  async probe(peer: StoredPeer): Promise<{ reachable: boolean; error?: string }> {
+  // Asks for server.info and times it, connecting first if needed. Probes
+  // answered within the timeout but after `slowMs` are reachable and slow.
+  async probe(peer: StoredPeer): Promise<{ reachable: boolean; latencyMs?: number; slow?: boolean; error?: string }> {
+    const started = performance.now();
     try {
-      await this.caller(peer)("server.info", {});
-      return { reachable: true };
+      await withTimeout(this.caller(peer)("server.info", {}), this.timeoutMs, `host "${peer.name}" did not answer within ${this.timeoutMs} ms`);
+      const latencyMs = Math.round(performance.now() - started);
+      return { reachable: true, latencyMs, slow: latencyMs > this.slowMs };
     } catch (e) {
       return { reachable: false, error: e instanceof Error ? e.message : String(e) };
     }

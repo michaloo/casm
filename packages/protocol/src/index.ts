@@ -52,8 +52,12 @@ export const Peer = z.object({
   url: z.string(),
   // The peer's `server.info` id, recorded when it was added.
   serverId: z.string().nullable(),
-  // Only present when `peer.list` was asked to probe.
+  // Only present when `peer.list` was asked to probe: whether it answered
+  // server.info within the peer timeout, how long that took (connect
+  // included), and whether that was slow (a loaded host, not a lost one).
   reachable: z.boolean().optional(),
+  latencyMs: z.number().optional(),
+  slow: z.boolean().optional(),
   error: z.string().optional(),
 });
 export type Peer = z.infer<typeof Peer>;

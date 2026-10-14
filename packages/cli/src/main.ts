@@ -208,6 +208,13 @@ function pick<T extends { id: string; name: string }>(list: T[], ref: string, wh
 
 const shortId = (id: string) => id.slice(0, 8);
 
+// A peer probe (peer.list probe): "reachable 120 ms", "slow: 4.2 s ...", "unreachable: ...".
+function probeText(s: { reachable?: boolean; latencyMs?: number; slow?: boolean; error?: string }): string {
+  if (!s.reachable) return `unreachable: ${s.error}`;
+  const ms = s.latencyMs === undefined ? "" : s.latencyMs >= 1000 ? ` ${(s.latencyMs / 1000).toFixed(1)} s` : ` ${s.latencyMs} ms`;
+  return s.slow ? `slow:${ms} (reachable, but loaded)` : `reachable${ms}`;
+}
+
 // "18:30" (today, or tomorrow if past), "in 2h" / "in 30m", or an ISO time.
 function parseWhen(s: string): string {
   const rel = s.match(/^(?:in\s*)?\+?(\d+(?:\.\d+)?)\s*(m|min|h|hr|d)\w*$/i);
@@ -367,7 +374,7 @@ async function run(c: CasmClient) {
       return out(peers, () => {
         if (!peers.length) console.log('no peers (add one on the server machine: casm peer add <name> <ws-url> <token>)');
         for (const p of peers)
-          console.log(`${p.name}\t${p.url}${p.reachable === undefined ? "" : p.reachable ? "  reachable" : `  unreachable: ${p.error}`}`);
+          console.log(`${p.name}\t${p.url}${p.reachable === undefined ? "" : `  ${probeText(p)}`}`);
       });
     }
 

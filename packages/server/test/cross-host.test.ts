@@ -146,6 +146,9 @@ test("peer add verifies the peer and peer.list hides its token", async () => {
   assert.ok(!JSON.stringify(peers).includes(beta.token));
   const probed = await alpha.client.call("peer.list", { probe: true });
   assert.deepEqual(probed.peers.map((p) => p.reachable), [false, true]);
+  assert.equal(probed.peers[1].slow, false);
+  assert.equal(typeof probed.peers[1].latencyMs, "number");
+  assert.equal(probed.peers[0].latencyMs, undefined);
 });
 
 test("casmTools puts the casm MCP server and CASM_* env into the session", async () => {

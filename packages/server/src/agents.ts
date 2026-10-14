@@ -635,6 +635,20 @@ export class AgentManager {
     }
   }
 
+  // At startup: a kept "failed" prompt the agent went on to answer anyway (its
+  // process outlived a server stop) is delivered; drop it.
+  async dropAnsweredFailed() {
+    for (const m of this.store.listPending()) {
+      if (m.reason !== "failed") continue;
+      const items = await this.history(m.agentId, undefined, 50).then((h) => h.items, () => []);
+      const asked = items.findLastIndex((i) => i.kind === "user" && i.text === m.text);
+      if (asked >= 0 && items.slice(asked + 1).some((i) => i.kind === "assistant")) {
+        this.store.removePending(m.id);
+        this.changed(m.agentId);
+      }
+    }
+  }
+
   // Called on a timer: sends due pending messages of idle agents.
   runDuePending(now = Date.now()) {
     for (const agentId of new Set(this.store.listPending().map((m) => m.agentId))) this.runNext(agentId, now);

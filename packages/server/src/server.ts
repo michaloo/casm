@@ -192,6 +192,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   // Messages queued and runs missed while the server was down go out now, not on the first timer tick.
   agents.runDuePending();
   void scheduler.tick();
+  void agents.dropAnsweredFailed().catch((e) => log(`checking failed messages: ${e}`));
 
   return {
     http,

@@ -102,7 +102,9 @@ server to talk to instead of this machine's (${localFile}).
 Inside a casm agent, CASM_SERVER_ID, CASM_SERVER_NAME and CASM_AGENT_ID are set,
 so "casm run" links the new agent to it as parent (override with --parent, or --parent none).`;
 
-const serverSubcommand = ["serve", "token", "peer"].includes(process.argv[2]);
+// The first positional decides; flags (and -H's value) may come before it, e.g. "casm --json peer list".
+const firstCommand = process.argv.slice(2).find((a, i, all) => !a.startsWith("-") && !["-H", "--host"].includes(all[i - 1]));
+const serverSubcommand = ["serve", "token", "peer"].includes(firstCommand ?? "");
 
 const { values: opt, positionals } = parseArgs({
   args: serverSubcommand ? [] : process.argv.slice(2),

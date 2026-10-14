@@ -85,7 +85,7 @@ export async function serverCommand(argv: string[]) {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { listen: { type: "string" }, name: { type: "string" }, help: { type: "boolean", short: "h" }, probe: { type: "boolean" } },
+    options: { listen: { type: "string" }, name: { type: "string" }, help: { type: "boolean", short: "h" }, probe: { type: "boolean" }, json: { type: "boolean" }, host: { type: "string", short: "H" } },
   });
   const [cmd, sub, arg, ...rest] = positionals;
   mkdirSync(home, { recursive: true });
@@ -114,7 +114,8 @@ export async function serverCommand(argv: string[]) {
       (console.error(`a token named ${arg} already exists (casm token revoke ${arg} first, or pick another name)`), (process.exitCode = 1));
     else console.log(store.createToken(arg));
   } else if (cmd === "token" && sub === "list") {
-    for (const t of store.listTokens()) console.log(`${t.name}\t${t.createdAt}`);
+    if (values.json) console.log(JSON.stringify(store.listTokens(), null, 2));
+    else for (const t of store.listTokens()) console.log(`${t.name}\t${t.createdAt}`);
   } else if (cmd === "token" && sub === "revoke" && arg) {
     if (!store.revokeToken(arg)) (console.error(`no token named ${arg}`), (process.exitCode = 1));
   } else if (cmd === "peer" && sub === "add" && arg && rest.length === 2) {
@@ -130,7 +131,14 @@ export async function serverCommand(argv: string[]) {
     }
   } else if (cmd === "peer" && sub === "list") {
     const pool = new PeerPool(store);
-    for (const p of store.listPeers()) {
+    const peers = store.listPeers();
+    if (values.json) {
+      // Never print peer tokens.
+      const out = [];
+      for (const p of peers) out.push({ name: p.name, url: p.url, serverId: p.serverId ?? null, ...(values.probe ? await pool.probe(p) : {}) });
+      console.log(JSON.stringify(out, null, 2));
+    } else if (!peers.length) console.error("no peers (add one with: casm peer add <name> <ws-url> <token>)");
+    for (const p of values.json ? [] : peers) {
       const state = values.probe ? await pool.probe(p) : undefined;
       const status = state ? (state.reachable ? "  reachable" : `  unreachable: ${state.error}`) : "";
       console.log(`${p.name}\t${p.url}\t${p.serverId ?? "?"}${status}`);

@@ -47,8 +47,14 @@ Timings are wall clock on ubuntu, from the command to the observed result.
 | 24 | Cross-host message | message arrives with the remote sender | agent on server B ran `casm -H a send kid-cli ...`; A's history shows it with B's server id and agent | 33 s incl. approval | pass (loopback peers) |
 | 25 | Cross-host to the macbook | one message | not run, see decisions | - | skipped |
 
-**Counts: 22 pass, 1 fixed after failing (13), 1 pass with a CLI gap fixed (20), 1 pass with wording fixed (21),
-1 blocked (2, Claude half), 1 skipped (25).**
+**Counts (25 scenarios): 21 pass, 3 pass after a fix (13 drift, 20 no CLI edit, 21 wording), 1 blocked (2, Claude half,
+passed from pi), 1 skipped (25, macbook). 0 unexplained failures.** Row 13 was re-verified live on the fixed server:
+runs at 21:29:49, 21:30:49, 21:31:49, next 21:32:49.
+
+Verification: `npm run typecheck`, `npm test` (314 pass), `npm run build`, web Playwright 125/128 on the first run;
+the 3 failures were `visual transcript · mobile` timeouts waiting for a scroll position under load (this run's agents
+and other workers were using the machine), unrelated to this change, and all six `visual transcript` cases pass on a
+rerun after the rebase.
 
 ## Bugs and fixes
 

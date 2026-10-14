@@ -153,6 +153,7 @@ function errorItem(messageId: string, e: OcError): Item {
 // then an assistant message with one bash tool part that runs the command.
 export const SHELL_MARKER = "The following tool was executed by the user";
 const ABORTED = /\n*<metadata>\nUser aborted the command\n<\/metadata>$/;
+const ABORTED_TOOL = /\n*<shell_metadata>\n([\s\S]*?)\n<\/shell_metadata>$/;
 
 // A user shell command's tool item. OpenCode reports no exit code; an aborted
 // command completes with a marker, which becomes an error status.
@@ -213,7 +214,13 @@ export function normalizePart(p: OcPart, turn?: string): Item | null {
   if (p.type === "tool" && p.state) {
     const s = p.state;
     const base = { kind: "tool" as const, id: p.id, name: p.tool ?? "tool", input: s.input };
-    if (s.status === "completed") return { ...base, status: "done", output: truncate(s.output ?? ""), ...toolImages(s.attachments) };
+    if (s.status === "completed") {
+      // The bash tool completes an aborted command, saying so at the end of its output (tool/shell.ts).
+      const aborted = ABORTED_TOOL.exec(s.output ?? "");
+      if (aborted && /^User aborted the command$/m.test(aborted[1]))
+        return { ...base, status: "error", output: truncate((s.output ?? "").slice(0, aborted.index)) };
+      return { ...base, status: "done", output: truncate(s.output ?? ""), ...toolImages(s.attachments) };
+    }
     if (s.status === "error") return { ...base, status: "error", output: truncate(s.error ?? "") };
     return { ...base, status: "running" };
   }

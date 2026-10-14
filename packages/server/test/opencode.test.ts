@@ -665,3 +665,11 @@ test("OpenCode message ids match OpenCode's ascending format and order", async (
   assert.ok(a < b && b < c);
   assert.equal(a.length, 30);
 });
+
+test("an aborted bash tool call is an error without OpenCode's shell_metadata note", () => {
+  const bash = (output: string): OcPart => ({ id: "prt_b", ...ids, type: "tool", tool: "bash", state: { status: "completed", input: { command: "sleep 90" }, output } });
+  assert.deepEqual(normalizePart(bash("(no output)\n\n<shell_metadata>\nUser aborted the command\n</shell_metadata>")), { kind: "tool", id: "prt_b", name: "bash", input: { command: "sleep 90" }, status: "error", output: "(no output)" });
+  // A timeout note alone stays a finished call the model can read.
+  const timeout = "x\n\n<shell_metadata>\nshell tool terminated command after exceeding timeout 10 ms.\n</shell_metadata>";
+  assert.equal((normalizePart(bash(timeout)) as { status: string }).status, "done");
+});

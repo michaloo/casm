@@ -114,11 +114,24 @@ export function remarkFilePaths({ roots }: { roots: string[] }) {
   return (tree: MdNode) => walk(tree);
 }
 
-// Markdown links: file links (and plain absolute paths inside a project) open
-// the preview; everything else is an ordinary link.
+// Resolve against the page so same-origin absolute URLs and app-relative links
+// retain normal navigation. Mail links leave the app regardless of origin.
+export function isExternalLink(href: string | undefined, base = globalThis.location?.href): boolean {
+  if (!href) return false;
+  try {
+    const url = new URL(href, base);
+    return url.protocol === "mailto:" ||
+      ((url.protocol === "http:" || url.protocol === "https:") && (!base || url.origin !== new URL(base).origin));
+  } catch {
+    return false;
+  }
+}
+
+// All rendered markdown shares this anchor, including settings and file previews.
 export function MarkdownLink({ href, children, node: _node, ...rest }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
   const links = useContext(FileLinksContext);
-  const path = pathFromHref(href) ?? (href?.startsWith("/") && links && insideRoot(href, links.roots) ? href : null);
+  if (isExternalLink(href)) return <a {...rest} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+  const path = pathFromHref(href) ?? (href?.startsWith("/") && !href.startsWith("//") && links && insideRoot(href, links.roots) ? href : null);
   if (!path || !links) return <a href={href} {...rest}>{children}</a>;
   return <a {...rest} className="file-link" href={fileHref(path)} onClick={(e) => openFromClick(e, links)}>{children}</a>;
 }

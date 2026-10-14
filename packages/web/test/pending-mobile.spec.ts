@@ -31,7 +31,8 @@ for (const width of [1440, 375]) test(`ten queued messages collapse, persist per
   await openAgent("Agent 00");
   const toggle = page.locator(".queue-toggle");
   await expect(toggle).toContainText("10 queued");
-  await expect(toggle).toContainText("1 waiting for limit");
+  await expect(toggle).toContainText("1 waiting");
+  await expect(toggle).toHaveAttribute("title", /1 waiting for limit/);
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".pending-row").first()).toBeHidden();
   await toggle.click();

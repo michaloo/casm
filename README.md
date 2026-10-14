@@ -180,14 +180,16 @@ casm peer rm laptop
 ```
 
 The token is one created on the peer (`casm token create ...` there). Clients see peers through the
-read-only `peer.list` RPC (`{probe: true}` adds `reachable`; `casm peers` on the CLI); peer tokens are
+read-only `peer.list` RPC (`{probe: true}` adds `reachable`, `latencyMs` and `slow`; `casm peers --probe` on the CLI prints
+"reachable 120 ms", "slow: 4.2 s" or "unreachable: ..."); peer tokens are
 never sent over RPC.
 
 Any client can use a peer through its server: a JSON-RPC request with a top-level `"host": "<peer
 name or server id>"` is forwarded over the same cached peer connection the MCP tools use (this
 server's own name or id means here). That is how `casm -H <peer>` works. The peer's errors keep their
-code; an unknown host is 1001 (NotFound), and an unreachable one fails within 3 s with 1005
-(Unreachable). `agent.subscribe` through a peer relays the agent's `agent.event` / `agent.status`
+code; an unknown host is 1001 (NotFound), and an unreachable one fails with 1005
+(Unreachable). A peer gets 10 s to connect and answer (`"peerTimeoutMs"` in config.json), so a
+heavily loaded host is slow rather than unreachable; a probe over 2 s reports it as slow. `agent.subscribe` through a peer relays the agent's `agent.event` / `agent.status`
 notifications, marked with the same `host`, and when the peer connection drops the client gets
 `peer.disconnected {host}` once (subscribe again after reconnecting). Any client token can drive the
 server's peers, just as the server's agents can.
@@ -210,7 +212,7 @@ own MCP server, served by casm at `POST /mcp` (streamable HTTP, JSON responses, 
 | `answer_permission(host?, agent, request_id, decision, message?)`, `answer_question(host?, agent, request_id, answers?)` | unblock a child |
 
 `host` defaults to this server; other hosts are peer names (or server ids). Remote calls go through one
-cached connection per peer. An unreachable peer fails within 3 s, and errors come back as MCP tool
+cached connection per peer. An unreachable peer fails after the peer timeout, and errors come back as MCP tool
 errors. Each session gets its own bearer token, minted when the session opens and kept in memory only;
 it identifies the calling agent.
 

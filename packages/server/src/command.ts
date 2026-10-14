@@ -24,7 +24,7 @@ const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");
 const LOCAL_FILE = "local.json";
 const LOCAL_TOKEN = "local-cli";
 
-function readConfig(): { listen?: string; name?: string } {
+function readConfig(): { listen?: string; name?: string; peerTimeoutMs?: number } {
   try {
     return JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
   } catch {
@@ -54,6 +54,12 @@ function availableProviders(): Provider[] {
   return all.filter(([bin]) => installed(bin)).map(([, make]) => make());
 }
 
+export function probeText(s: { reachable: boolean; latencyMs?: number; slow?: boolean; error?: string }): string {
+  if (!s.reachable) return `unreachable: ${s.error}`;
+  const ms = s.latencyMs === undefined ? "" : s.latencyMs >= 1000 ? ` ${(s.latencyMs / 1000).toFixed(1)} s` : ` ${s.latencyMs} ms`;
+  return s.slow ? `slow:${ms} (reachable, but loaded)` : `reachable${ms}`;
+}
+
 function parseListen(s: string): { host: string; port: number } {
   const i = s.lastIndexOf(":");
   if (i < 0) throw new Error(`--listen must be host:port, got "${s}"`);
@@ -64,7 +70,8 @@ const usage = `usage:
   casm serve [--listen host:port] [--name n]
                                       (default ${DEFAULT_LISTEN}, or "listen" in ${join(home, "config.json")};
                                       name defaults to "name" there, $CASM_NAME, or the hostname)
-                                      ("agentPrompt": false there turns off the host agent prompt, see casm agent-prompt)
+                                      ("agentPrompt": false there turns off the host agent prompt, see casm agent-prompt;
+                                      "peerTimeoutMs" sets how long peers may take to answer, default 10000)
                                       (writes ${join(home, LOCAL_FILE)}: this machine's CLI then uses this server)
   casm token create <name>            print a new client token
   casm token list
@@ -98,7 +105,7 @@ export async function serverCommand(argv: string[]) {
     const { host, port } = parseListen(values.listen ?? process.env.CASM_LISTEN ?? readConfig().listen ?? DEFAULT_LISTEN);
     const log = (m: string) => console.error(`[${new Date().toISOString()}] ${m}`);
     const name = values.name ?? process.env.CASM_NAME ?? readConfig().name;
-    const server = await startServer({ store, providers: availableProviders(), host, port, version: VERSION, name, log, home });
+    const server = await startServer({ store, providers: availableProviders(), host, port, version: VERSION, name, log, home, peerTimeoutMs: readConfig().peerTimeoutMs });
     log(`agents: ${server.agents.providerIds().join(", ") || "none found on PATH"}`);
     writeLocalCredential(store, server.url);
     if (store.listTokens().length === 1) log('no client tokens for other machines yet: run "casm token create <name>"');
@@ -122,7 +129,7 @@ export async function serverCommand(argv: string[]) {
   } else if (cmd === "peer" && sub === "add" && arg && rest.length === 2) {
     const [url, token] = rest;
     try {
-      const info = await verifyPeer(url, token);
+      const info = await verifyPeer(url, token, readConfig().peerTimeoutMs);
       if (info.id === store.serverId()) throw new Error("that is this server");
       store.setPeer({ name: arg, url, token, serverId: info.id });
       console.log(`added peer ${arg}: server "${info.name}" (${info.id}), agents: ${info.providers.join(", ") || "none"}`);
@@ -131,7 +138,7 @@ export async function serverCommand(argv: string[]) {
       process.exitCode = 1;
     }
   } else if (cmd === "peer" && sub === "list") {
-    const pool = new PeerPool(store);
+    const pool = new PeerPool(store, readConfig().peerTimeoutMs);
     const peers = store.listPeers();
     if (values.json) {
       // Never print peer tokens.
@@ -141,7 +148,7 @@ export async function serverCommand(argv: string[]) {
     } else if (!peers.length) console.error("no peers (add one with: casm peer add <name> <ws-url> <token>)");
     for (const p of values.json ? [] : peers) {
       const state = values.probe ? await pool.probe(p) : undefined;
-      const status = state ? (state.reachable ? "  reachable" : `  unreachable: ${state.error}`) : "";
+      const status = state ? `  ${probeText(state)}` : "";
       console.log(`${p.name}\t${p.url}\t${p.serverId ?? "?"}${status}`);
     }
     pool.close();

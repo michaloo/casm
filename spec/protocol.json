@@ -210,6 +210,12 @@
                 "reachable": {
                   "type": "boolean"
                 },
+                "latencyMs": {
+                  "type": "number"
+                },
+                "slow": {
+                  "type": "boolean"
+                },
                 "error": {
                   "type": "string"
                 }

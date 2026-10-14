@@ -662,11 +662,11 @@ export function parseModels(data: unknown[]): ModelInfo[] {
 // Paseo's Codex modes plus Plan. Same order as the catalog.
 export const MODE_INFO: ModeInfo[] = [
   { id: "plan", name: "Plan mode", description: "Codex's Plan collaboration mode: explores and asks questions, then proposes a plan without editing files." },
-  { id: "auto", name: "Default permissions", description: "Edit files and run commands with Codex's default approval flow." },
+  { id: "auto", name: "Codex defaults", description: "No overrides: sandbox and approvals come from your ~/.codex/config.toml (and Codex's built-in defaults)." },
   {
     id: "auto-review",
     name: "Auto-review",
-    description: "Same workspace-write permissions as Default, but eligible on-request approvals are routed through the auto-reviewer subagent.",
+    description: "Workspace-write sandbox with on-request approvals routed through the auto-reviewer subagent.",
   },
   { id: "full-access", name: "Full access", description: "Edit files, run commands, and access the network without additional prompts." },
 ];
@@ -692,12 +692,12 @@ export async function readCatalog(): Promise<Catalog> {
 
 // casm mode -> Codex permissions + collaboration mode. Plan keeps Default's
 // permissions (as Paseo's plan toggle and the Codex CLI do); Codex's Plan
-// instructions keep it from editing. An unset or unknown mode is Default
-// collaboration with the user's own config.toml permissions.
+// instructions keep it from editing. "auto", an unset or an unknown mode is
+// Default collaboration with the user's own config.toml permissions: casm
+// applies no sandbox or approval overrides of its own.
 type ModePreset = { approvalPolicy: string; sandbox: string; approvalsReviewer: "user" | "auto_review"; collaboration: "plan" | "default" };
 export const MODES: Record<string, ModePreset> = {
   plan: { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "user", collaboration: "plan" },
-  auto: { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "user", collaboration: "default" },
   "auto-review": { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "auto_review", collaboration: "default" },
   "full-access": { approvalPolicy: "never", sandbox: "danger-full-access", approvalsReviewer: "user", collaboration: "default" },
 };

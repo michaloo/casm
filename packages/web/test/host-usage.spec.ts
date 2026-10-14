@@ -2,16 +2,16 @@ import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
-test("host usage is an optional disclosure with refresh and graceful missing-provider data", async ({ page }) => {
+test("host usage is the host modal's first tab, with refresh and graceful missing-provider data", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   const toggle = page.getByRole("button", { name: "Host options for Test host", exact: true });
-  const panel = page.getByRole("dialog", { name: /provider usage/ }).first();
+  const panel = page.getByRole("dialog", { name: "Test host host" });
   await expect(panel).toBeHidden();
   await toggle.click();
-  await page.getByRole("menuitem", { name: /Usage/ }).click();
   await expect(panel).toBeVisible();
+  await expect(panel.getByRole("region", { name: "Usage" })).toBeVisible();
   await expect(panel.getByRole("button", { name: "Refresh usage" })).toBeEnabled();
   await expect(panel).toContainText(/No provider usage reported|Usage unavailable|No usage windows reported/);
   await panel.getByRole("button", { name: "Refresh usage" }).click();
@@ -25,7 +25,7 @@ test("host usage is an optional disclosure with refresh and graceful missing-pro
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 }]) {
   for (const colorScheme of ["light", "dark"] as const) {
-    test(`usage popover spacing/type/bounds ${viewport.width} ${colorScheme}`, async ({ page }) => {
+    test(`usage tab spacing/type/bounds ${viewport.width} ${colorScheme}`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await page.emulateMedia({ colorScheme });
       await page.routeWebSocket("**", (socket) => {
@@ -54,13 +54,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       const row = page.getByRole("button", { name: /Agent 00/ });
       const before = await row.boundingBox();
       await trigger.click();
-      await page.getByRole("menuitem", { name: /Usage/ }).click();
-      const panel = page.getByRole("dialog", { name: /provider usage/ });
+      const dialog = page.getByRole("dialog", { name: /host$/ });
+      const panel = dialog.getByRole("region", { name: "Usage" });
       await expect(panel).toContainText("100% used · exhausted");
       expect(await panel.locator(".provider-icon").first().evaluate((element) => getComputedStyle(element).maskImage)).not.toBe("none");
       await expect(panel.locator("time").first()).toHaveAttribute("title", /.+/);
       await expect(panel.locator("time").first()).toContainText("in 2h");
-      expect(await panel.evaluate((element) => element.parentElement === document.body && element.matches(":popover-open"))).toBe(true);
       const typography = await panel.evaluate((element) => {
         const css = getComputedStyle(element);
         return { transform: css.textTransform, tracking: css.letterSpacing, size: parseFloat(css.fontSize) };
@@ -68,12 +67,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       expect(typography.transform).toBe("none");
       expect(["normal", "0px"]).toContain(typography.tracking);
       expect(typography.size).toBeGreaterThanOrEqual(12);
-      const box = (await panel.boundingBox())!;
-      expect(box.x).toBeGreaterThanOrEqual(8);
-      expect(box.y).toBeGreaterThanOrEqual(8);
-      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width - 8);
-      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height - 8);
-      expect(box.width).toBeLessThanOrEqual(380);
+      const box = (await dialog.boundingBox())!;
+      if (viewport.width < 600) expect([box.x, box.y, box.width, box.height]).toEqual([0, 0, viewport.width, viewport.height]);
+      else {
+        expect(box.x).toBeGreaterThanOrEqual(8);
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width - 8);
+      }
+      expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
       const values = panel.locator(".usage-window-values").first();
       const label = (await values.locator("span").nth(0).boundingBox())!;
       const amount = (await values.locator("span").nth(1).boundingBox())!;
@@ -83,12 +83,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       expect((await row.boundingBox())!.y).toBe(before!.y);
       await page.screenshot({ path: `/tmp/casm-host-usage-${viewport.width}-${colorScheme}.png` });
       await page.keyboard.press("Escape");
-      await expect(panel).toBeHidden();
-      await trigger.click();
-      await page.getByRole("menuitem", { name: /Usage/ }).click();
-      await expect(panel).toBeVisible();
-      await page.mouse.click(viewport.width - 4, viewport.height - 4);
-      await expect(panel).toBeHidden();
+      await expect(dialog).toBeHidden();
+      await expect(trigger).toBeFocused();
     });
   }
 }

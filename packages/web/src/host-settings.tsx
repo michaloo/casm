@@ -1,23 +1,35 @@
-import { InstructionEditor, MemorySearch, ProjectMemories, SettingsDialog, TextEditor } from "./settings-shared";
+import { InstructionEditor, SettingsDialog, TextEditor } from "./settings-shared";
 import { useEffect, useRef, useState } from "react";
-import type { AgentPromptInfo, HostAgentsMdFile, Project } from "@casm/protocol";
+import type { Agent, AgentPromptInfo, HostAgentsMdFile, Project } from "@casm/protocol";
+import { HostIdentity, type HostState } from "./host-menu";
+import { HostUsage } from "./host-usage";
+import { HostSchedules } from "./host-schedules";
 import type { Rpc } from "./state";
 import { providerNames } from "./provider-icon";
 import { Prose } from "./transcript";
 
-type Section = "instructions" | "memories" | "prompt";
+type Section = "usage" | "schedules" | "instructions";
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
 
-export function HostSettings({ host, name, rpc, online, projects, close }: {
-  host: string; name: string; rpc: Rpc | null; online: boolean; projects: Project[]; close: () => void;
+export function HostSettings({ host, name, state, rpc, online, agents, projects, openAgent, close }: {
+  host: string; name: string; state: HostState; rpc: Rpc | null; online: boolean; agents: Agent[]; projects: Project[];
+  openAgent?: (agent: Agent) => void; close: () => void;
 }) {
-  const [section, setSection] = useState<Section>("instructions");
-  return <SettingsDialog label={`${name} settings`} title={<>{name} <span className="settings-kind">host settings</span></>} closeLabel="Close settings"
-    sections={[["instructions", "AGENTS.md"], ["memories", "Memories"], ["prompt", "Agent prompt"]] as const} section={section} setSection={setSection} close={close}>
-    {!online || !rpc ? <p role="status">Host offline. Reconnect to load settings.</p> : <>
-      <div hidden={section !== "instructions"}><Instructions host={host} rpc={rpc} /></div>
-      <div hidden={section !== "memories"}><Memories host={host} rpc={rpc} projects={projects} /></div>
-      <div hidden={section !== "prompt"}><HostPrompt host={host} rpc={rpc} /></div>
+  const [section, setSection] = useState<Section>("usage");
+  return <SettingsDialog label={`${name} host`} closeLabel="Close host options"
+    title={<span className="settings-title-host"><HostIdentity name={name} state={state} /></span>}
+    sections={[["usage", "Usage"], ["schedules", "Schedules"], ["instructions", "Instructions"]] as const} section={section} setSection={setSection} close={close}>
+    {!online || !rpc ? <p role="status">Host offline. Reconnect to load its usage, schedules and instructions.</p> : <>
+      {section === "usage" && <section aria-label="Usage"><h3>Usage</h3>
+        <p className="settings-lede">Subscription limit windows per provider, and when they reset.</p>
+        <HostUsage host={host} rpc={rpc} online={online} /></section>}
+      {section === "schedules" && <section aria-label="Schedules" className="settings-schedules"><h3>Schedules</h3>
+        <p className="settings-lede">Prompts sent on a cadence to an agent on this host, or to a new one.</p>
+        <HostSchedules host={host} rpc={rpc} online={online} agents={agents} projects={projects} openAgent={openAgent} /></section>}
+      <div hidden={section !== "instructions"}>
+        <Instructions host={host} rpc={rpc} />
+        <HostPrompt host={host} rpc={rpc} />
+      </div>
     </>}
   </SettingsDialog>;
 }
@@ -47,17 +59,6 @@ function Instruction({ file, host, rpc, saved }: { file: HostAgentsMdFile; host:
   </InstructionEditor>;
 }
 
-function Memories({ host, rpc, projects }: { host: string; rpc: Rpc; projects: Project[] }) {
-  const [query, setQuery] = useState("");
-  return <section aria-label="Provider memories"><h3>Memories</h3>
-    <p className="settings-lede">Read-only provider memories, grouped by project. Open a project to load its memories; searching loads them all.</p>
-    <MemorySearch query={query} setQuery={setQuery} />
-    {query.trim() && <p className="settings-note">Projects without matches are hidden.</p>}
-    {!projects.length && <p>No projects on this host.</p>}
-    {[...projects].sort((a, b) => a.name.localeCompare(b.name)).map((project) => <ProjectMemories key={project.id} host={host} rpc={rpc} project={project} query={query} />)}
-  </section>;
-}
-
 function HostPrompt({ host, rpc }: { host: string; rpc: Rpc }) {
   const [info, setInfo] = useState<AgentPromptInfo>();
   const [text, setText] = useState("");
@@ -85,7 +86,7 @@ function HostPrompt({ host, rpc }: { host: string; rpc: Rpc }) {
     setText(text.slice(0, from) + token + text.slice(to));
     requestAnimationFrame(() => { area.focus(); area.setSelectionRange(from + token.length, from + token.length); });
   };
-  return <section aria-label="Host agent prompt"><h3>Agent prompt</h3>
+  return <section aria-label="Host agent prompt" className="settings-next"><h3>Agent prompt</h3>
     <p className="settings-lede">The casm prompt added when an agent session starts or resumes.</p>
     {error && <p role="alert" className="error">{error}</p>}
     {!info && !error && <p role="status">Loading agent prompt…</p>}

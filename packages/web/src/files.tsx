@@ -1,12 +1,12 @@
-// Read-only project files: a preview dialog (with Download and Copy path) and
-// a directory browser. Downloads use short-lived signed links from the server
+// Read-only project files: a preview dialog (with Download and Copy path) for
+// paths linked in the transcript. Downloads use short-lived signed links from the server
 // the page is connected to, so they work for peers' files and on iPhone Safari.
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import type { FileContent, Result } from "@casm/protocol";
+import type { FileContent } from "@casm/protocol";
 import { serverURL, type Rpc } from "./state";
 import { CodeBlock, Prose, copy } from "./transcript";
-import { FileLinksContext, insideRoot } from "./file-links";
+import { FileLinksContext } from "./file-links";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const LANGUAGES: Record<string, string> = {
@@ -17,8 +17,6 @@ const LANGUAGES: Record<string, string> = {
 };
 const extension = (name: string) => /\.([^./]+)$/.exec(name)?.[1]?.toLowerCase() ?? "";
 const baseName = (path: string) => path.replace(/\/+$/, "").split("/").pop() || path;
-const parentOf = (path: string) => path.replace(/\/+$/, "").replace(/\/[^/]*$/, "") || "/";
-const childOf = (dir: string, name: string) => `${dir.replace(/\/+$/, "")}/${name}`;
 
 export function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -108,20 +106,15 @@ export function FilePreview({ rpc, host, path: initial, roots, close }: {
       {error && <p role="alert" className="error">{error}</p>}
       {!file && !error && <p role="status">Loading…</p>}
       {file && <FileLinksContext.Provider value={links}>
-        <FileBody file={file} image={image} rpc={rpc} host={host} roots={roots} open={go} />
+        <FileBody file={file} image={image} />
       </FileLinksContext.Provider>}
     </div>
   </dialog>, document.body);
 }
 
-function FileBody({ file, image, rpc, host, roots, open }: {
-  file: FileContent; image?: string; rpc: Rpc; host: string; roots: string[]; open: (path: string) => void;
-}) {
+function FileBody({ file, image }: { file: FileContent; image?: string }) {
   const ext = extension(file.path);
-  if (file.type === "dir") {
-    const root = roots.filter((r) => insideRoot(file.path, [r])).sort((a, b) => b.length - a.length)[0] ?? file.path;
-    return <FileBrowser rpc={rpc} host={host} root={root} dir={file.path} setDir={open} openFile={open} />;
-  }
+  if (file.type === "dir") return <p className="file-note">This is a folder. Open a file inside it from the transcript to preview or download it.</p>;
   if (file.type !== "file") return <p>This is not a regular file, so there is nothing to preview.</p>;
   const truncated = file.truncated && <p role="note" className="file-note">Showing the first 1 MB of {formatSize(file.size)}. Download the file to see all of it.</p>;
   if (file.mime.startsWith("image/"))
@@ -135,45 +128,4 @@ function FileBody({ file, image, rpc, host, roots, open }: {
     try { text = JSON.stringify(JSON.parse(text), null, 2); } catch {}
   }
   return <>{truncated}<CodeBlock text={text} language={LANGUAGES[ext] ?? "text"} /></>;
-}
-
-// One folder of a project: breadcrumbs from the project root, then folders and files.
-export function FileBrowser({ rpc, host, root, dir, setDir, openFile }: {
-  rpc: Rpc; host: string; root: string; dir: string; setDir: (dir: string) => void; openFile: (path: string) => void;
-}) {
-  const [listing, setListing] = useState<Result<"fs.list">>();
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let active = true;
-    setError("");
-    void rpc.call("fs.list", { path: dir }, host).then((r) => { if (active) setListing(r); }).catch((e) => { if (active) setError(message(e)); });
-    return () => { active = false; };
-  }, [rpc, host, dir]);
-  const base = root.replace(/\/+$/, "");
-  const crumbs = [base, ...dir.slice(base.length).split("/").filter(Boolean)];
-  const shown = listing?.dir === dir ? listing : undefined;
-  return <div className="file-browser">
-    <nav className="file-crumbs" aria-label="Folder path">
-      {crumbs.map((part, i) => {
-        const target = i === 0 ? base : `${base}/${crumbs.slice(1, i + 1).join("/")}`;
-        const current = i === crumbs.length - 1;
-        return <span key={target}>
-          {i > 0 && <span aria-hidden="true">/</span>}
-          <button type="button" aria-current={current ? "location" : undefined} disabled={current} onClick={() => setDir(target)}>{i === 0 ? baseName(base) : part}</button>
-        </span>;
-      })}
-    </nav>
-    {error && <p role="alert" className="error">{error}</p>}
-    {!shown && !error && <p role="status">Loading files…</p>}
-    {shown?.entries.length === 0 && <p className="file-note">This folder is empty.</p>}
-    {shown && <ul className="file-list" aria-label={`Files in ${baseName(dir)}`}>
-      {dir !== base && <li><button type="button" onClick={() => setDir(parentOf(dir))}><span className="file-name">..</span><small>Parent folder</small></button></li>}
-      {shown.entries.map((e) => <li key={e.name} className={e.hidden ? "hidden-file" : undefined}>
-        <button type="button" onClick={() => (e.type === "dir" ? setDir : openFile)(childOf(dir, e.name))}>
-          <span className="file-name">{e.name}{e.type === "dir" ? "/" : ""}{e.symlink && <span className="file-badge">link</span>}{e.hidden && <span className="file-badge">hidden</span>}</span>
-          <small>{e.type === "file" ? `${formatSize(e.size)} · ` : ""}{formatTime(e.mtime)}</small>
-        </button>
-      </li>)}
-    </ul>}
-  </div>;
 }

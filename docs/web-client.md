@@ -31,11 +31,13 @@ Hosts, then their projects, then agents. Each agent shows its provider icon,
 model and status: idle (○), working, waiting for you, queued messages. Agents
 other agents created are nested under their parent, also across hosts.
 
-- **Host options** (⋯ next to a host): Usage, Schedules, Settings and
-  New project.
-- **Project options**: Settings (AGENTS.md, memories, project info), Files,
-  and **New agent here**.
+- **Host options** (⋯ next to a host) opens the host's window: Usage,
+  Schedules and Instructions.
+- **New project** (+ next to a host) registers a folder on that host.
+- **Project options** (⋯ next to a project) opens the project's window:
+  AGENTS.md, Memories and Info (with **New agent here**).
 - **+** next to a project starts a new agent in it.
+- A chevron only folds or unfolds; ⋯ always means options.
 
 On a phone the sidebar is behind the **Agents** button.
 
@@ -104,20 +106,19 @@ or skip when busy) or to a new agent made from a preset.
 
 ## Settings
 
-**Host options → Settings** edits the host's global instruction files (the
-`CLAUDE.md`/`AGENTS.md` each provider reads, with a conflict check), browses
-the providers' memories for every project, and edits, previews, disables or
-resets the [agent prompt](concepts.md#the-agent-prompt). Details:
-[host settings](host-settings.md).
+**Host options → Instructions** edits the host's global instruction files (the
+`CLAUDE.md`/`AGENTS.md` each provider reads, with a conflict check) and edits,
+previews, disables or resets the [agent prompt](concepts.md#the-agent-prompt).
+Details: [host settings](host-settings.md).
 
 ![host settings](media/web-host-settings.png)
 
-**Project options → Settings** does the same for one project: its `AGENTS.md`,
-its memories, and its path, group and agent count.
+**Project options** does the same for one project: its `AGENTS.md`, its
+providers' memories (read-only), and its path, group and agent count.
 
 ## New project
 
-**Host options → New project…** registers an existing folder on that host, with
+**New project** (+ next to a host) registers an existing folder on that host, with
 folder completion as you type, a name, a group and tags.
 
 ![the new project dialog](media/web-new-project.png)
@@ -126,9 +127,8 @@ folder completion as you type, a name, a group and tags.
 
 Paths that agents mention inside a project folder become links. Clicking one
 opens a preview: syntax-highlighted code, rendered Markdown, pretty JSON,
-images, with **Download** and **Copy path**. **Project options → Files**
-browses the folder. `/f/<absolute path>` opens a preview directly. Files are
-read-only through casm.
+images, with **Download** and **Copy path**. `/f/<absolute path>` opens a
+preview directly. Files are read-only through casm.
 
 ![previewing a file an agent mentioned](media/web-file-preview.png)
 

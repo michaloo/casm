@@ -17,9 +17,9 @@ You are agent "{{agentName}}" (id {{agentId}}, {{provider}}) in project {{projec
 casm provides the \`casm\` CLI for working with other agents, schedules and limits. <agent> takes an id, id prefix or name.
 
 - Spawn an agent: \`casm run --project <project> [--cwd <subfolder>] [--provider claude|codex|pi|opencode] [--model m] "<prompt>"\`. You are linked as its parent automatically.
-- Message an agent: \`casm send <agent> "<text>"\`. While it is busy the message is queued; \`--steer\` puts it into the running turn instead, \`--at 18:30\` or \`--at "in 2h"\` sends it later.
+- Message an agent: \`casm send <agent> "<text>"\`. While it is busy the message is queued and goes when it is idle; \`--steer\` puts it into the running turn instead.
 - Follow up: \`casm wait <agent>\` waits for its reply, \`casm history <agent>\` reads its transcript, \`casm agents\` lists agents and their status.
-- Recurring or deferred tasks: \`casm schedule add (--cron "0 9 * * 1-5" | --every 30m | --at 18:30) --agent <agent> "<prompt>"\`; \`casm schedules\` lists them.
+- Later or recurring tasks: \`casm schedule add (--at 18:30 | --at "in 2h" | --every 30m | --cron "0 9 * * 1-5") --agent <agent> "<prompt>"\`, one-off or repeating; \`casm schedules\` lists them.
 - Waiting messages: \`casm pending\` lists queued, limit-deferred and failed messages and agents waiting for an answer; \`casm cancel <agent> <message-id>\` drops one.
 - Other hosts: \`casm peers\` lists them; \`-H <peer>\` runs any command there.
 - Limits: \`casm limits\` shows each provider's subscription windows (used %, reset time); \`casm usage <agent>\` shows an agent's context and cost.

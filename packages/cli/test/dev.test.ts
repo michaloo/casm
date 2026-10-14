@@ -116,6 +116,11 @@ test("dev routing and restart stay isolated from a second server", async (t) => 
   const stableProjects = run(stableEnv, "--json", "projects");
   assert.equal(stableProjects.status, 0, stableProjects.stderr);
   assert.doesNotMatch(stableProjects.stdout, /dev-only/);
+  // Sends go now; later is "schedule add --at".
+  const later = run(devEnv, "send", "someone", "hi", "--at", "in 2h");
+  assert.equal(later.status, 1);
+  assert.match(later.stderr, /send has no --at; for later, schedule it: casm schedule add --at "in 2h" --agent someone/);
+  assert.match(run(devEnv, "schedules").stdout, /no schedules/);
   const health = await fetch(`http://127.0.0.1:${devPort}/health`).then((r) => r.json()) as { name: string; id: string };
   assert.equal(health.name, "casm-dev");
   await stop(dev);

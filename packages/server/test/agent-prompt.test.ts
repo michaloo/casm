@@ -13,6 +13,11 @@ test("placeholders are filled per agent; the casm tools line only when it has th
   assert.match(plain, /agent "Fixer" \(id a1, codex\) in project web, working in \/w\./);
   assert.doesNotMatch(plain, /\{\{|MCP/);
   assert.ok(plain.split("\n").length <= 25, "the default stays short");
+  // Messages go now (queued or steered); later is a schedule.
+  const send = plain.split("\n").find((l) => l.includes("casm send"))!;
+  assert.match(send, /queued.*--steer/);
+  assert.doesNotMatch(send, /--at/);
+  assert.match(plain.split("\n").find((l) => l.includes("casm schedule add"))!, /--at 18:30.*--at "in 2h".*--every.*--cron/);
   const tools = fill(DEFAULT_AGENT_PROMPT, { ...vars, casmTools: ["list_agents", "send"] });
   assert.match(tools, /casm MCP tools .*: list_agents, send\./);
   // Unknown placeholders stay as written.

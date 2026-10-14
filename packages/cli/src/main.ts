@@ -78,7 +78,8 @@ agents:
       [--parent serverId/agentId] [--casm-tools] [--wait] <prompt>
                                      --cwd: a folder inside the project (relative to it, or absolute),
                                      e.g. a worktree: --cwd .worktrees/<task>
-  send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--at 18:30|"in 2h"|ISO]
+  send <agent> <text> [--steer] [--wait] [--fail-if-limited]
+                                     queued while the agent is busy; --steer puts it into the running turn
   pending [agent]                    messages waiting for their agent (busy or over a limit),
                                      and agents waiting for a permission or answer
   subagents [agent] [-n count]       subagents the agents run themselves (Claude Task/Agent,
@@ -86,7 +87,7 @@ agents:
 
 schedules (run on the host; messages to busy or limited agents become pending):
   schedules [--agent a]
-  schedule add (--cron "0 9 * * 1-5" | --every 30m | --at 18:30) <prompt>
+  schedule add (--cron "0 9 * * 1-5" | --every 30m | --at 18:30|"in 2h"|ISO) <prompt>
                (--agent a [--skip-if-busy] | --project p --provider claude [--model m] [--mode m] [--name n])
   schedule run | enable | disable | rm <schedule>
   cancel <agent> [message-id|--all]  cancel pending messages
@@ -519,19 +520,11 @@ async function run(c: CasmClient) {
     }
 
     case "send": {
+      // Messages go now; anything later is a schedule.
+      if (opt.at) fail(`send has no --at; for later, schedule it: casm schedule add --at ${JSON.stringify(opt.at)} --agent ${args[0] ?? "<agent>"} "<text>"`);
       const a = await agentRef(c, args[0]);
       const text = args.slice(1).join(" ");
       if (!text) fail("send needs text");
-      // --at is shorthand for a one-off schedule on this agent.
-      if (opt.at) {
-        const x = await c.call("schedule.create", {
-          name: "Send later",
-          cadence: { type: "once", at: parseWhen(opt.at) },
-          target: { type: "agent", agentId: a.id },
-          prompt: text,
-        });
-        return out(x, () => console.error(`scheduled for ${new Date(x.nextRunAt!).toLocaleString()} (schedule ${shortId(x.id)})`));
-      }
       const r = await c.call("agent.send", {
         id: a.id,
         text,

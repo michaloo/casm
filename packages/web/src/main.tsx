@@ -602,6 +602,7 @@ function App() {
             return (
             <HostSection key={h.id} host={h.id} name={h.name} heading={
                 <HostMenu host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
+                  openAgent={(a) => choose({ host: h.id, project: a.projectId, id: a.id })}
                   detail={working ? `${working} working` : undefined} />
               }>
               {h.error && <p className="host-error" title={h.error}>{h.error}</p>}

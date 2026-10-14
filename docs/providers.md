@@ -99,7 +99,9 @@ The manager calls the session's `send` while a turn runs (`agents.ts` `send`,
 
 - Claude: `canUseTool` with "always" from the SDK's suggestions; modes plan,
   default, acceptEdits, auto, bypassPermissions as `permissionMode`. A mode
-  change reopens the session after the turn rather than `setPermissionMode`.
+  change reopens the session after the turn rather than `setPermissionMode`;
+  a mode Claude switches to itself (`system/status` `permissionMode`) becomes
+  the agent's mode (`ProviderEvent` `mode`).
 - Codex: command, file-change and permissions approvals; modes plan, auto,
   auto-review, full-access map to approval policy, sandbox, reviewer and
   collaboration mode (`codex.ts` `MODES`).
@@ -237,10 +239,12 @@ model's `limit.context`; pi `get_session_stats`.
 
 ### Plan mode
 
-- Claude **partial**: `plan` permission mode and its plan/todo tools work, but
-  ExitPlanMode reaches casm as a generic permission card (no choice of the next
-  mode), and casm doesn't follow `permissionMode` from `system/init`/`status`,
-  so after a plan is approved the agent's mode still says plan.
+- Claude **partial**: the `plan` permission mode and its plan/todo tools work,
+  and casm follows the mode Claude reports in `system/init` and `system/status`
+  (approving ExitPlanMode switches Claude to `default`, which becomes the
+  agent's mode without a reopen). The approval itself is a generic permission
+  card showing the plan input: there is no choice of the next mode (the SDK's
+  `setMode` permission update) and no feedback text when rejecting.
 - Codex ✓: `collaborationMode: plan` per turn, plan items and `turn/plan/updated`.
 - OpenCode ✓: the `plan` agent as the agent's mode; todo lists become plan items.
 - pi ✗: only an example extension.

@@ -22,6 +22,9 @@ export type ProviderEvent =
   | { type: "sessionId"; id: string }
   // The model the session runs (resolved by the provider when config.model is unset).
   | { type: "model"; model: string }
+  // The session switched its own mode (e.g. Claude leaving plan mode once a plan
+  // is approved). The manager records it as config.mode without reopening.
+  | { type: "mode"; mode: string }
   | { type: "item"; item: Item }
   | { type: "delta"; kind: "assistant" | "reasoning"; text: string }
   // Output of a running tool, appended to the tool item with that id.

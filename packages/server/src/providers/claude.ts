@@ -994,6 +994,7 @@ class ClaudeSession implements ProviderSession {
     switch (m.subtype) {
       case "init":
         this.opts.emit({ type: "sessionId", id: m.session_id });
+        if (m.permissionMode) this.opts.emit({ type: "mode", mode: m.permissionMode });
         if (m.model) {
           this.model ??= m.model;
           this.opts.emit({ type: "model", model: m.model });
@@ -1008,6 +1009,8 @@ class ClaudeSession implements ProviderSession {
         return;
       }
       case "status":
+        // Sent when the mode changes, e.g. plan -> default once ExitPlanMode is allowed.
+        if (m.permissionMode) this.opts.emit({ type: "mode", mode: m.permissionMode });
         if (m.status === "compacting") {
           this.compactId = `compact:${m.uuid}`;
           this.item({ kind: "notice", id: this.compactId, level: "info", text: "Compacting conversation…" });

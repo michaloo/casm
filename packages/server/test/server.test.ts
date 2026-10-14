@@ -661,8 +661,9 @@ test("a prompt whose turn failed before any answer is kept as a failed pending m
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   await client.call("agent.send", { id: a.id, text: "no-session please" });
   const w = await client.call("agent.wait", { id: a.id });
-  assert.deepEqual(w.lastTurn, { outcome: "failed", error: "No conversation found with session ID: x" });
   const [m] = (await client.call("agent.pending", { id: a.id })).messages;
+  // lastTurn names what it kept, so "casm wait" points at this message and not an older one.
+  assert.deepEqual(w.lastTurn, { outcome: "failed", error: "No conversation found with session ID: x", kept: [m.id] });
   assert.deepEqual([m.reason, m.text, m.note], ["failed", "no-session please", "No conversation found with session ID: x"]);
   assert.deepEqual((await client.call("agent.get", { id: a.id })).pending, { count: 1 });
   // Usage reported at startup (Claude's init) isn't an answer.
@@ -678,7 +679,7 @@ test("a prompt whose turn failed before any answer is kept as a failed pending m
   assert.equal((await client.call("agent.pending", { id: a.id })).messages.length, 1);
   // A turn that failed after the agent answered has the prompt in its history already.
   await client.call("agent.send", { id: a.id, text: "fails-late" });
-  assert.equal((await client.call("agent.wait", { id: a.id })).lastTurn?.outcome, "failed");
+  assert.deepEqual((await client.call("agent.wait", { id: a.id })).lastTurn, { outcome: "failed", error: "API error" });
   assert.equal((await client.call("agent.pending", { id: a.id })).messages.length, 1);
   // Retry sends it again (and fails again here, keeping it once more).
   const queued = await client.call("agent.send", { id: a.id, text: "slow" });

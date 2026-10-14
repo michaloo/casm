@@ -65,7 +65,7 @@ type Live = {
   steered: { prompt: Prompt; answersAt: number }[];
   // When the running turn started, to tell fresh limit reports from old ones.
   turnStartedAt: number;
-  lastTurn: { outcome: "completed" | "interrupted" | "failed"; error?: string } | null;
+  lastTurn: { outcome: "completed" | "interrupted" | "failed"; error?: string; kept?: string[] } | null;
   statusWaiters: Set<() => void>;
 };
 
@@ -449,11 +449,16 @@ export class AgentManager {
       });
       // Prompts steered in that got no answer are kept too.
       l.prompt = null;
-      this.keepUnanswered(id, l, limit.message);
+      const kept = this.keepUnanswered(id, l, limit.message);
+      if (kept.length) l.lastTurn.kept = kept;
       this.changed(id);
     } else if (outcome === "failed" && a) {
       // Kept where the user can see, retry or cancel them, instead of vanishing.
-      if (this.keepUnanswered(id, l, error ?? "the turn failed")) this.changed(id);
+      const kept = this.keepUnanswered(id, l, error ?? "the turn failed");
+      if (kept.length) {
+        l.lastTurn.kept = kept;
+        this.changed(id);
+      }
     }
     l.prompt = null;
     l.steered = [];
@@ -470,13 +475,13 @@ export class AgentManager {
   }
 
   // Keeps the turn's prompts nothing came back for (the one that started it and
-  // any steered in later) as failed pending messages, in order. Returns how many.
-  private keepUnanswered(id: string, l: Live, note: string): number {
+  // any steered in later) as failed pending messages, in order. Returns their ids.
+  private keepUnanswered(id: string, l: Live, note: string): string[] {
     const prompts = [...(l.prompt && !l.answers ? [l.prompt] : []), ...l.steered.filter((s) => s.answersAt === l.answers).map((s) => s.prompt)];
-    for (const p of prompts) this.store.addPending({ agentId: id, ...p, reason: "failed", notBefore: null, note });
+    const ids = prompts.map((p) => this.store.addPending({ agentId: id, ...p, reason: "failed", notBefore: null, note }).id);
     l.prompt = null;
     l.steered = [];
-    return prompts.length;
+    return ids;
   }
 
   private block<P extends Pending>(id: string, l: Live, pending: Omit<P, "resolve" | "reject">, signal: AbortSignal) {

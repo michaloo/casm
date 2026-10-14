@@ -223,7 +223,7 @@ test("create_agent, send, wait, list_agents and get_history on a peer; parent is
   assert.deepEqual(child.parent, { serverId: alphaId, agentId: parentId, host: "alpha" });
 
   const w = await tool("wait", { host: "beta", agent: "child", timeout_s: 5 });
-  assert.deepEqual(w.data, { status: "idle", timedOut: false, lastReply: "echo: remote hello" });
+  assert.deepEqual(w.data, { status: "idle", timedOut: false, lastReply: "echo: remote hello", lastTurn: { outcome: "completed" } });
   assert.deepEqual((await tool("send", { host: "beta", agent: created.data.id.slice(0, 8), text: "again" })).data, { queued: false });
   assert.equal((await tool("wait", { host: "beta", agent: "child" })).data.lastReply, "echo: again");
 

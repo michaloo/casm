@@ -189,6 +189,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const wildcard = ["", "0.0.0.0", "::", "[::]"].includes(opts.host);
   const mcpHost = wildcard ? "127.0.0.1" : opts.host.includes(":") ? `[${opts.host}]` : opts.host;
   agents.setContext({ serverId: identity.id, serverName: identity.name, mcpUrl: `http://${mcpHost}:${port}/mcp` });
+  // Messages that were queued when the server stopped go out now, not on the first timer tick.
+  agents.runDuePending();
 
   return {
     http,

@@ -122,12 +122,16 @@ export type Usage = z.infer<typeof Usage>;
 // A message waiting for its agent to become available: behind a running turn
 // ("queued") or until a usage limit resets ("limit"). Sent in order; a waiting
 // "limit" entry holds back the rest. Time-based sends are schedules.
+// "failed": the prompt of a turn that failed before the agent produced
+// anything (say its session could not be resumed), so it may never have reached
+// the agent's own history. `note` has the error. It is kept, not resent, until
+// agent.retryPending or agent.cancelPending.
 export const PendingMessage = z.object({
   id: z.string(),
   agentId: z.string(),
   text: z.string(),
   imageCount: z.number().optional(),
-  reason: z.enum(["queued", "limit"]),
+  reason: z.enum(["queued", "limit", "failed"]),
   notBefore: z.string().optional(),
   note: z.string().optional(),
   createdAt: z.string(),
@@ -541,6 +545,11 @@ export const methods = {
   "agent.shell": method(z.object({ id: z.string(), command: z.string().min(1) }), Ok),
   // Messages waiting to be sent to this agent, in order.
   "agent.pending": method(ById, z.object({ messages: z.array(PendingMessage) })),
+  // Sends a "failed" pending message again (as agent.send would) and removes it.
+  "agent.retryPending": method(
+    z.object({ id: z.string(), messageId: z.string() }),
+    z.object({ queued: z.boolean(), deferredUntil: z.string().optional(), pendingId: z.string().optional() }),
+  ),
   // Cancels one pending message, or all of them when `messageId` is omitted.
   "agent.cancelPending": method(z.object({ id: z.string(), messageId: z.string().optional() }), z.object({ cancelled: z.number() })),
   // Interrupts the running turn and drops its pending messages.
@@ -555,9 +564,15 @@ export const methods = {
     Ok,
   ),
   // Resolves when the agent is idle (or waiting for permission or an answer) or the timeout passes.
+  // `lastTurn`: how the agent's last turn since the server started ended.
   "agent.wait": method(
     z.object({ id: z.string(), timeoutMs: z.number().optional() }),
-    z.object({ status: AgentStatus, timedOut: z.boolean(), lastReply: z.string().nullable() }),
+    z.object({
+      status: AgentStatus,
+      timedOut: z.boolean(),
+      lastReply: z.string().nullable(),
+      lastTurn: z.object({ outcome: z.enum(["completed", "interrupted", "failed"]), error: z.string().optional() }).nullable().optional(),
+    }),
   ),
 } as const;
 

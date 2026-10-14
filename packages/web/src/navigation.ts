@@ -25,6 +25,7 @@ export function resolveView(
     return { error: `Host unavailable: ${host.name}. ${host.error}` };
   if (parts.length === 4 && parts[2] === "a") {
     const agent = host.agents.find((a) => a.id === parts[3] && !a.archivedAt);
+    if (!agent && host.loading) return {};
     if (!agent)
       return {
         error: "Agent not found. It may have been archived or deleted.",
@@ -37,6 +38,7 @@ export function resolveView(
     const project = host.projects.find(
       (p) => p.id === parts[3] && !p.archivedAt,
     );
+    if (!project && host.loading) return {};
     if (!project)
       return {
         error: "Project not found. It may have been archived or deleted.",

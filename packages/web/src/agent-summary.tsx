@@ -10,7 +10,7 @@ export function AgentSummary({ agent, status, models = [], online = true }: { ag
   return <>
     <ProviderIcon provider={agent.provider} />
     <span className="agent-summary">
-      <span className="agent-name">{agent.name}</span>
+      <span className="agent-name" title={agent.name}>{agent.name}</span>
       <small title={`${providerNames[agent.provider]} · ${model.sessionTitle}`}>
         <span className="agent-model">{label}</span>
         <span className="agent-status">{agent.pending?.count ? `${agent.pending.count} queued · ` : ""}{agent.subagents?.running ? `${agent.subagents.running} sub · ` : ""}<AgentActivity agent={agent} status={status} online={online} /></span>

@@ -37,6 +37,9 @@ export type Host = {
   projects: Project[];
   agents: Agent[];
   error?: string;
+  // Still answering the latest refresh; projects/agents are the previous ones.
+  loading?: boolean;
+  latencyMs?: number;
 };
 export const chats = new Map<string, Chat>();
 export const key = (host: string, id: string) => `${host}/${id}`;

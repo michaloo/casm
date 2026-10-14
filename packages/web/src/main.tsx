@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { Row, Images } from "./transcript";
@@ -6,13 +6,15 @@ import type {
   Agent,
   Catalog,
   Item,
+  ModelInfo,
   ProviderId,
 } from "@casm/protocol";
 import { Rpc, chat, chats, event, key, syncPending, type Host } from "./state";
-import { resolveView, viewPath } from "./navigation";
+import { resolveView, viewPath, type Selection } from "./navigation";
 import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
 import { ProviderIcon } from "./provider-icon";
-import { HostUsage } from "./host-usage";
+import { HostMenu, type HostState } from "./host-menu";
+import { schedulesChanged } from "./host-schedules";
 import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
 import { agentHierarchy } from "./agent-hierarchy";
@@ -21,6 +23,26 @@ import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type Collap
 import { Question } from "./question";
 import { ChatWorking } from "./chat-working";
 import "./style.css";
+// Same threshold the server uses for a slow peer probe.
+const SLOW_HOST_MS = 2000;
+const noModels: ModelInfo[] = [];
+// Memoized: transcript deltas re-render App often, and the sidebar can hold 100+ agents.
+const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, online, models, onChoose }: {
+  agent: Agent; host: string; depth: number; status: string; selected: boolean; online: boolean; models: ModelInfo[];
+  onChoose: (s: Selection) => void;
+}) {
+  return (
+    <button
+      className={`agent ${selected ? "selected" : ""}`}
+      data-depth={depth}
+      aria-current={selected ? "page" : undefined}
+      style={{ "--agent-depth": depth } as React.CSSProperties}
+      onClick={() => onChoose({ host, project: agent.projectId, id: agent.id })}
+    >
+      <AgentSummary agent={agent} status={status} online={online} models={models} />
+    </button>
+  );
+});
 function App() {
   const [token, setToken] = useState(localStorage.getItem("casm.token") ?? "");
   const [entry, setEntry] = useState("");
@@ -98,6 +120,10 @@ function App() {
     });
   };
   const rpc = useRef<Rpc>(null);
+  // Stable for memoized agent rows; always calls the latest choose().
+  const chooseRef = useRef<(s: Selection) => void>(null);
+  chooseRef.current = choose;
+  const chooseAgent = useCallback((s: Selection) => chooseRef.current!(s), []);
   const [provider, setProvider] = useState<ProviderId>("claude");
   const [model, setModel] = useState("");
   const [mode, setMode] = useState("");
@@ -149,6 +175,7 @@ function App() {
     }
   }
   const buffers = useRef(new Map<string, any[]>()).current;
+  const refreshes = useRef(0);
   async function refresh() {
     const r = rpc.current!;
     const info = await r.call("server.info", {});
@@ -157,26 +184,33 @@ function App() {
       { id: "", name: info.name, serverId: info.id },
       ...peers.peers.map((p) => ({ id: p.name, name: p.name, serverId: p.serverId })),
     ];
-    const next = await Promise.all(
+    const generation = ++refreshes.current;
+    // List every host at once; each fills in as it answers (a sleeping peer can take seconds).
+    const previous = new Map(hostsRef.current.map((h) => [h.id, h]));
+    setHosts(list.map((h) => ({ projects: [], agents: [], ...previous.get(h.id), ...h, error: undefined, loading: true })));
+    await Promise.all(
       list.map(async (h) => {
+        const started = performance.now();
+        let next: Host;
         try {
           const [p, a, identity] = await Promise.all([
             r.call("project.list", {}, h.id),
             r.call("agent.list", {}, h.id),
             h.id ? r.call("server.info", {}, h.id) : Promise.resolve(info),
           ]);
-          return { ...h, serverId: identity.id, projects: p.projects, agents: a.agents };
+          next = { ...h, serverId: identity.id, projects: p.projects, agents: a.agents, latencyMs: performance.now() - started };
         } catch (e) {
-          return {
+          next = {
             ...h,
             projects: [],
             agents: [],
             error: (e as Error).message,
           };
         }
+        if (generation === refreshes.current)
+          setHosts((hs) => hs.map((x) => (x.id === h.id ? next : x)));
       }),
     );
-    setHosts(next);
     const s = selected.current;
     if (s?.id) await load(s.host, s.id, true);
   }
@@ -220,6 +254,8 @@ function App() {
           if (s?.id && s.host === host && (p.agentId ?? p.agent?.id) === s.id)
             void refreshPending(host, s.id, r).catch(() => {});
         }
+        if (n.method === "schedule.changed" || n.method === "schedule.removed")
+          schedulesChanged(host);
         if (
           n.method === "project.changed" ||
           n.method === "project.removed" ||
@@ -402,19 +438,19 @@ function App() {
           </button>
         </header>
         <nav aria-label="Agents">
-          {hosts.map((h) => (
-            <section key={h.id}>
+          {hosts.map((h) => {
+            const state: HostState = !online || h.error ? "offline"
+              : h.loading && h.latencyMs === undefined ? "connecting"
+              : (h.latencyMs ?? 0) > SLOW_HOST_MS ? "slow" : "online";
+            const working = h.agents.filter((a) => a.status !== "idle" && !a.archivedAt).length;
+            return (
+            <section key={h.id} className="host">
               <h2>
-                <button
-                  onClick={() =>
-                    choose({ host: h.id, project: h.projects[0]?.id ?? "" })
-                  }
-                >
-                  {h.name}
-                </button>
-                <HostUsage host={h.id} name={h.name} rpc={rpc.current} online={online && !h.error} />
+                <HostMenu host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
+                  detail={working ? `${working} working` : undefined} />
               </h2>
-              {h.error && <p className="error">{h.error}</p>}
+              {h.error && <p className="host-error" title={h.error}>{h.error}</p>}
+              {!h.error && !h.loading && !h.projects.length && <p className="sidebar-empty">No projects on this host yet.</p>}
               {[...h.projects]
                 .sort(
                   (a, b) =>
@@ -422,27 +458,33 @@ function App() {
                     a.name.localeCompare(b.name) ||
                     a.id.localeCompare(b.id),
                 )
-                .map((p) => (
-                  <div key={p.id}>
+                .map((p) => {
+                  const expanded = projectExpanded(collapsed, h.id, p.id, selection);
+                  const pinned = !!(selection?.id && selection.host === h.id && selection.project === p.id);
+                  const agents = agentHierarchy(h.agents, p.id, h.serverId);
+                  return (
+                  <div key={p.id} className="project-group">
                     <div className="project-row">
                     <button className="project-toggle"
                       aria-label={`Toggle ${p.name}`}
-                      aria-expanded={projectExpanded(collapsed, h.id, p.id, selection)}
-                      disabled={!!(selection?.id && selection.host === h.id && selection.project === p.id)}
-                      title={selection?.id && selection.host === h.id && selection.project === p.id ? "Current agent's project stays visible" : `Toggle ${p.name}`}
+                      aria-expanded={expanded}
+                      disabled={pinned}
+                      title={pinned ? "Current agent's project stays visible" : `${expanded ? "Collapse" : "Expand"} ${p.name}`}
                       onClick={() => toggleProject(h.id, p.id)}>
-                      {projectExpanded(collapsed, h.id, p.id, selection) ? "⌄" : "›"}
+                      <span className="chevron" aria-hidden="true" />
                     </button>
                     <button
                       className={`project ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}
+                      title={`${p.name} · start a new agent`}
                       onClick={() => choose({ host: h.id, project: p.id })}
                     >
-                      {p.name}
-                      <span>＋</span>
+                      <span className="project-name">{p.name}</span>
+                      {!expanded && agents.length > 0 && <span className="project-count" aria-hidden="true">{agents.length}</span>}
+                      <span className="project-new">＋</span>
                     </button>
                     </div>
-                    {projectExpanded(collapsed, h.id, p.id, selection) && agentHierarchy(h.agents, p.id, h.serverId)
-                      .map(({ agent: a, depth }) => {
+                    {expanded && !agents.length && <p className="sidebar-empty project-empty">No agents yet</p>}
+                    {expanded && agents.map(({ agent: a, depth }) => {
                         const state = chat(key(h.id, a.id));
                         const status =
                           a.status === "idle" &&
@@ -451,23 +493,18 @@ function App() {
                             ? "failed"
                             : a.status;
                         return (
-                          <button
-                            className={`agent ${selection?.id === a.id && selection.host === h.id ? "selected" : ""}`}
-                            key={a.id}
-                            data-depth={depth}
-                            style={{ "--agent-depth": depth } as React.CSSProperties}
-                            onClick={() =>
-                              choose({ host: h.id, project: p.id, id: a.id })
-                            }
-                          >
-                            <AgentSummary agent={a} status={status} online={online} models={h.id === selection?.host && a.provider === provider ? catalog.models : []} />
-                          </button>
+                          <AgentRow key={a.id} agent={a} host={h.id} depth={depth} status={status} online={online}
+                            selected={selection?.id === a.id && selection.host === h.id}
+                            models={h.id === selection?.host && a.provider === provider ? catalog.models : noModels}
+                            onChoose={chooseAgent} />
                         );
                       })}
                   </div>
-                ))}
+                  );
+                })}
             </section>
-          ))}
+            );
+          })}
         </nav>
         <footer>
           <span className={online ? "" : "error"}>

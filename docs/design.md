@@ -96,7 +96,9 @@ keyed by the project folder. AGENTS.md is editable; memories are read-only (the 
 - **Platforms:** Linux (systemd user unit) and macOS (launchd agent), installed on its own. The apps
   never bundle or spawn it.
 - **Network:** listens on a configured address and port. Networking is the user's business.
-- **Auth:** per-client bearer token (`casm token create`).
+- **Auth:** per-client bearer token (`casm token create`). On start, the server writes
+  `$CASM_HOME/local.json` (its loopback URL and a fresh `local-cli` token), which the CLI on the same
+  machine uses.
 
 ### State: bare minimum, no drift
 The provider's own store is the single source of truth for conversations. casm stores only what can't
@@ -139,6 +141,8 @@ language, without depending on our code.
 - **Methods:** `project.*`, `agent.*` (create, list, history, send, steer, interrupt, reload, restart,
   setConfig, respondPermission, wait), `schedule.*`, `host.*`.
 - **Notifications:** `agent.event`, `agent.status`.
+- **Forwarding:** a request with a top-level `host` (a peer name or server id) is forwarded to that
+  peer; see "Cross-host agents and scripting".
 - **Schemas:** zod in a shared `protocol` package, also exported as JSON Schema for Swift codegen.
 - **Size target:** a few dozen methods (Paseo has ~200).
 
@@ -159,8 +163,20 @@ Each adapter implements: `start`, `resume`, `send`, `steer`, `interrupt`, `event
   - `casm --host macbook run --project X --provider claude "…" --wait`
   - `casm --host macbook send <agent> "…"`, then `casm wait <agent>`
   - JSON output for scripts.
-- **Agents call agents on other hosts.** Each server has a peer list (`casm peer add macbook <url>
-  <token>`, verified with `server.info` and stored with the peer's server id). Each server also exposes
+- **One list of hosts per machine: the server's peers.** Each server has a peer list (`casm peer add
+  macbook <url> <token>`, verified with `server.info` and stored with the peer's server id).
+  - On a machine running a server, the CLI connects to it (`local.json`) and `-H macbook` sends each
+    request with `host: "macbook"`. The server forwards it through `PeerPool`, the same cached peer
+    connections the MCP tools use. So the CLI, the MCP tools and the agents' own `casm` calls all reach
+    the same hosts with the same names, and only the server holds peer tokens.
+  - `agent.subscribe` through a peer is relayed: the server holds one subscription per peer agent
+    on the shared connection, fans the peer's `agent.event` / `agent.status` out to its local
+    subscribers (marked with `host`), and sends `peer.disconnected {host}` when that connection drops.
+  - Forwarding is one hop: the forwarded request carries no `host`, so a peer's peers are not
+    reachable through it.
+  - `hosts.json` (`casm host add`) is only for a CLI on a machine without a server, the same role as
+    the apps' host list.
+- **Agents call agents on other hosts.** Each server also exposes
   an opt-in MCP server to its own agents (`AgentConfig.casmTools`), at `POST /mcp` on its HTTP port,
   built on the same client library, with tools:
   - `list_hosts`, `list_projects`, `list_agents`
@@ -176,10 +192,11 @@ Each adapter implements: `start`, `resume`, `send`, `steer`, `interrupt`, `event
   JSON responses, no SSE, no MCP session). The bearer token is minted per agent session, kept in memory
   and identifies the caller. Claude Code and Codex take it per session; pi has no MCP client and
   OpenCode's MCP config is shared by every session of its one server, so those two use the CLI.
-- An agent can equally shell out to `casm --host macbook …`. Sessions get `CASM_SERVER_ID`,
+- An agent can equally shell out to `casm --host macbook …`, which goes through its server's peers. Sessions get `CASM_SERVER_ID`,
   `CASM_SERVER_NAME` and `CASM_AGENT_ID`, which `casm run` uses as the parent. The MCP tools exist so
   the agent doesn't need shell access or a token in its environment.
-- **Unreachable host** (a sleeping laptop): fail fast with a clear error, no queuing.
+- **Unreachable host** (a sleeping laptop): fail fast with a clear error (error 1005 for forwarded
+  requests), no queuing.
 - **No cross-host state:** the child lives only on its own host, and the caller polls or waits.
 
 ## 4. Clients (SwiftUI, macOS + iOS)

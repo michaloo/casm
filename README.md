@@ -17,16 +17,28 @@ Requires Node 24+ (TypeScript runs directly, no build step).
 
 ```sh
 npm install
-node packages/cli/src/main.ts token create laptop         # prints a token
-node packages/cli/src/main.ts serve --listen 0.0.0.0:7373
+node packages/cli/src/main.ts serve --listen 0.0.0.0:7373     # in another terminal
 
-node packages/cli/src/main.ts host add ubuntu ws://ubuntu:7373 <token>
-node packages/cli/src/main.ts project create Explorations --path ~/Explorations
+node packages/cli/src/main.ts project create ~/Explorations
 node packages/cli/src/main.ts run --project Explorations --wait "What is in this directory?"
 node packages/cli/src/main.ts agents
 ```
 
-State lives in `$CASM_HOME` (default `~/.casm-ng`): `casm.db` on the server, `hosts.json` for the CLI.
+State lives in `$CASM_HOME` (default `~/.casm-ng`): `casm.db` on the server, plus `local.json`, which
+`casm serve` writes on every start (the URL and a fresh token for this machine's CLI). With it the CLI
+on the server's machine needs no setup.
+
+### Which server the CLI talks to
+
+- **On a machine running a server:** the CLI talks to that server, and `casm -H <name> ...` asks it to
+  forward the command to its peer `<name>` (see [Peers](#peers)). Peers are what `-H` names, the same
+  hosts the server's agents reach with the casm MCP tools. `casm peers [--probe]` lists them.
+- **On a machine without a server:** `-H` picks a host from `$CASM_HOME/hosts.json`, like the apps' host
+  list: `casm host add <name> <ws-url> <token> [--default]`, `casm host list`, `casm host rm <name>`.
+  The token is one created on that server (`casm token create <name>` there). `casm host add` refuses
+  on a machine with a server; add a peer instead.
+- `$CASM_HOST` is the default for `-H`. `$CASM_URL` + `$CASM_TOKEN` replace this machine's server
+  (`local.json`), and `-H` then names a peer of that server.
 
 ## Install from a checkout (Linux and macOS)
 
@@ -68,14 +80,16 @@ echo '{"listen": "<mac-tailscale-ip>:7373", "name": "macbook"}' > ~/.casm-ng/con
 casm service install                                  # run from a shell whose PATH has claude/codex/pi/opencode
 casm service status; casm service logs
 
-casm token create cli-macbook                         # this Mac's own CLI -> its own server
+casm info                                             # this Mac's CLI uses its own server (local.json)
 casm token create ubuntu                              # for ubuntu to use when it peers with the Mac
-casm host add macbook ws://<mac-tailscale-ip>:7373 <cli-macbook token>
 
 # ubuntu: the tokens are in ubuntu:~/.casm-ng/client-tokens.txt (the "macbook" line)
-casm host add ubuntu ws://100.68.62.102:7373 <macbook token>
-casm peer add ubuntu ws://100.68.62.102:7373 <macbook token>   # lets agents on the Mac call ubuntu's server
-casm -H ubuntu info
+casm peer add ubuntu ws://100.68.62.102:7373 <macbook token>   # the Mac's agents and CLI can use ubuntu
+casm -H ubuntu info                                   # forwarded by the Mac's server
+
+# on ubuntu, with the "ubuntu" token printed above:
+casm peer add macbook ws://<mac-tailscale-ip>:7373 <ubuntu token>
+casm -H macbook info
 ```
 
 To read the token over SSH from the Mac, run `ssh ubuntu "awk '\$1==\"macbook\"{print \$2}' ~/.casm-ng/client-tokens.txt"`.
@@ -146,8 +160,8 @@ Override a binary with `CASM_CLAUDE_PATH`, `CASM_CODEX_PATH`, `CASM_PI_PATH` or 
 
 ### Peers
 
-A server can call other casm servers ("peers") on behalf of its agents. Peers are edited on the
-server machine, straight in its DB (like tokens):
+A server can call other casm servers ("peers") on behalf of its agents and clients. Peers are
+edited on the server machine, straight in its DB (like tokens):
 
 ```sh
 casm peer add macbook ws://michals-macbook-pro:7373 <token>   # connects and checks server.info first
@@ -156,7 +170,17 @@ casm peer rm macbook
 ```
 
 The token is one created on the peer (`casm token create ...` there). Clients see peers through the
-read-only `peer.list` RPC (`{probe: true}` adds `reachable`); peer tokens are never sent over RPC.
+read-only `peer.list` RPC (`{probe: true}` adds `reachable`; `casm peers` on the CLI); peer tokens are
+never sent over RPC.
+
+Any client can use a peer through its server: a JSON-RPC request with a top-level `"host": "<peer
+name or server id>"` is forwarded over the same cached peer connection the MCP tools use (this
+server's own name or id means here). That is how `casm -H <peer>` works. The peer's errors keep their
+code; an unknown host is 1001 (NotFound), and an unreachable one fails within 3 s with 1005
+(Unreachable). `agent.subscribe` through a peer relays the agent's `agent.event` / `agent.status`
+notifications, marked with the same `host`, and when the peer connection drops the client gets
+`peer.disconnected {host}` once (subscribe again after reconnecting). Any client token can drive the
+server's peers, just as the server's agents can.
 `casm serve --name <n>` (or `$CASM_NAME`, or `"name"` in config.json) sets the server's display name;
 the default is the hostname.
 

@@ -321,6 +321,7 @@ struct PendingList: Codable, Sendable { var messages: [PendingMessage] }
 struct LimitsParams: Codable, Sendable { var provider: ProviderID?; var refresh: Bool? }
 struct LimitsResult: Codable, Sendable { var limits: [ProviderLimits] }
 struct CancelPendingParams: Codable, Sendable { var id: String; var messageId: String? }
+struct RetryPendingParams: Codable, Sendable { var id: String; var messageId: String }
 struct CancelPendingResult: Codable, Sendable { var cancelled: Int }
 
 public struct RespondPermissionParams: Codable, Sendable {
@@ -398,6 +399,12 @@ public extension RPCClient {
     @discardableResult
     func cancelPending(agentId: String, messageId: String? = nil) async throws -> Int {
         try await (call("agent.cancelPending", CancelPendingParams(id: agentId, messageId: messageId)) as CancelPendingResult).cancelled
+    }
+
+    /// Sends a failed pending message again (as `send` would) and removes it.
+    @discardableResult
+    func retryPending(agentId: String, messageId: String) async throws -> SendResult {
+        try await call("agent.retryPending", RetryPendingParams(id: agentId, messageId: messageId))
     }
 
     func usage(agentId: String) async throws -> Usage? {

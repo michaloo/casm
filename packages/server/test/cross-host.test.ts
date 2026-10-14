@@ -364,6 +364,18 @@ test("relayed notifications carry the host the client named, a server id include
   }
 });
 
+test("a client that disconnects while a peer subscription is being set up leaves nothing subscribed", async () => {
+  const project = (await beta.client.call("project.list", {})).projects.find((p) => p.name === "BetaProj")!;
+  const agent = await beta.client.call("agent.create", { projectId: project.id, provider: "claude" });
+  const before = alpha.server.peers.relayed;
+  const ws = new WebSocket(alpha.url, { headers: { authorization: `Bearer ${alpha.token}` } });
+  await new Promise((r) => ws.once("open", r));
+  ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "agent.subscribe", params: { id: agent.id }, host: "beta" }));
+  ws.terminate();
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(alpha.server.peers.relayed, before);
+});
+
 test("subscriptions through a peer relay its notifications until unsubscribed or disconnected", async () => {
   const project = (await beta.client.call("project.list", {})).projects.find((p) => p.name === "BetaProj")!;
   const agent = await beta.client.call("agent.create", { projectId: project.id, provider: "claude", name: "relayed" });

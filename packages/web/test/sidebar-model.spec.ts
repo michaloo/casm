@@ -11,7 +11,10 @@ test("compact provider/model rows and remembered collapse preserve routed agent 
   const agentRoute = page.url();
   await expect(row.locator(".provider-icon")).toHaveAttribute("aria-label", "Claude");
   await expect(row.locator(".agent-model")).toContainText("Model unresolved");
-  await expect(page.getByLabel("Model").locator("option:checked")).toHaveText("Default · unresolved");
+  const modelPicker = page.locator(".composer-picker").filter({ has: page.getByRole("combobox", { name: "Model", exact: true }) });
+  await expect(modelPicker.locator(".composer-picker-label")).toHaveText("Default");
+  await expect(modelPicker).toHaveAttribute("title", /Session model unresolved/);
+  await expect(page.getByRole("combobox", { name: "Model", exact: true }).locator("option:checked")).toHaveText("Default — Use the provider's default model");
   const toggle = page.getByRole("button", { name: "Toggle Test project", exact: true });
   await expect(toggle).toBeDisabled();
   await page.getByRole("button", { name: "Test project ＋", exact: true }).click();

@@ -11,9 +11,17 @@ import { toolImages } from "./tool-images.ts";
 // message. Retries (session.status retry, retry parts), compaction parts and
 // message errors become notices. "/name args" for a known command (GET
 // /command, which also lists skills) runs through POST /session/:id/command.
+// The agent's env and casm's tools reach its sessions through casm's plugin
+// (opencode-plugin.ts); config.mcpServers other than casm's are not applied,
+// since OpenCode's MCP servers belong to the whole server.
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomInt } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { CASM_TOOLS } from "../mcp.ts";
 import type { Answers, Catalog, Command, ImageData, Item, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
 import type { OpenOptions, Provider, ProviderEvent, ProviderSession } from "./types.ts";
 
@@ -312,6 +320,19 @@ export function parseCommands(list: OcCommand[]): Command[] {
   });
 }
 
+// A new user message id in OpenCode's own format (packages/opencode/src/id/id.ts
+// `ascending`): msg_, 12 hex digits of ms * 0x1000 + a per-ms counter, 14
+// base62 characters. Messages and parts sort by id, and OpenCode's Zen gateway
+// rejects free-tier requests whose x-opencode-request isn't such an id.
+let lastMs = 0;
+let counter = 0;
+export function messageId(now = Date.now()): string {
+  if (now !== lastMs) (lastMs = now), (counter = 0);
+  const time = (BigInt(now) * 0x1000n + BigInt(++counter)) & 0xffff_ffff_ffffn;
+  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  return `msg_${time.toString(16).padStart(12, "0")}${Array.from({ length: 14 }, () => chars[randomInt(62)]).join("")}`;
+}
+
 // "/name args" -> { name, args }, or null for other text.
 export function parseSlash(text: string): { name: string; args: string } | null {
   const m = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
@@ -394,6 +415,33 @@ export function parseCatalog(providers: OcProviders, agents: OcAgent[], configMo
 
 // --- shared server
 
+// What casm's plugin (opencode-plugin.ts) reads for one session.
+export type SessionState = { env?: Record<string, string>; casm?: { url: string; token: string } };
+
+const PLUGIN = pathToFileURL(join(import.meta.dirname, "opencode-plugin.ts")).href;
+
+// The server's env: casm's plugin added to the config, its state directory named.
+export function serveEnv(base: Record<string, string>, stateDir: string): Record<string, string> {
+  let config: Record<string, unknown> = {};
+  try {
+    config = base.OPENCODE_CONFIG_CONTENT ? (JSON.parse(base.OPENCODE_CONFIG_CONTENT) as Record<string, unknown>) : {};
+  } catch {
+    // OpenCode would reject it as well; casm's plugin replaces it.
+  }
+  const plugin = [...(Array.isArray(config.plugin) ? config.plugin : []), PLUGIN];
+  return { ...base, OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...config, plugin }), CASM_OPENCODE_STATE: stateDir };
+}
+
+// The session permission rule that shows or hides casm's plugin tools.
+export const casmToolsRule = (enabled: boolean) => [{ permission: "casm_*", pattern: "*", action: enabled ? "allow" : "deny" }];
+
+// casm's MCP entry (mcp.ts casmMcpEntry) as the plugin's endpoint and token.
+export function casmEndpoint(entry: unknown): SessionState["casm"] {
+  const e = entry as { url?: unknown; headers?: { Authorization?: unknown } } | undefined;
+  const token = typeof e?.headers?.Authorization === "string" ? /^Bearer (.+)$/.exec(e.headers.Authorization)?.[1] : undefined;
+  return typeof e?.url === "string" && token ? { url: e.url, token } : undefined;
+}
+
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const s = createServer();
@@ -417,6 +465,8 @@ export class OpencodeServer {
   private refs = 0;
   private idleTimer: NodeJS.Timeout | null = null;
   private windows: Promise<Map<string, number>> | null = null;
+  // Per-session state for casm's plugin; private to this user (mkdtemp is 0700).
+  stateDir: string | null = null;
 
   // Context window by "provider/model", from the configured providers.
   async contextWindows(): Promise<Map<string, number>> {
@@ -457,8 +507,10 @@ export class OpencodeServer {
   private async start() {
     const port = await freePort();
     const bin = process.env.CASM_OPENCODE_PATH ?? "opencode";
+    const stateDir = (this.stateDir = mkdtempSync(join(tmpdir(), "casm-opencode-")));
+    writeFileSync(join(stateDir, "tools.json"), JSON.stringify(CASM_TOOLS));
     const proc = spawn(bin, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
-      env: providerEnv(),
+      env: serveEnv(providerEnv(), stateDir),
       stdio: ["ignore", "pipe", "pipe"],
     });
     this.proc = proc;
@@ -471,7 +523,10 @@ export class OpencodeServer {
       proc.once("exit", (code) => reject(new Error(`opencode serve exited (${code}): ${stderr.trim()}`)));
     });
     proc.once("exit", (code, signal) => this.died(`opencode serve exited (${signal ?? code})`));
-    process.once("exit", () => proc.kill());
+    process.once("exit", () => {
+      proc.kill();
+      rmSync(stateDir, { recursive: true, force: true });
+    });
     await listening;
     await this.subscribe();
   }
@@ -527,9 +582,17 @@ export class OpencodeServer {
     if (payload.type === "session.deleted") this.parents.delete(sid);
   }
 
+  // Written before the session's first prompt; kept while the server runs, since
+  // a background subagent can outlive its casm session.
+  writeState(sessionId: string, state: SessionState) {
+    if (this.stateDir) writeFileSync(join(this.stateDir, `${sessionId}.json`), JSON.stringify(state), { mode: 0o600 });
+  }
+
   private died(error: string) {
     if (!this.proc) return;
     this.proc = null;
+    if (this.stateDir) rmSync(this.stateDir, { recursive: true, force: true });
+    this.stateDir = null;
     this.ready = null;
     this.windows = null;
     this.stream?.abort();
@@ -627,8 +690,17 @@ class OpencodeSession implements ProviderSession {
     }
     // Warm the context window lookup so usage events aren't delayed.
     void this.server.contextWindows();
+    const casm = casmEndpoint(this.opts.config.mcpServers?.casm);
+    const permission = casmToolsRule(!!casm);
     const id =
-      this.opts.resumeId ?? (await this.server.request<{ id: string }>("POST", "/session", this.opts.cwd, {})).id;
+      this.opts.resumeId ?? (await this.server.request<{ id: string }>("POST", "/session", this.opts.cwd, { permission })).id;
+    // A resumed session's rules merge and the last matching one wins: add it when it changes.
+    if (this.opts.resumeId) {
+      const info = await this.server.request<{ permission?: { permission: string; action: string }[] }>("GET", `/session/${id}`, this.opts.cwd);
+      if (info.permission?.findLast((r) => r.permission === "casm_*")?.action !== permission[0].action)
+        await this.server.request("PATCH", `/session/${id}`, this.opts.cwd, { permission });
+    }
+    this.server.writeState(id, { env: this.opts.config.env, ...(casm ? { casm } : {}) });
     this.nativeId = id;
     this.unlisten = this.server.listen(id, { onEvent: (e) => this.handle(e), onClosed: (err) => this.finish(err) });
     this.opts.emit({ type: "sessionId", id });
@@ -866,7 +938,7 @@ class OpencodeSession implements ProviderSession {
     void this.sessionId
       .then(async (id) => {
         this.busy = true;
-        const messageID = `msg_${itemId.replaceAll("-", "")}`;
+        const messageID = messageId();
         this.emit({ type: "userMessageId", itemId, nativeId: messageID });
         const slash = parseSlash(text);
         if (slash) {

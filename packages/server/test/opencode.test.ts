@@ -368,8 +368,13 @@ class FakeOpencodeServer extends OpencodeServer {
   releases = 0;
   override async acquire() { return () => { this.releases++; }; }
   override async contextWindows() { return new Map<string, number>(); }
-  override async request<T>(_method: string, path: string): Promise<T> {
-    if (path === "/session") return { id: ids.sessionID } as T;
+  sessionPermission: { permission: string; action: string }[] = [];
+  created: unknown[] = [];
+  patched: unknown[] = [];
+  override async request<T>(method: string, path: string, _directory?: string, body?: unknown): Promise<T> {
+    if (path === "/session") return this.created.push(body), { id: ids.sessionID } as T;
+    if (path === `/session/${ids.sessionID}` && method === "GET") return { id: ids.sessionID, permission: this.sessionPermission } as T;
+    if (path === `/session/${ids.sessionID}` && method === "PATCH") return this.patched.push(body), {} as T;
     if (path === `/session/${ids.sessionID}/message`) return this.parentMessages as T;
     if (path === "/session/ses_child/message") return this.childMessages as T;
     if (path === "/session/ses_child") return { parentID: this.parentID } as T;
@@ -457,8 +462,9 @@ test("OpenCode dispatch binds CASM prompt IDs to explicit native IDs before send
   try {
     session.send("hello", "casm-id");
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal((requests[0].body as { messageID: string }).messageID, "msg_casmid");
-    assert.deepEqual(events.find((e) => e.type === "userMessageId"), { type: "userMessageId", itemId: "casm-id", nativeId: "msg_casmid" });
+    const { messageID } = requests[0].body as { messageID: string };
+    assert.match(messageID, /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    assert.deepEqual(events.find((e) => e.type === "userMessageId"), { type: "userMessageId", itemId: "casm-id", nativeId: messageID });
   } finally { await session.close(); }
 });
 
@@ -547,7 +553,8 @@ test("OpenCode steering: a prompt sent mid-turn joins the running loop and the t
     // OpenCode stores the second user message; its loop picks it up after the current step.
     server.event("session.status", { sessionID: ids.sessionID, status: { type: "busy" } });
     server.event("session.status", { sessionID: ids.sessionID, status: { type: "idle" } });
-    assert.deepEqual(prompts, [{ messageID: "msg_id1", text: "first" }, { messageID: "msg_id2", text: "also this" }]);
+    assert.deepEqual(prompts.map((p) => p.text), ["first", "also this"]);
+    assert.ok(prompts[0].messageID < prompts[1].messageID);
     assert.deepEqual(events.filter((e) => e.type === "turnEnded"), [{ type: "turnEnded", outcome: "completed", error: undefined, turnId: "turn-1" }]);
   } finally { await session.close(); }
 });
@@ -604,4 +611,57 @@ test("a foreground task's summary is its result text, with model and duration", 
     },
   };
   assert.deepEqual(normalizePart(part), { kind: "subagent", id: "prt_fg", title: "Read", status: "done", summary: "All good", usage: { model: "p/m", durationMs: 2000 } });
+});
+
+test("OpenCode sessions get casm's per-agent state and a casm_* rule matching casmTools", async () => {
+  const { mkdtempSync, readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const server = new FakeOpencodeServer();
+  server.stateDir = mkdtempSync(join(tmpdir(), "casm-oc-state-"));
+  const open = (config: Record<string, unknown>, resumeId: string | null) =>
+    opencodeProvider(server).open({ cwd: "/tmp", config, resumeId, emit() {}, askPermission: async () => ({ decision: "allow" }), askQuestion: async () => null });
+  const settle = () => new Promise((r) => setTimeout(r, 10));
+
+  let session = open({ env: { CASM_AGENT_ID: "a1", FOO: "bar" } }, null);
+  await settle();
+  assert.deepEqual(server.created, [{ permission: [{ permission: "casm_*", pattern: "*", action: "deny" }] }]);
+  assert.deepEqual(JSON.parse(readFileSync(join(server.stateDir, `${ids.sessionID}.json`), "utf8")), { env: { CASM_AGENT_ID: "a1", FOO: "bar" } });
+  await session.close();
+
+  // Resumed with casmTools: the session's last casm_* rule says deny, so allow is added once.
+  server.sessionPermission = [{ permission: "casm_*", action: "deny" }];
+  const casm = { url: "http://127.0.0.1:7373/mcp", headers: { Authorization: "Bearer casm_agent_x" } };
+  session = open({ mcpServers: { casm } }, ids.sessionID);
+  await settle();
+  assert.deepEqual(server.patched, [{ permission: [{ permission: "casm_*", pattern: "*", action: "allow" }] }]);
+  assert.deepEqual(JSON.parse(readFileSync(join(server.stateDir, `${ids.sessionID}.json`), "utf8")).casm, { url: casm.url, token: "casm_agent_x" });
+  await session.close();
+  server.sessionPermission.push({ permission: "casm_*", action: "allow" });
+  session = open({ mcpServers: { casm } }, ids.sessionID);
+  await settle();
+  assert.equal(server.patched.length, 1);
+  await session.close();
+});
+
+test("the serve env loads casm's plugin next to an inherited OPENCODE_CONFIG_CONTENT", async () => {
+  const { serveEnv, casmEndpoint } = await import("../src/providers/opencode.ts");
+  const env = serveEnv({ PATH: "/bin", OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: "a/b", plugin: ["other"] }) }, "/state");
+  const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT);
+  assert.equal(config.model, "a/b");
+  assert.equal(config.plugin[0], "other");
+  assert.match(config.plugin[1], /^file:\/\/.*\/opencode-plugin\.ts$/);
+  assert.equal(env.CASM_OPENCODE_STATE, "/state");
+  assert.deepEqual(JSON.parse(serveEnv({}, "/s").OPENCODE_CONFIG_CONTENT).plugin.length, 1);
+  assert.equal(casmEndpoint({ url: "u" }), undefined);
+  assert.equal(casmEndpoint(undefined), undefined);
+});
+
+test("OpenCode message ids match OpenCode's ascending format and order", async () => {
+  const { messageId } = await import("../src/providers/opencode.ts");
+  // OpenCode's own id for this time and counter starts the same (id.ts create()).
+  assert.equal(messageId(0x13bd74d3e).slice(0, 16), "msg_13bd74d3e001");
+  const a = messageId(1_760_000_000_000), b = messageId(1_760_000_000_000), c = messageId(1_760_000_000_001);
+  assert.ok(a < b && b < c);
+  assert.equal(a.length, 30);
 });

@@ -154,11 +154,12 @@ let server: RunningServer;
 let client: CasmClient;
 let store: Store;
 let home: string;
+let token: string;
 
 before(async () => {
   home = mkdtempSync(join(tmpdir(), "casm-test-"));
   store = new Store(join(home, "casm.db"));
-  const token = store.createToken("test");
+  token = store.createToken("test");
   server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test", home, name: "testhost" });
   client = await CasmClient.connect(`ws://127.0.0.1:${server.port}`, token);
 });
@@ -171,6 +172,44 @@ after(async () => {
 
 test("rejects bad tokens", async () => {
   await assert.rejects(CasmClient.connect(`ws://127.0.0.1:${server.port}`, "nope"), /unauthorized/);
+});
+
+test("browsers can pass the token in the URL", async () => {
+  const { default: WebSocket } = await import("ws");
+  const open = (url: string) =>
+    new Promise<number>((resolve) => {
+      const ws = new WebSocket(url);
+      ws.once("open", () => (ws.close(), resolve(101)));
+      ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
+    });
+  assert.equal(await open(`ws://127.0.0.1:${server.port}/?token=${encodeURIComponent(token)}`), 101);
+  assert.equal(await open(`ws://127.0.0.1:${server.port}/?token=nope`), 401);
+});
+
+test("serves the web client with a fallback to index.html", async () => {
+  const web = mkdtempSync(join(tmpdir(), "casm-web-"));
+  mkdirSync(join(web, "assets"));
+  writeFileSync(join(web, "index.html"), "<!doctype html>app");
+  writeFileSync(join(web, "assets", "a.js"), "x");
+  const s = new Store(join(mkdtempSync(join(tmpdir(), "casm-test-")), "casm.db"));
+  const srv = await startServer({ store: s, providers: [], host: "127.0.0.1", port: 0, version: "test", webRoot: web });
+  try {
+    const base = `http://127.0.0.1:${srv.port}`;
+    for (const path of ["/", "/agents/x"]) {
+      const res = await fetch(base + path);
+      assert.equal(await res.text(), "<!doctype html>app");
+      assert.equal(res.headers.get("cache-control"), "no-cache");
+    }
+    const asset = await fetch(`${base}/assets/a.js`);
+    assert.match(asset.headers.get("content-type") ?? "", /javascript/);
+    assert.match(asset.headers.get("cache-control") ?? "", /immutable/);
+    assert.equal((await fetch(`${base}/missing.js`)).status, 426);
+    assert.equal(await (await fetch(`${base}/..%2F..%2Fetc%2Fpasswd`)).text(), "<!doctype html>app");
+    assert.equal((await (await fetch(`${base}/health`)).json()).protocol, 1);
+  } finally {
+    await srv.close();
+    s.close();
+  }
 });
 
 test("health endpoint needs no auth", async () => {

@@ -1,6 +1,9 @@
 // WebSocket + JSON-RPC 2.0 transport. Clients authenticate with
-// `Authorization: Bearer <token>` on the upgrade request.
+// `Authorization: Bearer <token>` on the upgrade request, or `?token=<token>`
+// in the URL (browsers can't set headers on a WebSocket). Other GET requests
+// serve the web client's static files from `webRoot`.
 import { createServer, type Server } from "node:http";
+import { serveStatic } from "./static.ts";
 import { hostname } from "node:os";
 import { WebSocketServer, type WebSocket } from "ws";
 import { CasmError } from "@casm/client";
@@ -39,6 +42,8 @@ export type ServerOptions = {
   // The state directory ($CASM_HOME): agent-prompt.md and config.json. Without
   // it agents get the default agent prompt, which can't be changed.
   home?: string;
+  // The built web client (packages/web/dist), served at /. Without it, / says to use a WebSocket.
+  webRoot?: string;
 };
 
 export type RunningServer = {
@@ -90,13 +95,15 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       });
       return;
     }
+    if (opts.webRoot && serveStatic(opts.webRoot, req, res)) return;
     res.writeHead(426, { "content-type": "text/plain" }).end("casm: connect with a WebSocket\n");
   });
   const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
 
   http.on("upgrade", (req, socket, head) => {
     const auth = req.headers.authorization ?? "";
-    const name = auth.startsWith("Bearer ") ? opts.store.checkToken(auth.slice(7).trim()) : undefined;
+    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : new URL(req.url ?? "/", "http://x").searchParams.get("token");
+    const name = token ? opts.store.checkToken(token) : undefined;
     if (!name) {
       socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       return;

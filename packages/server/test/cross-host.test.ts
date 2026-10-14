@@ -8,7 +8,7 @@ import { createServer as createTcpServer, type Server as TcpServer, type Socket 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { CasmClient, type CasmError } from "@casm/client";
 import { ErrorCode, type Item } from "@casm/protocol";
 import { Store } from "../src/db.ts";
@@ -339,6 +339,28 @@ test("a forwarded request carries the client's params as sent, unknown keys incl
     c.close();
     alpha.store.removePeer("echo");
     echo.close();
+  }
+});
+
+test("relayed notifications carry the host the client named, a server id included", async () => {
+  const project = (await beta.client.call("project.list", {})).projects.find((p) => p.name === "BetaProj")!;
+  const agent = await beta.client.call("agent.create", { projectId: project.id, provider: "claude" });
+  const betaId = beta.store.serverId();
+  const ws = new WebSocket(alpha.url, { headers: { authorization: `Bearer ${alpha.token}` } });
+  const got: { id?: number; method?: string; host?: string }[] = [];
+  ws.on("message", (d) => got.push(JSON.parse(d.toString())));
+  await new Promise((r) => ws.once("open", r));
+  try {
+    ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "agent.subscribe", params: { id: agent.id }, host: betaId }));
+    for (let i = 0; i < 50 && !got.some((m) => m.id === 1); i++) await new Promise((r) => setTimeout(r, 10));
+    await beta.client.call("agent.send", { id: agent.id, text: "hi" });
+    await beta.client.call("agent.wait", { id: agent.id });
+    await new Promise((r) => setTimeout(r, 50));
+    const relayed = got.filter((m) => m.method);
+    assert.ok(relayed.length > 0);
+    assert.deepEqual([...new Set(relayed.map((m) => m.host))], [betaId]);
+  } finally {
+    ws.close();
   }
 });
 

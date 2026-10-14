@@ -52,6 +52,19 @@ Use `CASM_DEV_HOME` and `CASM_DEV_PORT` for additional instances, setting the sa
 values for init, serve, and client commands. A used port fails normally; the
 launcher does not stop the process occupying it. Use an empty directory for init.
 
+To test cross-host features, peer two instances with each other:
+
+```sh
+export A="CASM_DEV_HOME=/tmp/casm-peers-a CASM_DEV_PORT=7492" B="CASM_DEV_HOME=/tmp/casm-peers-b CASM_DEV_PORT=7493"
+env $A npm run dev -- init; env $B npm run dev -- init
+env $A npm run dev:server &  env $B npm run dev:server &
+env $A npm run dev -- peer add b ws://127.0.0.1:7493 "$(env $B npm run -s dev -- token create from-a)"
+env $B npm run dev -- peer add a ws://127.0.0.1:7492 "$(env $A npm run -s dev -- token create from-b)"
+env $A npm run dev -- -H b info        # A's server forwards to B
+```
+
+Both instances are named `casm-dev`, so name the peers differently (`a`, `b` above).
+
 To connect an Apple client, create a dedicated token:
 
 ```sh

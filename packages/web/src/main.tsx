@@ -1,3 +1,5 @@
+import { useSlashCommands, type CasmCommand } from "./slash-commands";
+import { McpPanel } from "./mcp-panel";
 import { replaceHistory } from "./state";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -131,6 +133,9 @@ function App() {
   const [, render] = useState(0);
   const redraw = () => render((x) => x + 1);
   const [error, setError] = useState("");
+  const [mcp, setMcp] = useState<{ host: string; id: string; name: string }>();
+  const [commandBusy, setCommandBusy] = useState(false);
+  const [commandNotice, setCommandNotice] = useState("");
   const deferredSteers = useRef(new Map<string, string>()).current;
   // Status text of pending rows with an action in flight, by key(host, id).
   const rowNotes = useRef(new Map<string, string>()).current;
@@ -319,6 +324,20 @@ function App() {
     ? key(selection.host, selection.id ?? `new:${selection.project}`)
     : "";
   const c = chat(ckey);
+  const slash = useSlashCommands({ rpc: rpc.current, host: selection?.host ?? "", agentId: agent?.id,
+    value: c.input, setValue: (text) => { c.input = text; saveDraft(c); redraw(); },
+    action: composerAction, enabled: online && !commandBusy });
+  async function composerAction(name: CasmCommand) {
+    if (!agent || !selection || !rpc.current || commandBusy) return;
+    const target = c; const draft = c.input;
+    setCommandBusy(true); setCommandNotice("");
+    try {
+      if (name === "mcp") setMcp({ host: selection.host, id: agent.id, name: agent.name });
+      else { await rpc.current.call(`agent.${name}`, { id: agent.id }, selection.host); setCommandNotice(`/${name} completed for ${agent.name}.`); }
+      if (target.input === draft) { target.input = ""; saveDraft(target); redraw(); }
+    } catch (e) { setError(String(e)); }
+    finally { setCommandBusy(false); }
+  }
   const rows = visiblePending(c);
   const busy = !!agent && agent.status !== "idle";
   const primary = sendMode(agent?.status, rows.length);
@@ -373,7 +392,8 @@ function App() {
   // Clears the composer at once and shows the message where it will land: in
   // the transcript, or in the queue. The server's copy replaces it by id.
   async function send(steer = false) {
-    if (!selection || (!c.input.trim() && !c.images.length) || creating) return;
+    if (!selection || (!c.input.trim() && !c.images.length) || creating || commandBusy) return;
+    if (slash.sendAction()) return;
     const s = selection;
     const text = c.input;
     const images = c.images;
@@ -530,6 +550,7 @@ function App() {
     );
   return (
     <div className="app">
+      {mcp && rpc.current && <McpPanel {...mcp} rpc={rpc.current} close={() => { setMcp(undefined); document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus(); }} />}
       <aside className={sidebar ? "open" : ""}>
         <header>
           <strong className="brand">
@@ -777,6 +798,8 @@ function App() {
                 void send();
               }}
             >
+              {slash.palette}
+              {commandNotice && <p role="status" className="command-notice">{commandNotice}</p>}
               <div className="pickers">
                 <ProviderIcon provider={provider} />
                 {!agent && (
@@ -832,6 +855,7 @@ function App() {
                 redraw();
               }} />}
               <textarea
+                {...slash.inputProps}
                 aria-label="Message"
                 placeholder="Message agent…"
                 value={c.input}
@@ -862,6 +886,7 @@ function App() {
                   }).catch((error) => setError(String(error)));
                 }}
                 onKeyDown={(e) => {
+                  if (slash.onKeyDown(e)) return;
                   if (
                     e.key === "Enter" &&
                     !e.shiftKey &&

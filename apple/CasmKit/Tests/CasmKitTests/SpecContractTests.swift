@@ -109,6 +109,7 @@ import Testing
             "provider.limits": { _ = try decode(LimitsResult.self, $0) },
             "agent.cancelPending": { _ = try decode(CancelPendingResult.self, $0) },
             "agent.retryPending": { _ = try decode(SendResult.self, $0) },
+            "agent.wait": { _ = try decode(WaitResult.self, $0) },
             "project.setAgentsMd": { _ = try decode(AgentsMd.self, $0) },
             "project.memories": { _ = try decode(ProjectMemories.self, $0) },
             "agent.list": { _ = try decode(AgentList.self, $0) },
@@ -151,6 +152,7 @@ import Testing
             ("agent.commands", CommandsParams(id: "a", refresh: true)),
             ("agent.cancelPending", CancelPendingParams(id: "a", messageId: "m")),
             ("agent.retryPending", RetryPendingParams(id: "a", messageId: "m")),
+            ("agent.wait", WaitParams(id: "a", timeoutMs: 1)),
             ("agent.answerQuestion", AnswerQuestionParams(id: "a", requestId: "r", answers: ["q": .strings(["x"]), "c": .bool(true), "t": .string("s")])),
             ("agent.respondPermission", RespondPermissionParams(id: "a", requestId: "r", decision: .allowAlways, message: "m")),
         ]

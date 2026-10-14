@@ -74,7 +74,8 @@ for (const width of [1440, 375]) {
     await login(page);
     const scroller = page.locator("[data-virtuoso-scroller]");
     await scroller.hover();
-    if (isMobile) await scroller.evaluate((el) => el.scrollBy(0, -700));
+    // A finger drag: touchmove, then the scroll it causes.
+    if (isMobile) { await scroller.dispatchEvent("touchmove"); await scroller.evaluate((el) => el.scrollBy(0, -700)); }
     else await page.mouse.wheel(0, -700);
     await expect(page.getByRole("button", { name: "Latest ↓" })).toBeVisible();
     // Let scrolling settle before comparing exact reader coordinates.

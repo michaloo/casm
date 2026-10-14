@@ -1003,9 +1003,62 @@ function Transcript({
         ref.current?.scrollToIndex({ index: "LAST" }),
       );
   }, [visiblePending(c).length, c.permissions.length, c.questions.length]);
+  // Virtuoso lands short of the end when items measure taller than estimated
+  // (opening a long history, a reply that wraps, a shrinking composer), and
+  // its followOutput only follows from the exact bottom. While following and
+  // near the end, pin the true end on every growth or append; a reader who
+  // scrolled away stays put.
+  const nearEnd = useRef(true);
+  const scroller = useRef<HTMLElement | null>(null);
+  const stick = () => {
+    const el = scroller.current;
+    if (!following.current || !nearEnd.current || !el) return;
+    el.scrollTop = el.scrollHeight;
+    // Virtuoso may re-apply its estimate in the same frame; settle once more.
+    requestAnimationFrame(() => {
+      if (following.current && nearEnd.current && el.scrollHeight - el.scrollTop - el.clientHeight > 0.5) el.scrollTop = el.scrollHeight;
+    });
+  };
+  const box = useRef<HTMLDivElement>(null);
+  const resized = useRef<ResizeObserver>(undefined);
+  useEffect(() => {
+    if (!box.current) return;
+    // Watch the rendered rows themselves: Virtuoso follows by its estimate,
+    // then rows measure taller (or grow: Thinking, tool output, a streamed
+    // reply) without another scroll. The box covers a shrinking viewport.
+    const observer = (resized.current = new ResizeObserver(() => stick()));
+    observer.observe(box.current);
+    // Virtuoso's own follow lands on its estimate, a little short of the end.
+    // Where the last scroll left the reader: appends never scroll, so they
+    // keep it; a scroll-up or a jump elsewhere clears it.
+    const settle = () => {
+      const el = scroller.current;
+      if (!el) return;
+      const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+      nearEnd.current = gap < el.clientHeight;
+      if (gap < 80) stick();
+    };
+    const el = scroller.current;
+    // Capture on the wrapper runs before Virtuoso's own scroll handler, so
+    // nearEnd is current before its re-render mutates the rows below.
+    box.current.addEventListener("scroll", settle, { capture: true, passive: true });
+    // Some re-layouts (a streamed row replaced by its final item, rows above
+    // resizing) change no observed box and fire no scroll; any DOM change does.
+    const mutated = new MutationObserver(() => stick());
+    if (el) mutated.observe(el, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style"] });
+    const wrapper = box.current;
+    return () => { observer.disconnect(); mutated.disconnect(); wrapper.removeEventListener("scroll", settle, { capture: true }); };
+  }, []);
+  useEffect(() => {
+    // Virtuoso may swap its list element (empty → rows); observing twice is a no-op.
+    const list = box.current?.querySelector("[data-testid=virtuoso-item-list]");
+    if (list) resized.current?.observe(list, { box: "border-box" });
+    requestAnimationFrame(stick);
+  }, [items.length]);
   const first = 100000 + c.start;
   return (
     <div
+      ref={box}
       style={{ height: "100%", position: "relative" }}
       onWheelCapture={(e) => {
         if (e.deltaY < 0) following.current = false;
@@ -1033,10 +1086,12 @@ function Transcript({
         }
         computeItemKey={(_, i) => i.id}
         followOutput={() => (following.current ? "auto" : false)}
+        totalListHeightChanged={stick}
+        scrollerRef={(el) => { scroller.current = el as HTMLElement | null; }}
         atBottomStateChange={(v) => {
+          if (v) following.current = true;
           setBottom(v);
           c.atBottom = v;
-          if (v) following.current = true;
         }}
         rangeChanged={(r) => {
           c.scroll = r.startIndex;
@@ -1059,12 +1114,16 @@ function Transcript({
         }}
         components={transcriptComponents}
       />
-      {!bottom && (
+      {/* Only after the reader scrolled up, never while following lags a growing end. */}
+      {!bottom && !following.current && (
         <button
           className="latest"
           onClick={() => {
             following.current = true;
-            ref.current?.scrollToIndex({ index: "LAST" });
+            nearEnd.current = true;
+            ref.current?.scrollToIndex({ index: "LAST", align: "end" });
+            requestAnimationFrame(stick);
+            setBottom(true);
           }}
         >
           Latest ↓

@@ -68,9 +68,11 @@ struct UsageChip: View {
                                 UsageBar(fraction: used / 100, color: window.level == .ok ? Color.accentColor : window.level.color)
                                     .frame(width: 28, height: 4)
                                 Text("\(Int(used.rounded()))%").monospacedDigit()
-                            } else if let resets = ISOTime.parse(window.resetsAt) {
-                                Text(window.level == .exhausted ? "until \(resets.formatted(date: .omitted, time: .shortened))"
-                                                                 : "resets \(resets.formatted(date: .omitted, time: .shortened))")
+                            } else if window.level == .exhausted, let resets = ISOTime.parse(window.resetsAt) {
+                                Text("until \(resets.formatted(date: .omitted, time: .shortened))")
+                            } else {
+                                // Not reported yet: say so rather than show a reset time where a percent goes.
+                                Text("—").help("Usage not reported yet")
                             }
                         }
                         .foregroundStyle(window.level == .ok ? Theme.muted : window.level.color)

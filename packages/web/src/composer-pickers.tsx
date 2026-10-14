@@ -11,13 +11,14 @@ type Option = { value: string; label: string; description?: string };
 
 // A native select keeps platform keyboard/touch behavior. Its visible face is
 // separate so detailed option text never dictates the collapsed pill's width.
-function Picker({ name, value, label, options, onChange, icon, disabled = false, title }: {
+// `prefix` names the setting ("Mode") where the value alone ("Default") wouldn't.
+function Picker({ name, value, label, options, onChange, icon, prefix, disabled = false, title }: {
   name: string; value: string; label: string; options: Option[]; onChange: (value: string) => void;
-  icon?: ReactNode; disabled?: boolean; title?: string;
+  icon?: ReactNode; prefix?: string; disabled?: boolean; title?: string;
 }) {
   const selected = options.find(option => option.value === value);
-  return <label className={`composer-picker${disabled ? " composer-picker-fixed" : ""}`} title={title ?? selected?.description ?? label}>
-    {icon}<span className="composer-picker-label" aria-hidden={!disabled}>{label}</span>
+  return <label className={`composer-picker${disabled ? " composer-picker-fixed" : ""}`} title={`${name}: ${title ?? selected?.description ?? label}`}>
+    {icon}{prefix && <span className="composer-picker-prefix" aria-hidden="true">{prefix}</span>}<span className="composer-picker-label" aria-hidden={!disabled}>{label}</span>
     {!disabled && <span className="composer-picker-chevron" aria-hidden="true">⌄</span>}
     {!disabled && <select aria-label={name} value={value} onChange={event => onChange(event.target.value)}>
       {options.map(option => <option key={option.value} value={option.value}>{option.label}{option.description ? ` — ${option.description}` : ""}</option>)}
@@ -42,10 +43,10 @@ export function ComposerPickers({ provider, fixedProvider, catalog, model, effec
   return <div className="pickers">
     <Picker name="Provider" value={provider} label={provider === "pi" ? "pi" : providerNames[provider]} icon={<ProviderIcon provider={provider} />} disabled={fixedProvider}
       options={(["claude", "codex", "opencode", "pi"] as ProviderId[]).map(id => ({ value: id, label: id === "pi" ? "pi" : providerNames[id] }))} onChange={value => setProvider(value as ProviderId)} />
-    <Picker name="Model" value={model} label={model ? compactModel(labels.selectedLabel) : defaultLabel} options={modelOptions} onChange={setModel}
+    <Picker name="Model" value={model} label={model ? compactModel(labels.selectedLabel) : defaultLabel} prefix={model ? undefined : "Model"} options={modelOptions} onChange={setModel}
       title={[model || "Provider default", selectedModel?.name, selectedModel?.description, labels.sessionTitle].filter(Boolean).join(" · ")} />
-    {catalog.modes.length > 1 && <Picker name="Mode" value={mode} label={modes.find(item => item.value === mode)?.label ?? "Default"} options={modes} onChange={setMode} />}
-    {efforts.length > 1 && <Picker name="Effort" value={effort} label={effort ? titleCase(effort) : "Default"} options={[{ value: "", label: "Default", description: "Use the model's default reasoning effort" }, ...efforts.map(value => ({ value, label: titleCase(value) }))]} onChange={setEffort} />}
+    {catalog.modes.length > 1 && <Picker name="Mode" prefix="Mode" value={mode} label={modes.find(item => item.value === mode)?.label ?? "Default"} options={modes} onChange={setMode} />}
+    {efforts.length > 1 && <Picker name="Effort" prefix="Effort" value={effort} label={effort ? titleCase(effort) : "Default"} options={[{ value: "", label: "Default", description: "Use the model's default reasoning effort" }, ...efforts.map(value => ({ value, label: titleCase(value) }))]} onChange={setEffort} />}
     {labels.showSession && <small className="model-session" title={labels.sessionTitle}>Session: {compactModel(labels.actual!)}</small>}
   </div>;
 }

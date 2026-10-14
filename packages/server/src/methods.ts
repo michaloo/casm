@@ -1,5 +1,6 @@
 import { basename, isAbsolute } from "node:path";
 import { homedir } from "node:os";
+import { statSync } from "node:fs";
 import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
@@ -73,6 +74,8 @@ export function createHandlers(
     "project.list": (p) => ({ projects: store.listProjects(p.includeArchived) }),
     "project.create": (p) => {
       if (!isAbsolute(p.path)) throw new RpcError(ErrorCode.InvalidParams, "path must be absolute");
+      if (!statSync(p.path, { throwIfNoEntry: false })?.isDirectory())
+        throw new RpcError(ErrorCode.InvalidParams, `no such directory on this host: ${p.path}`);
       const project = store.createProject({ ...p, name: p.name ?? (basename(p.path) || p.path) });
       notify("project.changed", { project });
       return project;

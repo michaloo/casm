@@ -25,6 +25,10 @@ final class AppModel {
     }
     /// The chat for the selected agent, kept while it is open so it can be re-subscribed on reconnect.
     private(set) var chat: ChatModel?
+    /// Recently opened agent chats (the shown one included). They stay subscribed, so live events
+    /// keep them current and reconnects resync them like the open one; going back to one shows its
+    /// items at once and only merges the newest page. Evicted ones are unsubscribed.
+    @ObservationIgnored private var chats = ChatCache<ChatKey, ChatModel>(capacity: 8)
 
     enum Sheet: Identifiable {
         case addHost
@@ -74,7 +78,7 @@ final class AppModel {
         seedDevHost()
         #endif
         hosts = store.load().map { HostModel(entry: $0, token: store.token(for: $0.id) ?? "") }
-        for host in hosts { host.start() }
+        for host in hosts { start(host) }
     }
 
     func host(_ id: UUID) -> HostModel? { hosts.first { $0.id == id } }
@@ -113,6 +117,11 @@ final class AppModel {
         try store.upsert(entry, token: token)
         let host = HostModel(entry: entry, token: token)
         hosts.append(host)
+        start(host)
+    }
+
+    private func start(_ host: HostModel) {
+        host.onAgentsChanged = { [weak self] in self?.pruneChats() }
         host.start()
     }
 
@@ -124,19 +133,35 @@ final class AppModel {
         host.stop()
         store.remove(host.id)
         hosts.removeAll { $0.id == host.id }
+        pruneChats()
     }
 
     private func selectionChanged() {
         // A new-agent chat that just created this agent stays: it is already that agent's chat.
-        if case .agent(let hostID, let agentID) = selection, let chat, chat.host?.id == hostID, chat.agentId == agentID { return }
-        chat?.close()
+        if case .agent(let hostID, let agentID) = selection, let chat, chat.host?.id == hostID, chat.agentId == agentID {
+            cache(chat, ChatKey(host: hostID, agent: agentID))
+            return
+        }
+        if let chat {
+            // A cached chat stays subscribed; anything else (new-agent, synthetic) is done.
+            if chats.entries.contains(where: { $0.value === chat }) { chat.park() } else { chat.close() }
+        }
         chat = nil
+        defer { pruneChats() }
         switch selection {
         case .agent(let hostID, let agentID):
             guard let host = host(hostID) else { return }
+            let key = ChatKey(host: hostID, agent: agentID)
+            if let cached = chats.take(key) {
+                // Shown as it was; then catch up on anything the subscription can't have delivered.
+                chat = cached
+                Task { await cached.resync() }
+                return
+            }
             let chat = ChatModel(host: host, agentId: agentID)
             self.chat = chat
             chat.open()
+            cache(chat, key)
         case .project(let hostID, let projectID):
             guard let host = host(hostID) else { return }
             let chat = ChatModel(host: host, newAgentIn: projectID)
@@ -151,6 +176,29 @@ final class AppModel {
         case nil:
             break
         }
+    }
+
+    private func key(of chat: ChatModel) -> ChatKey? {
+        chat.host.map { ChatKey(host: $0.id, agent: chat.agentId) }
+    }
+
+    private func cache(_ chat: ChatModel, _ key: ChatKey) {
+        for old in chats.insert(chat, for: key) where old !== chat { old.close() }
+    }
+
+    /// Drops cached chats whose host or agent is gone, or whose agent was archived. The chat on
+    /// screen stays until it is left.
+    private func pruneChats() {
+        let shown = chat.flatMap(key(of:))
+        let gone = chats.removeAll { key, _ in
+            Self.isStale(key, shown: shown, archived: host(key.host)?.agent(key.agent).map { $0.archivedAt != nil })
+        }
+        for chat in gone { chat.close() }
+    }
+
+    /// `archived` is nil when the agent (or its host) no longer exists.
+    static func isStale(_ key: ChatKey, shown: ChatKey?, archived: Bool?) -> Bool {
+        key != shown && archived != false
     }
 
     #if DEBUG
@@ -189,7 +237,11 @@ final class HostModel: Identifiable {
     private(set) var state: ConnectionState = .disconnected
     private(set) var info: ServerInfo?
     private(set) var projects: [Project] = []
-    private(set) var agents: [Agent] = []
+    private(set) var agents: [Agent] = [] {
+        didSet { onAgentsChanged?() }
+    }
+    /// Lets the app drop cached chats of deleted or archived agents.
+    @ObservationIgnored var onAgentsChanged: (() -> Void)?
     var lastError: String?
 
     /// Open chats get this host's live events and are re-synced on reconnect.

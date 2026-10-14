@@ -188,6 +188,30 @@ final class FlowTests: XCTestCase {
         shot("ios-17-thinking-expanded")
     }
 
+    /// Going back to a chat opened before shows its transcript at once (cached), not a reload.
+    func testSwitchingBackShowsCachedTranscript() throws {
+        openAgent()
+        let transcript = app.descendants(matching: .any)["transcript"]
+        let texts = transcript.staticTexts
+        XCTAssertTrue(texts.firstMatch.waitForExistence(timeout: 15), "ios-scratch transcript loaded")
+        sleep(2)
+        let seen = texts.allElementsBoundByIndex.suffix(3).map(\.label).filter { !$0.isEmpty }
+        XCTAssertFalse(seen.isEmpty)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(element("s46-think").waitForExistence(timeout: 10))
+        element("s46-think").tap()
+        XCTAssertTrue(texts.firstMatch.waitForExistence(timeout: 15), "s46-think transcript loaded")
+        sleep(1)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(element("ios-scratch").waitForExistence(timeout: 10))
+        element("ios-scratch").tap()
+        // Well under a history round trip: the rows are already there.
+        let label = try XCTUnwrap(seen.last)
+        let row = transcript.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", String(label.prefix(60)))).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 1), "cached transcript shows immediately")
+        shot("ios-19-cached-chat")
+    }
+
     /// The host's schedules list (create some with `casm schedule add` first).
     func testSchedulesList() throws {
         XCTAssertTrue(element("ios-scratch").waitForExistence(timeout: 15), "sidebar loaded")

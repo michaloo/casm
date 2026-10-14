@@ -38,11 +38,6 @@ struct Composer: View {
     #endif
 
     @State private var scheduling: ScheduleEditor.Mode?
-    private var hasUsage: Bool {
-        guard let host = chat.host, let provider = chat.provider else { return false }
-        return host.limits[provider]?.windows.isEmpty == false
-    }
-    private var hasSchedules: Bool { chat.host.map { !$0.schedules(for: chat.agentId).filter(\.enabled).isEmpty } ?? false }
 
     /// "Send later…": a once schedule that messages this agent, with the composer text as prompt.
     private func sendLater() {
@@ -78,13 +73,8 @@ struct Composer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if working > 0 || hasSchedules || hasUsage {
-                HStack(spacing: 8) {
-                    if working > 0 { ActivityPill(count: working) }
-                    if let host = chat.host { SchedulesChip(host: host, agentId: chat.agentId) }
-                    if let host = chat.host, let provider = chat.provider { UsageChip(host: host, provider: provider) }
-                }
-            }
+            // Schedules and usage live at the host level in the sidebar; only working subagents here.
+            if working > 0 { ActivityPill(count: working) }
             VStack(alignment: .leading, spacing: 10) {
                 #if os(iOS)
                 if clipboardHasImage && !shellMode {

@@ -39,6 +39,11 @@ struct SidebarView: View {
                         }
                         .foregroundStyle(.secondary)
                         .tag(Selection.schedules(host: host.id))
+                        // Subscription usage per provider, for the whole host.
+                        ForEach(host.limits.values.filter { !$0.windows.isEmpty }.sorted { $0.provider.rawValue < $1.provider.rawValue },
+                                id: \.provider) { limits in
+                            HostUsageRow(host: host, limits: limits)
+                        }
                     }
                 } header: {
                     HostHeader(host: host)

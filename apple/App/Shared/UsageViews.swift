@@ -50,45 +50,44 @@ extension ProviderLimits {
     }
 }
 
-/// The agent's subscription windows above the composer ("5h ▰▰▱ 62% · Week ▰▱▱ 31%"); click for
+/// One provider's windows in the sidebar, under its host ("✳︎ 5h ▰▱ 62% · Wk ▰▱ 31%"); click for
 /// every provider on the host.
-struct UsageChip: View {
+struct HostUsageRow: View {
     let host: HostModel
-    let provider: ProviderID
+    let limits: ProviderLimits
     @State private var showDetails = false
 
     var body: some View {
-        if let limits = host.limits[provider], !limits.windows.isEmpty {
-            Button { showDetails = true } label: {
-                HStack(spacing: 10) {
-                    ForEach(limits.windows) { window in
-                        HStack(spacing: 5) {
-                            Text(window.shortLabel)
-                            if let used = window.usedPercent {
-                                UsageBar(fraction: used / 100, color: window.level == .ok ? Color.accentColor : window.level.color)
-                                    .frame(width: 28, height: 4)
-                                Text("\(Int(used.rounded()))%").monospacedDigit()
-                            } else if window.level == .exhausted, let resets = ISOTime.parse(window.resetsAt) {
-                                Text("until \(resets.formatted(date: .omitted, time: .shortened))")
-                            } else {
-                                // Not reported yet: say so rather than show a reset time where a percent goes.
-                                Text("—").help("Usage not reported yet")
-                            }
+        Button { showDetails = true } label: {
+            HStack(spacing: 8) {
+                ProviderIcon(provider: limits.provider, size: 13).frame(width: 20)
+                ForEach(limits.windows) { window in
+                    HStack(spacing: 4) {
+                        Text(window.shortLabel == "Week" ? "Wk" : window.shortLabel)
+                        if let used = window.usedPercent {
+                            UsageBar(fraction: used / 100, color: window.level == .ok ? Color.accentColor : window.level.color)
+                                .frame(width: 20, height: 4)
+                            Text("\(Int(used.rounded()))%").monospacedDigit()
+                        } else if window.level == .exhausted, let resets = ISOTime.parse(window.resetsAt) {
+                            Text("until \(resets.formatted(date: .omitted, time: .shortened))")
+                        } else {
+                            // Not reported yet: say so rather than show a reset time where a percent goes.
+                            Text("—").help("Usage not reported yet")
                         }
-                        .foregroundStyle(window.level == .ok ? Theme.muted : window.level.color)
                     }
+                    .foregroundStyle(window.level == .ok ? Theme.muted : window.level.color)
                 }
-                .font(.system(size: 12))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Theme.surface1, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.border))
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .help("\(MemoryGroupView.providerName(provider)) usage: \(limits.summary)")
-            .popover(isPresented: $showDetails) {
-                UsageDetails(host: host).frame(width: 320)
-            }
+            .font(.system(size: 11))
+            .lineLimit(1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("\(MemoryGroupView.providerName(limits.provider)) usage: \(limits.summary)")
+        .accessibilityLabel("\(MemoryGroupView.providerName(limits.provider)) usage: \(limits.summary)")
+        .popover(isPresented: $showDetails) {
+            UsageDetails(host: host).frame(width: 320)
         }
     }
 }

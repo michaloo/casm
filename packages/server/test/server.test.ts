@@ -638,6 +638,22 @@ test("an agent whose folder disappeared fails loudly instead of dropping the mes
   await assert.rejects(client.call("agent.send", { id: agent.id, text: "hi" }), /folder does not exist/);
 });
 
+test("a queued message for an agent whose folder disappeared is kept as failed, not deferred as a limit", async () => {
+  const s2 = new Store(join(mkdtempSync(join(tmpdir(), "casm-test-")), "casm.db"));
+  const project = s2.createProject({ name: "P", path: "/tmp" });
+  const agent = s2.createAgent({ projectId: project.id, name: "a", provider: "claude", cwd: join(tmpdir(), "casm-gone-for-good"), config: {} });
+  s2.addPending({ agentId: agent.id, text: "left over", reason: "queued", notBefore: null, note: null });
+  const srv = await startServer({ store: s2, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  try {
+    const [m] = s2.listPending(agent.id);
+    assert.deepEqual([m.reason, m.text], ["failed", "left over"]);
+    assert.match(m.note ?? "", /folder does not exist/);
+  } finally {
+    await srv.close();
+    s2.close();
+  }
+});
+
 test("a prompt whose turn failed before any answer is kept as a failed pending message", async () => {
   const p = await client.call("project.create", { name: "P-failed", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });

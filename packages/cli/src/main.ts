@@ -322,6 +322,7 @@ async function waitAndPrint(c: CasmClient, id: string) {
     if (deferred) console.error(`usage limit: ${deferred.reason}\nqueued; retries ${new Date(deferred.until).toLocaleString()}`);
     else if (failed) console.error(`the turn failed: ${r.lastTurn!.error ?? "no reason given"}${kept ? `\nthe message is kept: casm retry ${shortId(id)} ${shortId(kept.id)} (or casm cancel)` : ""}`);
     else if (r.lastReply) console.log(r.lastReply);
+    if (r.status === "idle" && r.lastTurn?.outcome === "interrupted") console.error("the turn was interrupted");
   });
   // Exit codes: 3 still running or waiting for you, 4 deferred by a usage limit, 5 the turn failed.
   if (r.status !== "idle") process.exitCode = 3;

@@ -728,7 +728,9 @@ export class AgentManager {
       });
     }
     let lastReply = l.lastReply;
-    if (lastReply === null && this.status(id) === "idle") {
+    // Only without a turn since the server started: an interrupted or failed
+    // turn has no reply, and an older one would read as its answer.
+    if (lastReply === null && !l.lastTurn && this.status(id) === "idle") {
       const { items } = await this.history(id, undefined, 50);
       lastReply = items.findLast((i) => i.kind === "assistant")?.text ?? null;
     }

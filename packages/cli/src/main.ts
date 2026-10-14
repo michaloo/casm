@@ -54,6 +54,11 @@ server (this machine only; refused with -H):
   peer add <name> <ws-url> <token> | peer list [--probe] | peer rm <name>
 
   peers [--probe]                    the server's peers: the hosts -H can name
+  agent-prompt [agent]               the host prompt every agent gets ahead of its own system prompt,
+                                     filled in for <agent> or an example one
+  agent-prompt --edit | --reset      edit the host's agent-prompt.md in $EDITOR (seeded with the
+                                     default) | delete it, back to the default
+  agent-prompt --enable | --disable  turn it on or off ("agentPrompt" in the host's config.json)
 
 hosts (only for a CLI on a machine without a server):
   host add <name> <ws-url> <token> [--default]
@@ -139,6 +144,9 @@ const options = {
   edit: { type: "boolean" },
   probe: { type: "boolean" },
   subagent: { type: "string" },
+  reset: { type: "boolean" },
+  enable: { type: "boolean" },
+  disable: { type: "boolean" },
 } as const;
 
 // The first positional decides; flags (and the values of flags that take one) may
@@ -354,6 +362,42 @@ async function run(c: CasmClient) {
         for (const p of peers)
           console.log(`${p.name}\t${p.url}${p.reachable === undefined ? "" : p.reachable ? "  reachable" : `  unreachable: ${p.error}`}`);
       });
+    }
+
+    case "agent-prompt": {
+      if (opt.enable || opt.disable) {
+        const r = await c.call("server.setAgentPrompt", { enabled: !!opt.enable });
+        return out(r, () => console.error(`agent prompt ${r.enabled ? "enabled" : "disabled"}`));
+      }
+      if (opt.reset) {
+        const r = await c.call("server.setAgentPrompt", { content: null });
+        return out(r, () => console.error(`removed ${r.path}; agents get the default prompt`));
+      }
+      const agentId = args[0] ? (await agentRef(c, args[0])).id : undefined;
+      const info = await c.call("server.agentPrompt", { agentId });
+      if (!opt.edit)
+        return out(info, () => {
+          if (!info.enabled) console.error(`the agent prompt is disabled (casm agent-prompt --enable)`);
+          else {
+            console.error(`${info.custom ? info.path : "built-in default"}, filled in for ${agentId ? "this agent" : "an example agent with casm tools"}:\n`);
+            console.log(info.rendered);
+          }
+        });
+      const dir = mkdtempSync(join(tmpdir(), "casm-"));
+      const file = join(dir, "agent-prompt.md");
+      try {
+        writeFileSync(file, info.content.endsWith("\n") ? info.content : info.content + "\n");
+        const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+        const r = spawnSync("/bin/sh", ["-c", `${editor} "$1"`, "sh", file], { stdio: "inherit" });
+        if (r.status !== 0) fail(`${editor} exited with ${r.status ?? r.signal}; ${info.path} not changed`);
+        const content = readFileSync(file, "utf8");
+        if (content.trim() === info.content.trim()) return console.error("no changes");
+        if (!content.trim()) fail(`empty prompt not saved (casm agent-prompt --reset goes back to the default, --disable turns it off)`);
+        const saved = await c.call("server.setAgentPrompt", { content });
+        return out(saved, () => console.error(`saved ${saved.path}; applies to sessions opened from now on`));
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
 
     case "shell": {

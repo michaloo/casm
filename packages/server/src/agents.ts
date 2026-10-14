@@ -583,6 +583,16 @@ export class AgentManager {
         }
         return;
       }
+      case "mode": {
+        // A pending config change (reloadAfterTurn) decides the mode of the next session.
+        if (l.reloadAfterTurn) return;
+        const a = this.store.getAgent(id);
+        if (a && (a.config.mode ?? "default") !== e.mode) {
+          const updated = this.store.updateAgent(id, { config: { ...a.config, mode: e.mode } })!;
+          this.notify("agent.changed", { agent: this.withStatus(updated) });
+        }
+        return;
+      }
       case "userMessageId": {
         const sender = this.store.messageSender(id, e.itemId);
         if (sender) this.store.saveMessageSender(id, e.nativeId, sender);

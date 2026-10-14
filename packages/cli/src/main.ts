@@ -82,9 +82,10 @@ files (read-only, inside project folders on the host):
 agents:
   agents [--project p] [--all] [--usage]
   run --project p [--cwd dir] [--provider claude] [--name n] [--model m] [--mode m]
-      [--parent serverId/agentId] [--casm-tools] [--wait] <prompt>
+      [--parent serverId/agentId] [--casm-tools] [--env K=V]... [--wait] <prompt>
                                      --cwd: a folder inside the project (relative to it, or absolute),
                                      e.g. a worktree: --cwd .worktrees/<task>
+                                     --env: the agent's environment, e.g. a provider's base URL
   send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--message-id UUID]
                                      queued while the agent is busy; --steer puts it into the running turn
                                      reuse --message-id after an uncertain response to avoid duplicates
@@ -96,7 +97,7 @@ agents:
 schedules (run on the host; messages to busy or limited agents become pending):
   schedules [--agent a]
   schedule add (--cron "0 9 * * 1-5" | --every 30m | --at 18:30|"in 2h"|ISO) <prompt>
-               (--agent a [--skip-if-busy] | --project p --provider claude [--model m] [--mode m] [--name n])
+               (--agent a [--skip-if-busy] | --project p --provider claude [--model m] [--mode m] [--env K=V]... [--name n])
   schedule run | enable | disable | rm <schedule>
   cancel <agent> [message-id|--all]  cancel pending messages
   retry <agent> <message-id>         retry now a message held back by a failure or a limit
@@ -159,6 +160,7 @@ const options = {
   agent: { type: "string" },
   "skip-if-busy": { type: "boolean" },
   "casm-tools": { type: "boolean" },
+  env: { type: "string", multiple: true },
   edit: { type: "boolean" },
   probe: { type: "boolean" },
   subagent: { type: "string" },
@@ -190,6 +192,16 @@ const [cmd, ...args] = positionals;
 function fail(msg: string): never {
   console.error(`casm: ${msg}`);
   process.exit(1);
+}
+
+// --env K=V (repeatable) as the agent's config.env; undefined when not given.
+function envOption(): Record<string, string> | undefined {
+  if (!opt.env?.length) return undefined;
+  return Object.fromEntries(opt.env.map((kv) => {
+    const i = kv.indexOf("=");
+    if (i < 1) fail(`--env needs NAME=value, got ${JSON.stringify(kv)}`);
+    return [kv.slice(0, i), kv.slice(i + 1)];
+  }));
 }
 
 function out(json: unknown, human: () => void) {
@@ -581,7 +593,7 @@ async function run(c: CasmClient) {
         cwd: opt.cwd,
         provider: (opt.provider ?? "claude") as ProviderId,
         name: opt.name,
-        config: { model: opt.model, mode: opt.mode, casmTools: opt["casm-tools"] },
+        config: { model: opt.model, mode: opt.mode, casmTools: opt["casm-tools"], env: envOption() },
         parent: runParent(),
         sender: messageSender(),
         prompt,
@@ -774,7 +786,7 @@ async function run(c: CasmClient) {
                 type: "newAgent" as const,
                 projectId: pick(await projects(c), opt.project, "project").id,
                 provider: (opt.provider ?? "claude") as ProviderId,
-                config: { model: opt.model, mode: opt.mode },
+                config: { model: opt.model, mode: opt.mode, env: envOption() },
                 name: opt.name,
               }
             : fail("schedule add needs --agent, or --project and --provider");

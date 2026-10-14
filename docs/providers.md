@@ -219,9 +219,10 @@ model's `limit.context`; pi `get_session_stats`.
   `llama.cpp`, pi `models.json`) are in the catalog.
 - Claude **partial**: `config.env` with `ANTHROPIC_BASE_URL` (and a token/model)
   points a session at an Anthropic-compatible endpoint, e.g. the llama.cpp
-  router, but the catalog, limits and context-window lookups use the host env,
-  and the CLI and web client can't set `config.env` yet (only the
-  `agent.create`/`agent.update` RPCs).
+  router: `casm run --env ANTHROPIC_BASE_URL=http://127.0.0.1:8080 --model <id>`
+  (also `env` in the MCP `create_agent` tool). The catalog, limits and
+  context-window lookups still use the host env, and the web client has no env
+  field.
 - Codex **gap**: `thread/start` takes `modelProvider` and
   `config["model_providers.<id>"]` (`v2/thread.rs`); casm sends neither, so
   local models only work through `~/.codex/config.toml` (for every agent) or a

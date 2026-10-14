@@ -5356,6 +5356,9 @@
                 },
                 "error": {
                   "type": "string"
+                },
+                "canToggle": {
+                  "type": "boolean"
                 }
               },
               "required": [

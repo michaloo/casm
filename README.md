@@ -105,7 +105,8 @@ A CLI-only machine without a local server can instead use
 ## CLI essentials
 
 Register an existing directory, then start an agent (choose a provider installed
-on that host). `--casm-tools` gives that agent casm's MCP orchestration tools:
+on that host). `--casm-tools` gives that agent casm's MCP orchestration tools
+(Claude, Codex and pi):
 
 ```sh
 casm project create "$PWD" --name demo

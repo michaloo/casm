@@ -8,6 +8,12 @@ import { toolImages } from "./tool-images.ts";
 // (extension_ui_request): `confirm` goes through askPermission; `select`,
 // `input` and `editor` become questions.
 //
+// MCP: casm passes the agent's MCP servers (its own casm server and
+// config.mcpServers) through pi-extension.ts, which registers them for the
+// session only. pi's RPC protocol has no MCP commands, so status and reconnect
+// run its built-in /mcp command and read what it reports through notify, and
+// /casm-mcp enables or disables the servers casm added.
+//
 // pi has no built-in todo tool. Todo lists written by extensions are mapped to
 // Item.plan when they use the shape of pi's example extensions: a tool result
 // with `details.todos` (examples/extensions/todo.ts) or a custom entry with
@@ -15,7 +21,9 @@ import { toolImages } from "./tool-images.ts";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import type { Answers, Catalog, Command, ImageData, Item, ModelInfo, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
+import { fileURLToPath } from "node:url";
+import type { Answers, Catalog, Command, ImageData, Item, McpServer, ModelInfo, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
+import { COMMAND as CASM_MCP_COMMAND, ENV as CASM_MCP_ENV } from "./pi-extension.ts";
 import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -316,6 +324,40 @@ export function outputDelta(prev: string, next: string): string {
   return at >= 0 ? next.slice(at + tail.length) : next;
 }
 
+// --- MCP
+
+const EXTENSION = fileURLToPath(new URL("./pi-extension.ts", import.meta.url));
+// pi's rule for MCP server names; anything else can't be one.
+const SERVER_NAME = /^[A-Za-z0-9_-]+$/;
+
+// The plain-text status pi's /mcp prints outside its TUI: one
+// `<name>: <state>[, N tools] (<exposure>)` line per server, an indented error
+// below failed ones, then `config error:` and `overridden:` lines. Servers
+// casm didn't add can't be toggled (pi saves that to its mcp.json files).
+export function parseMcpStatus(text: string, toggleable: ReadonlySet<string>): McpServer[] {
+  const servers: McpServer[] = [];
+  for (const line of text.split("\n")) {
+    const last = servers.at(-1);
+    if (/^\s/.test(line)) {
+      if (last && line.trim()) last.error = [last.error, line.trim()].filter(Boolean).join("\n");
+      continue;
+    }
+    const m = /^([A-Za-z0-9_-]+): ([^"].*?)(?: \([\w-]+\))?$/.exec(line);
+    if (!m) continue;
+    const [, name, state] = m;
+    const tools = /^connected, (\d+) tools?$/.exec(state);
+    const status: McpServer["status"] = state.startsWith("connected") ? "connected" : state === "disabled" ? "disabled"
+      : state.startsWith("failed") ? "failed" : state.startsWith("needs sign-in") ? "needs-auth" : "pending";
+    servers.push({
+      name, status, tools: tools ? Number(tools[1]) : 0,
+      ...(tools ? {} : { toolsKnown: false }),
+      ...(state.startsWith("disconnected") ? { error: "disconnected; reconnects on its next call" } : {}),
+      ...(toggleable.has(name) ? {} : { canToggle: false }),
+    });
+  }
+  return servers;
+}
+
 // --- dialogs and catalog
 
 type Rec = { type: string; id?: string; [k: string]: unknown };
@@ -530,6 +572,15 @@ class PiSession implements ProviderSession {
   private noticeSeq = 0;
   // The running user shell command: its RPC id and tool item.
   private shellRun: { id: string; item: Tool } | null = null;
+  // MCP servers casm added to this session (pi-extension.ts).
+  private casmServers: Set<string>;
+  // Slash commands run for MCP controls, one at a time; while one runs, its
+  // notifications are its output instead of transcript notices.
+  private commandQueue: Promise<unknown> = Promise.resolve();
+  private captured: { id: string; notes: { level: string; text: string }[] } | null = null;
+  private builtinMcp: Promise<boolean> | null = null;
+  readonly mcpReconnectScope = "server" as const;
+  mcpToggle?: (server: string, enabled: boolean) => Promise<void>;
 
   constructor(opts: OpenOptions) {
     this.opts = opts;
@@ -539,8 +590,15 @@ class PiSession implements ProviderSession {
     if (config.model) args.push("--model", config.model);
     if (config.effort) args.push("--thinking", config.effort);
     if (config.systemPrompt) args.push("--append-system-prompt", config.systemPrompt);
+    const mcpServers = config.mcpServers ?? {};
+    this.casmServers = new Set(Object.keys(mcpServers));
+    if (this.casmServers.size) {
+      args.push("-e", EXTENSION);
+      this.mcpToggle = (server, enabled) => this.toggleMcp(server, enabled);
+    }
     if (process.env.CASM_PI_ARGS) args.push(...process.env.CASM_PI_ARGS.split(" ").filter(Boolean));
-    this.proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, env: providerEnv(config.env) });
+    const env = this.casmServers.size ? { ...config.env, [CASM_MCP_ENV]: JSON.stringify(mcpServers) } : config.env;
+    this.proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, env: providerEnv(env) });
     this.proc.stdout.setEncoding("utf8");
     this.proc.stdout.on("data", (chunk: string) => this.read(chunk));
     this.proc.stderr.setEncoding("utf8");
@@ -597,6 +655,8 @@ class PiSession implements ProviderSession {
     const { emit } = this.opts;
     switch (r.type) {
       case "response": {
+        // A command's output ends with its response, not when the caller resumes.
+        if (this.captured && r.id === this.captured.id) this.captured = null;
         const resolve = r.id ? this.pending.get(r.id) : undefined;
         if (resolve) {
           this.pending.delete(r.id!);
@@ -697,6 +757,10 @@ class PiSession implements ProviderSession {
         this.endTurn(r.aborted === true || this.interrupted ? "interrupted" : this.lastError ? "failed" : "completed", this.lastError);
         return;
       case "extension_ui_request":
+        if (r.method === "notify" && this.captured) {
+          this.captured.notes.push({ level: String(r.notifyType ?? "info"), text: String(r.message ?? "") });
+          return;
+        }
         if (r.method === "notify") {
           const level = r.notifyType === "warning" || r.notifyType === "error" ? r.notifyType : "info";
           if (str(r.message)) this.notice(`notify:${r.id}`, level, String(r.message));
@@ -824,6 +888,66 @@ class PiSession implements ProviderSession {
       this.opts.emit({ type: "item", item: shellItem(itemId, command, d.output, d.exitCode, d.cancelled) });
       this.endTurn(d.cancelled || this.interrupted ? "interrupted" : "completed", undefined, turnId);
     });
+  }
+
+  // Runs an extension command (never a model prompt) and returns what it notified.
+  private command(text: string): Promise<{ level: string; text: string }[]> {
+    const run = this.commandQueue.then(async () => {
+      const notes: { level: string; text: string }[] = [];
+      const id = `casm-${++this.seq}`;
+      this.captured = { id, notes };
+      try {
+        const r = await this.request({ type: "prompt", message: text }, id);
+        if (!r.success) throw new Error(`pi ${text}: ${String(r.error ?? "failed")}`);
+        if ((r.data as { disposition?: string } | undefined)?.disposition !== "handled") throw new Error(`pi did not run ${text} as a command`);
+        return notes;
+      } finally {
+        if (this.captured?.id === id) this.captured = null;
+      }
+    });
+    this.commandQueue = run.catch(() => {});
+    return run;
+  }
+
+  // Only pi's built-in MCP support prints the status parsed here; --no-mcp or
+  // an extension that replaces /mcp leaves the manager's reload fallback.
+  private async requireBuiltinMcp() {
+    this.builtinMcp ??= this.request({ type: "get_commands" }).then((r) =>
+      ((r.data as { commands?: PiCommand[] } | undefined)?.commands ?? []).some((c) => c.name === "mcp" && c.sourceInfo?.path === "builtin:mcp"));
+    if (!(await this.builtinMcp)) throw Object.assign(new Error("pi's built-in MCP support is not loaded"), { code: -32601 });
+  }
+
+  async mcpStatus(): Promise<McpServer[]> {
+    await this.requireBuiltinMcp();
+    const notes = await this.command("/mcp");
+    const failed = notes.find((n) => n.level === "error");
+    if (failed) throw new Error(failed.text);
+    const status = notes.filter((n) => n.level === "info").at(-1)?.text ?? "";
+    return status.startsWith("No MCP servers configured") ? [] : parseMcpStatus(status, this.casmServers);
+  }
+
+  // pi reconnects one server per /mcp reconnect; "all" is every enabled one.
+  async mcpReconnect(server?: string): Promise<string> {
+    await this.requireBuiltinMcp();
+    const names = server ? [server] : (await this.mcpStatus()).filter((s) => s.status !== "disabled").map((s) => s.name);
+    if (!names.length) return "No enabled MCP server to reconnect.";
+    const done: string[] = [];
+    for (const name of names) {
+      if (!SERVER_NAME.test(name)) throw new Error(`No MCP server named "${name}".`);
+      const notes = await this.command(`/mcp reconnect ${name}`);
+      const failed = notes.find((n) => n.level === "error" || n.level === "warning");
+      if (failed) throw new Error(server ? failed.text : [...done, failed.text].join("\n"));
+      done.push(notes.map((n) => n.text).join("\n") || `Reconnected to MCP server "${name}".`);
+    }
+    return done.join("\n");
+  }
+
+  private async toggleMcp(server: string, enabled: boolean) {
+    if (!this.casmServers.has(server))
+      throw new Error(`pi saves enabling or disabling "${server}" to its mcp.json; casm only toggles the MCP servers it adds to the session. Edit pi's mcp.json (or run /mcp in pi) and reload the agent.`);
+    const notes = await this.command(`/${CASM_MCP_COMMAND} ${enabled ? "enable" : "disable"} ${server}`);
+    const failed = notes.find((n) => n.level === "error");
+    if (failed) throw new Error(failed.text);
   }
 
   async interrupt() {

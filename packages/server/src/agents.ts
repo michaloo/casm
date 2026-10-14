@@ -853,7 +853,9 @@ export class AgentManager {
         this.limitsQueried.add(id);
         const fresh = await p.limits().catch(() => null);
         if (fresh) {
-          this.recordLimits(id, fresh, refresh);
+          // An empty report is not evidence that previously exhausted windows
+          // recovered. Keep admission blocked for other agents of this provider.
+          this.recordLimits(id, fresh, refresh && fresh.windows.length > 0);
           // A successful explicit account refresh can discover an upgraded plan
           // or an early reset. An unavailable/empty response cannot release work.
           const available = fresh.windows.length > 0 && fresh.windows.every((w) =>

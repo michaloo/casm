@@ -99,6 +99,13 @@ export function Question({
                 </option>
               ))}
             </select>
+          ) : p.kind === "text" && p.multiline && !p.secret ? (
+            <textarea
+              required
+              placeholder={p.placeholder}
+              value={String(values[p.id] ?? "")}
+              onChange={(e) => set({ ...values, [p.id]: e.target.value })}
+            />
           ) : (
             <>
               <input

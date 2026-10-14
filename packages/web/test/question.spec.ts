@@ -97,3 +97,17 @@ test("confirm, single, text, closed multiple and dismissal keep their wire shape
   await expect.poll(() => submissions.length).toBe(3);
   expect(submissions[2]).toEqual({ id: expect.any(String), requestId: "question-shape" });
 });
+
+test("multiline text answers preserve newlines while secret answers stay masked", async ({ page }) => {
+  const submissions = await question(page, [
+    { id: "notes", text: "Long notes", kind: "text", multiline: true },
+    { id: "secret", text: "Private value", kind: "text", multiline: true, secret: true },
+  ]);
+  const notes = page.getByLabel("Long notes");
+  await expect(notes).toHaveJSProperty("tagName", "TEXTAREA");
+  await notes.fill("First line\n\nLast line");
+  await expect(page.getByLabel("Private value")).toHaveAttribute("type", "password");
+  await page.getByLabel("Private value").fill("hidden");
+  await page.getByRole("button", { name: "Answer", exact: true }).click();
+  await expect.poll(() => submissions[0]?.answers).toEqual({ notes: "First line\n\nLast line", secret: "hidden" });
+});

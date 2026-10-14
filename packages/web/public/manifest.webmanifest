@@ -1,0 +1,29 @@
+{
+  "name": "casm",
+  "short_name": "casm",
+  "description": "A focused workspace for your coding agents",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf9fc",
+  "theme_color": "#faf9fc",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/casm-icon-light-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/casm-icon-light.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

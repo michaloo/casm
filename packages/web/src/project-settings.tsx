@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { Project } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { InstructionEditor, ProjectMemories, type InstructionFile } from "./settings-shared";
+import { FileBrowser, FilePreview } from "./files";
 
 export function ProjectSettingsButton({ host, project, agentCount, rpc, online, newAgent }: {
   host: string; project: Project; agentCount: number; rpc: Rpc | null; online: boolean; newAgent: () => void;
@@ -20,11 +21,11 @@ function ProjectSettings({ host, project, agentCount, rpc, online, close, newAge
   host: string; project: Project; agentCount: number; rpc: Rpc | null; online: boolean; close: () => void; newAgent: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [section, setSection] = useState<"instructions" | "memories" | "info">("instructions");
+  const [section, setSection] = useState<"instructions" | "memories" | "files" | "info">("instructions");
   useEffect(() => { dialog.current?.showModal(); }, []);
   return createPortal(<dialog ref={dialog} className="host-settings" aria-label={`${project.name} project settings`} onClose={close}>
     <header><h2>{project.name} settings</h2><button type="button" aria-label="Close project settings" onClick={() => dialog.current?.close()}>×</button></header>
-    <nav aria-label="Project settings sections">{([["instructions", "AGENTS.md"], ["memories", "Memories"], ["info", "Project info"]] as const).map(([id, name]) =>
+    <nav aria-label="Project settings sections">{([["instructions", "AGENTS.md"], ["memories", "Memories"], ["files", "Files"], ["info", "Project info"]] as const).map(([id, name]) =>
       <button key={id} type="button" aria-pressed={section === id} onClick={() => setSection(id)}>{name}</button>)}</nav>
     <div className="settings-content">
       <section hidden={section !== "info"} aria-label="Project info">
@@ -33,6 +34,7 @@ function ProjectSettings({ host, project, agentCount, rpc, online, close, newAge
       </section>
       {!online || !rpc ? section !== "info" && <p role="status">Host offline. Reconnect to load project settings.</p> : <>
         <div hidden={section !== "instructions"}><ProjectInstructions host={host} project={project} rpc={rpc} /></div>
+        {section === "files" && <ProjectFiles host={host} project={project} rpc={rpc} />}
         <section hidden={section !== "memories"} aria-label="Project memories"><h3>Memories</h3><p>Read-only provider memories for this project.</p><ProjectMemories host={host} project={project} rpc={rpc} initiallyOpen /></section>
       </>}
     </div>
@@ -56,5 +58,14 @@ function ProjectInstructions({ host, project, rpc }: { host: string; project: Pr
         return rpc.call("project.agentsMd", { id: project.id }, host);
       }}
       load={async () => { const next = await rpc.call("project.agentsMd", { id: project.id }, host); return next.path === file.path ? next : undefined; }} />}
+  </section>;
+}
+
+function ProjectFiles({ host, project, rpc }: { host: string; project: Project; rpc: Rpc }) {
+  const [dir, setDir] = useState(project.path);
+  const [preview, setPreview] = useState<string>();
+  return <section aria-label="Project files"><h3>Files</h3><p>Read-only. Open a file to preview or download it.</p>
+    <FileBrowser rpc={rpc} host={host} root={project.path} dir={dir} setDir={setDir} openFile={setPreview} />
+    {preview && <FilePreview rpc={rpc} host={host} path={preview} roots={[project.path]} close={() => setPreview(undefined)} />}
   </section>;
 }

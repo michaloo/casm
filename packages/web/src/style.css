@@ -2139,3 +2139,37 @@ nav .project-settings-trigger:hover, nav .project-settings-trigger:focus-visible
 .composer-unavailable {
   color: var(--muted);
 }
+
+/* Project files: links in transcripts, the preview dialog and the browser. */
+a.file-link { overflow-wrap: anywhere; cursor: pointer; }
+a.file-link code { color: inherit; }
+.code-block a.file-link { color: inherit; text-decoration: underline dotted; text-decoration-color: var(--accent); }
+.file-preview { width: min(960px, calc(100vw - 32px)); height: min(860px, calc(100dvh - 32px)); }
+.file-preview > header h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-preview-bar { padding: 8px 20px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.file-preview-bar .settings-path { margin: 0; }
+.file-meta { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.file-preview-bar .settings-actions { margin-block: 8px; }
+.file-preview a.button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 7px 14px; border: 1px solid transparent; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; }
+.file-preview a.button:hover { background: var(--accent-hover); color: #fff; }
+.file-preview-body { flex: 1; }
+.file-preview-body .code-block { margin: 0; }
+.file-image { display: block; max-width: 100%; max-height: 70dvh; margin: 0 auto; object-fit: contain; background: repeating-conic-gradient(var(--panel) 0 25%, var(--surface) 0 50%) 0 0 / 16px 16px; }
+.file-note { color: var(--muted); overflow-wrap: anywhere; }
+.file-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: 8px; }
+.file-crumbs > span { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.file-crumbs button { border: 0; background: none; color: var(--accent); padding: 6px; overflow-wrap: anywhere; text-align: left; }
+.file-crumbs button:disabled { color: var(--text); font-weight: 600; cursor: default; opacity: 1; }
+.file-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.file-list li + li { border-top: 1px solid var(--line); }
+.file-list button { display: flex; width: 100%; min-height: 44px; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 2px 12px; border: 0; border-radius: 0; text-align: left; background: var(--surface); }
+.file-list button:hover { background: var(--selected); }
+.file-name { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 13px; }
+.file-list small { color: var(--muted); font-size: 12px; }
+.hidden-file .file-name { color: var(--muted); }
+.file-badge { display: inline-block; margin-left: 6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font: 11px/18px inherit; font-family: inherit; vertical-align: 1px; }
+@media (max-width: 650px) {
+  .file-preview { width: 100%; height: var(--viewport-height, 100dvh); max-width: none; max-height: none; }
+  .file-preview-bar { padding: 8px max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); }
+  .file-preview-bar .settings-actions > * { flex: 1 1 auto; }
+}

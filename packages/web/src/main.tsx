@@ -2,7 +2,7 @@ import { ProjectSettingsButton } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
 import { replaceHistory } from "./state";
-import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { Row, Images } from "./transcript";
@@ -15,7 +15,9 @@ import type {
   ProviderId,
 } from "@casm/protocol";
 import { Rpc, chat, chats, event, key, syncPending, type Host } from "./state";
-import { resolveView, viewPath, type Selection } from "./navigation";
+import { filePathFromRoute, resolveView, viewPath, type Selection } from "./navigation";
+import { FilePreview } from "./files";
+import { FileLinksContext, insideRoot } from "./file-links";
 import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
 import { ProviderIcon, providerNames } from "./provider-icon";
 import { HostSection } from "./host-section";
@@ -130,6 +132,25 @@ function App() {
     setRouteError(view.error ?? "");
     select(view.selection);
   }, [path, hosts]);
+  // The open file preview: from a file link (host of the open chat) or the /f/ route.
+  const [preview, setPreview] = useState<{ host: string; path: string; route?: boolean }>();
+  const routeFile = filePathFromRoute(path);
+  useEffect(() => {
+    if (!routeFile || !hosts.length) return;
+    // The host whose projects hold it (?host= picks one), else this server, which explains a refusal.
+    const named = new URLSearchParams(location.search).get("host");
+    const owner = hosts.find((h) => named ? h.name === named : insideRoot(routeFile, h.projects.map((p) => p.path)));
+    if (!owner && !named && hosts.some((h) => h.loading)) return;
+    const next = { host: owner?.id ?? "", path: routeFile, route: true };
+    setPreview((open) => open?.route && open.host === next.host && open.path === next.path ? open : next);
+  }, [routeFile, hosts]);
+  const closePreview = () => {
+    if (preview?.route && location.pathname.startsWith("/f/")) {
+      history.pushState(null, "", "/" + location.search.replace(/([?&])host=[^&]*&?/, "$1").replace(/[?&]$/, ""));
+      setPath("/");
+    }
+    setPreview(undefined);
+  };
   const selected = useRef(selection);
   selected.current = selection;
   const [, render] = useState(0);
@@ -320,6 +341,13 @@ function App() {
     return () => r.close();
   }, [token]);
   const host = hosts.find((h) => h.id === selection?.host);
+  const projectRoots = host?.projects.map((p) => p.path).join("\n") ?? "";
+  const fileLinks = useMemo(() => host && projectRoots ? {
+    roots: projectRoots.split("\n"),
+    open: (path: string) => setPreview({ host: host.id, path }),
+  } : null, [host?.id, projectRoots]);
+  const previewRootsKey = hosts.find((h) => h.id === preview?.host)?.projects.map((p) => p.path).join("\n") ?? "";
+  const previewRoots = useMemo(() => previewRootsKey ? previewRootsKey.split("\n") : [], [previewRootsKey]);
   const agent = host?.agents.find((a) => a.id === selection?.id);
   const project = host?.projects.find((p) => p.id === selection?.project);
   const ckey = selection
@@ -555,6 +583,8 @@ function App() {
     );
   return (
     <div className="app">
+      {preview && rpc.current && online && <FilePreview key={`${preview.host}\n${preview.path}`} rpc={rpc.current} host={preview.host} path={preview.path}
+        roots={previewRoots} close={closePreview} />}
       {mcp && rpc.current && <McpPanel {...mcp} rpc={rpc.current} close={() => { setMcp(undefined); document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus(); }} />}
       <aside className={sidebar ? "open" : ""}>
         <header>
@@ -686,6 +716,7 @@ function App() {
             <div className="empty">Loading view…</div>
           )}
           {selection && (
+            <FileLinksContext.Provider value={fileLinks}>
             <Transcript
               key={ckey}
               ckey={ckey}
@@ -713,6 +744,7 @@ function App() {
                 })
               }
             />
+            </FileLinksContext.Provider>
           )}
         </div>
         {selection && project && (

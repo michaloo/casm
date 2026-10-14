@@ -108,6 +108,19 @@ test("paths outside project folders are refused, including through .. and symlin
   assert.equal((await alpha.client.call("fs.read", { path: join(project, "alias.json") })).content, json);
 });
 
+test("the server's state directory is refused even inside a project", async () => {
+  const p = await alpha.client.call("project.create", { path: alpha.home, name: "state" });
+  try {
+    for (const name of ["casm.db", "download-secret"]) {
+      await refused(alpha.client.call("fs.read", { path: join(alpha.home, name) }), ErrorCode.InvalidParams, /casm's state directory/);
+      await refused(alpha.client.call("fs.downloadLink", { path: join(alpha.home, name) }), ErrorCode.InvalidParams, /casm's state directory/);
+    }
+    await refused(alpha.client.call("fs.list", { projectId: p.id }), ErrorCode.InvalidParams, /casm's state directory/);
+  } finally {
+    await alpha.client.call("project.delete", { id: p.id });
+  }
+});
+
 test("fs.read: text, mime, truncation, binary and directories", async () => {
   const r = await alpha.client.call("fs.read", { path: join(project, "data.json") });
   assert.equal(r.content, json);

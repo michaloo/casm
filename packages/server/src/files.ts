@@ -4,7 +4,7 @@
 // $CASM_HOME) over one path and an expiry. Links to a peer's file wrap the
 // peer's own link, so the download streams through this server.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { createReadStream, readFileSync, writeFileSync } from "node:fs";
+import { createReadStream, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { lstat, open, readdir, realpath, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -93,6 +93,8 @@ function decodeText(buf: Buffer, truncated: boolean): string | null {
 
 export class Files {
   private secret: Buffer;
+  // The server's state directory: its database (tokens) and this secret are never served.
+  private home: string | null;
   private store: Store;
   private peers: PeerPool;
   private ttlMs: number;
@@ -104,6 +106,7 @@ export class Files {
     this.ttlMs = opts.ttlMs ?? LINK_TTL_MS;
     this.now = opts.now ?? Date.now;
     this.secret = opts.home ? loadSecret(join(opts.home, SECRET_FILE)) : randomBytes(32);
+    this.home = opts.home ? realpathSync(opts.home) : null;
   }
 
   // The project folder `path` is in, refusing paths outside every project
@@ -126,6 +129,7 @@ export class Files {
     // The deepest project wins when folders nest.
     const match = roots.filter((r) => inside(r.real, real)).sort((a, b) => b.real.length - a.real.length)[0];
     if (!match) throw new RpcError(ErrorCode.InvalidParams, `${path} resolves to ${real}, outside every project folder on this host`);
+    if (this.home && inside(this.home, real)) throw new RpcError(ErrorCode.InvalidParams, `${path} is in casm's state directory, which is never shared`);
     return { real, project: match.project, root: match.real };
   }
 

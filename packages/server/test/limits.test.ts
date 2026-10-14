@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { limitFromText, resetTime, retryAt } from "../src/limits.ts";
+import { limitFromText, mergeWindows, resetTime, retryAt } from "../src/limits.ts";
 
 const now = new Date("2026-10-13T16:40:00");
 
@@ -29,4 +29,12 @@ test("retry a minute after the reset, else back off", () => {
   assert.equal(retryAt({ message: "x" }, 0, base).getTime() - base.getTime(), 15 * 60_000);
   assert.equal(retryAt({ message: "x" }, 2, base).getTime() - base.getTime(), 60 * 60_000);
   assert.equal(retryAt({ message: "x" }, 9, base).getTime() - base.getTime(), 3 * 3600_000);
+});
+
+test("merged windows keep known usage when a report leaves it out", () => {
+  const prev = [{ id: "five_hour", usedPercent: 43, resetsAt: "2026-10-14T02:30:00Z", status: "ok" as const }];
+  // A live Claude event: no utilization, a fresher reset time.
+  const merged = mergeWindows(prev, [{ id: "five_hour", label: "5-hour", usedPercent: undefined, resetsAt: "2026-10-14T02:30:01Z", status: "ok" }]);
+  assert.deepEqual(merged, [{ id: "five_hour", label: "5-hour", usedPercent: 43, resetsAt: "2026-10-14T02:30:01Z", status: "ok" }]);
+  assert.deepEqual(mergeWindows(merged, [{ id: "seven_day", usedPercent: 17 }]).map((w) => w.id), ["five_hour", "seven_day"]);
 });

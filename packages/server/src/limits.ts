@@ -2,6 +2,8 @@
 // to try again. Providers that report limits structurally do so through
 // "limits" events; this covers the rest and the plain-text messages.
 
+import type { ProviderLimits } from "@casm/protocol";
+
 const LIMIT = /usage limit|rate[ -]?limit|quota|too many requests|\b429\b|limit (?:reached|exceeded)|out of (?:credits|extra usage)|credits_required/i;
 
 export type LimitHit = { message: string; resetsAt?: string };
@@ -46,4 +48,17 @@ export function retryAt(hit: LimitHit, attempts: number, now = new Date()): Date
     if (t > now.getTime()) return new Date(t);
   }
   return new Date(now.getTime() + Math.min(15 * 60_000 * 2 ** attempts, 3 * 3600_000));
+}
+
+type Window = ProviderLimits["windows"][number];
+
+// Merges reported windows by id. A field a report leaves out (live Claude events carry no
+// utilization unless near a limit) keeps its last known value instead of being wiped.
+export function mergeWindows(prev: Window[], update: Window[]): Window[] {
+  const windows = new Map(prev.map((w) => [w.id, w]));
+  for (const w of update) {
+    const known = Object.fromEntries(Object.entries(w).filter(([, v]) => v !== undefined)) as Window;
+    windows.set(w.id, { ...windows.get(w.id), ...known });
+  }
+  return [...windows.values()];
 }

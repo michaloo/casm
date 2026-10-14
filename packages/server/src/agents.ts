@@ -24,7 +24,7 @@ import type {
 import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from "./providers/types.ts";
 import { casmMcpEntry } from "./mcp.ts";
-import { limitFromText, retryAt, type LimitHit } from "./limits.ts";
+import { limitFromText, mergeWindows, retryAt, type LimitHit } from "./limits.ts";
 
 // What sessions are told about the server that runs them.
 export type SessionContext = { serverId: string; serverName: string; mcpUrl: string | null };
@@ -73,6 +73,7 @@ export class AgentManager {
   private catalogs = new Map<ProviderId, { at: number; catalog: Promise<Catalog> }>();
   // Latest account limits per provider, as sessions or queries reported them.
   private limitsSeen = new Map<ProviderId, ProviderLimits>();
+  private limitsQueried = new Set<ProviderId>();
   // Per-agent MCP bearer tokens, minted when a session opens. Memory only.
   private mcpTokens = new Map<string, string>();
   private mcpTokenOf = new Map<string, string>();
@@ -611,12 +612,10 @@ export class AgentManager {
 
   private recordLimits(provider: ProviderId, update: Omit<ProviderLimits, "provider" | "updatedAt">) {
     const prev = this.limitsSeen.get(provider);
-    const windows = new Map((prev?.windows ?? []).map((w) => [w.id, w]));
-    for (const w of update.windows) windows.set(w.id, { ...windows.get(w.id), ...w });
     const limits: ProviderLimits = {
       provider,
       plan: update.plan ?? prev?.plan,
-      windows: [...windows.values()],
+      windows: mergeWindows(prev?.windows ?? [], update.windows),
       updatedAt: new Date().toISOString(),
     };
     this.limitsSeen.set(provider, limits);
@@ -629,12 +628,16 @@ export class AgentManager {
     const out: ProviderLimits[] = [];
     for (const id of ids) {
       const p = this.provider(id);
-      if ((refresh || !this.limitsSeen.has(id)) && p.limits) {
+      // Live events alone can leave a window without its usage; ask the account once then.
+      const seen = this.limitsSeen.get(id);
+      const unknown = !this.limitsQueried.has(id) && seen?.windows.some((w) => w.usedPercent == null);
+      if ((refresh || !seen || unknown) && p.limits) {
+        this.limitsQueried.add(id);
         const fresh = await p.limits().catch(() => null);
         if (fresh) this.recordLimits(id, fresh);
       }
-      const seen = this.limitsSeen.get(id);
-      if (seen) out.push(seen);
+      const latest = this.limitsSeen.get(id);
+      if (latest) out.push(latest);
     }
     return out;
   }

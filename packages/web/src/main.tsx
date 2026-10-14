@@ -162,6 +162,10 @@ function App() {
   const [mode, setMode] = useState("");
   const [effort, setEffort] = useState("");
   const [catalog, setCatalog] = useState<Catalog>({ models: [], modes: [] });
+  // Model names for the sidebar, per "<host>\n<provider>" of the agents listed;
+  // the server caches catalogs, so this is one request per pair and connection.
+  const [rowModels, setRowModels] = useState<Record<string, ModelInfo[]>>({});
+  const rowModelsAsked = useRef(new Set<string>());
   // Only creating a new agent waits for the server; sends to existing agents
   // show at once and reconcile by message id.
   const [creating, setCreating] = useState(false);
@@ -384,6 +388,23 @@ function App() {
       active = false;
     };
   }, [provider, selection?.host, online]);
+  useEffect(() => {
+    if (!online) {
+      rowModelsAsked.current.clear();
+      return;
+    }
+    for (const h of hosts) {
+      if (h.error) continue;
+      for (const p of new Set(h.agents.map((a) => a.provider))) {
+        const k = `${h.id}\n${p}`;
+        if (rowModelsAsked.current.has(k)) continue;
+        rowModelsAsked.current.add(k);
+        void rpc.current!.call("provider.catalog", { provider: p }, h.id)
+          .then((v) => setRowModels((m) => ({ ...m, [k]: v.models })))
+          .catch(() => rowModelsAsked.current.delete(k));
+      }
+    }
+  }, [hosts, online]);
   function choose(s: typeof selection) {
     if (s) {
       const next = viewPath(s, hostsRef.current);
@@ -637,7 +658,7 @@ function App() {
                         return (
                           <AgentRow key={a.id} agent={a} host={h.id} depth={depth} status={status} online={online}
                             selected={selection?.id === a.id && selection.host === h.id}
-                            models={h.id === selection?.host && a.provider === provider ? catalog.models : noModels}
+                            models={h.id === selection?.host && a.provider === provider && catalog.models.length ? catalog.models : rowModels[`${h.id}\n${a.provider}`] ?? noModels}
                             onChoose={chooseAgent} />
                         );
                       })}

@@ -8,6 +8,7 @@ import { createServer as createTcpServer, type Server as TcpServer, type Socket 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { WebSocketServer } from "ws";
 import { CasmClient, type CasmError } from "@casm/client";
 import { ErrorCode, type Item } from "@casm/protocol";
 import { Store } from "../src/db.ts";
@@ -320,6 +321,25 @@ test("requests with a host are forwarded to that peer", async () => {
   await assert.rejects(asleep.call("agent.list", {}), (e: CasmError) => e.code === ErrorCode.Unreachable && /host "asleep" is unreachable/.test(e.message));
   assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
   asleep.close();
+});
+
+test("a forwarded request carries the client's params as sent, unknown keys included", async () => {
+  // A peer that answers every request with the params it got.
+  const echo = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  echo.on("connection", (ws) => ws.on("message", (d) => {
+    const m = JSON.parse(d.toString());
+    ws.send(JSON.stringify({ jsonrpc: "2.0", id: m.id, result: m.params }));
+  }));
+  await new Promise((r) => echo.once("listening", r));
+  alpha.store.setPeer({ name: "echo", url: `ws://127.0.0.1:${(echo.address() as { port: number }).port}`, token: "t", serverId: null });
+  const c = await CasmClient.connect(alpha.url, alpha.token, { host: "echo" });
+  try {
+    assert.deepEqual(await c.call("agent.get", { id: "a1", fromNewerClient: true } as never), { id: "a1", fromNewerClient: true });
+  } finally {
+    c.close();
+    alpha.store.removePeer("echo");
+    echo.close();
+  }
 });
 
 test("subscriptions through a peer relay its notifications until unsubscribed or disconnected", async () => {

@@ -58,6 +58,11 @@ type Live = {
   lastUsage: Usage | null;
   // The prompt that started the running turn, kept to retry it after a limit.
   prompt: Prompt | null;
+  // Events this turn that show the agent responding, and the prompts steered
+  // into it with the count at the time: one with no response after it may never
+  // have reached the agent's own history.
+  answers: number;
+  steered: { prompt: Prompt; answersAt: number }[];
   // When the running turn started, to tell fresh limit reports from old ones.
   turnStartedAt: number;
   lastTurn: { outcome: "completed" | "interrupted" | "failed"; error?: string } | null;
@@ -227,7 +232,7 @@ export class AgentManager {
   private liveFor(id: string): Live {
     let l = this.live.get(id);
     if (!l) {
-      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, statusWaiters: new Set() };
+      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, answers: 0, steered: [], statusWaiters: new Set() };
       this.live.set(id, l);
     }
     return l;
@@ -236,6 +241,8 @@ export class AgentManager {
   private emit(id: string, event: AgentEvent) {
     const l = this.liveFor(id);
     if (l.turnId) {
+      if ((event.type === "item" && event.item.kind !== "user" && event.item.kind !== "notice") || event.type === "delta" || event.type === "usage" || event.type === "toolOutput")
+        l.answers++;
       // Deltas are only a preview; drop them once the full item lands.
       if (event.type === "item" && (event.item.kind === "assistant" || event.item.kind === "reasoning"))
         l.turn = l.turn.filter((e) => e.type !== "delta");
@@ -284,6 +291,7 @@ export class AgentManager {
         this.changed(id);
         return { queued: true, pendingId: m.id };
       }
+      l.steered.push({ prompt, answersAt: l.answers });
       this.sendToSession(id, l, prompt);
       return { queued: false };
     }
@@ -299,6 +307,8 @@ export class AgentManager {
     this.openSession(a, l);
     l.turnId = randomUUID();
     l.turn = [];
+    l.answers = 0;
+    l.steered = [];
     l.lastReply = null;
     this.emit(id, { type: "turnStarted", turnId: l.turnId });
     this.statusChanged(id);
@@ -326,6 +336,8 @@ export class AgentManager {
     this.openSession(a, l);
     l.turnId = randomUUID();
     l.turn = [];
+    l.answers = 0;
+    l.steered = [];
     l.lastReply = null;
     l.prompt = prompt;
     l.turnStartedAt = Date.now();
@@ -411,7 +423,6 @@ export class AgentManager {
   ) {
     if (!l.turnId) return;
     const turnId = l.turnId;
-    const unanswered = this.unanswered(l);
     l.lastTurn = { outcome, ...(error ? { error } : {}) };
     for (const p of l.pending.values()) p.reject(new Error("turn ended"));
     l.pending.clear();
@@ -433,12 +444,12 @@ export class AgentManager {
         front: true,
       });
       this.changed(id);
-    } else if (outcome === "failed" && unanswered && l.prompt && a) {
-      // Kept where the user can see, retry or cancel it, instead of vanishing.
-      this.store.addPending({ agentId: id, ...l.prompt, reason: "failed", notBefore: null, note: error ?? "the turn failed" });
-      this.changed(id);
+    } else if (outcome === "failed" && a) {
+      // Kept where the user can see, retry or cancel them, instead of vanishing.
+      if (this.keepUnanswered(id, l, error ?? "the turn failed")) this.changed(id);
     }
     l.prompt = null;
+    l.steered = [];
     this.statusChanged(id);
     if (limit) return;
     this.retryAttempts.delete(id);
@@ -451,9 +462,14 @@ export class AgentManager {
     this.runNext(id);
   }
 
-  // Nothing came back from the agent this turn: its own history may not have the prompt.
-  private unanswered(l: Live): boolean {
-    return !l.turn.some((e) => (e.type === "item" && e.item.kind !== "user" && e.item.kind !== "notice") || e.type === "delta" || e.type === "usage" || e.type === "toolOutput");
+  // Keeps the turn's prompts nothing came back for (the one that started it and
+  // any steered in later) as failed pending messages, in order. Returns how many.
+  private keepUnanswered(id: string, l: Live, note: string): number {
+    const prompts = [...(l.prompt && !l.answers ? [l.prompt] : []), ...l.steered.filter((s) => s.answersAt === l.answers).map((s) => s.prompt)];
+    for (const p of prompts) this.store.addPending({ agentId: id, ...p, reason: "failed", notBefore: null, note });
+    l.prompt = null;
+    l.steered = [];
+    return prompts.length;
   }
 
   private block<P extends Pending>(id: string, l: Live, pending: Omit<P, "resolve" | "reject">, signal: AbortSignal) {
@@ -759,13 +775,9 @@ export class AgentManager {
 
   async shutdown() {
     clearInterval(this.deferTimer);
-    // A prompt the agent hasn't answered yet would be gone after the restart;
-    // keep it like any failed one. Not resent: the agent may have stored it.
-    for (const [id, l] of this.live) {
-      if (!l.turnId || !l.prompt || !this.unanswered(l)) continue;
-      this.store.addPending({ agentId: id, ...l.prompt, reason: "failed", notBefore: null, note: "the server stopped before the agent answered" });
-      l.prompt = null;
-    }
+    // Prompts the agent hasn't answered yet would be gone after the restart;
+    // keep them like failed ones. Not resent: the agent may have stored them.
+    for (const [id, l] of this.live) if (l.turnId) this.keepUnanswered(id, l, "the server stopped before the agent answered");
     this.stopped = true;
     await Promise.all([...this.live.values()].map((l) => l.session?.close().catch(() => {})));
   }

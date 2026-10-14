@@ -24,6 +24,8 @@ class FakeSession implements ProviderSession {
   send(text: string) {
     void (async () => {
       await new Promise((r) => setTimeout(r, 10));
+      // The agent process crashes (e.g. a steer that arrives as it dies).
+      if (text.includes("die")) return this.opts.emit({ type: "turnEnded", outcome: "failed", error: "agent process exited" });
       // Starts answering, then hangs until interrupted.
       if (text.includes("partial")) this.opts.emit({ type: "delta", kind: "assistant", text: "Let me" });
       if (text.includes("slow")) {
@@ -668,6 +670,33 @@ test("a prompt whose turn failed before any answer is kept as a failed pending m
   await client.call("agent.wait", { id: b.id });
 });
 
+test("prompts steered into a turn that fails are kept when nothing came back after them", async () => {
+  const p = await client.call("project.create", { name: "P-steer-failed", path: "/tmp" });
+  const pending = async (id: string) => (await client.call("agent.pending", { id })).messages.map((m) => [m.reason, m.text, m.note]);
+  // Started answering, then a steer the agent never got to: only the steer is kept.
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  await client.call("agent.send", { id: a.id, text: "partial, then slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  await client.call("agent.send", { id: a.id, text: "steer: die", whenBusy: "steer" });
+  assert.equal((await client.call("agent.wait", { id: a.id })).lastTurn?.outcome, "failed");
+  assert.deepEqual(await pending(a.id), [["failed", "steer: die", "agent process exited"]]);
+  // Nothing came back at all: the first prompt and the steer, in order.
+  const b = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  await client.call("agent.send", { id: b.id, text: "slow start" });
+  await new Promise((r) => setTimeout(r, 30));
+  await client.call("agent.send", { id: b.id, text: "then die", whenBusy: "steer" });
+  await client.call("agent.wait", { id: b.id });
+  assert.deepEqual(await pending(b.id), [["failed", "slow start", "agent process exited"], ["failed", "then die", "agent process exited"]]);
+  // Interrupted turns keep nothing: the user stopped them.
+  const c = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  await client.call("agent.send", { id: c.id, text: "slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  await client.call("agent.send", { id: c.id, text: "slow steer", whenBusy: "steer" });
+  await client.call("agent.interrupt", { id: c.id });
+  await client.call("agent.wait", { id: c.id });
+  assert.deepEqual(await pending(c.id), []);
+});
+
 test("messages queued and schedule runs missed while the server was down go out as soon as it starts", async () => {
   const s2 = new Store(join(mkdtempSync(join(tmpdir(), "casm-test-")), "casm.db"));
   const token = s2.createToken("t");
@@ -698,17 +727,24 @@ test("a prompt the agent hasn't answered when the server stops is kept as a fail
   const silent = s2.createAgent({ projectId: project.id, name: "silent", provider: "claude", cwd: "/tmp", config: {} });
   const srv = await startServer({ store: s2, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
   srv.agents.send(silent.id, { text: "slow, never answered" });
+  await new Promise((r) => setTimeout(r, 30));
+  srv.agents.send(silent.id, { text: "slow steer, never answered" }, "steer");
   srv.agents.send(answered.id, { text: "partial, then slow" });
   await new Promise((r) => setTimeout(r, 30));
   await srv.close();
   // The agent that had started answering has the prompt in its own history.
   assert.deepEqual(s2.listPending(answered.id), []);
-  const [m] = s2.listPending(silent.id);
+  const [m, steer] = s2.listPending(silent.id);
   assert.deepEqual([m.reason, m.text, m.note], ["failed", "slow, never answered", "the server stopped before the agent answered"]);
+  assert.deepEqual([steer.reason, steer.text], ["failed", "slow steer, never answered"]);
   // The agent's process may finish the turn after the server is gone: then the
   // next start sees the answer in its history and drops the kept message.
   const sid = s2.getAgent(silent.id)!.nativeSessionId!;
-  fake.history.set(sid, [{ kind: "user", id: "u", text: "slow, never answered" }, { kind: "assistant", id: "a", text: "done after all" }]);
+  fake.history.set(sid, [
+    { kind: "user", id: "u", text: "slow, never answered" },
+    { kind: "user", id: "u2", text: "slow steer, never answered" },
+    { kind: "assistant", id: "a", text: "done after all" },
+  ]);
   const other = s2.addPending({ agentId: answered.id, text: "not answered", reason: "failed", notBefore: null, note: "x" });
   const again = await startServer({ store: s2, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
   for (let i = 0; i < 50 && s2.listPending(silent.id).length; i++) await new Promise((r) => setTimeout(r, 10));

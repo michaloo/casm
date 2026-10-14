@@ -86,6 +86,9 @@ export const Agent = z.object({
   // Messages waiting to be sent (see agent.pending): how many, and when the
   // next one is due if they wait for a limit reset.
   pending: z.object({ count: z.number(), next: z.string().optional() }).optional(),
+  // Provider-internal subagents (Item.subagent) running in the agent's live
+  // session, background ones included: they can run while the agent is idle.
+  subagents: z.object({ running: z.number() }).optional(),
 });
 export type Agent = z.infer<typeof Agent>;
 
@@ -188,6 +191,34 @@ export const Schedule = z.object({
 });
 export type Schedule = z.infer<typeof Schedule>;
 
+// A subagent the agent spawned itself (Claude Task/Agent tool, including
+// background ones, Codex sub-agents, OpenCode child sessions). Upserted by id
+// as it runs; its own transcript is read with agent.subagentHistory.
+export const SubagentItem = z.object({
+  kind: z.literal("subagent"),
+  id: z.string(),
+  title: z.string(),
+  agentType: z.string().optional(),
+  status: z.enum(["running", "done", "error"]),
+  // Latest thing it did, e.g. the tool it is running.
+  activity: z.string().optional(),
+  summary: z.string().optional(),
+  usage: Usage.optional(),
+});
+export type SubagentItem = z.infer<typeof SubagentItem>;
+
+// A subagent as agent.subagents lists it: the provider's latest item plus where
+// it comes from. `stale`: the provider last reported it running, but the
+// session that ran it has ended, so no completion can arrive any more.
+export const SubagentInfo = SubagentItem.omit({ kind: true }).extend({
+  agentId: z.string(),
+  // When this server first and last saw it (absent when read from the transcript only).
+  startedAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  stale: z.boolean().optional(),
+});
+export type SubagentInfo = z.infer<typeof SubagentInfo>;
+
 export const Item = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), id: z.string(), text: z.string(), images: z.array(ImageData).optional() }),
   z.object({ kind: z.literal("assistant"), id: z.string(), text: z.string() }),
@@ -201,20 +232,7 @@ export const Item = z.discriminatedUnion("kind", [
     status: z.enum(["running", "done", "error"]),
     output: z.string().optional(),
   }),
-  // A subagent the agent spawned itself (Claude Task tool, Codex sub-agents,
-  // OpenCode child sessions). Upserted by id as it runs; its own transcript is
-  // read with agent.subagentHistory.
-  z.object({
-    kind: z.literal("subagent"),
-    id: z.string(),
-    title: z.string(),
-    agentType: z.string().optional(),
-    status: z.enum(["running", "done", "error"]),
-    // Latest thing it did, e.g. the tool it is running.
-    activity: z.string().optional(),
-    summary: z.string().optional(),
-    usage: Usage.optional(),
-  }),
+  SubagentItem,
   // Status lines: interrupts, retries, compaction, warnings. Upserted by id, so
   // a retry notice can update its countdown.
   z.object({ kind: z.literal("notice"), id: z.string(), text: z.string(), level: z.enum(["info", "warning", "error"]).optional() }),
@@ -536,6 +554,14 @@ export const methods = {
   "agent.subagentHistory": method(
     z.object({ id: z.string(), subagentId: z.string(), limit: z.number().optional() }),
     z.object({ items: z.array(Item) }),
+  ),
+  // Subagents of one agent (`id`), or of every agent. Running ones first, then
+  // the most recently seen. The live ones come from the running sessions; for
+  // one agent, those its transcript records are added too. `limit` caps the
+  // finished ones per agent (default 10).
+  "agent.subagents": method(
+    z.object({ id: z.string().optional(), limit: z.number().int().nonnegative().optional() }),
+    z.object({ subagents: z.array(SubagentInfo) }),
   ),
   // Slash commands and skills the agent accepts. Send them as text ("/name args").
   "agent.commands": method(ById.extend({ refresh: z.boolean().optional() }), z.object({ commands: z.array(Command) })),

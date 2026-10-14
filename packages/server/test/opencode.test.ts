@@ -673,3 +673,54 @@ test("an aborted bash tool call is an error without OpenCode's shell_metadata no
   const timeout = "x\n\n<shell_metadata>\nshell tool terminated command after exceeding timeout 10 ms.\n</shell_metadata>";
   assert.equal((normalizePart(bash(timeout)) as { status: string }).status, "done");
 });
+
+test("user history items carry casm's ids: recorded alias, part metadata, legacy msg_<hex>; others unchanged", async () => {
+  const { userItemId } = await import("../src/providers/opencode.ts");
+  const user = (id: string, parts: OcPart[] = [{ id: "p", sessionID: "s", messageID: id, type: "text", text: "hi" }]): OcMessage => ({ info: { id, sessionID: "s", role: "user" }, parts });
+  const uuid = "0dbfa9c4-1785-4a50-98ef-b8fcc65a28e5";
+  assert.equal(userItemId(user(`msg_${uuid.replaceAll("-", "")}`)), uuid);
+  assert.equal(userItemId(user("msg_13bdcee58001sJYNn0xTYGD8F0"), new Map([["msg_13bdcee58001sJYNn0xTYGD8F0", uuid]])), uuid);
+  assert.equal(userItemId(user("msg_13bdcee58001sJYNn0xTYGD8F0", [{ id: "p", sessionID: "s", messageID: "m", type: "text", text: "hi", metadata: { casmItemId: uuid } }])), uuid);
+  // Prompts typed in OpenCode itself, or sent before this process without metadata.
+  assert.equal(userItemId(user("msg_13bdcee58001sJYNn0xTYGD8F0"), new Map([["other", uuid]])), "msg_13bdcee58001sJYNn0xTYGD8F0");
+  assert.deepEqual(normalizeMessages([user(`msg_${uuid.replaceAll("-", "")}`)]), [{ kind: "user", id: uuid, text: "hi" }]);
+});
+
+test("mid-turn, agent.history shows an OpenCode prompt with the live turn's id", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { CasmClient } = await import("@casm/client");
+  const { Store } = await import("../src/db.ts");
+  const { startServer } = await import("../src/server.ts");
+  // OpenCode stores what was prompted under the native id casm chose; no part metadata, to rely on the alias.
+  class HistoryServer extends FakeOpencodeServer {
+    stored: OcMessage[] = [];
+    override async request<T>(method: string, path: string, directory?: string, body?: unknown): Promise<T> {
+      if (path.endsWith("/prompt_async")) {
+        const b = body as { messageID: string; parts: { text: string }[] };
+        this.stored.push({ info: { id: b.messageID, sessionID: ids.sessionID, role: "user" }, parts: [{ id: "p1", sessionID: ids.sessionID, messageID: b.messageID, type: "text", text: b.parts[0].text }] });
+        return {} as T;
+      }
+      if (path === `/session/${ids.sessionID}/message`) return this.stored as T;
+      if (path === "/command") return [] as T;
+      return super.request<T>(method, path, directory, body);
+    }
+  }
+  const dir = mkdtempSync(join(tmpdir(), "casm-oc-dedupe-"));
+  const store = new Store(join(dir, "db"));
+  const server = await startServer({ store, providers: [opencodeProvider(new HistoryServer())], host: "127.0.0.1", port: 0, version: "test" });
+  const client = await CasmClient.connect(server.url, store.createToken("test"));
+  try {
+    const project = await client.call("project.create", { path: dir });
+    const agent = await client.call("agent.create", { projectId: project.id, provider: "opencode", prompt: "Benchmark this" });
+    for (let i = 0; i < 100 && !(await client.call("agent.get", { id: agent.id })).nativeSessionId; i++) await new Promise((r) => setTimeout(r, 10));
+    const live = (await client.call("agent.subscribe", { id: agent.id })).turn.flatMap((e) => (e.type === "item" && e.item.kind === "user" ? [e.item.id] : []));
+    const history = (await client.call("agent.history", { id: agent.id })).items.filter((i) => i.kind === "user").map((i) => i.id);
+    assert.equal(live.length, 1);
+    assert.deepEqual(history, live);
+  } finally {
+    client.close(); await server.close(); store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

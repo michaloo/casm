@@ -52,3 +52,11 @@ test("reconnect preserves in-flight sends and reconciles confirmed and queued id
   replaceHistory(c, []);
   assert.deepEqual(c.items, []);
 });
+
+test("reopening a chat mid-turn shows a prompt once when history and the live replay share its id", () => {
+  const c = chat("host/reopen");
+  const prompt = { kind: "user", id: "0dbfa9c4-1785-4a50-98ef-b8fcc65a28e5", text: "Benchmark this" };
+  replaceHistory(c, [prompt]);
+  for (const e of [{ type: "turnStarted", turnId: "t" }, { type: "item", item: prompt }, { type: "item", item: { kind: "assistant", id: "a", text: "ok" } }]) event(c, e, true);
+  assert.deepEqual(c.items.map((i) => i.id), [prompt.id, "a"]);
+});

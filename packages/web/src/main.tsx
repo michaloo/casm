@@ -1,3 +1,4 @@
+import { ProjectSettingsButton } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
 import { replaceHistory } from "./state";
@@ -605,6 +606,8 @@ function App() {
                       {!expanded && agents.length > 0 && <span className="project-count" aria-hidden="true">{agents.length}</span>}
                       <span className="project-new">＋</span>
                     </button>
+                    <ProjectSettingsButton host={h.id} project={p} agentCount={h.agents.filter((a) => a.projectId === p.id && !a.archivedAt).length}
+                      rpc={rpc.current} online={state === "online" || state === "slow"} newAgent={() => choose({ host: h.id, project: p.id })} />
                     </div>
                     {expanded && !agents.length && <p className="sidebar-empty project-empty">No agents yet</p>}
                     {expanded && agents.map(({ agent: a, depth }) => {

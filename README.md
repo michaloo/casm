@@ -156,6 +156,16 @@ Each host offers the agents installed on it (`casm info` lists them). Each one u
 
 Override a binary with `CASM_CLAUDE_PATH`, `CASM_CODEX_PATH`, `CASM_PI_PATH` or `CASM_OPENCODE_PATH`.
 
+An agent works in its project's folder, or in a folder inside it: `casm run --cwd <dir>`
+(`agent.create` `cwd`, MCP `create_agent` `cwd`), relative to the project path or absolute. It must
+exist on the host and stay inside the project once `..` and symlinks are resolved. For parallel
+agents on one repository, give each task its own git worktree:
+
+```sh
+git worktree add .worktrees/<task>          # with .worktrees/ in .gitignore
+casm run --project p --cwd .worktrees/<task> "<prompt>"
+```
+
 ## Cross-host agents
 
 ### Peers

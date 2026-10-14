@@ -163,6 +163,7 @@ export function createHandlers(
     "pending.list": () => ({ messages: agents.pendingMessages(), blocked: agents.blocked() }),
     "agent.usage": async (p) => ({ usage: await agents.usage(p.id) }),
     "agent.subagentHistory": async (p) => ({ items: await agents.subagentHistory(p.id, p.subagentId, p.limit) }),
+    "agent.subagents": async (p) => ({ subagents: await agents.subagents(p.id, p.limit) }),
     "agent.commands": async (p) => ({ commands: await agents.commands(p.id, p.refresh) }),
     "agent.shell": (p) => {
       agents.shell(p.id, p.command);

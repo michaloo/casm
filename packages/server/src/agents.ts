@@ -19,6 +19,8 @@ import type {
   PendingMessage,
   ProviderLimits,
   QuestionRequest,
+  SubagentInfo,
+  SubagentItem,
   Usage,
 } from "@casm/protocol";
 import type { StoredAgent, Store } from "./db.ts";
@@ -67,7 +69,17 @@ type Live = {
   turnStartedAt: number;
   lastTurn: { outcome: "completed" | "interrupted" | "failed"; error?: string; kept?: string[] } | null;
   statusWaiters: Set<() => void>;
+  // Subagent items the provider reported since the server started, by id, kept
+  // across turns: background ones finish while the agent is idle.
+  subagents: Map<string, Tracked>;
 };
+
+// The latest subagent item and when it was seen. `stale`: it was running when
+// its session ended, so it will never report finishing.
+type Tracked = { item: SubagentItem; startedAt: string; updatedAt: string; stale?: boolean };
+
+// Finished subagents kept per agent for agent.subagents.
+const KEEP_FINISHED = 50;
 
 export type Prompt = { text: string; images?: ImageData[] };
 
@@ -160,7 +172,68 @@ export class AgentManager {
       status: this.status(a.id),
       deferred: limit ? { until: limit.notBefore!, reason: limit.note ?? "usage limit" } : null,
       pending: { count: pending.length, ...(times[0] ? { next: times[0] } : {}) },
+      subagents: { running: this.runningSubagents(a.id) },
     };
+  }
+
+  private runningSubagents(id: string): number {
+    let n = 0;
+    for (const t of this.live.get(id)?.subagents.values() ?? []) if (t.item.status === "running" && !t.stale) n++;
+    return n;
+  }
+
+  // Upserts a subagent item; tells clients when the running count changes.
+  private trackSubagent(id: string, l: Live, item: SubagentItem) {
+    const before = this.runningSubagents(id);
+    const now = new Date().toISOString();
+    const prev = l.subagents.get(item.id);
+    l.subagents.delete(item.id);
+    l.subagents.set(item.id, { item, startedAt: prev?.startedAt ?? now, updatedAt: now });
+    const finished = [...l.subagents.values()].filter((t) => t.item.status !== "running" || t.stale);
+    for (const t of finished.slice(0, Math.max(0, finished.length - KEEP_FINISHED))) l.subagents.delete(t.item.id);
+    if (this.runningSubagents(id) !== before) this.changed(id);
+  }
+
+  // The session is gone: what it was still running can't report back.
+  private sessionEnded(id: string, l: Live) {
+    let n = 0;
+    for (const t of l.subagents.values()) if (t.item.status === "running" && !t.stale) (t.stale = true), n++;
+    if (n) this.changed(id);
+  }
+
+  async subagents(id?: string, limit = 10): Promise<SubagentInfo[]> {
+    const info = (agentId: string, t: Tracked): SubagentInfo => {
+      const { kind: _, ...item } = t.item;
+      return { agentId, ...item, startedAt: t.startedAt, updatedAt: t.updatedAt, ...(t.stale ? { stale: true } : {}) };
+    };
+    const ids = id ? [this.agent(id).id] : [...this.live.keys()];
+    const out: SubagentInfo[] = [];
+    for (const agentId of ids) {
+      const l = this.live.get(agentId);
+      const list = [...(l?.subagents.values() ?? [])].map((t) => info(agentId, t));
+      if (id) {
+        // The transcript knows the ones from before this server started. One it
+        // records as running ran in a process that is gone: sessions don't
+        // survive a server restart, and this server would have seen it otherwise.
+        const seen = new Set(list.map((x) => x.id));
+        const items = await this.history(agentId, undefined, 100_000).then((h) => h.items, () => []);
+        const latest = new Map<string, SubagentItem>();
+        for (const i of items) if (i.kind === "subagent" && !seen.has(i.id)) latest.set(i.id, i);
+        const older = [...latest.values()].reverse().map(({ kind: _, ...i }): SubagentInfo => ({
+          agentId,
+          ...i,
+          ...(i.status === "running" ? { stale: true } : {}),
+        }));
+        list.push(...older);
+      }
+      const running = list.filter((x) => x.status === "running" && !x.stale);
+      const rest = list.filter((x) => !(x.status === "running" && !x.stale));
+      // Most recent first; transcript-only entries keep their order after the tracked ones.
+      rest.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+      running.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+      out.push(...running, ...rest.slice(0, limit));
+    }
+    return out;
   }
 
   private changed(id: string) {
@@ -235,7 +308,7 @@ export class AgentManager {
   private liveFor(id: string): Live {
     let l = this.live.get(id);
     if (!l) {
-      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, answers: 0, steered: [], statusWaiters: new Set() };
+      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, answers: 0, steered: [], statusWaiters: new Set(), subagents: new Map() };
       this.live.set(id, l);
     }
     return l;
@@ -393,6 +466,7 @@ export class AgentManager {
       case "item":
         if (e.item.kind === "assistant") l.lastReply = e.item.text;
         this.emit(id, { type: "item", item: e.item });
+        if (e.item.kind === "subagent") this.trackSubagent(id, l, e.item);
         return;
       case "delta":
         this.emit(id, { type: "delta", kind: e.kind, text: e.text });
@@ -416,6 +490,7 @@ export class AgentManager {
         l.session = null;
         l.generation++;
         if (l.turnId) this.endTurn(id, l, "failed", e.error ?? "agent process exited");
+        this.sessionEnded(id, l);
         return;
     }
   }
@@ -435,7 +510,7 @@ export class AgentManager {
     this.emit(id, { type: "turnEnded", turnId, outcome, error, limit: limit ?? undefined });
     l.turnId = null;
     l.turn = [];
-    if (l.reloadAfterTurn) this.dropSession(l);
+    if (l.reloadAfterTurn) this.dropSession(id, l);
     const a = this.store.getAgent(id);
     if (limit && a && l.prompt) {
       // Retry the prompt that hit the limit first; anything queued waits behind it.
@@ -550,12 +625,13 @@ export class AgentManager {
     await l.session.interrupt();
   }
 
-  private dropSession(l: Live) {
+  private dropSession(id: string, l: Live) {
     l.reloadAfterTurn = false;
     const s = l.session;
     l.session = null;
     l.generation++;
     void s?.close().catch(() => {});
+    this.sessionEnded(id, l);
   }
 
   // A new config applies when the session is next opened: now if idle,
@@ -564,7 +640,7 @@ export class AgentManager {
     const l = this.live.get(id);
     if (!l?.session) return;
     if (l.turnId) l.reloadAfterTurn = true;
-    else this.dropSession(l);
+    else this.dropSession(id, l);
   }
 
   // Drops the process; the next send resumes the same native session.
@@ -576,6 +652,7 @@ export class AgentManager {
     l.session = null;
     l.generation++;
     if (l.turnId) this.endTurn(id, l, "interrupted");
+    this.sessionEnded(id, l);
     await s?.close();
   }
 

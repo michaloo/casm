@@ -54,6 +54,8 @@ class FakeSession implements ProviderSession {
         this.opts.emit({ type: "limits", limits: { windows: [{ id: "five_hour", usedPercent: 80, status: "warning" }] } });
         this.opts.emit({ type: "item", item: { kind: "subagent", id: "sa1", title: "Explore repo", status: "done", summary: "found 3 files" } });
       }
+      // Launches a background subagent; it finishes later, outside any turn.
+      if (text.includes("bg-agent")) this.opts.emit({ type: "item", item: { kind: "subagent", id: `bg-${text}`, title: "Background audit", agentType: "general-purpose", status: "running", activity: "Grep" } });
       if (text.includes("model")) this.opts.emit({ type: "model", model: this.opts.config.model ?? "provider-default" });
       if (text.includes("question")) {
         const answers = await this.opts.askQuestion(
@@ -415,6 +417,63 @@ test("limits reported by sessions are merged, cached and broadcast", async () =>
   assert.deepEqual(limits[0].windows, [{ id: "five_hour", usedPercent: 80, status: "warning" }]);
   assert.deepEqual(seen, [1]);
   assert.deepEqual(await client.call("agent.subagentHistory", { id: a.id, subagentId: "sa1" }), { items: [] });
+  off();
+});
+
+test("running subagents, background ones included, are counted from the live session and listed", async () => {
+  const p = await client.call("project.create", { name: "Subagents", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  assert.deepEqual(a.subagents, { running: 0 });
+  const counts: number[] = [];
+  const off = client.on("agent.changed", (n) => n.agent.id === a.id && counts.push(n.agent.subagents!.running));
+  await client.call("agent.send", { id: a.id, text: "bg-agent" });
+  await client.call("agent.wait", { id: a.id });
+  const session = fake.opened.at(-1)!;
+  // The turn is over, the subagent still runs.
+  let got = await client.call("agent.get", { id: a.id });
+  assert.equal(got.status, "idle");
+  assert.deepEqual(got.subagents, { running: 1 });
+  // A client that connects now (an app reload) gets it from the server.
+  const token = store.createToken("subagents-reload");
+  const fresh = await CasmClient.connect(`ws://127.0.0.1:${server.port}`, token);
+  const listed = (await fresh.call("agent.list", { projectId: p.id })).agents[0]!;
+  assert.deepEqual(listed.subagents, { running: 1 });
+  const all = (await fresh.call("agent.subagents", {})).subagents.filter((x) => x.agentId === a.id);
+  assert.equal(all.length, 1);
+  assert.equal(all[0]!.id, "bg-bg-agent");
+  assert.equal(all[0]!.activity, "Grep");
+  assert.equal(all[0]!.status, "running");
+  fresh.close();
+
+  // Its completion arrives while the agent is idle.
+  session.emit({ type: "item", item: { kind: "subagent", id: "bg-bg-agent", title: "Background audit", status: "done", summary: "no issues", usage: { totalTokens: 1200, toolUses: 4, durationMs: 9000 } } });
+  await new Promise((r) => setTimeout(r, 20));
+  got = await client.call("agent.get", { id: a.id });
+  assert.deepEqual(got.subagents, { running: 0 });
+  // Broadcast when the count changes (other changes, like the session id, carry it too).
+  assert.deepEqual(counts.filter((n, i) => n !== counts[i - 1]), [0, 1, 0]);
+
+  // One agent's list adds what its transcript records; a running one there
+  // ran in a process that is gone.
+  fake.history.set(got.nativeSessionId!, [
+    { kind: "subagent", id: "old-1", title: "Earlier", status: "running" },
+    { kind: "subagent", id: "old-2", title: "Done earlier", status: "running" },
+    { kind: "subagent", id: "old-2", title: "Done earlier", status: "done", summary: "ok" },
+  ]);
+  const one = (await client.call("agent.subagents", { id: a.id })).subagents;
+  assert.deepEqual(one.map((x) => [x.id, x.status, x.stale ?? false]), [["bg-bg-agent", "done", false], ["old-2", "done", false], ["old-1", "running", true]]);
+  assert.deepEqual(one[0]!.usage, { totalTokens: 1200, toolUses: 4, durationMs: 9000 });
+  assert.equal((await client.call("agent.subagents", { id: a.id, limit: 1 })).subagents.length, 1);
+
+  // A session that ends takes its running subagents with it.
+  await client.call("agent.send", { id: a.id, text: "bg-agent again" });
+  await client.call("agent.wait", { id: a.id });
+  assert.deepEqual((await client.call("agent.get", { id: a.id })).subagents, { running: 1 });
+  await client.call("agent.reload", { id: a.id });
+  assert.deepEqual((await client.call("agent.get", { id: a.id })).subagents, { running: 0 });
+  const stale = (await client.call("agent.subagents", { id: a.id })).subagents.find((x) => x.id === "bg-bg-agent again")!;
+  assert.equal(stale.stale, true);
+  assert.equal(stale.status, "running");
   off();
 });
 

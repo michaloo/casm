@@ -2109,6 +2109,17 @@
                   "required": [
                     "count"
                   ]
+                },
+                "subagents": {
+                  "type": "object",
+                  "properties": {
+                    "running": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "running"
+                  ]
                 }
               },
               "required": [
@@ -2305,6 +2316,17 @@
             },
             "required": [
               "count"
+            ]
+          },
+          "subagents": {
+            "type": "object",
+            "properties": {
+              "running": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "running"
             ]
           }
         },
@@ -2590,6 +2612,17 @@
             "required": [
               "count"
             ]
+          },
+          "subagents": {
+            "type": "object",
+            "properties": {
+              "running": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "running"
+            ]
           }
         },
         "required": [
@@ -2829,6 +2862,17 @@
             },
             "required": [
               "count"
+            ]
+          },
+          "subagents": {
+            "type": "object",
+            "properties": {
+              "running": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "running"
             ]
           }
         },
@@ -4354,6 +4398,112 @@
         ]
       }
     },
+    "agent.subagents": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "subagents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "agentType": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "running",
+                    "done",
+                    "error"
+                  ]
+                },
+                "activity": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "usage": {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "string"
+                    },
+                    "contextTokens": {
+                      "type": "number"
+                    },
+                    "contextWindow": {
+                      "type": "number"
+                    },
+                    "inputTokens": {
+                      "type": "number"
+                    },
+                    "outputTokens": {
+                      "type": "number"
+                    },
+                    "costUsd": {
+                      "type": "number"
+                    },
+                    "totalTokens": {
+                      "type": "number"
+                    },
+                    "toolUses": {
+                      "type": "number"
+                    },
+                    "durationMs": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "agentId": {
+                  "type": "string"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                },
+                "stale": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "status",
+                "agentId"
+              ]
+            }
+          }
+        },
+        "required": [
+          "subagents"
+        ]
+      }
+    },
     "agent.commands": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5606,6 +5756,17 @@
               },
               "required": [
                 "count"
+              ]
+            },
+            "subagents": {
+              "type": "object",
+              "properties": {
+                "running": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "running"
               ]
             }
           },

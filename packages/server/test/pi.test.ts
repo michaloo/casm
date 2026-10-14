@@ -346,3 +346,40 @@ test("user shell commands (bashExecution) are shell items; non-zero exits and ca
   assert.equal((normalize(bash({ exitCode: undefined, cancelled: true }), tools)[0] as Tool).status, "error");
   assert.deepEqual(shellItem("x", "true", undefined, 0), { kind: "tool", id: "x", name: "shell", origin: "user", input: { command: "true" }, status: "done", output: "" });
 });
+
+test("pi reports the session's model from get_state and assistant messages, named as config.model does", async (t) => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { piProvider, modelName } = await import("../src/providers/pi.ts");
+  assert.equal(modelName({ id: "m", provider: "p" }, "p/m"), "p/m");
+  assert.equal(modelName({ id: "m", provider: "p" }, "m"), "m");
+  assert.equal(modelName({ id: "m", provider: "p" }, "other"), "m");
+  assert.equal(modelName({ id: "m", provider: "p" }), "m");
+
+  const dir = await mkdtemp(join(tmpdir(), "casm-pi-model-"));
+  const bin = join(dir, "fake-pi.cjs");
+  await writeFile(bin, `#!${process.execPath}
+const write = (m) => process.stdout.write(JSON.stringify(m) + "\\n");
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  const m = JSON.parse(line);
+  if (m.type === "get_state") return write({ type: "response", id: m.id, command: m.type, success: true, data: { sessionFile: "/s.jsonl", model: { id: "m1", provider: "p" } } });
+  if (m.type !== "prompt") return;
+  write({ type: "response", id: m.id, command: "prompt", success: true });
+  for (const model of ["m1", "m2", "m2"]) write({ type: "message_end", message: { role: "assistant", content: [], timestamp: 1, provider: "p", model } });
+});
+`, { mode: 0o755 });
+  const previous = process.env.CASM_PI_PATH;
+  process.env.CASM_PI_PATH = bin;
+  t.after(async () => {
+    if (previous === undefined) delete process.env.CASM_PI_PATH; else process.env.CASM_PI_PATH = previous;
+    await rm(dir, { recursive: true, force: true });
+  });
+  const events: { type: string; model?: string }[] = [];
+  const session = piProvider().open({ cwd: dir, config: { model: "p/m1" }, resumeId: null, emit: (e) => events.push(e), askPermission: async () => ({ decision: "allow" }), askQuestion: async () => null });
+  for (let i = 0; i < 50 && !events.some((e) => e.type === "model"); i++) await new Promise((r) => setTimeout(r, 20));
+  session.send("hi", "id-1");
+  for (let i = 0; i < 50 && events.filter((e) => e.type === "model").length < 2; i++) await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(events.filter((e) => e.type === "model"), [{ type: "model", model: "p/m1" }, { type: "model", model: "m2" }]);
+  await session.close();
+});

@@ -358,7 +358,7 @@ casm schedule run | enable | disable | rm <schedule>
 
 ```sh
 npm ci --include=dev
-npm run build -w @casm/web
+npm run build
 ```
 
 The casm server serves `packages/web/dist` at `/` on its existing port, including

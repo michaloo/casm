@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "build": "npm run build -w @casm/web",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test 'packages/*/test/*.test.ts'",
     "dev": "node scripts/dev.ts",

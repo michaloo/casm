@@ -4,6 +4,7 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { basename } from "node:path";
 import { createServer as createTcpServer, type Server as TcpServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -238,6 +239,18 @@ test("create_agent, send, wait, list_agents and get_history on a peer; parent is
   assert.equal(listed.data[0].parent.agentId, parentId);
   const h = await tool("get_history", { host: "beta", agent: "child", limit: 2 });
   assert.equal(h.text, "(2 earlier entries)\nuser: again\nassistant: echo: again");
+});
+
+test("create_agent takes a folder inside the project, resolved on the peer", async () => {
+  // BetaProj is /tmp on beta.
+  const sub = mkdtempSync("/tmp/casm-sub-");
+  const created = await tool("create_agent", { host: "beta", project: "BetaProj", provider: "claude", cwd: basename(sub) });
+  assert.equal(created.isError, false, created.text);
+  assert.equal((await beta.client.call("agent.get", { id: created.data.id })).cwd, sub);
+  const outside = await tool("create_agent", { host: "beta", project: "BetaProj", provider: "claude", cwd: "../etc" });
+  assert.equal(outside.isError, true);
+  assert.match(outside.text, /must be inside the project folder/);
+  rmSync(sub, { recursive: true });
 });
 
 test("create_agent locally also sets the parent", async () => {

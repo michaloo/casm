@@ -1,6 +1,6 @@
-import { basename, isAbsolute } from "node:path";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
@@ -16,6 +16,28 @@ export type Conn = { subscriptions: Set<string> };
 export type Handlers = { [M in MethodName]: (p: Params<M>, conn: Conn) => Result<M> | Promise<Result<M>> };
 
 export type Identity = { id: string; name: string; version: string };
+
+// An agent folder inside the project: `cwd` absolute or relative to the
+// project path, existing, and still inside the project once symlinks and ".."
+// are resolved. Returned as given (resolved), so paths keep the project's spelling.
+export function agentCwd(projectPath: string, cwd: string): string {
+  const wanted = resolve(projectPath, cwd);
+  const real = (p: string) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return null;
+    }
+  };
+  const root = real(projectPath);
+  const target = real(wanted);
+  if (!root) throw new RpcError(ErrorCode.InvalidParams, `the project folder does not exist on this host: ${projectPath}`);
+  if (!target || !statSync(target).isDirectory()) throw new RpcError(ErrorCode.InvalidParams, `no such directory on this host: ${wanted}`);
+  const rel = relative(root, target);
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
+    throw new RpcError(ErrorCode.InvalidParams, `cwd must be inside the project folder ${projectPath}: ${cwd} resolves to ${target}`);
+  return wanted;
+}
 
 export function createHandlers(
   store: Store,
@@ -120,7 +142,8 @@ export function createHandlers(
     "agent.get": (p) => getAgent(p.id),
     "agent.create": async (p) => {
       await checkMode(p.provider, p.config?.mode);
-      const cwd = getProject(p.projectId).path;
+      const project = getProject(p.projectId);
+      const cwd = p.cwd ? agentCwd(project.path, p.cwd) : project.path;
       const stored = store.createAgent({
         projectId: p.projectId,
         name: p.name ?? `${p.provider} · ${basename(cwd)}`,

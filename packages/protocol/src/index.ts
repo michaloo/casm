@@ -514,10 +514,14 @@ export const methods = {
     z.object({ agents: z.array(Agent) }),
   ),
   "agent.get": method(ById, Agent),
-  // The working directory is always the project's folder.
+  // The working directory is the project's folder, or `cwd`: a folder inside
+  // it (absolute, or relative to the project path), e.g. a git worktree under
+  // .worktrees/<task>. It must exist and resolve inside the project after
+  // symlinks are followed.
   "agent.create": method(
     z.object({
       projectId: z.string(),
+      cwd: z.string().min(1).optional(),
       provider: ProviderId,
       name: z.string().optional(),
       config: AgentConfig.optional(),

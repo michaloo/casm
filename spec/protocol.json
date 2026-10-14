@@ -2473,6 +2473,10 @@
           "projectId": {
             "type": "string"
           },
+          "cwd": {
+            "type": "string",
+            "minLength": 1
+          },
           "provider": {
             "type": "string",
             "enum": [

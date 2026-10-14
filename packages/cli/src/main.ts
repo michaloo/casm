@@ -74,8 +74,10 @@ projects:
 
 agents:
   agents [--project p] [--all] [--usage]
-  run --project p [--provider claude] [--name n] [--model m] [--mode m]
+  run --project p [--cwd dir] [--provider claude] [--name n] [--model m] [--mode m]
       [--parent serverId/agentId] [--casm-tools] [--wait] <prompt>
+                                     --cwd: a folder inside the project (relative to it, or absolute),
+                                     e.g. a worktree: --cwd .worktrees/<task>
   send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--at 18:30|"in 2h"|ISO]
   pending [agent]                    messages waiting for their agent (busy or over a limit),
                                      and agents waiting for a permission or answer
@@ -144,6 +146,7 @@ const options = {
   edit: { type: "boolean" },
   probe: { type: "boolean" },
   subagent: { type: "string" },
+  cwd: { type: "string" },
   reset: { type: "boolean" },
   enable: { type: "boolean" },
   disable: { type: "boolean" },
@@ -503,6 +506,8 @@ async function run(c: CasmClient) {
       const project = pick(await projects(c), opt.project, "project");
       const a = await c.call("agent.create", {
         projectId: project.id,
+        // Relative to the project, which may be on another host: the server resolves it.
+        cwd: opt.cwd,
         provider: (opt.provider ?? "claude") as ProviderId,
         name: opt.name,
         config: { model: opt.model, mode: opt.mode, casmTools: opt["casm-tools"] },

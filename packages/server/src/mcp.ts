@@ -78,6 +78,7 @@ const tools = {
     input: z.object({
       host,
       project: z.string().describe("Project id, id prefix or name (see list_projects)"),
+      cwd: z.string().optional().describe("Folder inside the project to work in, relative to the project path or absolute (e.g. a git worktree .worktrees/<task>). Defaults to the project folder."),
       provider: z.enum(["claude", "codex", "pi", "opencode"]).describe("Which agent to run (see list_hosts for what each host offers)"),
       prompt: z.string().optional(),
       model: z.string().optional(),
@@ -245,6 +246,7 @@ export function createMcp(ctx: McpContext) {
       const project = pick(projects, a.project, "project", t.host);
       const created = await t.call("agent.create", {
         projectId: project.id,
+        cwd: a.cwd,
         provider: a.provider,
         name: a.name,
         config: Object.fromEntries(Object.entries({ model: a.model, mode: a.mode }).filter(([, v]) => v)),

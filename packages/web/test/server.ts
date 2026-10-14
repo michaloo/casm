@@ -79,19 +79,6 @@ const provider: Provider = {
               },
               abort.signal,
             );
-          if (text === "rule permission") {
-            const answer = await o.askPermission(
-              {
-                id: "rule-permission",
-                toolName: "bash",
-                input: { command: "npm test -- -w && git status" },
-                canAlwaysAllow: true,
-                rule: { kind: "bash", value: "npm test *\ngit status", editable: true, savedTo: "/project/.pi/settings.json" },
-              },
-              abort.signal,
-            );
-            o.emit({ type: "item", item: { kind: "assistant", id: "rule-answer", text: `Answer: ${answer.decision} ${JSON.stringify(answer.rule ?? null)}` } });
-          }
           if (text === "question")
             await o.askQuestion(
               {

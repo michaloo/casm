@@ -36,7 +36,7 @@ export type ProviderEvent =
   // The process is gone; the manager drops the session and reopens on next send.
   | { type: "closed"; error?: string };
 
-export type PermissionAnswer = { decision: PermissionDecision; message?: string; rule?: string };
+export type PermissionAnswer = { decision: PermissionDecision; message?: string };
 
 export type OpenOptions = {
   cwd: string;
@@ -61,8 +61,6 @@ export interface ProviderSession {
   mcpReconnect?(server?: string): Promise<string>;
   mcpReconnectScope?: "server" | "all";
   mcpToggle?(server: string, enabled: boolean): Promise<void>;
-  // Applies a new config.mode to the running session instead of a reload.
-  setMode?(mode: string): Promise<void>;
   interrupt(): Promise<void>;
   close(): Promise<void>;
 }

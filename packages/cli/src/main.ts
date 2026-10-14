@@ -113,7 +113,7 @@ schedules (run on the host; messages to busy or limited agents become pending):
   models [--provider p] [--refresh]  models and modes each agent offers on the host
   limits [--provider p] [--refresh]  subscription limits per agent (used % per window)
   usage <agent>                      context-window usage and cost of one agent
-  approve <agent> <request> [--always [--rule text]]  --rule replaces the suggested rule (\n between bash patterns)
+  approve <agent> <request> [--always]
   deny <agent> <request> [--message text]
   shell <agent> <command>            run a command in the agent's directory (like "!cmd"); exit 1 if it fails
   mcp <agent> [--reconnect [server]]   MCP status, or reconnect one/all servers
@@ -145,7 +145,6 @@ const options = {
   timeout: { type: "string" },
   n: { type: "string", short: "n" },
   always: { type: "boolean" },
-  rule: { type: "string" },
   message: { type: "string" },
   dismiss: { type: "boolean" },
   group: { type: "string" },
@@ -677,7 +676,7 @@ async function run(c: CasmClient) {
       const { permissions } = await c.call("agent.subscribe", { id: a.id });
       await c.call("agent.unsubscribe", { id: a.id });
       return out(permissions, () => {
-        for (const p of permissions) console.log(`${p.id}  ${p.title ?? p.toolName}  ${JSON.stringify(p.input)}${p.rule ? `\n  always allows (${p.rule.kind}${p.rule.editable ? ", editable with --rule" : ""}): ${p.rule.value.replaceAll("\n", " | ")}` : ""}`);
+        for (const p of permissions) console.log(`${p.id}  ${p.title ?? p.toolName}  ${JSON.stringify(p.input)}`);
       });
     }
 
@@ -882,7 +881,6 @@ async function run(c: CasmClient) {
         requestId: args[1],
         decision: cmd === "deny" ? "deny" : opt.always ? "allowAlways" : "allow",
         message: opt.message,
-        ...(opt.always && opt.rule !== undefined ? { rule: opt.rule.replaceAll("\\n", "\n") } : {}),
       });
       return;
     }

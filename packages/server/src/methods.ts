@@ -189,7 +189,7 @@ export function createHandlers(
       // A different model makes the reported one stale until the next session reports again.
       const effectiveModel = config && config.model !== current.config.model ? null : undefined;
       store.updateAgent(p.id, { ...p, config, effectiveModel });
-      if (config) agents.configChanged(p.id, current.config);
+      if (config) agents.configChanged(p.id);
       return changed(p.id);
     },
     "agent.delete": async (p) => {
@@ -260,7 +260,7 @@ export function createHandlers(
       return { ok: true };
     },
     "agent.respondPermission": (p) => {
-      agents.respondPermission(p.id, p.requestId, { decision: p.decision, message: p.message, rule: p.rule });
+      agents.respondPermission(p.id, p.requestId, { decision: p.decision, message: p.message });
       return { ok: true };
     },
     "agent.wait": (p) => agents.wait(p.id, p.timeoutMs),

@@ -6,6 +6,7 @@ import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
 import type { Scheduler } from "./schedules.ts";
 import { searchFiles } from "./fs-search.ts";
+import { hostAgentsMd, setHostAgentsMd } from "./host-details.ts";
 import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts";
 import type { PeerPool } from "./peers.ts";
 import { DEFAULT_AGENT_PROMPT, PLACEHOLDERS, type AgentPromptState } from "./agent-prompt.ts";
@@ -99,6 +100,8 @@ export function createHandlers(
   };
 
   return {
+    "host.agentsMd": async () => ({ files: await hostAgentsMd() }),
+    "host.setAgentsMd": (p) => setHostAgentsMd(p.path, p.content, p.expectedSha256),
     "server.agentPrompt": (p) => agentPromptInfo(agents.agentPrompt.state(), p.agentId),
     "server.setAgentPrompt": (p) => {
       if (!agents.agentPrompt.home) throw new RpcError(ErrorCode.Conflict, "this server keeps no state directory for an agent prompt");

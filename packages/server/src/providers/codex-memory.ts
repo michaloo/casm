@@ -62,7 +62,7 @@ export async function codexMemories(cwd: string): Promise<ProviderMemories | nul
   const handbook = await read(join(dir, "MEMORY.md"));
   if (handbook)
     parseBlocks(handbook.text).forEach((b, i) => {
-      if (appliesTo(b.cwd, cwd)) entries.push({ id: `MEMORY.md#${i + 1}`, title: b.title, text: b.text, updatedAt: handbook.updatedAt });
+      if (appliesTo(b.cwd, cwd)) entries.push({ id: `MEMORY.md#${i + 1}`, title: b.title, description: /^scope:\s*(.+)$/m.exec(b.text)?.[1], text: b.text, updatedAt: handbook.updatedAt });
     });
 
   let rollouts: string[] = [];

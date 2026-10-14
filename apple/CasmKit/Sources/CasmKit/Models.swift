@@ -277,6 +277,13 @@ public struct Agent: Codable, Sendable, Hashable, Identifiable {
     public var deferred: Deferred?
     /// Messages waiting to be sent (see `agent.pending`).
     public var pending: PendingSummary?
+    /// Provider-internal subagents (Claude Task/Agent, Codex, opencode) running in the live
+    /// session, background ones included; casm shows them but doesn't orchestrate them.
+    public var subagents: SubagentSummary?
+
+    public struct SubagentSummary: Codable, Sendable, Hashable {
+        public var running: Int
+    }
 
     public struct Deferred: Codable, Sendable, Hashable {
         /// ISO time the limit resets.

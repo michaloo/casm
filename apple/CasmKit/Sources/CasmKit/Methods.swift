@@ -322,6 +322,22 @@ struct LimitsParams: Codable, Sendable { var provider: ProviderID?; var refresh:
 struct LimitsResult: Codable, Sendable { var limits: [ProviderLimits] }
 struct CancelPendingParams: Codable, Sendable { var id: String; var messageId: String? }
 struct RetryPendingParams: Codable, Sendable { var id: String; var messageId: String }
+struct WaitParams: Codable, Sendable { var id: String; var timeoutMs: Int? }
+
+/// agent.wait: the agent's state once it's idle (or waiting), with its last reply.
+public struct WaitResult: Codable, Sendable {
+    public var status: AgentStatus
+    public var timedOut: Bool
+    /// The last assistant text of the agent's last turn.
+    public var lastReply: String?
+    /// How the last turn since the server started ended.
+    public var lastTurn: LastTurn?
+
+    public struct LastTurn: Codable, Sendable {
+        public var outcome: String
+        public var error: String?
+    }
+}
 struct CancelPendingResult: Codable, Sendable { var cancelled: Int }
 
 public struct RespondPermissionParams: Codable, Sendable {
@@ -399,6 +415,11 @@ public extension RPCClient {
     @discardableResult
     func cancelPending(agentId: String, messageId: String? = nil) async throws -> Int {
         try await (call("agent.cancelPending", CancelPendingParams(id: agentId, messageId: messageId)) as CancelPendingResult).cancelled
+    }
+
+    /// Resolves when the agent is idle or waiting (immediately if it already is), or after `timeoutMs`.
+    func wait(agentId: String, timeoutMs: Int? = nil) async throws -> WaitResult {
+        try await call("agent.wait", WaitParams(id: agentId, timeoutMs: timeoutMs))
     }
 
     /// Sends a failed pending message again (as `send` would) and removes it.

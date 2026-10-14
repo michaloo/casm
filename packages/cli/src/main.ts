@@ -5,9 +5,11 @@
 // elsewhere -H picks an entry of hosts.json.
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { parseArgs } from "node:util";
 import { CasmClient } from "@casm/client";
 import type { Agent, AgentEvent, Item, Project, ProviderId, Usage } from "@casm/protocol";
@@ -72,6 +74,10 @@ projects:
   project rm <project>
   project agents-md <project> [--edit]  print <project>/AGENTS.md; --edit opens $EDITOR and saves
   project memories <project>          each agent's memories for the project folder (--json: full text)
+
+files (read-only, inside project folders on the host):
+  cat <path> [--force]               print a text file; --force prints a binary one too
+  get <path> [-o out]                download a file (default: its name, here); -o - writes to stdout
 
 agents:
   agents [--project p] [--all] [--usage]
@@ -160,6 +166,8 @@ const options = {
   reset: { type: "boolean" },
   enable: { type: "boolean" },
   disable: { type: "boolean" },
+  force: { type: "boolean" },
+  output: { type: "string", short: "o" },
 } as const;
 
 // The first positional decides; flags (and the values of flags that take one) may
@@ -189,9 +197,13 @@ function out(json: unknown, human: () => void) {
   else human();
 }
 
+// The server the client connected to; downloads come from its HTTP side.
+let serverUrl = "";
+
 async function connect(): Promise<CasmClient> {
   const local = localServer();
   const peer = opt.host ?? process.env.CASM_HOST;
+  serverUrl = local?.url ?? "";
   if (local)
     return CasmClient.connect(local.url, local.token, { host: peer }).catch((e: Error) =>
       fail(`${e.message}\n(the casm server from ${local.source}; is it running? "casm service status")`),
@@ -201,6 +213,7 @@ async function connect(): Promise<CasmClient> {
   if (!name) fail(`no hosts configured; run "casm host add <name> <ws-url> <token>"`);
   const host = h.hosts[name];
   if (!host) fail(`unknown host "${name}" (known: ${Object.keys(h.hosts).join(", ") || "none"})`);
+  serverUrl = host.url;
   return CasmClient.connect(host.url, host.token);
 }
 
@@ -343,6 +356,15 @@ async function main() {
   }
 }
 
+// The whole file, over a signed download link (a peer's streams through the server).
+async function download(c: CasmClient, path: string) {
+  const link = await c.call("fs.downloadLink", { path });
+  const url = new URL(link.url, serverUrl.replace(/^ws/, "http"));
+  const res = await fetch(url);
+  if (!res.ok || !res.body) fail(`download failed: HTTP ${res.status} ${(await res.text()).trim()}`);
+  return { link, body: Readable.fromWeb(res.body as import("node:stream/web").ReadableStream) };
+}
+
 async function projects(c: CasmClient): Promise<Project[]> {
   return (await c.call("project.list", { includeArchived: true })).projects;
 }
@@ -443,6 +465,32 @@ async function run(c: CasmClient) {
       if (r.status !== "idle") process.exitCode = 3;
       else if (failed || r.lastTurn?.outcome === "failed") process.exitCode = 1;
       return;
+    }
+
+    case "cat": {
+      const path = args[0] ?? fail("usage: casm cat <path> [--force]");
+      const file = await c.call("fs.read", { path });
+      if (file.type === "dir") fail(`${path} is a directory`);
+      if (file.binary && !opt.force) fail(`${path} is a binary file (${file.mime}, ${file.size} bytes); "casm get" downloads it, --force prints it`);
+      if (file.content !== null && !file.truncated) return void process.stdout.write(file.content);
+      return pipeline((await download(c, path)).body, process.stdout);
+    }
+
+    case "get": {
+      const path = args[0] ?? fail("usage: casm get <path> [-o out]");
+      const { link, body } = await download(c, path);
+      if (opt.output === "-") return pipeline(body, process.stdout);
+      const target = resolve(opt.output ?? link.name);
+      if (existsSync(target) && !opt.force) fail(`${target} exists; choose another -o or add --force`);
+      // Written beside the target, then moved into place: no half files.
+      const temp = `${target}.casm-${process.pid}.part`;
+      try {
+        await pipeline(body, createWriteStream(temp, { flags: "wx" }));
+        renameSync(temp, target);
+      } finally {
+        rmSync(temp, { force: true });
+      }
+      return out({ path: target, size: link.size }, () => console.error(`saved ${target} (${link.size} bytes)`));
     }
 
     case "projects": {

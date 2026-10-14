@@ -135,6 +135,11 @@ requests are available through `permissions`, `approve`, `deny`, `questions` and
 `answer`, or in the web client. Use `--json` for scripting and `-H worker` to
 address a peer. `casm --help` lists all commands and wait exit codes.
 
+Files inside project folders are readable, not writable: `casm cat <path>`
+prints a text file and `casm get <path> [-o out]` downloads one, also from a
+peer with `-H`. The web client previews paths that agents mention (or
+`/f/<absolute path>`) and browses a project's files from its settings.
+
 ### Message delivery
 
 Queued messages run in strict FIFO order, one per turn. Interrupt stops the

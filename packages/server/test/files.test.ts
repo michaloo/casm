@@ -2,8 +2,10 @@
 // links and their streaming, locally and through a peer.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { promisify } from "node:util";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CasmClient, CasmError } from "@casm/client";
@@ -274,4 +276,29 @@ test("/f/ preview routes serve the web client", async () => {
     await server.close();
     store.close();
   }
+});
+
+test("casm cat and casm get, here and on a peer", async () => {
+  const cli = join(import.meta.dirname, "../../cli/src/main.ts");
+  const cwd = mkdtempSync(join(tmpdir(), "casm-files-cli-"));
+  const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("CASM_")));
+  const casm = (...args: string[]) =>
+    promisify(execFile)(process.execPath, [cli, ...args], { cwd, encoding: "buffer", maxBuffer: 8 * MAX_READ_BYTES,
+      env: { ...clean, CASM_HOME: cwd, CASM_URL: alpha.url, CASM_TOKEN: alpha.token } });
+  assert.equal(String((await casm("cat", join(project, "data.json"))).stdout), json);
+  // Past the preview cap, cat streams the whole file.
+  assert.equal((await casm("cat", join(project, "big.txt"))).stdout.length, 2 * MAX_READ_BYTES);
+  await assert.rejects(casm("cat", join(project, "blob.bin")), /binary file \(application\/octet-stream, 4 bytes\); "casm get"/);
+  assert.deepEqual((await casm("cat", "--force", join(project, "blob.bin"))).stdout, Buffer.from([1, 2, 0, 3]));
+  await assert.rejects(casm("cat", join(project, "escape.txt")), /outside every project folder/);
+
+  const saved = await casm("get", join(project, "sub", "zażółć plik.txt"));
+  assert.match(String(saved.stderr), /saved .*zażółć plik.txt \(11 bytes\)/);
+  assert.equal(readFileSync(join(cwd, "zażółć plik.txt"), "utf8"), "zażółć\n");
+  await assert.rejects(casm("get", join(project, "sub", "zażółć plik.txt")), /exists; choose another -o or add --force/);
+  await casm("-H", "beta", "get", join(project, "pixel.png"), "-o", "peer.png");
+  assert.deepEqual(readFileSync(join(cwd, "peer.png")), readFileSync(join(project, "pixel.png")));
+  assert.deepEqual((await casm("get", join(project, "blob.bin"), "-o", "-")).stdout, Buffer.from([1, 2, 0, 3]));
+  assert.ok(!readdirSync(cwd).some((f) => f.endsWith(".part")));
+  assert.ok(!existsSync(join(cwd, "blob.bin")));
 });

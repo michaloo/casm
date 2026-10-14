@@ -1,7 +1,7 @@
 // End-to-end over a real WebSocket, with a scripted fake provider.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, unlinkSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, unlinkSync, rmSync, symlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -186,6 +186,38 @@ test("projects are folders with an optional group", async () => {
   const agent = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   assert.equal(agent.cwd, dir);
   assert.equal((await client.call("project.update", { id: p.id, group: null })).group, null);
+});
+
+test("an agent can work in a folder inside its project, never outside it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "casm-cwd-"));
+  const dir = join(root, "repo");
+  mkdirSync(join(dir, ".worktrees", "task-1"), { recursive: true });
+  mkdirSync(join(root, "elsewhere"));
+  symlinkSync(join(root, "elsewhere"), join(dir, "escape"));
+  symlinkSync(join(dir, ".worktrees"), join(dir, "wt"));
+  const p = await client.call("project.create", { path: dir, name: "Worktrees" });
+  const create = (cwd: string) => client.call("agent.create", { projectId: p.id, provider: "claude", cwd });
+
+  assert.equal((await create(".worktrees/task-1")).cwd, join(dir, ".worktrees", "task-1"));
+  assert.equal((await create(join(dir, ".worktrees", "task-1"))).cwd, join(dir, ".worktrees", "task-1"));
+  assert.equal((await create(".")).cwd, dir);
+  // A symlink that stays inside the project is fine.
+  assert.equal((await create("wt/task-1")).cwd, join(dir, "wt", "task-1"));
+
+  const invalid = async (cwd: string, message: RegExp) => {
+    const e = await create(cwd).then(() => null, (e: CasmError) => e);
+    assert.ok(e instanceof CasmError, `${cwd} was accepted`);
+    assert.equal(e.code, -32602);
+    assert.match(e.message, message);
+  };
+  await invalid("..", /must be inside the project folder/);
+  await invalid("../elsewhere", /must be inside the project folder/);
+  await invalid(join(root, "elsewhere"), /must be inside the project folder/);
+  await invalid("escape", /must be inside the project folder .*resolves to .*elsewhere/);
+  await invalid(".worktrees/missing", /no such directory on this host: .*missing/);
+  writeFileSync(join(dir, "file.txt"), "");
+  await invalid("file.txt", /no such directory/);
+  rmSync(root, { recursive: true });
 });
 
 test("send, wait, history and session id are wired through", async () => {

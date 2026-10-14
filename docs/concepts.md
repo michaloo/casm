@@ -65,9 +65,10 @@ sub-folder of it (`--cwd`, for example a git worktree such as
 organizes work. The same folder can be a project on several hosts, as
 independent records.
 
-Project settings (CLI `casm project agents-md`, or the web client's project
-menu) edit the folder's `AGENTS.md` with a conflict check, and show the
-providers' memories for the folder, read-only.
+A project's `AGENTS.md` can be edited with a conflict check (CLI
+`casm project agents-md --edit`, or **Project options** in the web client),
+and the providers' memories for the folder are shown read-only
+(`casm project memories`).
 
 ## Agents
 

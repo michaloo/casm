@@ -196,3 +196,27 @@ test("provider admission remains blocked across reopen for sibling agents and re
     client.close(); await server.close(); store.close(); rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("legacy pending limits seed a provider gate once without overwriting recovery", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-limit-upgrade-"));
+  const store = new Store(join(dir, "db"));
+  const p = store.createProject({ path: dir, name: "legacy" });
+  const a = store.createAgent({ projectId: p.id, provider: "codex", name: "a", cwd: dir, config: {} });
+  const b = store.createAgent({ projectId: p.id, provider: "codex", name: "b", cwd: dir, config: {} });
+  const until = new Date(Date.now() + 3600_000).toISOString();
+  store.addPending({ agentId: a.id, text: "legacy", reason: "limit", notBefore: until, note: "usage limit" });
+  const provider: Provider = {
+    id: "codex", open() { throw new Error("must remain queued"); },
+    async history() { return []; }, async usage() { return null; },
+    async commands() { return []; }, async catalog() { return { models: [], modes: [] }; },
+  };
+  let server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  try {
+    assert.equal(store.providerAvailability()[0].windows[0].resetsAt, until);
+    assert.equal(server.agents.send(b.id, { text: "sibling" }).queued, true);
+    await server.close();
+    store.saveProviderAvailability({ provider: "codex", updatedAt: new Date().toISOString(), windows: [{ id: "limit", status: "ok" }] });
+    server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+    assert.equal(store.providerAvailability()[0].windows[0].status, "ok");
+  } finally { await server.close(); store.close(); rmSync(dir, { recursive: true, force: true }); }
+});

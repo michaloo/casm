@@ -126,6 +126,23 @@ export class AgentManager {
     this.notify = notify;
     this.agentPrompt = agentPrompt;
     for (const limits of store.providerAvailability()) this.limitsSeen.set(limits.provider, limits);
+    // Upgrade older stores conservatively: their pending limit rows are the
+    // only persisted evidence of a provider gate. Never overwrite a recorded
+    // recovery with a stale pending row.
+    const legacy = new Map<ProviderId, number>();
+    for (const pending of store.listPending()) {
+      if (pending.reason !== "limit" || !pending.notBefore) continue;
+      const provider = store.getAgent(pending.agentId)?.provider;
+      const until = Date.parse(pending.notBefore);
+      if (!provider || this.limitsSeen.has(provider) || !(until > Date.now())) continue;
+      legacy.set(provider, Math.max(legacy.get(provider) ?? 0, until));
+    }
+    for (const [provider, until] of legacy) {
+      const limits: ProviderLimits = { provider, updatedAt: new Date().toISOString(),
+        windows: [{ id: "limit", label: "usage limit", status: "exhausted", resetsAt: new Date(until).toISOString() }] };
+      store.saveProviderAvailability(limits);
+      this.limitsSeen.set(provider, limits);
+    }
     // Pending messages survive restarts; send due ones every 15 s.
     this.deferTimer = setInterval(() => this.runDuePending(), 15_000);
     this.deferTimer.unref();

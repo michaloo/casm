@@ -149,7 +149,7 @@ test("fs.read: text, mime, truncation, binary and directories", async () => {
 
 test("download links stream the file as an attachment with safe headers", async () => {
   const link = await alpha.client.call("fs.downloadLink", { path: join(project, "sub", "zażółć plik.txt") });
-  assert.match(link.url, /^\/dl\/[\w-]+\.[\w-]+$/);
+  assert.match(link.url, /^\/dl\/[\w-]+\.[\w-]+\/za%C5%BC%C3%B3%C5%82%C4%87%20plik\.txt$/);
   assert.equal(link.name, "zażółć plik.txt");
   assert.ok(Date.parse(link.expiresAt) > Date.now() + 4 * 60_000);
   assert.ok(!link.url.includes(alpha.token));
@@ -183,10 +183,18 @@ test("inline links show images only; other files stay attachments", async () => 
 
 test("tampered and foreign links are refused", async () => {
   const link = await alpha.client.call("fs.downloadLink", { path: join(project, "data.json") });
-  const [body, mac] = link.url.slice(4).split(".");
+  const [token, nameSegment] = link.url.slice(4).split("/");
+  const [body, mac] = token.split(".");
   const payload = JSON.parse(Buffer.from(body, "base64url").toString());
   const forged = Buffer.from(JSON.stringify({ ...payload, p: join(outside, "secret.txt") })).toString("base64url");
-  for (const url of [`/dl/${forged}.${mac}`, `/dl/${body}.${mac.slice(0, -2)}AA`, `/dl/${body}`, "/dl/", `/dl/${body}.${mac}.x`]) {
+  // The name in the path must be the signed one; the bare token still works.
+  assert.equal((await fetch(`${alpha.http}/dl/${body}.${mac}`)).status, 200);
+  assert.equal((await fetch(`${alpha.http}/dl/${body}.${mac}/${nameSegment}`)).status, 200);
+  for (const name of ["other.json", "data.jso", "%E0%A4%A", "data.json/x"]) {
+    const res = await fetch(`${alpha.http}/dl/${body}.${mac}/${name}`);
+    assert.equal(res.status, 403, name);
+  }
+  for (const url of [`/dl/${forged}.${mac}`, `/dl/${body}.${mac.slice(0, -2)}AA`, `/dl/${body}`, "/dl/", `/dl/${body}.${mac}.x/${nameSegment}`]) {
     const res = await fetch(alpha.http + url);
     assert.equal(res.status, 403, url);
     assert.match(await res.text(), /invalid download link/);
@@ -240,6 +248,7 @@ test("a peer's files: list and read forward, downloads stream through this serve
     assert.equal(link.name, "pixel.png");
     const payload = JSON.parse(Buffer.from(link.url.slice(4).split(".")[0], "base64url").toString());
     assert.equal(payload.h, "beta");
+    assert.ok(link.url.endsWith("/pixel.png"));
     // Served by alpha, the server the client is connected to.
     const res = await fetch(alpha.http + link.url);
     assert.equal(res.status, 200);
@@ -247,6 +256,13 @@ test("a peer's files: list and read forward, downloads stream through this serve
     assert.match(res.headers.get("content-disposition")!, /^inline; filename="pixel.png"/);
     assert.equal(res.headers.get("x-content-type-options"), "nosniff");
     assert.deepEqual(Buffer.from(await res.arrayBuffer()), readFileSync(join(project, "pixel.png")));
+    // An attachment keeps its name through the relay, in the header and in the path.
+    const dl = await viaPeer.call("fs.downloadLink", { path: join(project, "data.json") });
+    assert.ok(dl.url.endsWith("/data.json"));
+    const attached = await fetch(alpha.http + dl.url);
+    assert.equal(attached.headers.get("content-disposition"), contentDisposition("attachment", "data.json"));
+    assert.equal(await attached.text(), json);
+    assert.equal((await fetch(alpha.http + dl.url.replace(/[^/]*$/, "evil.json"))).status, 403);
     // Beta itself would not take alpha's wrapper.
     assert.equal((await fetch(beta.http + link.url)).status, 403);
     await refused(viaPeer.call("fs.downloadLink", { path: join(project, "escape.txt") }), ErrorCode.InvalidParams, /outside/);

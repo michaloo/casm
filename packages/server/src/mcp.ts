@@ -28,7 +28,10 @@ export function casmMcpEntry(provider: ProviderId, url: string, token: string): 
     case "pi":
       return { url, headers: auth, exposure: "direct", description: "casm: create, message and wait for coding agents on this host and its peers" };
     // OpenCode's MCP config belongs to the shared `opencode serve`, so it can't
-    // carry a per-agent token.
+    // carry a per-agent token: casm's plugin calls the endpoint per session
+    // instead (opencode-plugin.ts).
+    case "opencode":
+      return { url, headers: auth };
     default:
       return null;
   }
@@ -127,6 +130,11 @@ type ToolName = keyof typeof tools;
 
 // The tool names an agent with casmTools sees (Claude shows them as mcp__casm__<name>).
 export const CASM_TOOL_NAMES = Object.keys(tools) as ToolName[];
+// tools/list: each tool with its input's JSON Schema.
+export const CASM_TOOLS = Object.entries(tools).map(([name, t]) => {
+  const { $schema: _, ...inputSchema } = z.toJSONSchema(t.input, { io: "input" }) as Record<string, unknown>;
+  return { name, description: t.description, inputSchema };
+});
 type Args<T extends ToolName> = z.infer<(typeof tools)[T]["input"]>;
 
 function pick<T extends { id: string; name: string }>(list: T[], ref: string, what: string, where: string): T {
@@ -300,11 +308,6 @@ export function createMcp(ctx: McpContext) {
     },
   };
 
-  const toolList = Object.entries(tools).map(([name, t]) => {
-    const { $schema: _, ...inputSchema } = z.toJSONSchema(t.input, { io: "input" }) as Record<string, unknown>;
-    return { name, description: t.description, inputSchema };
-  });
-
   async function callTool(name: string, args: unknown, caller: string) {
     const tool = tools[name as ToolName];
     if (!tool) return { content: [{ type: "text", text: `unknown tool ${name}` }], isError: true };
@@ -338,7 +341,7 @@ export function createMcp(ctx: McpContext) {
       case "ping":
         return ok({});
       case "tools/list":
-        return ok({ tools: toolList });
+        return ok({ tools: CASM_TOOLS });
       case "tools/call":
         return ok(await callTool(String(m.params?.name ?? ""), m.params?.arguments, caller));
       default:

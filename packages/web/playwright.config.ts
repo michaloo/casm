@@ -8,7 +8,7 @@ export default defineConfig({
     { name: "chromium", use: { browserName: "chromium" } },
     {
       name: "webkit-iphone-13-mini",
-      grep: /phone layout|mobile|375/,
+      grep: /phone layout|mobile|375|question\.spec\.ts|pending-mobile\.spec\.ts/,
       use: {
         ...devices["iPhone 13 Mini"],
         browserName: "webkit",

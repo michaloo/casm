@@ -227,6 +227,35 @@ Every session casm starts (Claude, Codex, pi; not OpenCode, whose server is shar
 `casm run` reads them, so an agent shelling out to `casm -H macbook run ...` links the child to itself.
 `--parent <serverId>/<agentId>` overrides them and `--parent none` turns the link off.
 
+### Host agent prompt
+
+When a session starts or resumes, casm puts the host's agent prompt ahead of the agent's own
+`config.systemPrompt`, for every provider. It tells the agent where it runs (host, agent id, project,
+folder) and which casm commands it has (`casm run`, `send`, `wait`, `schedule add`, `pending`,
+`peers`, `limits`, ...), plus the casm MCP tools when the agent has them (`config.casmTools`).
+`$CASM_HOME/agent-prompt.md` replaces the built-in default; `{{host}}`, `{{agentId}}`,
+`{{agentName}}`, `{{project}}`, `{{cwd}}`, `{{provider}}` and `{{casmTools}}` are filled per agent.
+`"agentPrompt": false` in `$CASM_HOME/config.json` turns it off.
+
+```sh
+casm agent-prompt [agent]        # the effective prompt, for that agent or an example one
+casm agent-prompt --edit         # edit agent-prompt.md in $EDITOR, seeded with the default
+casm agent-prompt --reset        # delete it, back to the default
+casm agent-prompt --disable      # or --enable
+```
+
+Protocol: `server.agentPrompt` / `server.setAgentPrompt`. Changes apply to sessions opened afterwards.
+
+### Subagents
+
+Subagents an agent runs itself (Claude Task/Agent, background ones too, Codex sub-agents, OpenCode
+tasks) show in its transcript as `subagent` items. The server tracks them from the live session, so
+agents report `subagents: {running}` (a background subagent counts until its completion arrives,
+even while the agent is idle) and `casm agents` shows "2 subagents". `casm subagents [agent]`
+(`agent.subagents`) lists running and recent ones with type, activity or summary and usage;
+`casm history <agent> --subagent <id>` reads one (`agent.subagentHistory`). A subagent still running
+when its session ended is shown as stale.
+
 ## Protocol coverage
 
 [coverage/REPORT.md](coverage/REPORT.md) measures how much of each agent's native protocol, and of

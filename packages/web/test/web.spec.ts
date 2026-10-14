@@ -305,26 +305,34 @@ for (const scheme of ["light", "dark"] as const)
         path: `/tmp/casm-web-visual-${device}-${scheme}.png`,
       });
       const reveal = async (locator: ReturnType<typeof page.locator>) => {
-        await scroller.hover();
+        // Tool expansion/collapse is remeasured asynchronously by Virtuoso.
+        // Wait for its scroll geometry to settle before seeking another row.
+        let previous = "";
+        await expect.poll(async () => {
+          const current = await scroller.evaluate((el) => `${el.scrollTop}:${el.scrollHeight}:${el.clientHeight}`);
+          const settled = current === previous;
+          previous = current;
+          return settled;
+        }).toBe(true);
         await expect
           .poll(
             async () => {
               if (await locator.isVisible()) {
-                const inView = await locator.evaluate((el) => {
+                return locator.evaluate((el) => {
                   const box = el.getBoundingClientRect();
                   const container = el.closest("[data-virtuoso-scroller]");
                   if (!container) return false;
                   const root = container.getBoundingClientRect();
-                  return box.top >= root.top && box.bottom <= root.bottom;
+                  const visible = Math.min(box.bottom, root.bottom) - Math.max(box.top, root.top);
+                  if (visible >= Math.min(box.height, root.height) - 1) return true;
+                  // Scroll only the transcript: scrollIntoView can also move outer
+                  // ancestors while Virtuoso remeasures a collapsed tool in WebKit.
+                  container.scrollBy({ top: box.top - root.top - Math.max(0, (root.height - box.height) / 2), behavior: "instant" });
+                  return false;
                 });
-                if (inView) return true;
-                await locator.evaluate((el) =>
-                  el.scrollIntoView({ block: "center" }),
-                );
-                return false;
               }
-              if (isMobile) await scroller.evaluate((el, delta) => el.scrollBy(0, delta), size.height * 0.35);
-              else await page.mouse.wheel(0, size.height * 0.35);
+              // Unmounted virtual rows cannot be located until they enter the range.
+              await scroller.evaluate((el) => el.scrollBy({ top: el.clientHeight * 0.35, behavior: "instant" }));
               return false;
             },
             { timeout: 10000, intervals: [100, 150, 250] },

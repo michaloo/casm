@@ -461,3 +461,25 @@ test("OpenCode dispatch binds CASM prompt IDs to explicit native IDs before send
     assert.deepEqual(events.find((e) => e.type === "userMessageId"), { type: "userMessageId", itemId: "casm-id", nativeId: "msg_casmid" });
   } finally { await session.close(); }
 });
+
+test("OpenCode MCP reconnect uses directory-scoped native endpoints and keeps disabled servers off", async () => {
+  class McpServer extends FakeOpencodeServer {
+    calls: string[] = [];
+    override async request<T>(method: string, path: string, cwd?: string): Promise<T> {
+      if (!path.startsWith("/mcp")) return super.request(method, path);
+      assert.equal(cwd, "/tmp/mcp-project");
+      this.calls.push(`${method} ${path}`);
+      if (path === "/mcp") return { "docs/name": { status: "connected" }, off: { status: "disabled" } } as T;
+      return true as T;
+    }
+  }
+  const server = new McpServer();
+  const session = opencodeProvider(server).open({ cwd: "/tmp/mcp-project", config: {}, resumeId: null, emit() {}, askPermission: async () => ({ decision: "deny" }), askQuestion: async () => null });
+  try {
+    assert.equal((await session.mcpStatus!())[0].toolsKnown, false);
+    await session.mcpReconnect!("docs/name"); await session.mcpReconnect!();
+    assert.equal(server.calls.filter((s) => s === "POST /mcp/docs%2Fname/connect").length, 2);
+    assert.equal(server.calls.filter((s) => s === "POST /mcp/docs%2Fname/disconnect").length, 2);
+    assert.ok(!server.calls.some((s) => s.includes("/off/")));
+  } finally { await session.close(); }
+});

@@ -1,3 +1,4 @@
+import { codexMcpServer } from "./mcp.ts";
 import { providerEnv } from "./env.ts";
 import { toolImages, viewedImage } from "./tool-images.ts";
 // Codex via `codex app-server`: JSON-RPC over stdio, one process per open
@@ -504,7 +505,7 @@ class Rpc {
     else if (m.id !== undefined) {
       const p = this.pending.get(m.id);
       this.pending.delete(m.id);
-      if (m.error) p?.reject(new Error(m.error.message));
+      if (m.error) p?.reject(Object.assign(new Error(m.error.message), { code: m.error.code }));
       else p?.resolve(m.result);
     }
   }
@@ -1123,6 +1124,28 @@ class CodexSession implements ProviderSession {
         throw e;
       }
     });
+  }
+
+  readonly mcpReconnectScope = "all" as const;
+
+  async mcpStatus() {
+    await this.chain;
+    if (!this.threadId || this.closing) throw new Error("Codex session is not available");
+    const servers: import("@casm/protocol").McpServer[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { data: Record<string, unknown>[]; nextCursor?: string | null } = await this.rpc.request("mcpServerStatus/list", { threadId: this.threadId, detail: "toolsAndAuthOnly", cursor });
+      servers.push(...page.data.map(codexMcpServer));
+      cursor = page.nextCursor ?? null;
+    } while (cursor);
+    return servers;
+  }
+
+  async mcpReconnect(_server?: string) {
+    await this.chain;
+    if (!this.threadId || this.closing) throw new Error("Codex session is not available");
+    await this.rpc.request("config/mcpServer/reload", null);
+    return "Reloaded all Codex MCP configuration; loaded threads apply the refresh on their next active turn. Codex does not expose per-server reconnect.";
   }
 
   async interrupt() {

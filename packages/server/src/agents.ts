@@ -779,6 +779,43 @@ export class AgentManager {
     else this.dropSession(id, l);
   }
 
+  private mcpSession(id: string) {
+    const a = this.agent(id);
+    if (a.archivedAt) throw new RpcError(1003, "agent is archived");
+    const l = this.liveFor(id);
+    this.openSession(a, l);
+    return l.session!;
+  }
+
+  async mcpStatus(id: string): Promise<import("@casm/protocol").McpStatus> {
+    const session = this.mcpSession(id);
+    if (!session.mcpStatus) return { servers: [], reconnect: "reload", canToggle: false, message: "This provider has no native MCP status API. Reconnect reloads the agent session to re-read configuration." };
+    try {
+      return { servers: await session.mcpStatus(), reconnect: session.mcpReconnect ? session.mcpReconnectScope ?? "server" : "reload", canToggle: !!session.mcpToggle };
+    } catch (e) {
+      if ((e as { code?: number }).code !== -32601) throw e;
+      return { servers: [], reconnect: "reload", canToggle: false, message: "This provider version has no native MCP status API. Reconnect falls back to reloading the session if native reload is unavailable." };
+    }
+  }
+
+  async mcpReconnect(id: string, server?: string): Promise<import("@casm/protocol").McpAction> {
+    const session = this.mcpSession(id);
+    if (session.mcpReconnect) {
+      try { return { mode: "native", message: await session.mcpReconnect(server) }; }
+      catch (e) { if ((e as { code?: number }).code !== -32601) throw e; }
+    }
+    await this.reload(id);
+    this.mcpSession(id);
+    return { mode: "reload", message: "Provider has no native MCP reconnect API; reloaded the whole agent session to re-read MCP configuration." };
+  }
+
+  async mcpToggle(id: string, server: string, enabled: boolean): Promise<import("@casm/protocol").McpAction> {
+    const session = this.mcpSession(id);
+    if (!session.mcpToggle) throw new RpcError(-32602, "This provider does not support toggling MCP servers.");
+    await session.mcpToggle(server, enabled);
+    return { mode: "native", message: `${server} ${enabled ? "enabled" : "disabled"}.` };
+  }
+
   // Drops the process; the next send resumes the same native session.
   async reload(id: string) {
     this.agent(id);

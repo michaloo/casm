@@ -110,6 +110,7 @@ schedules (run on the host; messages to busy or limited agents become pending):
   approve <agent> <request> [--always]
   deny <agent> <request> [--message text]
   shell <agent> <command>            run a command in the agent's directory (like "!cmd"); exit 1 if it fails
+  mcp <agent> [--reconnect [server]]   MCP status, or reconnect one/all servers
   interrupt <agent>                 stop the turn; keep the queue and continue with its next message
   reload | restart | archive | rm <agent>
 
@@ -142,6 +143,7 @@ const options = {
   dismiss: { type: "boolean" },
   group: { type: "string" },
   refresh: { type: "boolean" },
+  reconnect: { type: "boolean" },
   usage: { type: "boolean" },
   "fail-if-limited": { type: "boolean" },
   "message-id": { type: "string" },
@@ -832,6 +834,24 @@ async function run(c: CasmClient) {
         decision: cmd === "deny" ? "deny" : opt.always ? "allowAlways" : "allow",
         message: opt.message,
       });
+      return;
+    }
+
+    case "mcp": {
+      const a = await agentRef(c, args[0]);
+      if (args.length > (opt.reconnect ? 2 : 1)) fail("usage: casm mcp <agent> [--reconnect [server]]");
+      if (opt.reconnect) {
+        const result = await c.call("agent.mcpReconnect", { id: a.id, ...(args[1] ? { server: args[1] } : {}) });
+        console.log(opt.json ? JSON.stringify(result) : result.message);
+      } else {
+        const result = await c.call("agent.mcpStatus", { id: a.id });
+        if (opt.json) console.log(JSON.stringify(result));
+        else {
+          if (result.message) console.log(result.message);
+          for (const s of result.servers) console.log(`${s.name}  ${s.status}  ${s.toolsKnown === false ? "tool count unavailable" : `${s.tools} tools`}${s.error ? `  ${s.error}` : ""}`);
+          if (!result.servers.length && !result.message) console.log("No MCP servers configured.");
+        }
+      }
       return;
     }
 

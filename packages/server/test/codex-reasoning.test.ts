@@ -24,11 +24,12 @@ const write = m => process.stdout.write(JSON.stringify(m) + '\\n');
 createInterface({input: process.stdin}).on('line', line => {
   const m = JSON.parse(line);
   if (m.id === undefined) return;
-  if (m.method === 'thread/start' || m.method === 'thread/resume') require('node:fs').appendFileSync(${JSON.stringify(log)}, JSON.stringify(m) + '\\n');
+  if (m.method === 'thread/start' || m.method === 'thread/resume' || m.method.includes('mcp') || m.method.includes('Mcp')) require('node:fs').appendFileSync(${JSON.stringify(log)}, JSON.stringify(m) + '\\n');
   let result = {};
   if (m.method === 'thread/start' || m.method === 'thread/resume') result = {thread:{id:'thread'}, model:'fake', reasoningEffort:null};
   if (m.method === 'collaborationMode/list' || m.method === 'skills/list') result = {data:[]};
   if (m.method === 'thread/items/list') result = {data:[], nextCursor:null};
+  if (m.method === 'mcpServerStatus/list') result = {data:[{name:'docs',runtimeStatus:'connected',tools:{lookup:{}}}],nextCursor:null};
   write({id:m.id,result});
 });
 `, { mode: 0o755 });
@@ -62,5 +63,10 @@ for (const resumeId of [null, "thread-1"]) {
     // No config.model: the model the thread runs is Codex's own default, reported as the effective model.
     await until(() => events.some((e) => e.type === "model"));
     assert.deepEqual(events.find((e) => e.type === "model"), { type: "model", model: "fake" });
+    assert.deepEqual(await session.mcpStatus!(), [{ name: "docs", status: "connected", tools: 1 }]);
+    assert.equal(session.mcpReconnectScope, "all");
+    assert.match(await session.mcpReconnect!("docs"), /all Codex MCP/);
+    assert.equal(fake.requests().find((r) => r.method === "mcpServerStatus/list").params.threadId, "thread");
+    assert.ok(fake.requests().some((r) => r.method === "config/mcpServer/reload"));
   });
 }

@@ -117,68 +117,6 @@ for (let i = 0; i < 65; i++) {
   histories.set(`fake-history-${i}`, [...history]);
   store.updateAgent(a.id, { nativeSessionId: `fake-history-${i}` });
 }
-const orchestrator = store.createAgent({
-  projectId: p.id,
-  name: "Orchestrator",
-  provider: "claude",
-  cwd: home,
-  config: {},
-});
-const parent = {
-  serverId: store.serverId(),
-  agentId: orchestrator.id,
-  host: "Test host",
-};
-const localChild = store.createAgent({
-  projectId: p.id,
-  name: "Nested worker",
-  provider: "claude",
-  cwd: home,
-  config: {},
-  parent,
-});
-const workPath = `${home}/work`;
-mkdirSync(workPath, { recursive: true });
-const work = store.createProject({ name: "Work project", path: workPath });
-store.createAgent({
-  projectId: work.id,
-  name: "Cross-project worker",
-  provider: "claude",
-  cwd: workPath,
-  config: {},
-  parent,
-});
-rmSync(`${home}/peer-test.db`, {force:true});
-const peerStore = new Store(`${home}/peer-test.db`);
-for (const a of peerStore.listAgents()) peerStore.deleteAgent(a.id);
-for (const p of peerStore.listProjects()) peerStore.deleteProject(p.id);
-const remoteProject = peerStore.createProject({
-  name: "Remote project",
-  path: home,
-});
-peerStore.createAgent({
-  projectId: remoteProject.id,
-  name: "Remote worker",
-  provider: "claude",
-  cwd: home,
-  config: {},
-  parent,
-});
-const peerToken = peerStore.createToken("web-peer");
-const peerServer = await startServer({
-  store: peerStore,
-  providers: [provider],
-  host: "127.0.0.1",
-  port: 0,
-  version: "web-test",
-  name: "Remote host",
-});
-store.setPeer({
-  name: "remote",
-  url: peerServer.url,
-  token: peerToken,
-  serverId: peerStore.serverId(),
-});
 const server = await startServer({
   store,
   providers: [provider],
@@ -202,10 +140,8 @@ console.log(`Web test server ${server.url}`);
 process.on(
   "SIGTERM",
   () =>
-    void server.close().then(async () => {
+    void server.close().then(() => {
       store.close();
-      await peerServer.close();
-      peerStore.close();
       process.exit();
     }),
 );

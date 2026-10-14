@@ -98,3 +98,41 @@ for (const recovery of ["send now", "healthy account refresh", "send now still l
     }
   });
 }
+
+test("empty account refresh preserves exhaustion for new recipients", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-empty-limits-"));
+  const store = new Store(join(dir, "db"));
+  const delivered: string[] = [];
+  const provider: Provider = {
+    id: "codex",
+    open(opts) {
+      return {
+        send(text) {
+          delivered.push(text);
+          setImmediate(() => opts.emit({ type: "turnEnded", outcome: "failed", error: "429 usage limit exceeded" }));
+        },
+        shell() {}, async interrupt() {}, async close() {},
+      };
+    },
+    async history() { return []; }, async usage() { return null; },
+    async commands() { return []; }, async catalog() { return { models: [], modes: [] }; },
+    async limits() { return { windows: [] }; },
+  };
+  const server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  const client = await CasmClient.connect(server.url, store.createToken("test"));
+  try {
+    const p = await client.call("project.create", { path: dir });
+    const a = await client.call("agent.create", { projectId: p.id, provider: "codex" });
+    await client.call("agent.send", { id: a.id, text: "hits limit" });
+    await client.call("agent.wait", { id: a.id });
+    const fresh = await client.call("provider.limits", { provider: "codex", refresh: true });
+    assert.equal(fresh.limits[0].windows[0]?.status, "exhausted");
+    const b = await client.call("agent.create", { projectId: p.id, provider: "codex" });
+    const sent = await client.call("agent.send", { id: b.id, text: "must wait" });
+    assert.equal(sent.queued, true);
+    assert.ok(sent.deferredUntil);
+    assert.deepEqual(delivered, ["hits limit"]);
+  } finally {
+    client.close(); await server.close(); store.close(); rmSync(dir, { recursive: true, force: true });
+  }
+});

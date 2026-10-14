@@ -705,5 +705,15 @@ test("a prompt the agent hasn't answered when the server stops is kept as a fail
   assert.deepEqual(s2.listPending(answered.id), []);
   const [m] = s2.listPending(silent.id);
   assert.deepEqual([m.reason, m.text, m.note], ["failed", "slow, never answered", "the server stopped before the agent answered"]);
+  // The agent's process may finish the turn after the server is gone: then the
+  // next start sees the answer in its history and drops the kept message.
+  const sid = s2.getAgent(silent.id)!.nativeSessionId!;
+  fake.history.set(sid, [{ kind: "user", id: "u", text: "slow, never answered" }, { kind: "assistant", id: "a", text: "done after all" }]);
+  const other = s2.addPending({ agentId: answered.id, text: "not answered", reason: "failed", notBefore: null, note: "x" });
+  const again = await startServer({ store: s2, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  for (let i = 0; i < 50 && s2.listPending(silent.id).length; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(s2.listPending(silent.id), []);
+  assert.deepEqual(s2.listPending(answered.id).map((x) => x.id), [other.id]);
+  await again.close();
   s2.close();
 });

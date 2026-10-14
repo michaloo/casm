@@ -136,3 +136,63 @@ test("empty account refresh preserves exhaustion for new recipients", async () =
     client.close(); await server.close(); store.close(); rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("provider admission remains blocked across reopen for sibling agents and recovers durably", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-limit-restart-"));
+  const file = join(dir, "db");
+  let store = new Store(file);
+  const project = store.createProject({ path: dir, name: "limits" });
+  const a = store.createAgent({ projectId: project.id, provider: "codex", name: "a", cwd: dir, config: {} });
+  const b = store.createAgent({ projectId: project.id, provider: "codex", name: "b", cwd: dir, config: {} });
+  const token = store.createToken("test");
+  const sent: string[] = [];
+  let healthy = false;
+  const provider: Provider = {
+    id: "codex",
+    open(opts) { return {
+      send(text) {
+        sent.push(text);
+        setImmediate(() => opts.emit(healthy ? { type: "turnEnded", outcome: "completed" }
+          : { type: "turnEnded", outcome: "failed", error: "usage limit reached; retry after 3600" }));
+      },
+      shell() {}, async interrupt() {}, async close() {},
+    }; },
+    async history() { return []; }, async usage() { return null; },
+    async commands() { return []; }, async catalog() { return { models: [], modes: [] }; },
+    async limits() { return healthy ? { windows: [{ id: "account", status: "ok", usedPercent: 1 }] } : null; },
+  };
+  let server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  let client = await CasmClient.connect(server.url, token);
+  const reopen = async () => {
+    client.close(); await server.close(); store.close();
+    store = new Store(file);
+    server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+    client = await CasmClient.connect(server.url, token);
+  };
+  try {
+    await client.call("agent.send", { id: a.id, text: "limited" });
+    await client.call("agent.wait", { id: a.id });
+    const until = store.providerAvailability()[0].windows[0].resetsAt;
+    await reopen();
+    assert.equal(store.providerAvailability()[0].windows[0].resetsAt, until);
+    // Cancelling the triggering prompt must not erase the provider-wide gate.
+    await client.call("agent.cancelPending", { id: a.id });
+    assert.equal((await client.call("agent.send", { id: b.id, text: "sibling" })).queued, true);
+    await client.call("provider.limits", { provider: "codex", refresh: true });
+    assert.deepEqual(sent, ["limited"]);
+    healthy = true;
+    await client.call("provider.limits", { provider: "codex", refresh: true });
+    await client.call("agent.wait", { id: b.id });
+    assert.deepEqual(sent, ["limited", "sibling"]);
+    await reopen();
+    assert.equal((await client.call("agent.send", { id: b.id, text: "after recovery" })).queued, false);
+    await client.call("agent.wait", { id: b.id });
+    // An expired persisted window must not block admission on the next restart.
+    store.saveProviderAvailability({ provider: "codex", updatedAt: new Date(0).toISOString(), windows: [{ id: "old", status: "exhausted", resetsAt: new Date(0).toISOString() }] });
+    await reopen();
+    assert.equal((await client.call("agent.send", { id: b.id, text: "expired" })).queued, false);
+    await client.call("agent.wait", { id: b.id });
+  } finally {
+    client.close(); await server.close(); store.close(); rmSync(dir, { recursive: true, force: true });
+  }
+});

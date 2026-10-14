@@ -125,6 +125,7 @@ export class AgentManager {
     this.providers = providers;
     this.notify = notify;
     this.agentPrompt = agentPrompt;
+    for (const limits of store.providerAvailability()) this.limitsSeen.set(limits.provider, limits);
     // Pending messages survive restarts; send due ones every 15 s.
     this.deferTimer = setInterval(() => this.runDuePending(), 15_000);
     this.deferTimer.unref();
@@ -214,7 +215,11 @@ export class AgentManager {
       ...a,
       status: this.status(a.id),
       deferred: limit ? { until: limit.notBefore!, reason: limit.note ?? "usage limit" } : null,
-      pending: { count: pending.length, ...(times[0] ? { next: times[0] } : {}) },
+      pending: {
+        count: pending.length, ...(times[0] ? { next: times[0] } : {}),
+        ...(pending[0]?.reason === "failed" || pending[0]?.reason === "limit"
+          ? { held: { reason: pending[0].reason, ...(pending[0].note ? { note: pending[0].note } : {}) } } : {}),
+      },
       subagents: { running: this.runningSubagents(a.id) },
     };
   }
@@ -893,6 +898,7 @@ export class AgentManager {
       windows: mergeWindows(authoritative ? (prev?.windows ?? []).filter((w) => update.windows.some((fresh) => fresh.id === w.id)) : prev?.windows ?? [], update.windows),
       updatedAt: new Date().toISOString(),
     };
+    this.store.saveProviderAvailability(limits);
     this.limitsSeen.set(provider, limits);
     this.notify("provider.limits", { limits });
     return limits;

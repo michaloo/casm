@@ -89,7 +89,10 @@ export const Agent = z.object({
   deferred: z.object({ until: z.string(), reason: z.string() }).nullable().optional(),
   // Messages waiting to be sent (see agent.pending): how many, and when the
   // next one is due if they wait for a limit reset.
-  pending: z.object({ count: z.number(), next: z.string().optional() }).optional(),
+  pending: z.object({
+    count: z.number(), next: z.string().optional(),
+    held: z.object({ reason: z.enum(["failed", "limit"]), note: z.string().optional() }).optional(),
+  }).optional(),
   // Provider-internal subagents (Item.subagent) running in the agent's live
   // session, background ones included: they can run while the agent is idle.
   subagents: z.object({ running: z.number() }).optional(),

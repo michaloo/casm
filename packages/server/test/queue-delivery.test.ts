@@ -186,6 +186,7 @@ test("a prompt kept after a failed turn holds the queue until Retry now or Cance
     // Kept ahead of the queue, and nothing behind it overtakes it.
     const pending = async () => (await client.call("agent.pending", { id: agent })).messages.map((m) => [m.reason, m.text]);
     assert.deepEqual(await pending(), [["failed", "unlucky"], ["queued", "behind 1"]]);
+    assert.deepEqual((await client.call("agent.get", { id: agent })).pending?.held, { reason: "failed", note: "No conversation found" });
     assert.equal((await client.call("agent.send", { id: agent, text: "behind 2" })).queued, true);
     assert.deepEqual(sent.map((s) => s.text), ["unlucky"]);
     // Retry now sends it again; the rest follows it.
@@ -199,6 +200,7 @@ test("a prompt kept after a failed turn holds the queue until Retry now or Cance
     assert.deepEqual([again.reason, again.text], ["failed", "behind 1"]);
     await client.call("agent.cancelPending", { id: agent, messageId: again.id });
     assert.deepEqual(sent.map((s) => s.text), ["unlucky", "unlucky", "behind 1", "behind 2"]);
+    assert.equal((await client.call("agent.get", { id: agent })).pending?.held, undefined);
   });
 });
 

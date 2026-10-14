@@ -2,7 +2,7 @@
 // client tokens, peers and message sender metadata. Transcripts live in each provider's own store.
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type { Agent, AgentConfig, AgentParent, MessageSender, ImageData, Project, ProviderId, Schedule } from "@casm/protocol";
+import type { Agent, AgentConfig, AgentParent, MessageSender, ImageData, Project, ProviderId, ProviderLimits, Schedule } from "@casm/protocol";
 
 export type StoredAgent = Omit<Agent, "status" | "deferred" | "pending">;
 
@@ -55,6 +55,10 @@ function toPending(r: Row): Pending {
 }
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS provider_availability (
+  provider TEXT PRIMARY KEY,
+  limits TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -422,6 +426,16 @@ export class Store {
   }
 
   // A stable id for this server, created on first use.
+  // Persist the full window snapshot: expiry and recovery use the same policy
+  // before and after restart, including synthetic limits without account data.
+  providerAvailability(): ProviderLimits[] {
+    return this.db.prepare("SELECT limits FROM provider_availability").all().map((r) => JSON.parse(r.limits as string));
+  }
+
+  saveProviderAvailability(limits: ProviderLimits) {
+    this.db.prepare("INSERT OR REPLACE INTO provider_availability (provider, limits) VALUES (?, ?)").run(limits.provider, JSON.stringify(limits));
+  }
+
   serverId(): string {
     const r = this.db.prepare("SELECT value FROM meta WHERE key = 'server_id'").get() as Row | undefined;
     if (r) return r.value as string;

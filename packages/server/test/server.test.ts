@@ -950,7 +950,7 @@ test("a prompt whose turn failed before any answer is kept as a failed pending m
   // lastTurn names what it kept, so "casm wait" points at this message and not an older one.
   assert.deepEqual(w.lastTurn, { outcome: "failed", error: "No conversation found with session ID: x", kept: [m.id] });
   assert.deepEqual([m.reason, m.text, m.note], ["failed", "no-session please", "No conversation found with session ID: x"]);
-  assert.deepEqual((await client.call("agent.get", { id: a.id })).pending, { count: 1 });
+  assert.deepEqual((await client.call("agent.get", { id: a.id })).pending, { count: 1, held: { reason: "failed", note: "No conversation found with session ID: x" } });
   // Usage reported at startup (Claude's init) isn't an answer.
   const u = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   await client.call("agent.send", { id: u.id, text: "init-usage, then no-session" });
@@ -1046,7 +1046,13 @@ test("messages queued and schedule runs missed while the server was down go out 
   try {
     // The left-over message is running; the missed run queued behind it.
     assert.deepEqual((await c.call("agent.pending", { id: agent.id })).messages.map((m) => m.text), ["missed run"]);
-    assert.equal((await c.call("schedule.list", {})).schedules[0].lastRun?.outcome, "queued");
+    const fired = (await c.call("schedule.list", {})).schedules[0];
+    assert.equal(fired.lastRun?.outcome, "queued");
+    assert.equal(fired.enabled, false);
+    assert.equal(fired.nextRunAt, null);
+    assert.deepEqual(s2.getSchedule("missed"), fired);
+    await srv.scheduler.tick(new Date(Date.now() + 60_000));
+    assert.equal((await c.call("agent.pending", { id: agent.id })).messages.length, 1);
     fake.gate.resolve();
     for (let i = 0; i < 50 && (await c.call("agent.wait", { id: agent.id })).lastReply !== "echo: missed run"; i++) await new Promise((r) => setTimeout(r, 10));
     assert.equal((await c.call("agent.wait", { id: agent.id })).lastReply, "echo: missed run");

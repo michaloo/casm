@@ -20,8 +20,9 @@ export function ServerGlyph() {
 }
 
 /** The host row: a server button that opens a menu with on-demand usage and schedules. */
-export function HostMenu({ host, name, state, detail, rpc, agents, projects }: {
+export function HostMenu({ host, name, state, detail, rpc, agents, projects, openAgent }: {
   host: string; name: string; state: HostState; detail?: string; rpc: Rpc | null; agents: Agent[]; projects: Project[];
+  openAgent?: (agent: Agent) => void;
 }) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -83,7 +84,8 @@ export function HostMenu({ host, name, state, detail, rpc, agents, projects }: {
         </div>
         {view === "usage"
           ? <HostUsage host={host} rpc={rpc} online={online} />
-          : <HostSchedules host={host} rpc={rpc} online={online} agents={agents} projects={projects} />}
+          : <HostSchedules host={host} rpc={rpc} online={online} agents={agents} projects={projects}
+            openAgent={openAgent && ((agent) => { panel.current?.hidePopover(); openAgent(agent); })} />}
       </>}
     </div>, document.body)}
     {settings && <HostSettings host={host} name={name} rpc={rpc} online={online} projects={projects}

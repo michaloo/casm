@@ -22,6 +22,8 @@ class FakeSession implements ProviderSession {
     setImmediate(() => opts.emit({ type: "sessionId", id: opts.resumeId ?? `native-${++fake.sessions}` }));
   }
   send(text: string) {
+    // The provider fails to start the turn at all.
+    if (text.includes("throw-sync")) throw new Error("could not start the turn");
     void (async () => {
       await new Promise((r) => setTimeout(r, 10));
       // Claude reports its model as usage on system/init, before any answer.
@@ -701,6 +703,16 @@ test("a prompt whose turn failed before any answer is kept as a failed pending m
   await assert.rejects(client.call("agent.retryPending", { id: b.id, messageId: q.pendingId! }), (e: CasmError) => e.code === -32602);
   await client.call("agent.interrupt", { id: b.id });
   await client.call("agent.wait", { id: b.id });
+});
+
+test("a retry whose send throws keeps the message once", async () => {
+  const p = await client.call("project.create", { name: "P-retry-throws", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  await assert.rejects(client.call("agent.send", { id: a.id, text: "throw-sync" }), /could not start the turn/);
+  const [m] = (await client.call("agent.pending", { id: a.id })).messages;
+  assert.deepEqual([m.reason, m.text], ["failed", "throw-sync"]);
+  await assert.rejects(client.call("agent.retryPending", { id: a.id, messageId: m.id }), /could not start the turn/);
+  assert.deepEqual((await client.call("agent.pending", { id: a.id })).messages.map((x) => [x.reason, x.text]), [["failed", "throw-sync"]]);
 });
 
 test("prompts steered into a turn that fails are kept when nothing came back after them", async () => {

@@ -8,6 +8,7 @@ import type {
   OpenOptions,
 } from "../../server/src/providers/types.ts";
 import type { Item } from "@casm/protocol";
+import { visualItems } from "./visual-fixture.ts";
 const home = process.env.CASM_DEV_HOME;
 if (home !== "/tmp/casm-web-dev" || process.env.CASM_DEV_PORT !== "7495")
   throw new Error(
@@ -117,6 +118,21 @@ for (let i = 0; i < 65; i++) {
   histories.set(`fake-history-${i}`, [...history]);
   store.updateAgent(a.id, { nativeSessionId: `fake-history-${i}` });
 }
+const visualPath = `${home}/visual`;
+mkdirSync(visualPath, { recursive: true });
+const visualProject = store.createProject({
+  name: "Design review",
+  path: visualPath,
+});
+const visual = store.createAgent({
+  projectId: visualProject.id,
+  name: "Visual review",
+  provider: "claude",
+  cwd: home,
+  config: {},
+});
+histories.set("visual-history", visualItems);
+store.updateAgent(visual.id, { nativeSessionId: "visual-history" });
 const archived = store.createAgent({
   projectId: p.id,
   name: "Archived agent",

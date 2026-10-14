@@ -1,0 +1,12 @@
+.chat-working {
+  flex: 0 0 24px;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: min(calc(100% - 48px), 70ch);
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+}

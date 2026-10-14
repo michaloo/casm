@@ -5,6 +5,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { Store } from "./db.ts";
 import { startServer } from "./server.ts";
@@ -24,7 +25,7 @@ const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");
 const LOCAL_FILE = "local.json";
 const LOCAL_TOKEN = "local-cli";
 
-function readConfig(): { listen?: string; name?: string; peerTimeoutMs?: number } {
+function readConfig(): { listen?: string; name?: string; peerTimeoutMs?: number; web?: string | false } {
   try {
     return JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
   } catch {
@@ -105,7 +106,10 @@ export async function serverCommand(argv: string[]) {
     const { host, port } = parseListen(values.listen ?? process.env.CASM_LISTEN ?? readConfig().listen ?? DEFAULT_LISTEN);
     const log = (m: string) => console.error(`[${new Date().toISOString()}] ${m}`);
     const name = values.name ?? process.env.CASM_NAME ?? readConfig().name;
-    const server = await startServer({ store, providers: availableProviders(), host, port, version: VERSION, name, log, home, peerTimeoutMs: readConfig().peerTimeoutMs });
+    // The web client: "web" in config.json (a path, or false for none), else this checkout's build.
+    const web = process.env.CASM_WEB_ROOT ?? readConfig().web ?? fileURLToPath(new URL("../../web/dist", import.meta.url));
+    const webRoot = web === false ? undefined : web;
+    const server = await startServer({ store, providers: availableProviders(), host, port, version: VERSION, name, log, home, peerTimeoutMs: readConfig().peerTimeoutMs, webRoot });
     log(`agents: ${server.agents.providerIds().join(", ") || "none found on PATH"}`);
     writeLocalCredential(store, server.url);
     if (store.listTokens().length === 1) log('no client tokens for other machines yet: run "casm token create <name>"');

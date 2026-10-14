@@ -21,6 +21,19 @@ final class ComposerLogicTests: XCTestCase {
         XCTAssertNil(shown(nil, "gpt-unlisted"), "not in the catalog: the picker shows the raw id")
     }
 
+    func testPickerMatchesClaudeFullIdsToCatalogAliases() throws {
+        let models = try JSONDecoder().decode([ModelInfo].self, from: Data("""
+            [{"id": "default", "name": "Default (recommended)", "isDefault": true},
+             {"id": "opus", "name": "Opus 5.5"}, {"id": "haiku", "name": "Haiku 4.5"}]
+            """.utf8))
+        func shown(_ effective: String) -> String? {
+            ConfigPickers.model(config: AgentConfig(), effective: effective, in: models)?.id
+        }
+        XCTAssertEqual(shown("claude-opus-5-5"), "opus")
+        XCTAssertEqual(shown("claude-haiku-4-5-20251001"), "haiku", "dated ids match too")
+        XCTAssertNil(shown("claude-opus-5"), "no catalog entry by that name")
+    }
+
     func testCompletionContexts() {
         XCTAssertEqual(context("/rev")?.kind, .command)
         XCTAssertEqual(context("/rev")?.query, "rev")

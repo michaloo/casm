@@ -9,7 +9,6 @@ The server adds a nullable `pending.sender` column without changing existing ent
 Native provider files do not retain arbitrary CASM fields, so history responses apply the overlay before pagination:
 
 - Claude uses the supplied prompt UUID; Codex uses `clientUserMessageId` / native `clientId`.
-- OpenCode receives an explicit native `messageID`; the adapter records its exact alias before dispatch, including command requests.
 - pi matches the dedicated session's ordered user events to dispatched prompt IDs, records their native timestamps, and maps disk entry IDs through those timestamps. Existing disk entry IDs are unchanged. Rejected or handled extension prompts and completed turns discard unmatched dispatch IDs.
 
 This covers new sends observed by this server. Legacy history cannot be backfilled reliably; messages written outside CASM, native versions that omit identity fields, pi user events without timestamps, or a crash before a provider-specific identity binding is observed can remain unattributed. The server deliberately does not guess from identical text, sender-like prefixes or display names. Native app decoding remains compatible with the additive fields; native sender-label UI is separate from the web integration.

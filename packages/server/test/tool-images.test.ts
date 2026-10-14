@@ -8,7 +8,6 @@ import { Item } from "@casm/protocol";
 import { normalize as codex } from "../src/providers/codex.ts";
 import { Normalizer, historyItems } from "../src/providers/claude.ts";
 import { normalize as pi } from "../src/providers/pi.ts";
-import { normalizePart, normalizeMessages, type OcPart } from "../src/providers/opencode.ts";
 import { toolImages } from "../src/providers/tool-images.ts";
 
 const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
@@ -60,12 +59,6 @@ test("Claude tool results preserve images and tool-use identity in live/history"
 
 test("Pi tool-result images use the tool call ID", () => {
   check(pi({ role: "toolResult", toolCallId: "pi-call", content }, new Map())[0], "pi-call");
-});
-
-test("OpenCode result attachments survive live/history normalization", () => {
-  const part: OcPart = { id: "part", sessionID: "session", messageID: "message", type: "tool", tool: "read", state: { status: "completed", attachments: [{ id: "file", sessionID: "session", messageID: "message", type: "file", mime: "image/png", url: `data:image/png;base64,${data}` }] } };
-  check(normalizePart(part), "part");
-  check(normalizeMessages([{ info: { id: "message", sessionID: "session", role: "assistant" }, parts: [part] }])[0], "part");
 });
 
 test("inline extraction omits missing, external, malformed, nonraster and oversized data", () => {

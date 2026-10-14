@@ -3,7 +3,7 @@
 // and every classification must still name an id in the inventory.
 // Inventories are re-extracted here when that is cheap and the agent is
 // installed (Claude SDK types, Codex schema, pi docs, ACP from the /tmp
-// cache); OpenCode needs a server, so its checked-in inventory is used.
+// cache).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

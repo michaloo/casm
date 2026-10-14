@@ -9,7 +9,6 @@ import { SOURCES, readClassification, readInventory, writeInventory, type Invent
 import { writeReport } from "./report.ts";
 import { extract as claude } from "./claude.ts";
 import { extract as codex } from "./codex.ts";
-import { extract as opencode } from "./opencode.ts";
 import { extract as pi } from "./pi.ts";
 import { extract as acp } from "./acp.ts";
 
@@ -21,7 +20,6 @@ for (const s of only) if (!SOURCES.includes(s)) throw new Error(`unknown source 
 const extractors: Record<Source, () => Promise<Inventory | null>> = {
   claude,
   codex,
-  opencode,
   pi,
   acp: () => acp({ offline }),
 };

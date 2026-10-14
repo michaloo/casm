@@ -4,7 +4,7 @@
 // per agent session, so every call knows which agent made it.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
-import { methods, type Item, type MethodName, type ProviderId } from "@casm/protocol";
+import { methods, ProviderId, type AgentProviderId, type Item, type MethodName } from "@casm/protocol";
 import type { AgentManager } from "./agents.ts";
 import type { Conn, Handlers, Identity } from "./methods.ts";
 import type { Call, PeerPool } from "./peers.ts";
@@ -16,15 +16,13 @@ const DEFAULT_WAIT_S = 50;
 
 // The `mcpServers` entry for the casm MCP server, in each agent's own config
 // format. Null when the agent can't take a per-session HTTP MCP server.
-export function casmMcpEntry(provider: ProviderId, url: string, token: string): unknown {
+export function casmMcpEntry(provider: AgentProviderId, url: string, token: string): unknown {
   const auth = { Authorization: `Bearer ${token}` };
   switch (provider) {
     case "claude":
       return { type: "http", url, headers: auth };
     case "codex":
       return { url, http_headers: auth };
-    // pi has no MCP client; OpenCode's MCP config belongs to the shared
-    // `opencode serve`, so it can't carry a per-agent token.
     default:
       return null;
   }
@@ -79,7 +77,7 @@ const tools = {
       host,
       project: z.string().describe("Project id, id prefix or name (see list_projects)"),
       cwd: z.string().optional().describe("Folder inside the project to work in, relative to the project path or absolute (e.g. a git worktree .worktrees/<task>). Defaults to the project folder."),
-      provider: z.enum(["claude", "codex", "pi", "opencode"]).describe("Which agent to run (see list_hosts for what each host offers)"),
+      provider: ProviderId.describe("Which agent to run (see list_hosts for what each host offers)"),
       prompt: z.string().optional(),
       model: z.string().optional(),
       mode: z.string().optional().describe("Permission/agent mode, provider specific"),

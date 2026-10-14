@@ -34,12 +34,6 @@ Provider behavior, verified against installed APIs:
   from older versions falls back to session reload. Runtime connection states,
   discovery errors and authentication requirements are preserved.
   [Codex app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
-- OpenCode uses directory-scoped `GET /mcp`, then
-  `POST /mcp/{name}/disconnect` and `/connect`. Connections are shared by sessions
-  in that directory. Disabled servers are skipped by reconnect all. Its status
-  endpoint does not expose tool counts: `toolsKnown: false` means the numeric
-  placeholder must not be displayed as a known count. Checked against the
-  installed `opencode serve` OpenAPI `/doc` endpoint on an isolated server.
 - Pi's installed RPC protocol has no MCP controls. Status explains the limitation;
   reconnect reloads the session so extensions can re-read configuration.
 

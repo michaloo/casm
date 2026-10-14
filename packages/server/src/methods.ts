@@ -1,7 +1,7 @@
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { realpathSync, statSync } from "node:fs";
-import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
+import { ErrorCode, PROTOCOL_VERSION, retiredProvider, type AgentProviderId, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
 import type { Scheduler } from "./schedules.ts";
@@ -73,10 +73,10 @@ export function createHandlers(
   };
   // Mode ids are a fixed per-agent list, so a wrong one (say Claude's "default"
   // sent to Codex) is rejected. Models aren't checked: agents accept ids beyond
-  // their catalog (full Claude model ids, OpenCode provider/model pairs).
-  const checkMode = async (provider: ProviderId, mode: string | undefined) => {
-    if (!mode) return;
-    const modes = await agents.catalog(provider).then((c) => c.modes, () => null);
+  // their catalog (full Claude model ids, pi provider/model pairs).
+  const checkMode = async (provider: AgentProviderId, mode: string | undefined) => {
+    if (!mode || retiredProvider(provider)) return;
+    const modes = await agents.catalog(provider as ProviderId).then((c) => c.modes, () => null);
     if (modes && !modes.some((m) => m.id === mode))
       throw new RpcError(ErrorCode.InvalidParams, `unknown ${provider} mode "${mode}" (modes: ${modes.map((m) => m.id).join(", ") || "none"})`);
   };

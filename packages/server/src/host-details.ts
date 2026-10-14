@@ -35,12 +35,9 @@ export async function hostAgentsMd({ home = homedir(), env = process.env }: Opti
   const claude = join(dir(env.CLAUDE_CONFIG_DIR, join(home, ".claude")), "CLAUDE.md");
   const codex = dir(env.CODEX_HOME, join(home, ".codex"));
   const pi = dir(env.PI_CODING_AGENT_DIR, join(home, ".pi", "agent"));
-  const opencode = join(dir(env.XDG_CONFIG_HOME, join(home, ".config")), "opencode", "AGENTS.md");
-  const disabled = (value?: string) => value === "1" || value === "true";
   const sources: { provider: ProviderId; path: string }[] = [
     { provider: "claude", path: claude },
     { provider: "codex", path: await first([join(codex, "AGENTS.override.md"), join(codex, "AGENTS.md")], join(codex, "AGENTS.md"), true) },
-    { provider: "opencode", path: await first([opencode, ...(!disabled(env.OPENCODE_DISABLE_CLAUDE_CODE) && !disabled(env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT) ? [join(home, ".claude", "CLAUDE.md")] : [])], opencode) },
     { provider: "pi", path: await first(["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"].map((name) => join(pi, name)), join(pi, "AGENTS.md")) },
   ];
   const files = new Map<string, HostAgentsMdFile>();

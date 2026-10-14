@@ -20,10 +20,6 @@ Discovery follows these provider conventions:
 - Codex: first nonempty `AGENTS.override.md`, then `AGENTS.md` in `CODEX_HOME`
   (default `~/.codex`).
   [Codex instructions documentation](https://developers.openai.com/codex/guides/agents-md).
-- OpenCode: `$XDG_CONFIG_HOME/opencode/AGENTS.md`, default
-  `~/.config/opencode/AGENTS.md`; otherwise `~/.claude/CLAUDE.md` unless
-  `OPENCODE_DISABLE_CLAUDE_CODE` or `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT` is enabled.
-  [OpenCode rules documentation](https://opencode.ai/docs/rules/).
 - pi: first existing `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`,
   or `CLAUDE.MD` under `PI_CODING_AGENT_DIR` (default `~/.pi/agent`). Verified
   against the installed pi coding agent's `core/resource-loader.js` and `config.js`.

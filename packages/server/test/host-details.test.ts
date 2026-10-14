@@ -12,7 +12,7 @@ import { startServer } from "../src/server.ts";
 const roots: string[] = [];
 async function fixture() {
   const home = await mkdtemp(join(tmpdir(), "casm-host-details-")); roots.push(home);
-  const paths = [".claude/CLAUDE.md", ".codex/AGENTS.md", ".config/opencode/AGENTS.md", ".pi/agent/AGENTS.md"].map((path) => join(home, path));
+  const paths = [".claude/CLAUDE.md", ".codex/AGENTS.md", ".pi/agent/AGENTS.md"].map((path) => join(home, path));
   return { home, paths, options: { home, env: {} } };
 }
 after(async () => { await Promise.all(roots.map((path) => rm(path, { recursive: true, force: true }))); });
@@ -26,7 +26,7 @@ test("global instruction symlinks deduplicate by target; atomic saves preserve a
   const files = await hostAgentsMd(options);
   assert.equal(files.length, 1);
   assert.equal(files[0].path, target);
-  assert.deepEqual(files[0].sources.map((s) => s.provider), ["claude", "codex", "opencode", "pi"]);
+  assert.deepEqual(files[0].sources.map((s) => s.provider), ["claude", "codex", "pi"]);
   const saved = await setHostAgentsMd(target, "# Updated", files[0].sha256, options);
   assert.equal(saved.content, "# Updated");
   assert.notEqual(saved.sha256, files[0].sha256);
@@ -37,7 +37,7 @@ test("global instruction symlinks deduplicate by target; atomic saves preserve a
 test("missing global files and dangling targets are created without replacing symlinks", async () => {
   const { home, paths, options } = await fixture();
   let files = await hostAgentsMd(options);
-  assert.equal(files.length, 4);
+  assert.equal(files.length, 3);
   assert.ok(files.every((file) => file.content === null && file.sha256 === null));
   await mkdir(dirname(paths[0]), { recursive: true });
   const target = join(home, "not-created", "AGENTS.md");
@@ -71,24 +71,21 @@ test("provider overrides, fallback files and configured homes select the actual 
   for (const path of paths) { await mkdir(dirname(path), { recursive: true }); await writeFile(path, "base"); }
   const override = join(dirname(paths[1]), "AGENTS.override.md");
   await writeFile(override, "override");
-  await writeFile(join(dirname(paths[3]), "AGENTS.override.md"), "pi override");
+  await writeFile(join(dirname(paths[2]), "AGENTS.override.md"), "pi override");
   let files = await hostAgentsMd(options);
   assert.ok(files.find((f) => f.path === override)?.sources.some((s) => s.provider === "codex"));
   assert.equal(files.find((f) => f.sources.some((s) => s.provider === "pi"))?.content, "pi override");
   await writeFile(override, " \n");
-  await rm(paths[2]);
   files = await hostAgentsMd(options);
   assert.equal(files.find((f) => f.sources.some((s) => s.provider === "codex"))?.path, paths[1]);
-  assert.deepEqual(files[0].sources.map((s) => s.provider), ["claude", "opencode"]);
   const custom = join(home, "custom-codex");
-  files = await hostAgentsMd({ home, env: { CODEX_HOME: custom, OPENCODE_DISABLE_CLAUDE_CODE_PROMPT: "1" } });
+  files = await hostAgentsMd({ home, env: { CODEX_HOME: custom } });
   assert.ok(files.find((f) => f.path === join(custom, "AGENTS.md")));
-  assert.ok(files.find((f) => f.path === paths[2]));
 });
 
 test("host instruction RPCs route through peers and require SHA preconditions", async () => {
   const { home, paths } = await fixture();
-  const changes = { CLAUDE_CONFIG_DIR: dirname(paths[0]), CODEX_HOME: dirname(paths[1]), XDG_CONFIG_HOME: join(home, ".config"), PI_CODING_AGENT_DIR: dirname(paths[3]), OPENCODE_DISABLE_CLAUDE_CODE_PROMPT: "1" };
+  const changes = { CLAUDE_CONFIG_DIR: dirname(paths[0]), CODEX_HOME: dirname(paths[1]), PI_CODING_AGENT_DIR: dirname(paths[2]) };
   const previous = Object.fromEntries(Object.keys(changes).map((key) => [key, process.env[key]]));
   Object.assign(process.env, changes);
   const store = new Store(join(home, "test.db"));
@@ -99,7 +96,7 @@ test("host instruction RPCs route through peers and require SHA preconditions", 
   const client = await CasmClient.connect(relay.url, relayStore.createToken("test"), { host: "settings-peer" });
   try {
     const { files } = await client.call("host.agentsMd", {});
-    assert.equal(files.length, 4);
+    assert.equal(files.length, 3);
     const saved = await client.call("host.setAgentsMd", { path: files[0].path, content: "saved over RPC", expectedSha256: null });
     assert.equal(saved.content, "saved over RPC");
     await assert.rejects(client.call("host.setAgentsMd", { path: files[0].path, content: "stale", expectedSha256: null }), (e: CasmError) => e.code === ErrorCode.Conflict);

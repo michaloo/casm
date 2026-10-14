@@ -64,6 +64,7 @@ const usage = `usage:
   casm serve [--listen host:port] [--name n]
                                       (default ${DEFAULT_LISTEN}, or "listen" in ${join(home, "config.json")};
                                       name defaults to "name" there, $CASM_NAME, or the hostname)
+                                      ("agentPrompt": false there turns off the host agent prompt, see casm agent-prompt)
                                       (writes ${join(home, LOCAL_FILE)}: this machine's CLI then uses this server)
   casm token create <name>            print a new client token
   casm token list
@@ -97,7 +98,7 @@ export async function serverCommand(argv: string[]) {
     const { host, port } = parseListen(values.listen ?? process.env.CASM_LISTEN ?? readConfig().listen ?? DEFAULT_LISTEN);
     const log = (m: string) => console.error(`[${new Date().toISOString()}] ${m}`);
     const name = values.name ?? process.env.CASM_NAME ?? readConfig().name;
-    const server = await startServer({ store, providers: availableProviders(), host, port, version: VERSION, name, log });
+    const server = await startServer({ store, providers: availableProviders(), host, port, version: VERSION, name, log, home });
     log(`agents: ${server.agents.providerIds().join(", ") || "none found on PATH"}`);
     writeLocalCredential(store, server.url);
     if (store.listTokens().length === 1) log('no client tokens for other machines yet: run "casm token create <name>"');

@@ -147,11 +147,13 @@ const provider: Provider = {
 let server: RunningServer;
 let client: CasmClient;
 let store: Store;
+let home: string;
 
 before(async () => {
-  store = new Store(join(mkdtempSync(join(tmpdir(), "casm-test-")), "casm.db"));
+  home = mkdtempSync(join(tmpdir(), "casm-test-"));
+  store = new Store(join(home, "casm.db"));
   const token = store.createToken("test");
-  server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test", home, name: "testhost" });
   client = await CasmClient.connect(`ws://127.0.0.1:${server.port}`, token);
 });
 
@@ -475,6 +477,44 @@ test("running subagents, background ones included, are counted from the live ses
   assert.equal(stale.stale, true);
   assert.equal(stale.status, "running");
   off();
+});
+
+test("the host agent prompt goes ahead of the agent's own system prompt, per agent, until disabled", async () => {
+  const p = await client.call("project.create", { name: "Prompted", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude", name: "helper", config: { systemPrompt: "Be brief.", casmTools: true }, prompt: "hi" });
+  await client.call("agent.wait", { id: a.id });
+  const sys = fake.opened.at(-1)!.config.systemPrompt!;
+  assert.ok(sys.startsWith("You are running as an agent inside casm, an agent orchestrator, on host testhost."), sys);
+  assert.match(sys, new RegExp(`agent "helper" \\(id ${a.id}, claude\\) in project Prompted, working in /tmp\\.`));
+  assert.match(sys, /casm MCP tools .*list_hosts, .*answer_question\./);
+  assert.ok(sys.endsWith("\n\nBe brief."));
+
+  // Read and edited over the protocol; the next session gets it.
+  const info = await client.call("server.agentPrompt", { agentId: a.id });
+  assert.equal(info.rendered + "\n\nBe brief.", sys);
+  assert.equal(info.custom, false);
+  assert.equal(info.path, join(home, "agent-prompt.md"));
+  const example = await client.call("server.agentPrompt", {});
+  assert.match(example.rendered!, /agent "example"/);
+  const saved = await client.call("server.setAgentPrompt", { content: "casm agent {{agentName}} ({{provider}})" });
+  assert.equal(saved.custom, true);
+  assert.equal(readFileSync(join(home, "agent-prompt.md"), "utf8"), "casm agent {{agentName}} ({{provider}})\n");
+  await client.call("agent.reload", { id: a.id });
+  await client.call("agent.send", { id: a.id, text: "again" });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal(fake.opened.at(-1)!.config.systemPrompt, "casm agent helper (claude)\n\nBe brief.");
+
+  await client.call("server.setAgentPrompt", { enabled: false });
+  assert.equal(JSON.parse(readFileSync(join(home, "config.json"), "utf8")).agentPrompt, false);
+  await client.call("agent.reload", { id: a.id });
+  await client.call("agent.send", { id: a.id, text: "off" });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal(fake.opened.at(-1)!.config.systemPrompt, "Be brief.");
+  assert.equal((await client.call("server.agentPrompt", {})).rendered, null);
+
+  const back = await client.call("server.setAgentPrompt", { enabled: true, content: null });
+  assert.equal(back.custom, false);
+  assert.equal(back.content, back.default);
 });
 
 test("the model a session reports is the agent's effectiveModel until config.model changes", async () => {

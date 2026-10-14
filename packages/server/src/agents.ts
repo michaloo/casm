@@ -25,7 +25,8 @@ import type {
 } from "@casm/protocol";
 import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from "./providers/types.ts";
-import { casmMcpEntry } from "./mcp.ts";
+import { CASM_TOOL_NAMES, casmMcpEntry } from "./mcp.ts";
+import { AgentPrompt, type PromptVars } from "./agent-prompt.ts";
 import { limitFromText, mergeWindows, retryAt, type LimitHit } from "./limits.ts";
 
 // What sessions are told about the server that runs them.
@@ -107,10 +108,13 @@ export class AgentManager {
   // Retries already made for an agent's deferred prompt, for backoff.
   private retryAttempts = new Map<string, number>();
 
-  constructor(store: Store, providers: Map<ProviderId, Provider>, notify: Notify) {
+  readonly agentPrompt: AgentPrompt;
+
+  constructor(store: Store, providers: Map<ProviderId, Provider>, notify: Notify, agentPrompt = new AgentPrompt(null)) {
     this.store = store;
     this.providers = providers;
     this.notify = notify;
+    this.agentPrompt = agentPrompt;
     // Pending messages survive restarts; send due ones every 15 s.
     this.deferTimer = setInterval(() => this.runDuePending(), 15_000);
     this.deferTimer.unref();
@@ -135,18 +139,39 @@ export class AgentManager {
   }
 
   // The stored config plus what the server adds to every session: CASM_* env
-  // vars (so `casm run` from inside links the child) and, with casmTools, the
-  // casm MCP server.
+  // vars (so `casm run` from inside links the child), with casmTools the casm
+  // MCP server, and the host's agent prompt ahead of the agent's own.
   private sessionConfig(a: StoredAgent): AgentConfig {
     const ctx = this.context;
     if (!ctx) return a.config;
     const env = { ...a.config.env, CASM_SERVER_ID: ctx.serverId, CASM_SERVER_NAME: ctx.serverName, CASM_AGENT_ID: a.id };
     let mcpServers = a.config.mcpServers;
+    let casmTools = false;
     if (a.config.casmTools && ctx.mcpUrl) {
       const entry = casmMcpEntry(a.provider, ctx.mcpUrl, this.mintMcpToken(a.id));
-      if (entry) mcpServers = { ...mcpServers, casm: entry };
+      if (entry) (mcpServers = { ...mcpServers, casm: entry }), (casmTools = true);
     }
-    return { ...a.config, env, mcpServers };
+    const hostPrompt = this.agentPrompt.render(this.promptVars(a, casmTools));
+    const systemPrompt = [hostPrompt, a.config.systemPrompt].filter(Boolean).join("\n\n") || undefined;
+    return { ...a.config, env, mcpServers, systemPrompt };
+  }
+
+  // What the agent prompt's placeholders stand for, for this agent.
+  promptVars(a: Pick<StoredAgent, "id" | "name" | "projectId" | "cwd" | "provider">, casmTools: boolean): PromptVars {
+    return {
+      host: this.context?.serverName ?? "",
+      agentId: a.id,
+      agentName: a.name,
+      project: this.store.getProject(a.projectId)?.name ?? a.projectId,
+      cwd: a.cwd,
+      provider: a.provider,
+      casmTools: casmTools ? CASM_TOOL_NAMES : null,
+    };
+  }
+
+  // Whether this agent's sessions get casm's MCP tools.
+  hasCasmTools(a: StoredAgent): boolean {
+    return !!(a.config.casmTools && this.context?.mcpUrl && casmMcpEntry(a.provider, "", ""));
   }
 
   providerIds(): ProviderId[] {

@@ -119,6 +119,9 @@ const tools = {
 } as const;
 
 type ToolName = keyof typeof tools;
+
+// The tool names an agent with casmTools sees (Claude shows them as mcp__casm__<name>).
+export const CASM_TOOL_NAMES = Object.keys(tools) as ToolName[];
 type Args<T extends ToolName> = z.infer<(typeof tools)[T]["input"]>;
 
 function pick<T extends { id: string; name: string }>(list: T[], ref: string, what: string, where: string): T {

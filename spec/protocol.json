@@ -58,6 +58,124 @@
         ]
       }
     },
+    "server.agentPrompt": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "content": {
+            "type": "string"
+          },
+          "custom": {
+            "type": "boolean"
+          },
+          "default": {
+            "type": "string"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placeholders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rendered": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "enabled",
+          "content",
+          "custom",
+          "default",
+          "path",
+          "placeholders",
+          "rendered"
+        ]
+      }
+    },
+    "server.setAgentPrompt": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "content": {
+            "type": "string"
+          },
+          "custom": {
+            "type": "boolean"
+          },
+          "default": {
+            "type": "string"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placeholders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rendered": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "enabled",
+          "content",
+          "custom",
+          "default",
+          "path",
+          "placeholders",
+          "rendered"
+        ]
+      }
+    },
     "peer.list": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

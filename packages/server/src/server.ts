@@ -22,6 +22,7 @@ import { createHandlers, type Conn } from "./methods.ts";
 import { Scheduler } from "./schedules.ts";
 import { createMcp } from "./mcp.ts";
 import { PeerPool } from "./peers.ts";
+import { AgentPrompt } from "./agent-prompt.ts";
 import type { Provider } from "./providers/types.ts";
 
 export type ServerOptions = {
@@ -35,6 +36,9 @@ export type ServerOptions = {
   log?: (msg: string) => void;
   // Connect timeout for peer servers (tests use a short one).
   peerTimeoutMs?: number;
+  // The state directory ($CASM_HOME): agent-prompt.md and config.json. Without
+  // it agents get the default agent prompt, which can't be changed.
+  home?: string;
 };
 
 export type RunningServer = {
@@ -61,7 +65,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     for (const c of clients) if (!agentId || c.subscriptions.has(agentId)) c.ws.send(msg);
   };
 
-  const agents = new AgentManager(opts.store, new Map(opts.providers.map((p) => [p.id, p])), notify);
+  const agents = new AgentManager(opts.store, new Map(opts.providers.map((p) => [p.id, p])), notify, new AgentPrompt(opts.home ?? null));
   const identity = { id: opts.store.serverId(), name: opts.name ?? hostname(), version: opts.version };
   const peers = new PeerPool(opts.store, opts.peerTimeoutMs);
   let scheduler: Scheduler | undefined;

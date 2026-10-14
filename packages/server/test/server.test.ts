@@ -653,17 +653,22 @@ test("a prompt whose turn failed before any answer is kept as a failed pending m
   await client.call("agent.wait", { id: b.id });
 });
 
-test("messages queued when the server stopped are sent as soon as it starts", async () => {
+test("messages queued and schedule runs missed while the server was down go out as soon as it starts", async () => {
   const s2 = new Store(join(mkdtempSync(join(tmpdir(), "casm-test-")), "casm.db"));
   const token = s2.createToken("t");
   const project = s2.createProject({ name: "P", path: "/tmp" });
   const agent = s2.createAgent({ projectId: project.id, name: "a", provider: "claude", cwd: "/tmp", config: {} });
   s2.addPending({ agentId: agent.id, text: "left over", reason: "queued", notBefore: null, note: null });
+  const missed = new Date(Date.now() - 60_000).toISOString();
+  s2.saveSchedule({ id: "missed", name: "m", enabled: true, cadence: { type: "once", at: missed }, target: { type: "agent", agentId: agent.id }, prompt: "missed run", nextRunAt: missed, lastRun: null, createdAt: missed });
   const srv = await startServer({ store: s2, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
   const c = await CasmClient.connect(`ws://127.0.0.1:${srv.port}`, token);
   try {
-    assert.deepEqual((await c.call("agent.pending", { id: agent.id })).messages, []);
-    assert.equal((await c.call("agent.wait", { id: agent.id })).lastReply, "echo: left over");
+    // The left-over message is running; the missed run queued behind it.
+    assert.deepEqual((await c.call("agent.pending", { id: agent.id })).messages.map((m) => m.text), ["missed run"]);
+    assert.equal((await c.call("schedule.list", {})).schedules[0].lastRun?.outcome, "queued");
+    for (let i = 0; i < 50 && (await c.call("agent.wait", { id: agent.id })).lastReply !== "echo: missed run"; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.equal((await c.call("agent.wait", { id: agent.id })).lastReply, "echo: missed run");
   } finally {
     c.close();
     await srv.close();

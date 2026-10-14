@@ -381,6 +381,8 @@ export class AgentManager {
         return;
       }
       case "model": {
+        // A session due for reload runs the old config; its model is no longer the agent's.
+        if (l.reloadAfterTurn) return;
         const a = this.store.getAgent(id);
         if (a && a.effectiveModel !== e.model) {
           const updated = this.store.updateAgent(id, { effectiveModel: e.model })!;

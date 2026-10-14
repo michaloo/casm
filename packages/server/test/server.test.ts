@@ -26,6 +26,8 @@ class FakeSession implements ProviderSession {
     if (text.includes("throw-sync")) throw new Error("could not start the turn");
     void (async () => {
       await new Promise((r) => setTimeout(r, 10));
+      // Reports its model late, after a config change made while it ran.
+      if (text.includes("late-model")) await new Promise((r) => setTimeout(r, 50));
       // Claude reports its model as usage on system/init, before any answer.
       if (text.includes("init-usage")) this.opts.emit({ type: "usage", usage: { model: "claude-test" } });
       // The agent process crashes (e.g. a steer that arrives as it dies).
@@ -435,6 +437,14 @@ test("the model a session reports is the agent's effectiveModel until config.mod
   await client.call("agent.send", { id: a.id, text: "which model now" });
   await client.call("agent.wait", { id: a.id });
   assert.equal((await client.call("agent.get", { id: a.id })).effectiveModel, "sonnet");
+  // The old session reporting its model after a mid-turn change doesn't make it current.
+  await client.call("agent.send", { id: a.id, text: "late-model" });
+  await client.call("agent.update", { id: a.id, config: { model: "opus" } });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal((await client.call("agent.get", { id: a.id })).effectiveModel, null);
+  await client.call("agent.send", { id: a.id, text: "which model, after the reload" });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal((await client.call("agent.get", { id: a.id })).effectiveModel, "opus");
   off();
 });
 

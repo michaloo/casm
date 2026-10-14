@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CasmClient, CasmError } from "@casm/client";
-import type { AgentEvent, Item } from "@casm/protocol";
+import type { AgentEvent, ImageData, Item } from "@casm/protocol";
 import { Store } from "../src/db.ts";
 import { startServer, type RunningServer } from "../src/server.ts";
 import type { OpenOptions, Provider, ProviderSession } from "../src/providers/types.ts";
@@ -21,7 +21,8 @@ class FakeSession implements ProviderSession {
     this.opts = opts;
     setImmediate(() => opts.emit({ type: "sessionId", id: opts.resumeId ?? `native-${++fake.sessions}` }));
   }
-  send(text: string) {
+  send(text: string, _itemId: string, images?: ImageData[]) {
+    fake.sent.push({ text, images });
     // The provider fails to start the turn at all.
     if (text.includes("throw-sync")) throw new Error("could not start the turn");
     void (async () => {
@@ -117,6 +118,8 @@ const fake = {
   limitHit: false,
   limitsCalls: 0,
   gate: Promise.withResolvers<void>(),
+  // What sessions were sent, images included.
+  sent: [] as { text: string; images?: ImageData[] }[],
 };
 
 const provider: Provider = {
@@ -638,6 +641,46 @@ test("a turn that hits a usage limit is deferred, blocks further sends and retri
   // Interrupt drops a deferred prompt.
   await client.call("agent.interrupt", { id: b.id });
   assert.equal((await client.call("agent.get", { id: b.id })).deferred, null);
+});
+
+test("a pending message is sent now or taken back with its images", async () => {
+  const p = await client.call("project.create", { name: "P-steer-pending", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const image = { mediaType: "image/png", data: Buffer.from("png bytes").toString("base64") };
+  await client.call("agent.send", { id: a.id, text: "slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  const q1 = await client.call("agent.send", { id: a.id, text: "look at this (slow)", images: [image] });
+  const q2 = await client.call("agent.send", { id: a.id, text: "and this", images: [image, image] });
+  // Listed with a count only.
+  assert.deepEqual((await client.call("agent.pending", { id: a.id })).messages.map((m) => m.imageCount), [1, 2]);
+
+  // Send now: steered into the running turn, image and all. ("slow" keeps
+  // the fake's turn going, so the next message stays pending.)
+  const events: AgentEvent[] = [];
+  const off = client.on("agent.event", (n) => n.agentId === a.id && events.push(n.event));
+  await client.call("agent.subscribe", { id: a.id });
+  assert.deepEqual(await client.call("agent.steerPending", { id: a.id, messageId: q1.pendingId! }), { queued: false });
+  assert.deepEqual(fake.sent.at(-1), { text: "look at this (slow)", images: [image] });
+  await new Promise((r) => setTimeout(r, 20));
+  const user = events.find((e) => e.type === "item" && e.item.kind === "user");
+  assert.deepEqual(user?.type === "item" && user.item.kind === "user" && user.item.images, [image]);
+  await assert.rejects(client.call("agent.steerPending", { id: a.id, messageId: q1.pendingId! }), (e: CasmError) => e.code === 1001);
+
+  // Take: removed, and the whole prompt comes back to edit.
+  assert.deepEqual(await client.call("agent.takePending", { id: a.id, messageId: q2.pendingId! }), { text: "and this", images: [image, image] });
+  assert.deepEqual((await client.call("agent.pending", { id: a.id })).messages, []);
+  assert.deepEqual((await client.call("agent.get", { id: a.id })).pending, { count: 0 });
+  await assert.rejects(client.call("agent.takePending", { id: a.id, messageId: q2.pendingId! }), (e: CasmError) => e.code === 1001);
+  await client.call("agent.interrupt", { id: a.id });
+  await client.call("agent.wait", { id: a.id });
+
+  // Idle: send now starts a turn with it.
+  const kept = store.addPending({ agentId: a.id, text: "idle one", images: [image], reason: "queued", notBefore: null, note: null });
+  assert.deepEqual(await client.call("agent.steerPending", { id: a.id, messageId: kept.id }), { queued: false });
+  assert.deepEqual(fake.sent.at(-1), { text: "idle one", images: [image] });
+  assert.equal((await client.call("agent.wait", { id: a.id })).lastReply, "echo: idle one");
+  assert.equal((await client.call("agent.takePending", { id: a.id, messageId: "nope" }).catch((e: CasmError) => e.code)), 1001);
+  off();
 });
 
 test("pending messages are listed and cancellable", async () => {

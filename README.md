@@ -324,7 +324,9 @@ Messages waiting for their agent to become available are stored in the server da
 
 `casm pending [agent]` lists them, together with agents waiting for a permission or an answer
 (protocol `pending.list` / `agent.pending`, MCP `list_pending`). `casm cancel <agent> <id>` or
-`--all` cancels (`agent.cancelPending`); interrupting an agent drops its pending messages. Agents
+`--all` cancels (`agent.cancelPending`); interrupting an agent drops its pending messages. `casm send-now <agent> <id>` (`agent.steerPending`)
+sends one right away with its images, into the running turn or as a new turn if the agent is idle;
+`casm take <agent> <id>` (`agent.takePending`) removes one and returns its text and images to edit. Agents
 report `pending: {count, next}` so clients can badge them.
 
 ## Schedules

@@ -4814,6 +4814,89 @@
         ]
       }
     },
+    "agent.steerPending": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "messageId"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "boolean"
+          },
+          "deferredUntil": {
+            "type": "string"
+          },
+          "pendingId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queued"
+        ]
+      }
+    },
+    "agent.takePending": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "messageId"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "mediaType": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mediaType"
+              ]
+            }
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
     "agent.cancelPending": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

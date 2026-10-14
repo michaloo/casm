@@ -4362,6 +4362,33 @@
                         },
                         "canAlwaysAllow": {
                           "type": "boolean"
+                        },
+                        "rule": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "bash",
+                                "edit",
+                                "tool"
+                              ]
+                            },
+                            "value": {
+                              "type": "string"
+                            },
+                            "editable": {
+                              "type": "boolean"
+                            },
+                            "savedTo": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "value",
+                            "editable"
+                          ]
                         }
                       },
                       "required": [
@@ -4562,6 +4589,33 @@
                 },
                 "canAlwaysAllow": {
                   "type": "boolean"
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "bash",
+                        "edit",
+                        "tool"
+                      ]
+                    },
+                    "value": {
+                      "type": "string"
+                    },
+                    "editable": {
+                      "type": "boolean"
+                    },
+                    "savedTo": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "value",
+                    "editable"
+                  ]
                 }
               },
               "required": [
@@ -5950,6 +6004,9 @@
           },
           "message": {
             "type": "string"
+          },
+          "rule": {
+            "type": "string"
           }
         },
         "required": [
@@ -6513,6 +6570,33 @@
                     },
                     "canAlwaysAllow": {
                       "type": "boolean"
+                    },
+                    "rule": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "bash",
+                            "edit",
+                            "tool"
+                          ]
+                        },
+                        "value": {
+                          "type": "string"
+                        },
+                        "editable": {
+                          "type": "boolean"
+                        },
+                        "savedTo": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "value",
+                        "editable"
+                      ]
                     }
                   },
                   "required": [

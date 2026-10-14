@@ -779,9 +779,18 @@ export class AgentManager {
 
   // A new config applies when the session is next opened: now if idle,
   // otherwise after the running turn.
-  configChanged(id: string) {
+  configChanged(id: string, before?: AgentConfig) {
     const l = this.live.get(id);
     if (!l?.session) return;
+    // Only the mode changed and the session takes it live: no reload.
+    const after = this.agent(id).config;
+    const { mode: _a, ...restBefore } = before ?? {};
+    const { mode: _b, ...restAfter } = after;
+    const session = l.session;
+    if (before && session.setMode && after.mode !== before.mode && JSON.stringify(restBefore) === JSON.stringify(restAfter)) {
+      session.setMode(after.mode ?? "default").catch(() => { if (l.session === session) this.configChanged(id); });
+      return;
+    }
     if (l.turnId) l.reloadAfterTurn = true;
     else this.dropSession(id, l);
   }

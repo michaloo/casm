@@ -136,7 +136,11 @@ mac_install() {
 EOF
   plutil -lint "$plist" >/dev/null
   launchctl bootout "$domain/$label" 2>/dev/null || true
-  launchctl bootstrap "$domain" "$plist"
+  # bootout returns before the old job is gone; bootstrapping too early fails with
+  # "Bootstrap failed: 5: Input/output error".
+  local i
+  for i in $(seq 1 50); do launchctl print "$domain/$label" >/dev/null 2>&1 || break; sleep 0.2; done
+  launchctl bootstrap "$domain" "$plist" || { sleep 2; launchctl bootstrap "$domain" "$plist"; }
   launchctl enable "$domain/$label"
   launchctl kickstart -k "$domain/$label"
   echo "==> installed $plist and (re)started $label; logs in $log_dir/casm.log"

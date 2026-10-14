@@ -11,7 +11,7 @@ export function resolveView(
   path: string,
   hosts: Host[],
 ): { selection?: Selection; error?: string } {
-  if (path === "/") return {};
+  if (path === "/" || filePathFromRoute(path)) return {};
   let parts: string[];
   try {
     parts = path.split("/").slice(1).map(decodeURIComponent);
@@ -46,4 +46,13 @@ export function resolveView(
     return { selection: { host: host.id, project: project.id } };
   }
   return { error: "View not found." };
+}
+// /f/<absolute path>: the file preview for a pasted path.
+export function filePathFromRoute(path: string): string | null {
+  if (!path.startsWith("/f/")) return null;
+  try {
+    return decodeURIComponent(path.slice(2));
+  } catch {
+    return null;
+  }
 }

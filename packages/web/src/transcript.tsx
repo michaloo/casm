@@ -1,15 +1,18 @@
 import {
   isValidElement,
   memo,
+  useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
-import Markdown from "react-markdown";
+import Markdown, { type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { userLineBreaks } from "./user-line-breaks";
 import type { ImageData, Item } from "@casm/protocol";
 import { messageAuthor } from "./message-author";
+import { FileLinksContext, MarkdownLink, linkifyHtml, linkifyText, openFromClick, remarkFilePaths } from "./file-links";
 const aliases: Record<string, string> = {
   js: "javascript",
   ts: "typescript",
@@ -21,7 +24,7 @@ const aliases: Record<string, string> = {
   svg: "xml",
   py: "python",
 };
-async function copy(text: string) {
+export async function copy(text: string) {
   try {
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(text);
@@ -64,6 +67,7 @@ export function CodeBlock({
   const long = truncate && text.length > 5000;
   const visible = long && !expanded ? text.slice(0, 5000) : text;
   const lang = aliases[language] ?? language;
+  const links = useContext(FileLinksContext);
   const [highlighted, setHighlighted] = useState<{ text: string; language: string; html: string } | null>(null);
   useEffect(() => {
     setHighlighted(null);
@@ -103,7 +107,7 @@ export function CodeBlock({
           {copied ? "Copied ✓" : copyFailed ? "Select to copy" : "Copy"}
         </button>
       </div>
-      <pre>
+      <pre onClick={links ? (e) => openFromClick(e, links) : undefined}>
         <code>
           {lang === "diff" ? (
             visible.split("\n").map((line, i) => (
@@ -115,7 +119,9 @@ export function CodeBlock({
               </span>
             ))
           ) : highlighted?.text === visible && highlighted.language === lang ? (
-            <span dangerouslySetInnerHTML={{ __html: highlighted.html }} />
+            <span dangerouslySetInnerHTML={{ __html: links ? linkifyHtml(highlighted.html, links.roots) : highlighted.html }} />
+          ) : links ? (
+            linkifyText(visible, links.roots)
           ) : (
             visible
           )}
@@ -161,11 +167,18 @@ const components = {
   img({ src, alt }: { src?: string; alt?: string }) {
     return <img loading="lazy" src={src} alt={alt ?? ""} />;
   },
+  a: MarkdownLink,
 };
 export const Prose = memo(function Prose({ text, preserveLineBreaks = false }: { text: string; preserveLineBreaks?: boolean }) {
+  const roots = useContext(FileLinksContext)?.roots;
+  const plugins = useMemo((): Options["remarkPlugins"] => [
+    remarkGfm,
+    ...(preserveLineBreaks ? [userLineBreaks] : []),
+    ...(roots?.length ? [[remarkFilePaths, { roots }] as [typeof remarkFilePaths, { roots: string[] }]] : []),
+  ], [preserveLineBreaks, roots]);
   return (
     <div className="prose">
-      <Markdown remarkPlugins={preserveLineBreaks ? [remarkGfm, userLineBreaks] : [remarkGfm]} components={components}>
+      <Markdown remarkPlugins={plugins} components={components}>
         {text}
       </Markdown>
     </div>

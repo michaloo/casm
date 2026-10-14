@@ -26,6 +26,7 @@ for (const [key, folder, name] of [
   symlinkSync(`${settings}/AGENTS.md`, `${settings}/${folder}/${name}`);
   process.env[key] = `${settings}/${folder}`;
 }
+mkdirSync(`${home}/state`, { recursive: true });
 const store = new Store(`${home}/web-test.db`);
 writeFileSync(`${home}/web-token`, store.createToken("web-test"));
 const history: Item[] = Array.from({ length: 320 }, (_, i) => ({
@@ -181,6 +182,24 @@ const legacy = store.createProject({ name: "Legacy", path: legacyPath });
 const retired = store.createAgent({ projectId: legacy.id, name: "Old OpenCode agent", provider: "opencode" as ProviderId, cwd: legacyPath, config: {} });
 store.updateAgent(retired.id, { nativeSessionId: "ses_retired" });
 writeFileSync(`${home}/web-retired-id`, retired.id);
+// Files agents "created", mentioned in prose, inline code and tool output.
+const exportsDir = `${home}/exports`;
+rmSync(exportsDir, { recursive: true, force: true });
+mkdirSync(`${exportsDir}/nested`, { recursive: true });
+writeFileSync(`${exportsDir}/cykelhuset-web-merge.json`, JSON.stringify({ merged: [{ id: 1, name: "Cykelhuset" }], ok: true }));
+writeFileSync(`${exportsDir}/notes.md`, "# Import notes\n\nAll **rows** merged.\n");
+writeFileSync(`${exportsDir}/pixel.png`, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"));
+writeFileSync(`${exportsDir}/blob.bin`, Buffer.from([0, 1, 2, 3]));
+writeFileSync(`${exportsDir}/nested/deep.txt`, "deep\n");
+writeFileSync(`${home}/.hidden-config`, "hidden=1\n");
+const filesAgent = store.createAgent({ projectId: p.id, name: "Files agent", provider: "claude", cwd: home, config: {} });
+histories.set("files-history", [
+  { kind: "user", id: "files-ask", text: "Merge the exports" },
+  { kind: "tool", id: "files-tool", name: "Bash", status: "done", input: { command: `ls ${exportsDir}` }, output: `${exportsDir}/pixel.png\n${exportsDir}/blob.bin\n` },
+  { kind: "assistant", id: "files-reply", text: `Saved the merge to ${exportsDir}/cykelhuset-web-merge.json.\n\nNotes are in \`${exportsDir}/notes.md\`; /etc/passwd was not touched.` },
+]);
+store.updateAgent(filesAgent.id, { nativeSessionId: "files-history" });
+writeFileSync(`${home}/web-files-agent-id`, filesAgent.id);
 const server = await startServer({
   store,
   providers: [provider],
@@ -188,7 +207,8 @@ const server = await startServer({
   port: testPort,
   version: "web-test",
   name: "Test host",
-  home,
+  // Inside the project folder: the Files tab lists it but never opens it.
+  home: `${home}/state`,
   webRoot: resolve("packages/web/dist"),
 });
 const sockets = new Set<import("node:stream").Duplex>();

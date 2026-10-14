@@ -129,6 +129,17 @@ export function event(c: Chat, e: AgentEvent, replay = false) {
     c.reasoning = "";
   }
 }
+// The casm server's HTTP origin: this page's, unless ?server= or VITE_CASM_URL
+// names another (the Vite dev server). Download links are relative to it.
+export function serverURL(): URL {
+  const override = new URLSearchParams(location.search).get("server") ?? import.meta.env.VITE_CASM_URL;
+  const url = new URL(override || location.href);
+  url.protocol = url.protocol === "https:" || url.protocol === "wss:" ? "https:" : "http:";
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
+  return url;
+}
 export class Rpc {
   socket?: WebSocket;
   next = 0;
@@ -151,14 +162,8 @@ export class Rpc {
     this.connect();
   }
   connect() {
-    const override =
-      new URLSearchParams(location.search).get("server") ??
-      import.meta.env.VITE_CASM_URL;
-    const url = new URL(override || location.href);
-    url.protocol =
-      url.protocol === "https:" || url.protocol === "wss:" ? "wss:" : "ws:";
-    url.pathname = "/";
-    url.search = "";
+    const url = serverURL();
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     url.searchParams.set("token", this.token);
     const s = (this.socket = new WebSocket(url));
     s.onopen = () => {

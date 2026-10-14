@@ -80,7 +80,8 @@ must stay inside a registered project folder after symlinks and `..` are
 resolved. Downloads use `GET /dl/<token>`: an HMAC-signed link for one file that
 expires after about five minutes, signed with `$CASM_HOME/download-secret`, so
 no client token appears in a URL. Links to a peer's file wrap the peer's own
-link; the file streams through the server the client is connected to.
+link; the file streams through the server the client is connected to. The
+server's own state directory is never served, even inside a project folder.
 
 Project AGENTS.md is editable with a content-hash conflict check. Provider
 memories are read-only views of their existing stores. casm does not generate

@@ -771,6 +771,8 @@ class ClaudeSession implements ProviderSession {
       // bypassPermissions is refused without this; only set it when that mode was chosen.
       allowDangerouslySkipPermissions: config.mode === "bypassPermissions" || undefined,
       effort: config.effort as Options["effort"],
+      // Newer models omit thinking text unless asked; casm shows it as Thinking rows.
+      thinking: { type: "adaptive", display: "summarized" },
       systemPrompt: { type: "preset", preset: "claude_code", append: config.systemPrompt },
       mcpServers: config.mcpServers as Options["mcpServers"],
       env: { ...(process.env as Record<string, string>), ...config.env },

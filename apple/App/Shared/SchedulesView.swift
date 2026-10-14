@@ -382,28 +382,4 @@ struct ScheduleEditor: View {
     }
 }
 
-/// "N schedules" in the chat, for schedules that message this agent.
-struct SchedulesChip: View {
-    @Environment(AppModel.self) private var app
-    let host: HostModel
-    let agentId: String
 
-    var body: some View {
-        let list = host.schedules(for: agentId).filter(\.enabled)
-        if !list.isEmpty {
-            Button {
-                app.selection = .schedules(host: host.id, agent: agentId)
-            } label: {
-                Label(list.count == 1 ? "1 schedule" : "\(list.count) schedules", systemImage: "calendar.badge.clock")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.muted)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Theme.surface1, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Theme.border))
-            }
-            .buttonStyle(.plain)
-            .help(list.map { "\($0.name): \($0.cadence.summary)" }.joined(separator: "\n"))
-        }
-    }
-}

@@ -48,7 +48,7 @@ const usage = `usage: casm [-H host] [--json] <command>
 -H <peer> makes it forward them to its peer of that name (see "peer add").
 Without a server here, -H picks a host from ${hostsFile}.
 
-server (runs on this machine):
+server (this machine only; refused with -H):
   serve [--listen host:port] [--name n]
   token create <name> | token list | token revoke <name>
   peer add <name> <ws-url> <token> | peer list [--probe] | peer rm <name>
@@ -749,6 +749,15 @@ async function run(c: CasmClient) {
 
 // Server subcommands load the server code only when needed.
 if (serverSubcommand) {
+  // These read this machine's database directly; with a host they would show
+  // local data as if it were the host's.
+  const args = process.argv.slice(2);
+  const host = args.find((a, i) => args[i - 1] === "-H" || args[i - 1] === "--host") ?? args.find((a) => a.startsWith("--host="))?.slice(7) ?? process.env.CASM_HOST;
+  if (host)
+    fail(
+      `"casm ${firstCommand}" works on this machine's server only, not on host "${host}"${process.env.CASM_HOST && !args.some((a) => a === "-H" || a.startsWith("--host")) ? " (from CASM_HOST)" : ""}` +
+        (firstCommand === "peer" ? `; for its peers use "casm -H ${host} peers"` : firstCommand === "token" ? `; run "casm token ..." on ${host} itself` : ""),
+    );
   const { serverCommand } = await import("@casm/server/command");
   await serverCommand(process.argv.slice(2));
 } else {

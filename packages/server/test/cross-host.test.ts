@@ -383,6 +383,9 @@ test("the CLI on a server machine reaches peers through its server; hosts.json i
   const projects = JSON.parse((await casm(["-H", "beta", "--json", "projects"])).stdout);
   assert.deepEqual(projects.map((p: { name: string }) => p.name), ["BetaProj"]);
   await assert.rejects(casm(["-H", "mars", "agents"]), /unknown host "mars": not a peer of alpha/);
+  // Server commands read this machine's DB, so they refuse a host rather than show local data as its.
+  await assert.rejects(casm(["-H", "beta", "--json", "peer", "list"]), /this machine's server only, not on host "beta".*casm -H beta peers/);
+  await assert.rejects(casm(["token", "list"], { CASM_HOST: "beta" }), /not on host "beta" \(from CASM_HOST\)/);
   // `casm peers` lists the names -H takes.
   assert.deepEqual(JSON.parse((await casm(["--json", "peers"])).stdout).map((p: { name: string }) => p.name), ["asleep", "beta"]);
   await assert.rejects(casm(["host", "add", "beta", beta.url, beta.token]), /runs a casm server.*casm peer add beta/s);

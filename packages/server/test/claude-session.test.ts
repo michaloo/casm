@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -75,4 +75,58 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   await until(() => events.some((e) => e.type === "model"));
   assert.deepEqual(events.find((e) => e.type === "model"), { type: "model", model: "claude-opus-5-5" });
   assert.ok(events.some((e) => e.type === "sessionId" && e.id === "native-1"));
+});
+
+test("Claude sessions get their id up front; a session Claude never stored starts anew under the same id", { timeout: 15000 }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-claude-session-id-"));
+  const binary = join(dir, "fake-claude");
+  const old = { path: process.env.CASM_CLAUDE_PATH, config: process.env.CLAUDE_CONFIG_DIR };
+  writeFileSync(binary, `#!${process.execPath}
+require('node:fs').writeFileSync(process.env.ARGS_FILE, JSON.stringify(process.argv.slice(2)));
+`, { mode: 0o755 });
+  process.env.CASM_CLAUDE_PATH = binary;
+  process.env.CLAUDE_CONFIG_DIR = join(dir, "config");
+  t.after(() => {
+    for (const [k, v] of [["CASM_CLAUDE_PATH", old.path], ["CLAUDE_CONFIG_DIR", old.config]] as const)
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const open = async (name: string, resumeId: string | null) => {
+    const argsFile = join(dir, `${name}.json`);
+    const events: ProviderEvent[] = [];
+    const session = claudeProvider().open({
+      cwd: dir, config: { env: { ARGS_FILE: argsFile } }, resumeId,
+      emit: (e) => events.push(e),
+      askPermission: async () => { throw new Error("unexpected permission"); },
+      askQuestion: async () => { throw new Error("unexpected question"); },
+    });
+    await Promise.resolve();
+    // Known before the process has even started.
+    const early = events.filter((e) => e.type === "sessionId");
+    session.send("hi", "user-1");
+    await until(() => existsSync(argsFile));
+    await session.close();
+    const args: string[] = JSON.parse(readFileSync(argsFile, "utf8"));
+    // "--flag=value" or "--flag value".
+    const flag = (f: string) => args.find((x) => x.startsWith(`${f}=`))?.slice(f.length + 1) ?? (args.includes(f) ? args[args.indexOf(f) + 1] : undefined);
+    return { early, events, sessionId: flag("--session-id"), resume: flag("--resume") };
+  };
+
+  const fresh = await open("fresh", null);
+  assert.match(fresh.sessionId ?? "", /^[0-9a-f-]{36}$/);
+  assert.deepEqual(fresh.early, [{ type: "sessionId", id: fresh.sessionId }]);
+  assert.equal(fresh.resume, undefined);
+
+  const stored = "11111111-1111-4111-8111-111111111111";
+  const projectDir = join(dir, "config", "projects", dir.replace(/[^a-zA-Z0-9]/g, "-"));
+  mkdirSync(projectDir, { recursive: true });
+  writeFileSync(join(projectDir, `${stored}.jsonl`), "");
+  const resumed = await open("resumed", stored);
+  assert.deepEqual([resumed.resume, resumed.sessionId, resumed.early], [stored, undefined, []]);
+
+  const lost = "22222222-2222-4222-8222-222222222222";
+  const anew = await open("anew", lost);
+  assert.deepEqual([anew.resume, anew.sessionId], [undefined, lost]);
+  assert.ok(anew.events.some((e) => e.type === "item" && e.item.kind === "notice" && e.item.text.includes("no stored conversation")));
 });

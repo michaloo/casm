@@ -24,6 +24,8 @@ class FakeSession implements ProviderSession {
   send(text: string) {
     void (async () => {
       await new Promise((r) => setTimeout(r, 10));
+      // Starts answering, then hangs until interrupted.
+      if (text.includes("partial")) this.opts.emit({ type: "delta", kind: "assistant", text: "Let me" });
       if (text.includes("slow")) {
         await new Promise((r) => this.abort.signal.addEventListener("abort", r, { once: true }));
         return this.opts.emit({ type: "turnEnded", outcome: "interrupted" });
@@ -687,4 +689,21 @@ test("messages queued and schedule runs missed while the server was down go out 
     await srv.close();
     s2.close();
   }
+});
+
+test("a prompt the agent hasn't answered when the server stops is kept as a failed pending message", async () => {
+  const s2 = new Store(join(mkdtempSync(join(tmpdir(), "casm-test-")), "casm.db"));
+  const project = s2.createProject({ name: "P", path: "/tmp" });
+  const answered = s2.createAgent({ projectId: project.id, name: "answered", provider: "claude", cwd: "/tmp", config: {} });
+  const silent = s2.createAgent({ projectId: project.id, name: "silent", provider: "claude", cwd: "/tmp", config: {} });
+  const srv = await startServer({ store: s2, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  srv.agents.send(silent.id, { text: "slow, never answered" });
+  srv.agents.send(answered.id, { text: "partial, then slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  await srv.close();
+  // The agent that had started answering has the prompt in its own history.
+  assert.deepEqual(s2.listPending(answered.id), []);
+  const [m] = s2.listPending(silent.id);
+  assert.deepEqual([m.reason, m.text, m.note], ["failed", "slow, never answered", "the server stopped before the agent answered"]);
+  s2.close();
 });

@@ -79,6 +79,8 @@ export class AgentManager {
   private mcpTokens = new Map<string, string>();
   private mcpTokenOf = new Map<string, string>();
   private context: SessionContext | null = null;
+  // Set by shutdown: late events from closing sessions must not touch the closed store.
+  private stopped = false;
 
   private store: Store;
   private providers: Map<ProviderId, Provider>;
@@ -343,7 +345,7 @@ export class AgentManager {
         cwd: a.cwd,
         config: this.sessionConfig(a),
         resumeId: a.nativeSessionId,
-        emit: (e) => gen === l.generation && this.onProviderEvent(a.id, l, e),
+        emit: (e) => gen === l.generation && !this.stopped && this.onProviderEvent(a.id, l, e),
         askPermission: (req, signal) =>
           gen === l.generation ? this.askPermission(a.id, l, req, signal) : Promise.reject(new Error("session replaced")),
         askQuestion: (req, signal) =>
@@ -409,8 +411,7 @@ export class AgentManager {
   ) {
     if (!l.turnId) return;
     const turnId = l.turnId;
-    // Nothing came back from the agent: its own history may not have the prompt.
-    const unanswered = !l.turn.some((e) => (e.type === "item" && e.item.kind !== "user" && e.item.kind !== "notice") || e.type === "delta" || e.type === "usage" || e.type === "toolOutput");
+    const unanswered = this.unanswered(l);
     l.lastTurn = { outcome, ...(error ? { error } : {}) };
     for (const p of l.pending.values()) p.reject(new Error("turn ended"));
     l.pending.clear();
@@ -448,6 +449,11 @@ export class AgentManager {
       if (blocked.length) this.recordLimits(a.provider, { windows: blocked.map((w) => ({ ...w, status: "ok" as const })) });
     }
     this.runNext(id);
+  }
+
+  // Nothing came back from the agent this turn: its own history may not have the prompt.
+  private unanswered(l: Live): boolean {
+    return !l.turn.some((e) => (e.type === "item" && e.item.kind !== "user" && e.item.kind !== "notice") || e.type === "delta" || e.type === "usage" || e.type === "toolOutput");
   }
 
   private block<P extends Pending>(id: string, l: Live, pending: Omit<P, "resolve" | "reject">, signal: AbortSignal) {
@@ -739,6 +745,14 @@ export class AgentManager {
 
   async shutdown() {
     clearInterval(this.deferTimer);
+    // A prompt the agent hasn't answered yet would be gone after the restart;
+    // keep it like any failed one. Not resent: the agent may have stored it.
+    for (const [id, l] of this.live) {
+      if (!l.turnId || !l.prompt || !this.unanswered(l)) continue;
+      this.store.addPending({ agentId: id, ...l.prompt, reason: "failed", notBefore: null, note: "the server stopped before the agent answered" });
+      l.prompt = null;
+    }
+    this.stopped = true;
     await Promise.all([...this.live.values()].map((l) => l.session?.close().catch(() => {})));
   }
 }

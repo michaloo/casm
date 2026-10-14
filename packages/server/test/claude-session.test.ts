@@ -173,3 +173,25 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   // Once per model.
   assert.equal(readFileSync(spawns, "utf8").length, 2);
 });
+
+test("Claude MCP controls use the live SDK query without sending a model prompt", { timeout: 10000 }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-claude-mcp-"));
+  const binary = join(dir, "fake-claude.cjs"), log = join(dir, "requests.jsonl");
+  writeFileSync(log, "");
+  writeFileSync(binary, `#!${process.execPath}
+const write = m => process.stdout.write(JSON.stringify(m) + '\\n');
+require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+ const m=JSON.parse(line);
+ require('node:fs').appendFileSync(${JSON.stringify(log)},line+'\\n');
+ if(m.type==='control_request') write({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:m.request.subtype==='mcp_status'?{mcpServers:[{name:'docs',status:'connected',tools:[{name:'lookup'}]},{name:'off',status:'disabled'}]}:{}}});
+});`, { mode: 0o755 });
+  const old = process.env.CASM_CLAUDE_PATH; process.env.CASM_CLAUDE_PATH = binary;
+  const session = claudeProvider().open({ cwd: dir, config: {}, resumeId: null, emit() {}, askPermission: async () => ({ decision: "deny" }), askQuestion: async () => null });
+  t.after(async () => { await session.close(); if (old === undefined) delete process.env.CASM_CLAUDE_PATH; else process.env.CASM_CLAUDE_PATH = old; rmSync(dir, { recursive: true, force: true }); });
+  assert.equal((await session.mcpStatus!())[0].tools, 1);
+  await session.mcpReconnect!("docs"); await session.mcpReconnect!(); await session.mcpToggle!("docs", false);
+  const calls = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.ok(!calls.some((m) => m.type === "user"));
+  assert.deepEqual(calls.filter((m) => m.request?.subtype === "mcp_reconnect").map((m) => m.request.serverName), ["docs", "docs"]);
+  assert.deepEqual(calls.find((m) => m.request?.subtype === "mcp_toggle").request, { subtype: "mcp_toggle", serverName: "docs", enabled: false });
+});

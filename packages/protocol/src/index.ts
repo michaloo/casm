@@ -348,6 +348,24 @@ export const ProviderLimits = z.object({
 });
 export type ProviderLimits = z.infer<typeof ProviderLimits>;
 
+export const McpServer = z.object({
+  name: z.string(),
+  status: z.enum(["connected", "failed", "pending", "disabled", "needs-auth"]),
+  tools: z.number().int().nonnegative(),
+  toolsKnown: z.boolean().optional(),
+  error: z.string().optional(),
+});
+export type McpServer = z.infer<typeof McpServer>;
+export const McpStatus = z.object({
+  servers: z.array(McpServer),
+  reconnect: z.enum(["server", "all", "reload"]),
+  canToggle: z.boolean(),
+  message: z.string().optional(),
+});
+export type McpStatus = z.infer<typeof McpStatus>;
+export const McpAction = z.object({ mode: z.enum(["native", "reload"]), message: z.string() });
+export type McpAction = z.infer<typeof McpAction>;
+
 export const Command = z.object({
   // Typed after "/" in the composer.
   name: z.string(),
@@ -641,6 +659,9 @@ export const methods = {
     z.object({ subagents: z.array(SubagentInfo) }),
   ),
   // Slash commands and skills the agent accepts. Send them as text ("/name args").
+  "agent.mcpStatus": method(ById, McpStatus),
+  "agent.mcpReconnect": method(ById.extend({ server: z.string().min(1).optional() }), McpAction),
+  "agent.mcpToggle": method(ById.extend({ server: z.string().min(1), enabled: z.boolean() }), McpAction),
   "agent.commands": method(ById.extend({ refresh: z.boolean().optional() }), z.object({ commands: z.array(Command) })),
   // Runs a shell command in the agent's cwd as the user ("!cmd"). It shows as a
   // tool item with streamed output, and lands in the agent's own history and

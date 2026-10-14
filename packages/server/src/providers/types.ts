@@ -1,5 +1,6 @@
 import type {
   AgentConfig,
+  McpServer,
   Answers,
   Catalog,
   Command,
@@ -56,6 +57,10 @@ export interface ProviderSession {
   // `itemId` (name "shell", input {command}), toolOutput while it runs, the
   // finished item, then turnEnded. Record it in the agent's history/context.
   shell(command: string, itemId: string, turnId?: string): void;
+  mcpStatus?(): Promise<McpServer[]>;
+  mcpReconnect?(server?: string): Promise<string>;
+  mcpReconnectScope?: "server" | "all";
+  mcpToggle?(server: string, enabled: boolean): Promise<void>;
   interrupt(): Promise<void>;
   close(): Promise<void>;
 }

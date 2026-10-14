@@ -229,6 +229,9 @@ export function createHandlers(
     "agent.usage": async (p) => ({ usage: await agents.usage(p.id) }),
     "agent.subagentHistory": async (p) => ({ items: await agents.subagentHistory(p.id, p.subagentId, p.limit) }),
     "agent.subagents": async (p) => ({ subagents: await agents.subagents(p.id, p.limit) }),
+    "agent.mcpStatus": (p) => agents.mcpStatus(p.id),
+    "agent.mcpReconnect": (p) => agents.mcpReconnect(p.id, p.server),
+    "agent.mcpToggle": (p) => agents.mcpToggle(p.id, p.server, p.enabled),
     "agent.commands": async (p) => ({ commands: await agents.commands(p.id, p.refresh) }),
     "agent.shell": (p) => {
       agents.shell(p.id, p.command);

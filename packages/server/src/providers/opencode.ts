@@ -1,3 +1,4 @@
+import { opencodeMcpServers } from "./mcp.ts";
 import { providerEnv } from "./env.ts";
 import { toolImages } from "./tool-images.ts";
 // OpenCode via one shared `opencode serve` per provider: HTTP API for sessions,
@@ -868,6 +869,27 @@ class OpencodeSession implements ProviderSession {
         return this.server.request("POST", `/session/${id}/shell`, cwd, { agent, command, model: modelRef(config.model) });
       })
       .catch((e) => this.sendFailed(seq, e, turnId));
+  }
+
+  async mcpStatus() {
+    await this.sessionId;
+    const status = await this.server.request<Record<string, { status: string; error?: string }>>("GET", "/mcp", this.opts.cwd);
+    return opencodeMcpServers(status);
+  }
+
+  async mcpReconnect(server?: string) {
+    const servers = await this.mcpStatus();
+    if (server && !servers.some((s) => s.name === server)) throw new Error(`Unknown MCP server: ${server}`);
+    const names = server ? [server] : servers.filter((s) => s.status !== "disabled").map((s) => s.name);
+    const results = await Promise.allSettled(names.map(async (name) => {
+      const path = `/mcp/${encodeURIComponent(name)}`;
+      await this.server.request("POST", `${path}/disconnect`, this.opts.cwd);
+      const connected = await this.server.request<boolean>("POST", `${path}/connect`, this.opts.cwd);
+      if (!connected) throw new Error(`Could not connect ${name}`);
+    }));
+    const failed = results.flatMap((r, i) => r.status === "rejected" ? [`${names[i]}: ${String(r.reason)}`] : []);
+    if (failed.length) throw new Error(failed.join("; "));
+    return "Reconnected OpenCode MCP servers. Connections are shared by sessions in this directory.";
   }
 
   async interrupt() {

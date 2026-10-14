@@ -1140,6 +1140,27 @@ class ClaudeSession implements ProviderSession {
     this.opts.emit({ type: "turnEnded", outcome, ...(turnId ? { turnId } : {}), ...(recycleSession ? { recycleSession: true } : {}) });
   }
 
+  async mcpStatus() {
+    await this.ready;
+    return (await this.q.mcpServerStatus()).map((s) => ({ name: s.name, status: s.status, tools: s.tools?.length ?? 0, ...(s.error ? { error: s.error } : {}) }));
+  }
+
+  async mcpReconnect(server?: string) {
+    await this.ready;
+    const servers = await this.mcpStatus();
+    if (server && !servers.some((s) => s.name === server)) throw new Error(`Unknown MCP server: ${server}`);
+    const names = server ? [server] : servers.filter((s) => s.status !== "disabled").map((s) => s.name);
+    const results = await Promise.allSettled(names.map((name) => this.q.reconnectMcpServer(name)));
+    const failed = results.flatMap((r, i) => r.status === "rejected" ? [`${names[i]}: ${String(r.reason)}`] : []);
+    if (failed.length) throw new Error(failed.join("; "));
+    return server ? `${server} reconnected.` : "Reconnected all enabled MCP servers.";
+  }
+
+  async mcpToggle(server: string, enabled: boolean) {
+    await this.ready;
+    await this.q.toggleMcpServer(server, enabled);
+  }
+
   async interrupt() {
     const run = this.shellRun;
     if (run) {

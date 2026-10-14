@@ -241,7 +241,8 @@ export class AgentManager {
   private emit(id: string, event: AgentEvent) {
     const l = this.liveFor(id);
     if (l.turnId) {
-      if ((event.type === "item" && event.item.kind !== "user" && event.item.kind !== "notice") || event.type === "delta" || event.type === "usage" || event.type === "toolOutput")
+      // Usage isn't an answer: Claude reports it on system/init, before replying.
+      if ((event.type === "item" && event.item.kind !== "user" && event.item.kind !== "notice") || event.type === "delta" || event.type === "toolOutput")
         l.answers++;
       // Deltas are only a preview; drop them once the full item lands.
       if (event.type === "item" && (event.item.kind === "assistant" || event.item.kind === "reasoning"))

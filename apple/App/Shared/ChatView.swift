@@ -825,13 +825,28 @@ private struct NewAgentPlaceholder: View {
         }
     }
 
+    /// Not ContentUnavailableView: its ideal width followed the (unbreakable) folder path and
+    /// pushed the composer past the edge of an iPhone screen.
     private var placeholder: some View {
-        ContentUnavailableView {
-            Label("New agent in \(chat.project?.name ?? "this project")", systemImage: "bubble.left.and.text.bubble.right")
-        } description: {
+        VStack(spacing: 8) {
+            Image(systemName: "bubble.left.and.text.bubble.right")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 4)
+            Text("New agent in \(chat.project?.name ?? "this project")")
+                .font(.title2.bold())
             if let project = chat.project {
-                Text("Your first message starts it in \(ChatView.abbreviate(project.path)).")
+                Text("Your first message starts it in")
+                    .foregroundStyle(.secondary)
+                Text(ChatView.abbreviate(project.path))
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

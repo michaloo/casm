@@ -503,6 +503,18 @@ struct ActivityPill: View {
 /// Model, effort and mode menus, fed by `provider.catalog`.
 struct ConfigPickers: View {
     let chat: ChatModel
+    @Environment(\.compactPickers) private var compact
+
+    @ViewBuilder private func providerButtons(_ providers: [ProviderID], current: ProviderID) -> some View {
+        ForEach(providers, id: \.self) { p in
+            Button {
+                chat.setProvider(p)
+            } label: {
+                Text(MemoryGroupView.providerName(p))
+                if p == current { Image(systemName: "checkmark") }
+            }
+        }
+    }
 
     var body: some View {
         if let provider = chat.provider, let config = chat.config, let host = chat.host {
@@ -513,17 +525,12 @@ struct ConfigPickers: View {
             // m2: no raw ids while the catalog loads.
             let modelName = catalog == nil ? "…" : (model?.displayName ?? config.model ?? effective ?? "Default model")
 
-            if chat.newAgent != nil, let providers = host.info?.providers, providers.count > 1 {
-                // Only before the agent exists; an agent keeps its provider.
+            // Only before the agent exists; an agent keeps its provider.
+            let providers = chat.newAgent != nil ? host.info?.providers ?? [] : []
+            let pickProvider = providers.count > 1
+            if pickProvider && !compact {
                 Menu {
-                    ForEach(providers, id: \.self) { p in
-                        Button {
-                            chat.setProvider(p)
-                        } label: {
-                            Text(MemoryGroupView.providerName(p))
-                            if p == provider { Image(systemName: "checkmark") }
-                        }
-                    }
+                    providerButtons(providers, current: provider)
                 } label: {
                     PickerLabel(icon: ProviderIcon(provider: provider), title: MemoryGroupView.providerName(provider))
                 }
@@ -534,6 +541,14 @@ struct ConfigPickers: View {
             }
 
             Menu {
+                if pickProvider && compact {
+                    // iPhone: no room for a provider picker of its own; it heads the model menu.
+                    Picker("Provider", selection: Binding(get: { provider }, set: { chat.setProvider($0) })) {
+                        ForEach(providers, id: \.self) { Text(MemoryGroupView.providerName($0)).tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    Divider()
+                }
                 ForEach(models) { m in
                     Button {
                         // Clear an effort the new model doesn't accept.
@@ -546,9 +561,10 @@ struct ConfigPickers: View {
                     }
                 }
             } label: {
-                // "Haiku 4.5" → "Haiku" on iPhone, so the model is always visible.
-                PickerLabel(icon: Image(systemName: "asterisk"), title: modelName,
-                            compactTitle: modelName.split(separator: " ").first.map(String.init))
+                // "Haiku 4.5" → "Haiku" on iPhone, so the model is always visible; there the
+                // provider's icon shows which provider a new agent gets.
+                PickerLabel(icon: pickProvider && compact ? AnyView(ProviderIcon(provider: provider)) : AnyView(Image(systemName: "asterisk")),
+                            title: modelName, compactTitle: modelName.split(separator: " ").first.map(String.init))
             }
             .menuStyle(.button)
             .menuIndicator(.hidden)

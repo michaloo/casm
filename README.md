@@ -304,9 +304,17 @@ casm tracks each provider's subscription limits and copes with running out:
   ("try again at 6:31 PM", "in 2 hours", ISO times). The provider is then marked exhausted, so
   its other agents wait too. A successful turn clears the mark.
 - **Queueing.** The prompt that hit the limit becomes a pending message (see below) and is resent a
-  minute after the reset, or with backoff (15 min, doubling, up to 3 h) when no time is known.
+  minute after an account reset, or with backoff (15 min, doubling, up to 3 h) when no time is known.
+  Transient 429/rate throttles without quota language retry after 30 seconds, doubling to 5 minutes;
+  an explicit retry time is respected with a one-second margin.
   Messages sent meanwhile wait behind it (`agent.send` returns `deferredUntil`) unless the caller
   passes `whenLimited: "fail"` (`casm send --fail-if-limited`), which fails with error code 1004.
+- **Recovery.** `casm send-now <agent> <message-id>` makes one explicit attempt even while deferred.
+  A repeated limit defers the message again; success releases that agent's earlier deferred messages.
+  `casm limits --refresh` replaces stale inferred limits with the current account report and resumes
+  deferred work when every reported window positively shows capacity. Unavailable, empty or still
+  exhausted reports do not release queued work. Agent execution can be idle while `deferred` explains
+  why its pending messages are waiting.
 - **For scripts and coordinating agents.** `casm wait` exits 4 when the agent was deferred by a
   limit (3 = still running or waiting for you). The MCP `wait` tool returns `deferred` with a
   hint to pick another provider or host.
@@ -327,9 +335,11 @@ Messages waiting for their agent to become available are stored in the server da
 `casm pending [agent]` lists them, together with agents waiting for a permission or an answer
 (protocol `pending.list` / `agent.pending`, MCP `list_pending`). `casm cancel <agent> <id>` or
 `--all` cancels (`agent.cancelPending`); interrupting an agent drops its pending messages. `casm send-now <agent> <id>` (`agent.steerPending`)
-sends one right away with its images, into the running turn or as a new turn if the agent is idle;
-`casm take <agent> <id>` (`agent.takePending`) removes one and returns its text and images to edit. Agents
-report `pending: {count, next}` so clients can badge them.
+sends one right away with its images, into the running turn or as a new turn if the agent is idle.
+Agents report `pending: {count, next}` so clients can badge them. A recipient can observe this count
+and finish its turn to receive queued messages normally; pending messages cannot be extracted for editing.
+Agent-authored sends carry explicit sender IDs/name through pending delivery and history; human sends
+remain unattributed. See [message provenance](docs/message-provenance.md) for persistence and native-provider limits.
 
 ## Schedules
 
@@ -374,6 +384,11 @@ sends, Shift+Enter inserts a newline; running agents offer Queue, Steer and
 Interrupt. Thinking and tool rows expand on demand. Older history loads when you
 scroll up. Pending messages and permission/question requests sit above the pinned
 composer. The app follows the system light/dark setting.
+The sidebar remembers collapsed hosts/projects and nests children within the
+same host and project. Provider/model labels and an optional host usage popover
+keep status visible. A centered Working indicator sits above the composer while
+the selected agent runs. Explicit Steer reaches an active turn immediately;
+an actual provider limit can still defer the message, with an explanation.
 
 Selections have shareable browser-history URLs: `/h/<host-name>/a/<agent-id>`
 for chats and `/h/<host-name>/p/<project-id>/new` for project drafts. Reload and
@@ -381,7 +396,11 @@ Back/Forward restore the view; missing or archived agents show a not-found
 message. Both the server and Vite serve the React entry point for these paths.
 Composer text is saved in localStorage per host and agent (or project for new
 agents), debounced while typing and flushed before reload. A successful send
-clears the sent draft; failed sends retain it. This version stores text only.
+clears the sent draft; failed sends retain it. Pasted images appear as removable
+thumbnails and can be sent without text. Persisted image data shares a roughly
+1 MB budget across drafts; oversized attachments remain available in the current
+session but are silently omitted from storage. Human and agent-authored messages
+preserve intentional line breaks; explicit sender metadata identifies agent reports.
 
 
 For live development, run from `packages/web`:
@@ -402,4 +421,16 @@ Playwright starts a disposable fake-provider server on loopback port 7495 with
 `CASM_DEV_HOME=/tmp/casm-web-dev CASM_DEV_PORT=7495`; it makes no model calls and
 never uses production agents. Install Chromium once with `npx playwright install
 chromium` if needed. Screenshots are written to `/tmp/casm-web-desktop.png` and
-`/tmp/casm-web-mobile.png`.
+`/tmp/casm-web-mobile.png`. The visual fixture covers every transcript row,
+long tool output, diffs, highlighted code, and wide tables. Its desktop/mobile
+screenshots in both color schemes are `/tmp/casm-web-{visual,tools,diff,code,markdown,permission}-{desktop,mobile}-{light,dark}.png`.
+
+The web theme uses the casm mark's violet and teal accents, system fonts, and
+local brand icons. Syntax highlighting loads on demand; tool details render only
+when expanded, long output offers Show more, and code blocks include a copy
+button that also works over plain HTTP. Tool durations measure live time observed
+by the client; historical tools without timing data omit the duration.
+Expanded tool results also show inline raster images. Providers bound image
+payloads to 1 MiB; Codex view-image results read only the emitted regular-file
+path and omit unavailable, oversized, or non-raster files. No filesystem image
+endpoint is exposed.

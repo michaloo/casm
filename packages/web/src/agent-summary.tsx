@@ -1,5 +1,5 @@
 import type { Agent, ModelInfo } from "@casm/protocol";
-import { ProviderIcon, providerName } from "./provider-icon";
+import { ProviderIcon, providerNames } from "./provider-icon";
 import { AgentActivity } from "./agent-activity-view";
 import { modelLabels } from "./model-label";
 
@@ -14,7 +14,7 @@ export function AgentSummary({ agent, status, models = [], online = true }: { ag
     <ProviderIcon provider={agent.provider} />
     <span className="agent-summary">
       <span className="agent-name" title={agent.name}>{agent.name}</span>
-      <small title={`${providerName(agent.provider)} · ${model.sessionTitle}`}>
+      <small title={`${providerNames[agent.provider]} · ${model.sessionTitle}`}>
         <span className="agent-model">{label}</span>
         <span className="agent-status">{agent.pending?.count ? `${agent.pending.count} queued · ` : ""}{agent.subagents?.running ? `${agent.subagents.running} sub · ` : ""}<AgentActivity agent={agent} status={status} online={online} /></span>
       </small>

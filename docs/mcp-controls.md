@@ -36,6 +36,12 @@ Provider behavior, verified against installed APIs:
   from older versions falls back to session reload. Runtime connection states,
   discovery errors and authentication requirements are preserved.
   [Codex app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
+- OpenCode uses directory-scoped `GET /mcp`, then
+  `POST /mcp/{name}/disconnect` and `/connect`. Connections are shared by sessions
+  in that directory. Disabled servers are skipped by reconnect all. Its status
+  endpoint does not expose tool counts: `toolsKnown: false` means the numeric
+  placeholder must not be displayed as a known count. Checked against the
+  installed `opencode serve` OpenAPI `/doc` endpoint on an isolated server.
 - pi 1.1.0 has built-in MCP (stdio and streamable HTTP) but no MCP commands in
   its RPC protocol ([rpc-commands.md](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/rpc-commands.md)).
   casm uses the documented command path instead: it sends pi's built-in `/mcp`

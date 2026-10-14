@@ -10,19 +10,8 @@ export const PROTOCOL_VERSION = 1;
 // ---------------------------------------------------------------------------
 // Domain
 
-export const ProviderId = z.enum(["claude", "codex", "pi"]);
+export const ProviderId = z.enum(["claude", "codex", "pi", "opencode"]);
 export type ProviderId = z.infer<typeof ProviderId>;
-
-// Providers casm no longer integrates. Their agents stay listed with
-// `unavailable` set: no history, no sends, and never moved to another provider.
-export const RETIRED_PROVIDERS = {
-  opencode: "OpenCode support removed; see the opencode branch",
-} as const;
-export const AgentProviderId = z.enum([...ProviderId.options, "opencode"]);
-export type AgentProviderId = z.infer<typeof AgentProviderId>;
-export function retiredProvider(provider: string): string | undefined {
-  return Object.hasOwn(RETIRED_PROVIDERS, provider) ? RETIRED_PROVIDERS[provider as keyof typeof RETIRED_PROVIDERS] : undefined;
-}
 
 // A hand-picked folder. `group` is only a visual grouping label for clients.
 export const Project = z.object({
@@ -81,9 +70,7 @@ export const Agent = z.object({
   id: z.string(),
   projectId: z.string(),
   name: z.string(),
-  provider: AgentProviderId,
-  // Why the agent can't run here any more (a retired provider). Read-only then.
-  unavailable: z.string().optional(),
+  provider: ProviderId,
   cwd: z.string(),
   config: AgentConfig,
   nativeSessionId: z.string().nullable(),
@@ -227,7 +214,7 @@ export const Schedule = z.object({
 export type Schedule = z.infer<typeof Schedule>;
 
 // A subagent the agent spawned itself (Claude Task/Agent tool, including
-// background ones, Codex sub-agents). Upserted by id
+// background ones, Codex sub-agents, OpenCode child sessions). Upserted by id
 // as it runs; its own transcript is read with agent.subagentHistory.
 export const SubagentItem = z.object({
   kind: z.literal("subagent"),
@@ -290,7 +277,7 @@ export const PermissionDecision = z.enum(["allow", "allowAlways", "deny"]);
 export type PermissionDecision = z.infer<typeof PermissionDecision>;
 
 // A question the agent asks the user (Claude AskUserQuestion, Codex
-// requestUserInput, pi dialogs). One request can hold
+// requestUserInput, pi dialogs, OpenCode questions). One request can hold
 // several prompts; the answer maps prompt id -> value.
 export const QuestionPrompt = z.object({
   id: z.string(),
@@ -629,7 +616,7 @@ export const methods = {
   ),
   "project.delete": method(ById, Ok),
 
-  // <project path>/AGENTS.md, which Codex, pi and Claude Code read.
+  // <project path>/AGENTS.md, which Codex, OpenCode, pi and Claude Code read.
   // `content` is null when the file doesn't exist.
   "project.agentsMd": method(ById, z.object({ path: z.string(), content: z.string().nullable(), sha256: z.string().nullable() })),
   "project.setAgentsMd": method(z.object({ id: z.string(), content: z.string(), expectedSha256: z.string().nullable().optional() }), z.object({ path: z.string(), content: z.string() })),

@@ -33,7 +33,7 @@ for (const width of [1440, 375]) test(`host settings mobile-safe editing, memori
   const panel = page.getByRole("dialog", { name: `${hostName} settings` });
   await expect(panel.getByRole("heading", { name: "Shared host instructions" })).toBeVisible();
   await expect(panel.locator("article.settings-card")).toHaveCount(1);
-  await expect(panel.locator("article h4")).toContainText("Claude · Codex · Pi");
+  await expect(panel.locator("article h4")).toContainText("Claude · Codex · OpenCode · Pi");
   await panel.getByRole("button", { name: "Edit instructions", exact: true }).click();
   await panel.getByRole("textbox", { name: "Global instructions", exact: true }).fill("# My saved instructions\n\nKeep this draft.");
   writeFileSync(`${testHome}/host-settings/AGENTS.md`, "# Concurrent host edit");

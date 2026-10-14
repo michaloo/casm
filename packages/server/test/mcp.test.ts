@@ -9,7 +9,7 @@ import { CasmClient } from "@casm/client";
 import { Store } from "../src/db.ts";
 import { startServer } from "../src/server.ts";
 import type { Provider, ProviderSession } from "../src/providers/types.ts";
-import { codexMcpServer } from "../src/providers/mcp.ts";
+import { codexMcpServer, opencodeMcpServers } from "../src/providers/mcp.ts";
 
 for (const mode of ["native", "fallback", "old-native"] as const) test(`MCP ${mode}: idle session, status, one/all reconnect and CLI`, async (t) => {
   const home = await mkdtemp(join(tmpdir(), "casm-mcp-test-"));
@@ -71,4 +71,5 @@ test("native MCP status normalization preserves failed/auth/pending states and u
   assert.equal(codexMcpServer({ name: "docs", runtimeStatus: "starting" }).status, "pending");
   assert.equal(codexMcpServer({ name: "docs", toolsError: "failed" }).error, "failed");
   assert.equal(codexMcpServer({ name: "docs", tools: {} }).status, "pending");
+  assert.deepEqual(opencodeMcpServers({ docs: { status: "needs_client_registration", error: "register first" } }), [{ name: "docs", status: "needs-auth", tools: 0, toolsKnown: false, error: "register first" }]);
 });

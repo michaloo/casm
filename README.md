@@ -1,7 +1,7 @@
 # casm
 
-casm is a small, self-hosted agent orchestrator for **Claude Code, Codex and
-pi**. Run a server on each machine and connect them as peers. A scriptable
+casm is a small, self-hosted agent orchestrator for **Claude Code, Codex, pi and
+OpenCode**. Run a server on each machine and connect them as peers. A scriptable
 CLI and opt-in MCP tools let agents spawn, message and steer other agents, locally
 or across machines. Schedules, persistent message queues and provider limits
 support unattended work. The server serves the primary web client, installable
@@ -28,7 +28,7 @@ listed for one provider is not a promise for every provider.
 | Clients | CLI, MCP tools, web/PWA. | Desktop, iOS, Android, web, CLI and TypeScript SDK. [Clients][paseo] | Terminal CLI, native iOS/Android, web/PWA and Telegram Mini App. [Clients][hapi] |
 | Multi-machine | Servers forward requests to named peers; CLI `-H`, web host selection and MCP share those peers. | Clients connect to multiple daemons; remote CLI and Hub support multiple machines. [Core][paseo], [Hub][paseo-hub] | Multiple working machines connect to one Hub; Runners enable remote session creation. [Installation][hapi-install] |
 | Relay / cloud dependency | Direct connections; no casm relay or cloud account. Supply your own network access. | Direct TCP/VPN or optional encrypted relay; relay can be self-hosted. [Connections][paseo], [relay][paseo-relay] | Hub can be self-hosted with relay disabled; network relay and mobile push services are optional. [Deployment options][hapi-install] |
-| Providers | Claude Code, Codex, pi (the open/local provider). OpenCode support was removed; it is archived on the `opencode` branch. | Claude Code, Codex, pi and OpenCode, plus Copilot, Antigravity and Muse Code; extensible through plugins. [Providers][paseo] | Claude Code, Codex, pi and OpenCode, plus Cursor Agent, Grok Build, Kimi, Copilot, Antigravity and DeepSeek Harness. [Supported agents][hapi-agents] |
+| Providers | Claude Code, Codex, pi, OpenCode. | Those four plus Copilot, Antigravity and Muse Code; extensible through plugins. [Providers][paseo] | Those four plus Cursor Agent, Grok Build, Kimi, Copilot, Antigravity and DeepSeek Harness. [Supported agents][hapi-agents] |
 | Agent-to-agent orchestration | CLI and opt-in MCP spawn/manage agents, preserve parent links and support Queue/Steer across peers. | CLI and opt-in MCP manage agents/workspaces across providers; remote CLI reaches other hosts. [Orchestration][paseo-orchestration] | CLI/MCP peer discovery, inspection and messaging, including resuming peers when needed. [Peer tools][hapi-cli] |
 | Schedules | Cron, interval and one-time jobs; target an existing agent or create one. | Cron schedules create agents; heartbeats prompt existing agents. Hub adds event-triggered automation. [Schedules][paseo-schedules], [Hub][paseo-hub] | No built-in scheduler documented in the reviewed [CLI][hapi-cli] and [Hub][hapi-hub] guides. |
 | Limits / usage | Provider-dependent subscription windows, context usage and cost; limit-aware deferral and retry. | Usage-source plugins expose account/session windows, balances and availability. [Usage API][paseo-usage] | Provider-dependent context usage; cross-provider quota gauges are discussed in [upstream #846][hapi-usage]. Comprehensive quota/retry support was not verified. |

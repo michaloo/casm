@@ -182,6 +182,14 @@ export function normalize(item: CodexItem, live = false): Item | null {
       return { ...tool(item, str(item.name) || "tool", undefined, "done", typeof item.output === "string" ? item.output : contentText(item.output)), ...toolImages(item.output) };
     case "webSearch":
       return tool(item, "web_search", { query: item.query, action: item.action }, status);
+    // Image generation (codex-rs/ext/items image_generation.rs): `result` is the
+    // base64 image, `savedPath` its file. Over 1 MB it stays a path, never input.
+    case "imageGeneration": {
+      const image = toolImages([{ type: "image", data: str(item.result) }]).images?.[0] ?? viewedImage(item.savedPath);
+      const failure = str(rec(item.failure).type);
+      const output = failure ? `Image generation failed: ${failure}` : str(item.savedPath) ? `Saved to ${str(item.savedPath)}` : "";
+      return { ...tool(item, "image_generation", { prompt: str(item.revisedPrompt) }, status, output), ...(image ? { images: [image] } : {}) };
+    }
     case "imageView": {
       const image = viewedImage(item.path);
       return { ...tool(item, "view_image", { path: item.path }, status), ...(image ? { images: [image] } : {}) };
@@ -877,10 +885,11 @@ class CodexSession implements ProviderSession {
         this.model = str(p.toModel);
         emit({ type: "item", item: { kind: "notice", id: `reroute-${str(p.turnId)}`, text: `Model rerouted from ${str(p.fromModel)} to ${str(p.toModel)}`, level: "warning" } });
         emit({ type: "usage", usage: { model: this.model } });
+        if (this.model) emit({ type: "model", model: this.model });
         return;
       case "thread/settings/updated": {
         const model = str(rec(p.threadSettings).model);
-        if (model) this.model = model;
+        if (model && model !== this.model) (this.model = model), emit({ type: "model", model });
         return;
       }
       case "skills/changed":
@@ -1041,7 +1050,11 @@ class CodexSession implements ProviderSession {
         return { permissions: requested, scope: a.decision === "allowAlways" ? "session" : "turn" };
       }
       case "mcpServer/elicitation/request": {
-        if (p.mode === "url") return { action: "decline", content: null, _meta: null };
+        // URL mode: the server wants the user to open a page (sign in, pay, consent).
+        if (p.mode === "url") {
+          const a = await this.ask(key, { toolName: `mcp__${str(p.serverName)}`, input: { message: p.message, url: p.url }, title: `${str(p.message)} ${str(p.url)}`.trim(), canAlwaysAllow: false }, str(p.elicitationId));
+          return { action: a && a.decision !== "deny" ? "accept" : "decline", content: null, _meta: null };
+        }
         const form = elicitationQuestion(p, `elicitation-${randomUUID()}`);
         if (form) return elicitationResponse(form, await this.question(key, form.req));
         if (Object.keys(rec(rec(p.requestedSchema).properties)).length) return { action: "decline", content: null, _meta: null };

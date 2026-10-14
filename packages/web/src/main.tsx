@@ -20,6 +20,7 @@ import { AgentSummary } from "./agent-summary";
 import { agentHierarchy } from "./agent-hierarchy";
 import { modelLabels } from "./model-label";
 import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type CollapsedProjects } from "./project-collapse";
+import { PendingQueue } from "./pending-queue";
 import { Question } from "./question";
 import { ChatWorking } from "./chat-working";
 import { newMessageId, sendMode, visiblePending } from "./outbox";
@@ -737,6 +738,7 @@ function App() {
                   }
                 />
               ))}
+              <PendingQueue key={key(selection.host, selection.id ?? "new")} agentKey={key(selection.host, selection.id ?? "new")} messages={rows}>
               <PendingRows
                 rows={rows}
                 unconfirmed={new Set((c.outbox ?? []).filter((o) => !c.pending.some((p) => p.id === o.id)).map((o) => o.id))}
@@ -761,6 +763,7 @@ function App() {
                   },
                 }}
               />
+              </PendingQueue>
             </div>
             <ChatWorking running={online && agent?.status === "running"} />
             <form

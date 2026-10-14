@@ -2009,3 +2009,47 @@ button.danger {
   font-weight: 600;
   padding: 6px 14px;
 }
+
+.queue-toggle {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 0;
+  padding: 8px 14px;
+  text-align: left;
+}
+.queue-count { flex-shrink: 0; font-weight: 600; }
+.queue-hints { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+@media (max-width: 650px) {
+  .pending-row button, .card button { min-height: 44px; min-width: 44px; }
+  .pending-row { flex-wrap: wrap; }
+  .pending-row > span { flex-basis: 100%; }
+}
+
+.question-options { display: grid; gap: 6px; }
+.card .question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.card .question-option input { flex: 0 0 20px; width: 20px; height: 20px; margin: 2px 0; }
+.question-option > span { min-width: 0; overflow-wrap: anywhere; }
+.option-description { display: block; color: var(--muted); line-height: 1.5; }
+.card fieldset { min-width: 0; margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; }
+.question-option strong { color: var(--text); }
+@media (max-width: 650px) {
+  .card label, .card legend { font-size: 15px; }
+}

@@ -365,6 +365,7 @@ export type TurnOutcome = z.infer<typeof TurnOutcome>;
 export const MemoryEntry = z.object({
   id: z.string(),
   title: z.string().optional(),
+  description: z.string().optional(),
   text: z.string(),
   updatedAt: z.string().optional(),
 });
@@ -405,6 +406,14 @@ export const AgentEvent = z.discriminatedUnion("type", [
 ]);
 export type AgentEvent = z.infer<typeof AgentEvent>;
 
+export const HostAgentsMdFile = z.object({
+  path: z.string(),
+  sources: z.array(z.object({ provider: ProviderId, path: z.string() })),
+  content: z.string().nullable(),
+  sha256: z.string().nullable(),
+});
+export type HostAgentsMdFile = z.infer<typeof HostAgentsMdFile>;
+
 export const AgentPromptInfo = z.object({
   enabled: z.boolean(),
   content: z.string(),
@@ -429,6 +438,14 @@ function method<P extends z.ZodType, R extends z.ZodType>(params: P, result: R) 
 }
 
 export const methods = {
+  // Standard global provider instructions, grouped by resolved target. Writes
+  // accept only paths discovered here and always require a version precondition.
+  "host.agentsMd": method(Empty, z.object({ files: z.array(HostAgentsMdFile) })),
+  "host.setAgentsMd": method(
+    z.object({ path: z.string(), content: z.string(), expectedSha256: z.string().nullable() }),
+    HostAgentsMdFile,
+  ),
+
   "server.info": method(
     Empty,
     z.object({ id: z.string(), name: z.string(), version: z.string(), protocol: z.number(), providers: z.array(ProviderId) }),

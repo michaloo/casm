@@ -98,7 +98,9 @@ async function entry(dir: string, id: string, titles: Map<string, string>): Prom
   const file = join(dir, id);
   const [text, st] = await Promise.all([readFile(file, "utf8"), stat(file)]);
   const title = id === INDEX ? "Index (MEMORY.md)" : (titles.get(id) ?? frontmatterName(text));
-  return { id, ...(title ? { title } : {}), text, updatedAt: st.mtime.toISOString() };
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  const description = fm && /^description:\s*(.+)$/m.exec(fm[1])?.[1].trim().replace(/^["']|["']$/g, "");
+  return { id, ...(title ? { title } : {}), ...(description ? { description } : {}), text, updatedAt: st.mtime.toISOString() };
 }
 
 export async function claudeMemories(cwd: string): Promise<ProviderMemories | null> {

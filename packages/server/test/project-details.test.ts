@@ -98,6 +98,7 @@ test("claude: lists the index, then notes in index order, titled from the index"
   assert.equal(await claudeMemories(join(root, "nothing-here")), null);
   const dir = claudeFixture();
   const m = (await claudeMemories(project))!;
+  assert.equal(m.entries.find((e) => e.id === "branches.md")?.description, "branch naming");
   assert.equal(m.scope, "project");
   assert.equal(m.location, dir);
   assert.deepEqual(
@@ -151,6 +152,7 @@ test("codex: global store filtered to the project", async () => {
   codexFixture();
   const m = (await codexMemories(project))!;
   assert.equal(m.scope, "global");
+  assert.equal(m.entries.find((e) => e.id === "MEMORY.md#1")?.description, "naming git branches in widgetd");
   assert.deepEqual(
     m.entries.map((e) => [e.id, e.title]),
     [

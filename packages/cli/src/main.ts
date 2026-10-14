@@ -53,6 +53,8 @@ server (runs on this machine):
   token create <name> | token list | token revoke <name>
   peer add <name> <ws-url> <token> | peer list [--probe] | peer rm <name>
 
+  peers [--probe]                    the server's peers: the hosts -H can name
+
 hosts (only for a CLI on a machine without a server):
   host add <name> <ws-url> <token> [--default]
   host list | host rm <name>
@@ -137,6 +139,7 @@ const { values: opt, positionals } = parseArgs({
     "skip-if-busy": { type: "boolean" },
     "casm-tools": { type: "boolean" },
     edit: { type: "boolean" },
+    probe: { type: "boolean" },
   },
 });
 
@@ -323,6 +326,15 @@ async function run(c: CasmClient) {
     case "info": {
       const i = await c.call("server.info", {});
       return out(i, () => console.log(`${i.name}  casm ${i.version}  protocol ${i.protocol}  id ${i.id}\nagents: ${i.providers.join(", ")}`));
+    }
+
+    case "peers": {
+      const { peers } = await c.call("peer.list", { probe: opt.probe });
+      return out(peers, () => {
+        if (!peers.length) console.log('no peers (add one on the server machine: casm peer add <name> <ws-url> <token>)');
+        for (const p of peers)
+          console.log(`${p.name}\t${p.url}${p.reachable === undefined ? "" : p.reachable ? "  reachable" : `  unreachable: ${p.error}`}`);
+      });
     }
 
     case "shell": {

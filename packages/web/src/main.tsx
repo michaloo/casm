@@ -453,6 +453,7 @@ function App() {
                       .filter((a) => a.projectId === p.id)
                       .sort(
                         (a, b) =>
+                          a.name.localeCompare(b.name) ||
                           a.createdAt.localeCompare(b.createdAt) ||
                           a.id.localeCompare(b.id),
                       )
@@ -771,7 +772,7 @@ function Transcript({
   const c = chat(ckey);
   const ref = useRef<VirtuosoHandle>(null);
   const [bottom, setBottom] = useState(true);
-  const following = useRef(true);
+  const following = useRef(c.atBottom ?? true);
   const items: Item[] = [
     ...c.items,
     ...(c.reasoning
@@ -826,6 +827,7 @@ function Transcript({
         followOutput={() => (following.current ? "auto" : false)}
         atBottomStateChange={(v) => {
           setBottom(v);
+          c.atBottom = v;
           if (v) following.current = true;
         }}
         rangeChanged={(r) => {

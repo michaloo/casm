@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { PendingMessage } from "@casm/protocol";
 
-export function PendingQueue({ agentKey, messages, children }: {
-  agentKey: string; messages: PendingMessage[]; children: ReactNode;
+export function PendingQueue({ agentKey, messages, children, status }: {
+  agentKey: string; messages: PendingMessage[]; children: ReactNode; status?: ReactNode;
 }) {
   const storageKey = `casm.queue.expanded:${agentKey}`;
   const [expanded, setExpanded] = useState(() => {
@@ -31,14 +31,18 @@ export function PendingQueue({ agentKey, messages, children }: {
   useEffect(() => {
     try { localStorage.setItem(storageKey, String(expanded)); } catch { /* Optional preference. */ }
   }, [storageKey, expanded]);
-  if (!messages.length) return null;
-  return <section className="pending-queue" aria-label="Queue">
-    <button type="button" className="queue-toggle" aria-expanded={expanded} aria-controls={listId}
-      onClick={() => setExpanded((value) => !value)}>
-      <span className="queue-count">{messages.length} queued</span>
-      <span className="queue-hints">{[limited ? `${limited} waiting for limit` : "", failed.length ? `${failed.length} failed` : ""].filter(Boolean).join(" · ")}</span>
-      <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
-    </button>
-    <div id={listId} hidden={!expanded}>{children}</div>
+  const hints = [limited ? `${limited} waiting for limit` : "", failed.length ? `${failed.length} failed` : ""].filter(Boolean).join(" · ");
+  return <section className="pending-queue" aria-label={messages.length ? "Queue" : undefined}>
+    <div className="queue-list" id={listId} hidden={!expanded || !messages.length}>{children}</div>
+    <div className="composer-status">
+      {status}
+      {messages.length > 0 && <button type="button" className="queue-toggle" aria-expanded={expanded} aria-controls={listId}
+        title={[`${messages.length} queued`, hints].filter(Boolean).join(" · ")}
+        onClick={() => setExpanded((value) => !value)}>
+        <span className="queue-label"><span className="queue-count">{messages.length} queued</span>
+          <svg className="queue-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg></span>
+        {hints && <span className="queue-hints"> · {hints}</span>}
+      </button>}
+    </div>
   </section>;
 }

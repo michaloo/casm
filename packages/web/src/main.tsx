@@ -806,7 +806,9 @@ function App() {
                   }
                 />
               ))}
-              <PendingQueue key={key(selection.host, selection.id ?? "new")} agentKey={key(selection.host, selection.id ?? "new")} messages={rows}>
+            </div>
+            <PendingQueue key={key(selection.host, selection.id ?? "new")} agentKey={key(selection.host, selection.id ?? "new")} messages={rows}
+              status={<ChatWorking running={online && agent?.status === "running"} />}>
               <PendingRows
                 rows={rows}
                 unconfirmed={new Set((c.outbox ?? []).filter((o) => !c.pending.some((p) => p.id === o.id)).map((o) => o.id))}
@@ -831,9 +833,7 @@ function App() {
                   },
                 }}
               />
-              </PendingQueue>
-            </div>
-            <ChatWorking running={online && agent?.status === "running"} />
+            </PendingQueue>
             <form
               className="composer"
               onSubmit={(e) => {

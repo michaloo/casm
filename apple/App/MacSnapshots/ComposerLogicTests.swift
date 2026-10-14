@@ -8,6 +8,19 @@ final class ComposerLogicTests: XCTestCase {
         CompletionContext.at(text.endIndex, in: text)
     }
 
+    func testPickerModelPrefersConfigThenReportedThenCatalogDefault() throws {
+        let models = try JSONDecoder().decode([ModelInfo].self, from: Data("""
+            [{"id": "gpt-6.1-sol", "isDefault": true}, {"id": "gpt-6-astra"}]
+            """.utf8))
+        func shown(_ model: String?, _ effective: String?) -> String? {
+            ConfigPickers.model(config: AgentConfig(model: model), effective: effective, in: models)?.id
+        }
+        XCTAssertEqual(shown(nil, nil), "gpt-6.1-sol", "no session yet: the catalog's default")
+        XCTAssertEqual(shown(nil, "gpt-6-astra"), "gpt-6-astra", "unset model: what the session runs")
+        XCTAssertEqual(shown("gpt-6.1-sol", "gpt-6-astra"), "gpt-6.1-sol", "a configured model wins")
+        XCTAssertNil(shown(nil, "gpt-unlisted"), "not in the catalog: the picker shows the raw id")
+    }
+
     func testCompletionContexts() {
         XCTAssertEqual(context("/rev")?.kind, .command)
         XCTAssertEqual(context("/rev")?.query, "rev")

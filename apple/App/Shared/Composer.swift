@@ -508,9 +508,10 @@ struct ConfigPickers: View {
         if let provider = chat.provider, let config = chat.config, let host = chat.host {
             let catalog = host.catalog(for: provider)
             let models = catalog?.models ?? []
-            let model = models.first { $0.id == config.model } ?? (config.model == nil ? models.first { $0.isDefault == true } : nil)
+            let effective = chat.agent?.effectiveModel
+            let model = Self.model(config: config, effective: effective, in: models)
             // m2: no raw ids while the catalog loads.
-            let modelName = catalog == nil ? "…" : (model?.displayName ?? config.model ?? "Default model")
+            let modelName = catalog == nil ? "…" : (model?.displayName ?? config.model ?? effective ?? "Default model")
 
             if chat.newAgent != nil, let providers = host.info?.providers, providers.count > 1 {
                 // Only before the agent exists; an agent keeps its provider.
@@ -581,6 +582,16 @@ struct ConfigPickers: View {
 
             ModePicker(chat: chat, provider: provider, modes: catalog?.modes ?? [], current: config.mode)
         }
+    }
+}
+
+extension ConfigPickers {
+    /// The model the picker shows: the configured one; with none configured, the one the session
+    /// reported running (e.g. Codex's config.toml default), and only before any session the
+    /// catalog's default. Nil when that id isn't in the catalog.
+    static func model(config: AgentConfig, effective: String?, in models: [ModelInfo]) -> ModelInfo? {
+        if let id = config.model ?? effective { return models.first { $0.id == id } }
+        return models.first { $0.isDefault == true }
     }
 }
 

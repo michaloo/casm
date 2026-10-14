@@ -264,6 +264,9 @@ public struct Agent: Codable, Sendable, Hashable, Identifiable {
     public var cwd: String
     public var config: AgentConfig
     public var nativeSessionId: String?
+    /// The model the agent's session runs, as the provider last reported it (also when
+    /// `config.model` is unset). Nil until a session reports one or after the model changes.
+    public var effectiveModel: String?
     public var parent: AgentParent?
     public var tags: [String]
     public var archivedAt: String?

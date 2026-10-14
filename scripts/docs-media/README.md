@@ -23,7 +23,7 @@ client with Playwright's Chromium, and writes PNGs (palette-optimized) and
 GIFs (frames from screenshots, encoded by ffmpeg with a shared palette).
 It needs `ffmpeg` on `PATH`; a static build in `~/.local/bin` works.
 `SHOWCASE_PORT` (default 7497, also uses the next port) and `SHOWCASE_HOME`
-(default `/tmp/demo`) move it.
+(default `/tmp/demo`, with casm's state in `/tmp/demo.state`) move it.
 
 ## CLI: terminal recordings
 

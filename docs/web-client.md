@@ -31,6 +31,8 @@ Hosts, then their projects, then agents. Each agent shows its provider icon,
 model and status: idle (○), working, waiting for you, queued messages. Agents
 other agents created are nested under their parent, also across hosts.
 
+![an agent that split its work across agents on two hosts](media/web-orchestration.png)
+
 - **Host options** (⋯ next to a host) opens the host's window: Usage,
   Schedules and Instructions.
 - **New project** (+ next to a host) registers a folder on that host.
@@ -71,14 +73,14 @@ While a turn runs, the composer offers three buttons:
 
 ## The queue
 
-Queued messages fold into a chip above the composer (**2 queued**). Open it to
-**Edit** a message in place, **Send now** (steer it in, out of order),
-**Cancel** it, or **Retry now** for one that failed or waits for a usage limit.
-A failed message stays at the front and holds the queue until you retry or
-cancel it, so nothing runs out of order. Drafts and queued messages from a
+Queued messages fold into a pill next to the working indicator (**2 queued**).
+Open it for the queue panel: **Edit** a message in place, **Send now** (steer
+it in, out of order), **Cancel** it, or **Retry now** for one that failed or
+waits for a usage limit. A failed message stays at the front and holds the
+queue until you retry or cancel it, so nothing runs out of order. Drafts and queued messages from a
 lost connection are kept and resent once.
 
-![three messages queued while the agent works](media/web-queue.gif)
+![two messages queued while the agent works, and the queue panel](media/web-queue.gif)
 
 ## Permissions and questions
 
@@ -104,6 +106,8 @@ or skip when busy) or to a new agent made from a preset.
 
 ![a host's schedules](media/web-schedules.png)
 
+![creating a weekday schedule for an existing agent](media/web-schedule-create.gif)
+
 ## Settings
 
 **Host options → Instructions** edits the host's global instruction files (the
@@ -111,7 +115,7 @@ or skip when busy) or to a new agent made from a preset.
 previews, disables or resets the [agent prompt](concepts.md#the-agent-prompt).
 Details: [host settings](host-settings.md).
 
-![host settings](media/web-host-settings.png)
+![host settings: the agent prompt and its preview](media/web-host-settings.png)
 
 **Project options** does the same for one project: its `AGENTS.md`, its
 providers' memories (read-only), and its path, group and agent count.
@@ -121,7 +125,7 @@ providers' memories (read-only), and its path, group and agent count.
 **New project** (+ next to a host) registers an existing folder on that host, with
 folder completion as you type, a name, a group and tags.
 
-![the new project dialog](media/web-new-project.png)
+![registering a folder as a new project](media/web-new-project.gif)
 
 ## Files
 
@@ -130,7 +134,7 @@ opens a preview: syntax-highlighted code, rendered Markdown, pretty JSON,
 images, with **Download** and **Copy path**. `/f/<absolute path>` opens a
 preview directly. Files are read-only through casm.
 
-![previewing a file an agent mentioned](media/web-file-preview.png)
+![previewing files an agent mentioned](media/web-file-preview.gif)
 
 ## Addresses you can share
 

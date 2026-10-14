@@ -1,3 +1,4 @@
+import { ComposerPickers } from "./composer-pickers";
 import { ProjectSettingsButton } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
@@ -181,6 +182,7 @@ function App() {
   const [provider, setProvider] = useState<ProviderId>("claude");
   const [model, setModel] = useState("");
   const [mode, setMode] = useState("");
+  const [effort, setEffort] = useState("");
   const [catalog, setCatalog] = useState<Catalog>({ models: [], modes: [] });
   // Only creating a new agent waits for the server; sends to existing agents
   // show at once and reconcile by message id.
@@ -371,7 +373,6 @@ function App() {
   const rows = visiblePending(c);
   const busy = !!agent && agent.status !== "idle";
   const primary = sendMode(agent?.status, rows.length);
-  const models = modelLabels(model, agent?.effectiveModel, catalog.models);
   const sessionModel = modelLabels(agent?.config.model, agent?.effectiveModel, catalog.models);
   if (selection && host)
     restoreDraft(
@@ -388,6 +389,7 @@ function App() {
       setProvider(agent.provider);
       setModel(agent.config.model ?? "");
       setMode(agent.config.mode ?? "");
+      setEffort(agent.config.effort ?? "");
     }
   }, [ckey, online]);
   useEffect(() => {
@@ -438,7 +440,7 @@ function App() {
             projectId: s.project,
             provider,
             name: text.trim().slice(0, 70) || "Image message",
-            config: { model, mode },
+            config: { model, mode, effort },
           },
           s.host,
         );
@@ -496,8 +498,8 @@ function App() {
     try {
       setError("");
       // Only a real change: an unset model is "" in the picker.
-      if (current && ((current.config.model ?? "") !== model || (current.config.mode ?? "") !== mode))
-        await rpc.current!.call("agent.update", { id: agentId, config: { model, mode } }, s.host);
+      if (current && ((current.config.model ?? "") !== model || (current.config.mode ?? "") !== mode || (current.config.effort ?? "") !== effort))
+        await rpc.current!.call("agent.update", { id: agentId, config: { model, mode, effort } }, s.host);
       const result = await rpc.current!.call(
         "agent.send",
         { id: agentId, text, images, messageId, whenBusy: steer ? "steer" : "queue" },
@@ -837,55 +839,10 @@ function App() {
             >
               {slash.palette}
               {commandNotice && <p role="status" className="command-notice">{commandNotice}</p>}
-              <div className="pickers">
-                <ProviderIcon provider={provider} />
-                {!agent && (
-                  <select
-                    aria-label="Provider"
-                    value={provider}
-                    onChange={(e) => {
-                      setProvider(e.target.value as ProviderId);
-                      setModel("");
-                      setMode("");
-                    }}
-                  >
-                    {["claude", "codex", "pi", "opencode"].map((p) => (
-                      <option key={p}>{p}</option>
-                    ))}
-                  </select>
-                )}
-                <select
-                  aria-label="Model"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                >
-                  <option value="">{models.defaultLabel}</option>
-                  {model && !catalog.models.some((m) => m.id === model) && (
-                    <option>{model}</option>
-                  )}
-                  {catalog.models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name ?? m.id}
-                    </option>
-                  ))}
-                </select>
-                {models.showSession && <small className="model-session" title={models.sessionTitle}>Session: {models.actual}</small>}
-                <select
-                  aria-label="Mode"
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value)}
-                >
-                  <option value="">Default mode</option>
-                  {mode && !catalog.modes.some((m) => m.id === mode) && (
-                    <option>{mode}</option>
-                  )}
-                  {catalog.modes.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name ?? m.id}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <ComposerPickers provider={provider} fixedProvider={!!agent} catalog={catalog}
+                model={model} effectiveModel={agent?.effectiveModel} mode={mode} effort={effort}
+                setProvider={value => { setProvider(value); setModel(""); setMode(""); setEffort(""); }}
+                setModel={value => { setModel(value); setEffort(""); }} setMode={setMode} setEffort={setEffort} />
               {c.images.length > 0 && <Images images={c.images} remove={(index) => {
                 c.images = c.images.filter((_, i) => i !== index);
                 saveDraft(c);

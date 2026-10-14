@@ -7,12 +7,18 @@ import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
 import { nextCron, parseCron } from "./cron.ts";
 
-export function nextRun(c: ScheduleCadence, after: Date, alreadyRan = false): Date | null {
+// `scheduled` is when the run that just fired was due: an interval counts from
+// it, so a late tick doesn't push every later run back. After a long gap (the
+// server was down) it counts from `after`, and a missed run happens once.
+export function nextRun(c: ScheduleCadence, after: Date, alreadyRan = false, scheduled?: Date): Date | null {
   switch (c.type) {
     case "cron":
       return nextCron(parseCron(c.expr), after);
-    case "every":
-      return new Date(after.getTime() + c.minutes * 60_000);
+    case "every": {
+      const step = c.minutes * 60_000;
+      const anchored = scheduled ? scheduled.getTime() + step : 0;
+      return new Date(anchored > after.getTime() ? anchored : after.getTime() + step);
+    }
     case "once":
       return alreadyRan ? null : new Date(c.at);
   }
@@ -43,7 +49,7 @@ export class Scheduler {
     this.notify = notify;
     this.createAgent = createAgent;
     // A run missed while the server was down happens once on the next tick.
-    this.timer = setInterval(() => void this.tick(), 15_000);
+    this.timer = setInterval(() => void this.tick(), 5_000);
     this.timer.unref();
   }
 
@@ -148,7 +154,7 @@ export class Scheduler {
     if (!fresh) return run;
     const updated: Schedule = { ...fresh, lastRun: run };
     if (advance) {
-      updated.nextRunAt = nextRun(fresh.cadence, now, true)?.toISOString() ?? null;
+      updated.nextRunAt = nextRun(fresh.cadence, now, true, x.nextRunAt ? new Date(x.nextRunAt) : undefined)?.toISOString() ?? null;
       if (fresh.cadence.type === "once") updated.enabled = false;
     }
     this.save(updated);

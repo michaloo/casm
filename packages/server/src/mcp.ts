@@ -74,7 +74,7 @@ const tools = {
   },
   create_agent: {
     description:
-      "Create a coding agent on a host (this one or a peer) and optionally start it on a prompt. You become its parent. Use wait to get its reply.",
+      "Create a coding agent on a host (this one or a peer) and optionally start it on a prompt. It works in the project folder, or in `cwd`, a folder inside it (e.g. a git worktree). You become its parent. Use wait to get its reply.",
     input: z.object({
       host,
       project: z.string().describe("Project id, id prefix or name (see list_projects)"),

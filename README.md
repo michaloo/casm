@@ -337,7 +337,7 @@ server database and listed with their next run and last result.
 casm schedule add --every 30m --agent reviewer "Any new failing tests?"
 casm schedule add --cron "0 9 * * 1-5" --project api --provider codex --mode auto --name standup "Summarise yesterday's commits"
 casm schedule add --at 18:30 --agent writer "Continue the draft"      # once
-casm send writer --at "in 2h" "…"                                     # shorthand for a once schedule
+casm schedule add --at "in 2h" --agent writer "…"                     # once, relative
 casm schedules [--agent a]
 casm schedule run | enable | disable | rm <schedule>
 ```

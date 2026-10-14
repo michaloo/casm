@@ -1,6 +1,7 @@
+import { InstructionEditor, ProjectMemories } from "./settings-shared";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { AgentMemories, AgentPromptInfo, HostAgentsMdFile, Project } from "@casm/protocol";
+import type { AgentPromptInfo, HostAgentsMdFile, Project } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { providerNames } from "./provider-icon";
 import { Prose } from "./transcript";
@@ -48,38 +49,11 @@ function Instructions({ host, rpc }: { host: string; rpc: Rpc }) {
 }
 
 function Instruction({ file, host, rpc, saved }: { file: HostAgentsMdFile; host: string; rpc: Rpc; saved: (file: HostAgentsMdFile) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(file.content ?? "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [latest, setLatest] = useState<HostAgentsMdFile>();
-  return <article className="settings-card">
-    <h4>{file.sources.map((s) => providerNames[s.provider]).join(" · ")}</h4>
-    <code className="settings-path">{file.path}</code>
+  return <InstructionEditor file={file} saved={saved} title={file.sources.map((s) => providerNames[s.provider]).join(" · ")}
+    save={(content, expectedSha256) => rpc.call("host.setAgentsMd", { path: file.path, content, expectedSha256 }, host)}
+    load={async () => (await rpc.call("host.agentsMd", {}, host)).files.find((f) => f.path === file.path)}>
     <details><summary>Provider paths</summary><ul>{file.sources.map((s) => <li key={s.provider}>{providerNames[s.provider]}: <code>{s.path}</code></li>)}</ul></details>
-    {editing ? <form onSubmit={(e) => {
-      e.preventDefault(); setBusy(true); setError(""); setLatest(undefined);
-      void rpc.call("host.setAgentsMd", { path: file.path, content: text, expectedSha256: file.sha256 }, host)
-        .then((next) => { saved(next); setEditing(false); }).catch((e) => setError(message(e))).finally(() => setBusy(false));
-    }}>
-      <label>Global instructions<textarea value={text} onChange={(e) => setText(e.target.value)} rows={14} /></label>
-      <div className="settings-actions"><button disabled={busy}>Save instructions</button><button type="button" disabled={busy} onClick={() => { setEditing(false); setError(""); setLatest(undefined); }}>Cancel edit</button></div>
-    </form> : <>
-      {file.content === null ? <p>This file does not exist yet.</p> : file.content ? <Prose text={file.content} /> : <p>This file is empty.</p>}
-      <button type="button" onClick={() => { setText(file.content ?? ""); setEditing(true); }}>{file.content === null ? "Create instructions" : "Edit instructions"}</button>
-    </>}
-    {error && <div role="alert" className="error"><p>{error}</p><p>Your draft has been kept.</p><button type="button" disabled={busy} onClick={() => {
-      setBusy(true);
-      void rpc.call("host.agentsMd", {}, host).then((r) => {
-        const found = r.files.find((f) => f.path === file.path);
-        if (found) setLatest(found); else setError("The file target changed. Close and reopen settings to load the current files; copy your draft first.");
-      }).catch((e) => setError(message(e))).finally(() => setBusy(false));
-    }}>Review latest version</button></div>}
-    {latest && <div className="settings-latest"><h4>Latest version on host</h4><Prose text={latest.content ?? "File no longer exists."} />
-      <button type="button" onClick={() => { saved(latest); setLatest(undefined); setError(""); }}>Keep my draft and use this version for the next save</button>
-      <button type="button" onClick={() => { saved(latest); setText(latest.content ?? ""); setLatest(undefined); setError(""); }}>Replace draft with latest</button>
-    </div>}
-  </article>;
+  </InstructionEditor>;
 }
 
 function Memories({ host, rpc, projects }: { host: string; rpc: Rpc; projects: Project[] }) {
@@ -89,26 +63,6 @@ function Memories({ host, rpc, projects }: { host: string; rpc: Rpc; projects: P
   </section>;
 }
 
-function ProjectMemories({ host, rpc, project }: { host: string; rpc: Rpc; project: Project }) {
-  const [open, setOpen] = useState(false);
-  const [memories, setMemories] = useState<AgentMemories[]>();
-  const [error, setError] = useState("");
-  useEffect(() => {
-    if (!open || memories) return;
-    let active = true;
-    void rpc.call("project.memories", { id: project.id }, host).then((r) => { if (active) setMemories(r.agents); }).catch((e) => { if (active) setError(message(e)); });
-    return () => { active = false; };
-  }, [open, memories, host, project.id, rpc]);
-  return <details className="settings-card" onToggle={(e) => setOpen(e.currentTarget.open)}><summary>{project.name}</summary>
-    <code className="settings-path">{project.path}</code>
-    {error && <p role="alert" className="error">{error}</p>}
-    {open && !memories && !error && <p role="status">Loading memories…</p>}
-    {memories?.length === 0 && <p>No provider memories found for this project.</p>}
-    {memories?.map((store) => <section key={`${store.provider}:${store.location}`}><h4>{providerNames[store.provider]} · {store.scope}</h4><code className="settings-path">{store.location}</code>
-      {store.entries.map((entry) => <details key={entry.id} className="memory-entry"><summary><span>{entry.title ?? entry.id}</span>{entry.description && <small>{entry.description}</small>}</summary><Prose text={entry.text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "")} /></details>)}
-    </section>)}
-  </details>;
-}
 
 function HostPrompt({ host, rpc }: { host: string; rpc: Rpc }) {
   const [info, setInfo] = useState<AgentPromptInfo>();

@@ -646,9 +646,11 @@ export class AgentManager {
       if (m.reason === "limit") this.retryAttempts.set(id, m.attempts + 1);
       try {
         this.startTurn(a, l, { text: m.text, images: m.images });
-      } catch {
+      } catch (e) {
+        // A refusal (e.g. the folder is gone) won't pass on retry: keep it for the user.
+        if (e instanceof RpcError) this.store.addPending({ ...m, reason: "failed", notBefore: null, note: e.message, front: true });
         // Couldn't start (e.g. provider gone): put it back with backoff.
-        this.store.addPending({ ...m, reason: "limit", notBefore: retryAt({ message: m.note ?? "" }, m.attempts + 1).toISOString(), attempts: m.attempts + 1, front: true });
+        else this.store.addPending({ ...m, reason: "limit", notBefore: retryAt({ message: m.note ?? "" }, m.attempts + 1).toISOString(), attempts: m.attempts + 1, front: true });
       }
       this.changed(id);
       return;

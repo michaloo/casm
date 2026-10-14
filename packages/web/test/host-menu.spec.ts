@@ -32,8 +32,8 @@ for (const width of [1440, 375]) test(`host row opens a keyboard menu and edits 
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitem", { name: /Schedules/ })).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: /Usage/ })).toBeFocused();
-  await expect(page.getByRole("menuitem", { name: /Settings/ })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: /Settings/ })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: /Settings/ })).toBeEnabled();
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(trigger).toBeFocused();

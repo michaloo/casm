@@ -1,5 +1,5 @@
 // Disposable real casm server with a deterministic provider. No production state or model calls.
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Store } from "../../server/src/db.ts";
 import { startServer } from "../../server/src/server.ts";
@@ -12,6 +12,22 @@ import { visualItems } from "./visual-fixture.ts";
 import { testHome as home, testPort } from "./config.ts";
 mkdirSync(home, { recursive: true });
 rmSync(`${home}/web-test.db`, { force: true });
+// Global settings must never reach the account running this fixture.
+const settings = `${home}/host-settings`;
+rmSync(settings, { recursive: true, force: true });
+mkdirSync(settings, { recursive: true });
+writeFileSync(`${settings}/AGENTS.md`, "# Shared host instructions\n\nUse isolated fixtures.\n");
+for (const [key, folder, name] of [
+  ["CLAUDE_CONFIG_DIR", "claude", "CLAUDE.md"],
+  ["CODEX_HOME", "codex", "AGENTS.md"],
+  ["XDG_CONFIG_HOME", "config/opencode", "AGENTS.md"],
+  ["PI_CODING_AGENT_DIR", "pi", "AGENTS.md"],
+]) {
+  mkdirSync(`${settings}/${folder}`, { recursive: true });
+  symlinkSync(`${settings}/AGENTS.md`, `${settings}/${folder}/${name}`);
+  process.env[key] = `${settings}/${key === "XDG_CONFIG_HOME" ? "config" : folder}`;
+}
+process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT = "1";
 const store = new Store(`${home}/web-test.db`);
 writeFileSync(`${home}/web-token`, store.createToken("web-test"));
 const history: Item[] = Array.from({ length: 320 }, (_, i) => ({
@@ -29,6 +45,9 @@ const provider: Provider = {
     models: [{ id: "haiku", name: "Haiku" }],
     modes: [{ id: "default" }],
   }),
+  memories: async (cwd) => ({ scope: "project", location: `${cwd}/memory`, entries: [
+    { id: "workflow", title: "Project workflow", description: "How this project is maintained", text: "# Workflow details\n\nUse **isolated** tests." },
+  ] }),
   usage: async () => null,
   commands: async () => [],
   open(o: OpenOptions) {

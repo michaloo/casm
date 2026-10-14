@@ -382,6 +382,18 @@ export const AgentEvent = z.discriminatedUnion("type", [
 ]);
 export type AgentEvent = z.infer<typeof AgentEvent>;
 
+export const AgentPromptInfo = z.object({
+  enabled: z.boolean(),
+  content: z.string(),
+  custom: z.boolean(),
+  default: z.string(),
+  // Where the custom prompt lives on the host; null when the server keeps no state directory.
+  path: z.string().nullable(),
+  placeholders: z.array(z.string()),
+  rendered: z.string().nullable(),
+});
+export type AgentPromptInfo = z.infer<typeof AgentPromptInfo>;
+
 // ---------------------------------------------------------------------------
 // Methods
 
@@ -397,6 +409,20 @@ export const methods = {
   "server.info": method(
     Empty,
     z.object({ id: z.string(), name: z.string(), version: z.string(), protocol: z.number(), providers: z.array(ProviderId) }),
+  ),
+
+  // The host's agent prompt: put ahead of every agent's config.systemPrompt
+  // when its session opens (start or resume), for all providers. `content` is
+  // the template in effect: <state dir>/agent-prompt.md when there is one
+  // (`custom`), else `default`. {{placeholders}} are filled per agent; `rendered`
+  // is the result for `agentId`, or for an example agent. Null when disabled.
+  "server.agentPrompt": method(z.object({ agentId: z.string().optional() }), AgentPromptInfo),
+  // `content` saves agent-prompt.md (null deletes it, back to the default);
+  // `enabled` is "agentPrompt" in the host's config.json. Applies to sessions
+  // opened afterwards.
+  "server.setAgentPrompt": method(
+    z.object({ content: z.string().nullable().optional(), enabled: z.boolean().optional() }),
+    AgentPromptInfo,
   ),
 
   // Peer servers (edited with `casm peer add|rm` on the server). `probe`

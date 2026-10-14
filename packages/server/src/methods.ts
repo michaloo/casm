@@ -8,6 +8,8 @@ import type { Scheduler } from "./schedules.ts";
 import { searchFiles } from "./fs-search.ts";
 import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts";
 import type { PeerPool } from "./peers.ts";
+import { DEFAULT_AGENT_PROMPT, PLACEHOLDERS, type AgentPromptState } from "./agent-prompt.ts";
+import { CASM_TOOL_NAMES } from "./mcp.ts";
 
 export type Conn = { subscriptions: Set<string> };
 
@@ -48,7 +50,25 @@ export function createHandlers(
     return agent;
   };
 
+  // For one agent, or an example one (with casm's MCP tools, to show them).
+  const agentPromptInfo = (state: AgentPromptState, agentId?: string): Result<"server.agentPrompt"> => {
+    const vars = agentId
+      ? (() => {
+          const a = getAgent(agentId);
+          return agents.promptVars(a, agents.hasCasmTools(a));
+        })()
+      : { host: identity.name, agentId: "0b5e7c1d-1a2b-4c3d-8e9f-example00001", agentName: "example", project: "example-project",
+          cwd: "/path/to/example-project", provider: "claude", casmTools: CASM_TOOL_NAMES };
+    const { enabled, content, custom, path } = state;
+    return { enabled, content, custom, path, default: DEFAULT_AGENT_PROMPT, placeholders: [...PLACEHOLDERS], rendered: agents.agentPrompt.render(vars, state) };
+  };
+
   return {
+    "server.agentPrompt": (p) => agentPromptInfo(agents.agentPrompt.state(), p.agentId),
+    "server.setAgentPrompt": (p) => {
+      if (!agents.agentPrompt.home) throw new RpcError(ErrorCode.Conflict, "this server keeps no state directory for an agent prompt");
+      return agentPromptInfo(agents.agentPrompt.set(p));
+    },
     "server.info": () => ({ ...identity, protocol: PROTOCOL_VERSION, providers: agents.providerIds() }),
 
     "fs.search": async (p) => {

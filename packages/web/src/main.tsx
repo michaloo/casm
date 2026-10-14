@@ -10,7 +10,6 @@ import type {
   Agent,
   Catalog,
   Item,
-  AgentProviderId,
   ModelInfo,
   ProviderId,
 } from "@casm/protocol";
@@ -19,7 +18,7 @@ import { filePathFromRoute, resolveView, viewPath, type Selection } from "./navi
 import { FilePreview } from "./files";
 import { FileLinksContext, insideRoot } from "./file-links";
 import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
-import { ProviderIcon, providerNames } from "./provider-icon";
+import { ProviderIcon } from "./provider-icon";
 import { HostSection } from "./host-section";
 import { HostMenu, type HostState } from "./host-menu";
 import { schedulesChanged } from "./host-schedules";
@@ -179,7 +178,7 @@ function App() {
   const chooseRef = useRef<(s: Selection) => void>(null);
   chooseRef.current = choose;
   const chooseAgent = useCallback((s: Selection) => chooseRef.current!(s), []);
-  const [provider, setProvider] = useState<AgentProviderId>("claude");
+  const [provider, setProvider] = useState<ProviderId>("claude");
   const [model, setModel] = useState("");
   const [mode, setMode] = useState("");
   const [catalog, setCatalog] = useState<Catalog>({ models: [], modes: [] });
@@ -395,10 +394,8 @@ function App() {
     if (!selection || !online) return;
     let active = true;
     setCatalog({ models: [], modes: [] });
-    // Retired providers (agent.unavailable) have no catalog.
-    if (!Object.hasOwn(providerNames, provider)) return;
     void rpc
-      .current!.call("provider.catalog", { provider: provider as ProviderId }, selection.host)
+      .current!.call("provider.catalog", { provider }, selection.host)
       .then((v) => {
         if (active) setCatalog(v);
       })
@@ -439,8 +436,7 @@ function App() {
           "agent.create",
           {
             projectId: s.project,
-            // The picker only offers installed providers.
-            provider: provider as ProviderId,
+            provider,
             name: text.trim().slice(0, 70) || "Image message",
             config: { model, mode },
           },
@@ -831,7 +827,7 @@ function App() {
               </PendingQueue>
             </div>
             <ChatWorking running={online && agent?.status === "running"} />
-            {agent?.unavailable ? <p role="status" className="composer composer-unavailable">{agent.unavailable}. This agent can't take messages.</p> : <form
+            <form
               className="composer"
               onSubmit={(e) => {
                 e.preventDefault();
@@ -852,7 +848,7 @@ function App() {
                       setMode("");
                     }}
                   >
-                    {Object.keys(providerNames).map((p) => (
+                    {["claude", "codex", "pi", "opencode"].map((p) => (
                       <option key={p}>{p}</option>
                     ))}
                   </select>
@@ -985,7 +981,7 @@ function App() {
                   {primary === "queue" ? "Queue" : "Send"}
                 </button>
               </div>
-            </form>}
+            </form>
           </>
         )}
       </main>

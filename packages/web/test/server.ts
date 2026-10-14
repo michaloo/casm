@@ -7,7 +7,7 @@ import type {
   Provider,
   OpenOptions,
 } from "../../server/src/providers/types.ts";
-import type { Item, ProviderId } from "@casm/protocol";
+import type { Item } from "@casm/protocol";
 import { visualItems } from "./visual-fixture.ts";
 import { testHome as home, testPort } from "./config.ts";
 mkdirSync(home, { recursive: true });
@@ -20,13 +20,15 @@ writeFileSync(`${settings}/AGENTS.md`, "# Shared host instructions\n\nUse isolat
 for (const [key, folder, name] of [
   ["CLAUDE_CONFIG_DIR", "claude", "CLAUDE.md"],
   ["CODEX_HOME", "codex", "AGENTS.md"],
+  ["XDG_CONFIG_HOME", "config/opencode", "AGENTS.md"],
   ["PI_CODING_AGENT_DIR", "pi", "AGENTS.md"],
 ]) {
   mkdirSync(`${settings}/${folder}`, { recursive: true });
   symlinkSync(`${settings}/AGENTS.md`, `${settings}/${folder}/${name}`);
-  process.env[key] = `${settings}/${folder}`;
+  process.env[key] = `${settings}/${key === "XDG_CONFIG_HOME" ? "config" : folder}`;
 }
 mkdirSync(`${home}/state`, { recursive: true });
+process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT = "1";
 const store = new Store(`${home}/web-test.db`);
 writeFileSync(`${home}/web-token`, store.createToken("web-test"));
 const history: Item[] = Array.from({ length: 320 }, (_, i) => ({
@@ -175,13 +177,6 @@ const archived = store.createAgent({
 });
 store.updateAgent(archived.id, { archived: true });
 writeFileSync(`${home}/web-archived-id`, archived.id);
-// Stored by an older casm; OpenCode support has been removed since.
-const legacyPath = `${home}/legacy`;
-mkdirSync(legacyPath, { recursive: true });
-const legacy = store.createProject({ name: "Legacy", path: legacyPath });
-const retired = store.createAgent({ projectId: legacy.id, name: "Old OpenCode agent", provider: "opencode" as ProviderId, cwd: legacyPath, config: {} });
-store.updateAgent(retired.id, { nativeSessionId: "ses_retired" });
-writeFileSync(`${home}/web-retired-id`, retired.id);
 // Files agents "created", mentioned in prose, inline code and tool output.
 const exportsDir = `${home}/exports`;
 rmSync(exportsDir, { recursive: true, force: true });

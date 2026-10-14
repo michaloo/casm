@@ -13,6 +13,7 @@ import { PeerPool, verifyPeer } from "./peers.ts";
 import { execFileSync } from "node:child_process";
 import { claudeProvider } from "./providers/claude.ts";
 import { codexProvider } from "./providers/codex.ts";
+import { opencodeProvider } from "./providers/opencode.ts";
 import { piProvider } from "./providers/pi.ts";
 import type { Provider } from "./providers/types.ts";
 
@@ -49,6 +50,7 @@ function availableProviders(): Provider[] {
     ["claude", claudeProvider],
     ["codex", codexProvider],
     ["pi", piProvider],
+    ["opencode", opencodeProvider],
   ];
   return all.filter(([bin]) => installed(bin)).map(([, make]) => make());
 }

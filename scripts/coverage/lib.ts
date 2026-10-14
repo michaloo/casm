@@ -11,12 +11,13 @@ export const INVENTORY_DIR = join(COVERAGE_DIR, "inventory");
 // Temp files (schemas, npm tarballs) live here; never in the repo.
 export const TMP_DIR = "/tmp/casm-coverage";
 
-export const SOURCES = ["claude", "codex", "pi", "acp"] as const;
+export const SOURCES = ["claude", "codex", "opencode", "pi", "acp"] as const;
 export type Source = (typeof SOURCES)[number];
 
 export const SOURCE_TITLES: Record<Source, string> = {
   claude: "Claude Code (Agent SDK)",
   codex: "Codex (app-server)",
+  opencode: "OpenCode (serve)",
   pi: "pi (RPC mode)",
   acp: "ACP (Agent Client Protocol)",
 };

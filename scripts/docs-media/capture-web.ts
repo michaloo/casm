@@ -165,23 +165,21 @@ const scenes: Record<string, (b: Browser) => Promise<void>> = {
   async panels(b) {
     const ctx = await context(b);
     const page = await login(ctx);
-    const hostMenu = async (item: string) => {
+    // ⋯ on a host row opens the host modal; its tabs are Usage, Schedules and Instructions.
+    const hostTab = async (tab: string) => {
       await page.getByTitle("Host options").first().click();
-      await page.getByRole("menuitem", { name: new RegExp(`^${item}`) }).click();
+      await page.getByRole("dialog").getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
     };
-    await page.getByTitle("Host options").first().click();
-    await shot(page, "web-host-menu");
-    await page.keyboard.press("Escape");
-    await hostMenu("Usage");
+    await hostTab("Usage");
     await shot(page, "web-usage");
     await page.keyboard.press("Escape");
-    await hostMenu("Schedules");
+    await hostTab("Schedules");
     await shot(page, "web-schedules");
     await page.keyboard.press("Escape");
-    await hostMenu("Settings");
+    await hostTab("Instructions");
     await shot(page, "web-host-settings");
     await page.keyboard.press("Escape");
-    await hostMenu("New project");
+    await page.getByTitle("New project").first().click();
     await shot(page, "web-new-project");
     await page.keyboard.press("Escape");
     await page.goto(base + agentPath("fix order totals"));

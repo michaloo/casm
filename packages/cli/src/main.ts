@@ -3,6 +3,7 @@
 // Client commands take -H/--host and --json. On a machine running a server the
 // client talks to it, and -H names one of its peers (the server forwards);
 // elsewhere -H picks an entry of hosts.json.
+import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -78,8 +79,9 @@ agents:
       [--parent serverId/agentId] [--casm-tools] [--wait] <prompt>
                                      --cwd: a folder inside the project (relative to it, or absolute),
                                      e.g. a worktree: --cwd .worktrees/<task>
-  send <agent> <text> [--steer] [--wait] [--fail-if-limited]
+  send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--message-id UUID]
                                      queued while the agent is busy; --steer puts it into the running turn
+                                     reuse --message-id after an uncertain response to avoid duplicates
   pending [agent]                    messages waiting for their agent (busy or over a limit),
                                      and agents waiting for a permission or answer
   subagents [agent] [-n count]       subagents the agents run themselves (Claude Task/Agent,
@@ -108,7 +110,8 @@ schedules (run on the host; messages to busy or limited agents become pending):
   approve <agent> <request> [--always]
   deny <agent> <request> [--message text]
   shell <agent> <command>            run a command in the agent's directory (like "!cmd"); exit 1 if it fails
-  interrupt | reload | restart | archive | rm <agent>
+  interrupt <agent>                 stop the turn; keep the queue and continue with its next message
+  reload | restart | archive | rm <agent>
 
 <project> and <agent> accept an id, an id prefix or an exact name.
 Environment: CASM_HOST is the default for -H; CASM_URL + CASM_TOKEN name the
@@ -141,6 +144,7 @@ const options = {
   refresh: { type: "boolean" },
   usage: { type: "boolean" },
   "fail-if-limited": { type: "boolean" },
+  "message-id": { type: "string" },
   at: { type: "string" },
   cron: { type: "string" },
   every: { type: "string" },
@@ -544,6 +548,7 @@ async function run(c: CasmClient) {
       if (!text) fail("send needs text");
       const r = await c.call("agent.send", {
         id: a.id,
+        messageId: opt["message-id"] ?? randomUUID(),
         text,
         sender: messageSender(),
         whenBusy: opt.steer ? "steer" : "queue",

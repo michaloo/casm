@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { constants as osConstants, homedir } from "node:os";
 import { join } from "node:path";
@@ -468,6 +468,17 @@ function claudeDir(): string {
   return process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 }
 
+// Whether Claude stored the session at all (sync: decided when the session opens).
+function transcriptExists(sessionId: string, cwd: string): boolean {
+  const projects = join(claudeDir(), "projects");
+  if (existsSync(join(projects, cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`))) return true;
+  try {
+    return readdirSync(projects).some((d) => existsSync(join(projects, d, `${sessionId}.jsonl`)));
+  } catch {
+    return false;
+  }
+}
+
 async function transcriptPath(sessionId: string, cwd: string): Promise<string | null> {
   const projects = join(claudeDir(), "projects");
   const direct = join(projects, cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`);
@@ -794,10 +805,19 @@ class ClaudeSession implements ProviderSession {
   constructor(opts: OpenOptions, executable: string | undefined, windows: Map<string, number>) {
     this.opts = opts;
     this.windows = windows;
-    const { cwd, config, resumeId } = opts;
+    const { cwd, config } = opts;
+    // A session Claude never stored (the server stopped before its first
+    // prompt was written, or it was deleted) can't be resumed: start a new
+    // conversation under the same id, and say so.
+    const missing = !!opts.resumeId && !transcriptExists(opts.resumeId, cwd);
+    const resumeId = missing ? null : opts.resumeId;
+    // A new session gets its id from us, so the agent points at it before
+    // Claude stores the first prompt there, even if the server stops right away.
+    const sessionId = resumeId ? undefined : (opts.resumeId ?? randomUUID());
     const options: Options = {
       cwd,
       resume: resumeId ?? undefined,
+      sessionId,
       model: config.model === DEFAULT_MODEL ? undefined : config.model,
       permissionMode: config.mode as PermissionMode | undefined,
       // bypassPermissions is refused without this; only set it when that mode was chosen.
@@ -821,6 +841,11 @@ class ClaudeSession implements ProviderSession {
           .catch(() => {})
       : Promise.resolve();
     this.q = query({ prompt: this.input, options });
+    if (sessionId)
+      queueMicrotask(() => {
+        opts.emit({ type: "sessionId", id: sessionId });
+        if (missing) this.item({ kind: "notice", id: `missing:${sessionId}`, level: "warning", text: `Claude has no stored conversation ${sessionId}; starting a new one` });
+      });
     void this.pump();
   }
 

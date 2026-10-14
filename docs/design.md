@@ -120,7 +120,12 @@ be derived:
 - **Pending permission prompts:** in memory only. A server restart ends the turn anyway.
 - **Clients:** no persistent cache in v1; they re-fetch on open.
 - **What can still go out of sync:** an agent's `nativeSessionId` can point at a session that was
-  deleted outside casm. The server reports it as missing; nothing tries to reconcile it.
+  deleted outside casm. The server reports it as missing; nothing tries to reconcile it. (Claude: casm
+  assigns new session ids itself, so the agent points at its session before Claude writes it; a
+  session Claude never stored starts anew under the same id, with a notice.)
+- **A server stop mid-turn:** a prompt the agent hasn't answered yet is kept as a `failed` pending
+  message (retry or cancel it), since its turn and its live events are gone. Prompts queued behind a
+  turn are sent again when the server starts.
 
 ### Protocol (open by design)
 

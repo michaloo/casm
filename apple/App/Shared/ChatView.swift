@@ -421,18 +421,50 @@ struct NoticeRow: View {
     let text: String
     let level: NoticeLevel?
 
+    /// Left-aligned in the tool rows' icon column, with an icon saying what kind of notice it is.
     var body: some View {
-        HStack(spacing: 5) {
-            switch level {
-            case .warning: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            case .error: Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
-            default: EmptyView()
-            }
-            Text(text)
-                .foregroundStyle(level == .error ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+        let (icon, color) = Self.icon(for: text, level: level)
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundStyle(color)
+                .frame(width: 22)
+            Text(Self.cleaned(text))
+                .foregroundStyle(level == .error ? AnyShapeStyle(.red) : AnyShapeStyle(Theme.muted))
+                .textSelection(.enabled)
         }
         .font(.system(size: 12))
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Warnings and errors by level; info notices by what they report.
+    static func icon(for text: String, level: NoticeLevel?) -> (String, Color) {
+        switch level {
+        case .warning: return ("exclamationmark.triangle.fill", .orange)
+        case .error: return ("xmark.octagon.fill", .red)
+        default: break
+        }
+        let lower = text.lowercased()
+        func has(_ prefixes: String...) -> Bool { prefixes.contains { lower.hasPrefix($0) } }
+        if has("task completed") { return ("checkmark.circle", .green) }
+        if has("task failed", "task killed", "task stopped") { return ("xmark.circle", .red) }
+        if has("task running", "task started") { return ("clock", Theme.muted) }
+        if has("interrupted") { return ("stop.circle", Theme.muted) }
+        if has("context auto-compacted", "conversation compacted", "compacting") { return ("arrow.down.right.and.arrow.up.left", Theme.muted) }
+        if has("reloaded", "restarted", "conversation reset") { return ("arrow.clockwise", Theme.muted) }
+        if has("answered elsewhere") { return ("checkmark.bubble", Theme.muted) }
+        return ("info.circle", Theme.muted)
+    }
+
+    /// Claude's task notices repeat the description on a second line ("Task completed: Build\nBuild").
+    static func cleaned(_ text: String) -> String {
+        var lines: [Substring] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let last = lines.last, !trimmed.isEmpty, last == line || last.hasSuffix(": " + trimmed) { continue }
+            lines.append(line)
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

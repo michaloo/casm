@@ -57,6 +57,16 @@ final class ComposerLogicTests: XCTestCase {
                        ["u1", "a1", "n", "u2", "a2"])
     }
 
+    func testNoticesDropTheRepeatedLineAndGetIcons() {
+        XCTAssertEqual(NoticeRow.cleaned("Task completed: Pull, build Release\nPull, build Release"), "Task completed: Pull, build Release")
+        XCTAssertEqual(NoticeRow.cleaned("Interrupted"), "Interrupted")
+        XCTAssertEqual(NoticeRow.cleaned("Turn failed: x\ndetails"), "Turn failed: x\ndetails")
+        XCTAssertEqual(NoticeRow.icon(for: "Task completed: x", level: .info).0, "checkmark.circle")
+        XCTAssertEqual(NoticeRow.icon(for: "Task running: x", level: nil).0, "clock")
+        XCTAssertEqual(NoticeRow.icon(for: "Task completed: x", level: .error).0, "xmark.octagon.fill", "level wins")
+        XCTAssertEqual(NoticeRow.icon(for: "Something else", level: nil).0, "info.circle")
+    }
+
     func testCompletionContexts() {
         XCTAssertEqual(context("/rev")?.kind, .command)
         XCTAssertEqual(context("/rev")?.query, "rev")

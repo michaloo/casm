@@ -6,7 +6,7 @@ test("host usage is an optional disclosure with refresh and graceful missing-pro
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  const toggle = page.getByRole("button", { name: /Test host, online · host menu/ });
+  const toggle = page.getByRole("button", { name: "Host options for Test host", exact: true });
   const panel = page.getByRole("dialog", { name: /provider usage/ }).first();
   await expect(panel).toBeHidden();
   await toggle.click();
@@ -50,7 +50,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       if (viewport.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
       await page.getByRole("button", { name: /Agent 00/ }).click();
       if (viewport.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
-      const trigger = page.getByRole("button", { name: /host menu/ }).first();
+      const trigger = page.getByRole("button", { name: /^Host options for / }).first();
       const row = page.getByRole("button", { name: /Agent 00/ });
       const before = await row.boundingBox();
       await trigger.click();

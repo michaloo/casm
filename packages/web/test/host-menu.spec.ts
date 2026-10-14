@@ -21,12 +21,18 @@ for (const width of [1440, 375]) test(`host row opens a keyboard menu and edits 
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
-  const trigger = page.getByRole("button", { name: /Test host, online · host menu/ });
-  await expect(trigger.locator(".host-dot.online")).toHaveCount(1);
+  // The chevron row only folds; the ⋯ button opens the menu.
+  const fold = page.getByRole("button", { name: "Toggle Test host host", exact: true });
+  await expect(fold.locator(".host-dot.online")).toHaveCount(1);
+  await expect(fold).toHaveAttribute("aria-expanded", "true");
+  await expect(fold).toHaveAccessibleDescription(/Online/);
+  const trigger = page.getByRole("button", { name: "Host options for Test host", exact: true });
+  await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+  if (width === 375) expect((await trigger.boundingBox())!.width).toBeGreaterThanOrEqual(44);
   await trigger.focus();
   await page.keyboard.press("Enter");
   expect(new URL(page.url()).pathname).toBe("/");
-  const menu = page.getByRole("menu", { name: "Test host host" });
+  const menu = page.getByRole("menu", { name: "Host options for Test host" });
   await expect(menu).toBeVisible();
   await expect(page.getByRole("menuitem", { name: /Usage/ })).toBeFocused();
   await page.keyboard.press("ArrowDown");

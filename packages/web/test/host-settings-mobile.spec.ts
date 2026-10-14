@@ -27,7 +27,7 @@ for (const width of [1440, 375]) test(`host settings mobile-safe editing, memori
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
   if (width === 375) await page.getByRole("button", { name: "Toggle Test host host", exact: true }).click();
-  const trigger = page.getByRole("button", { name: `${hostName}, online · host menu` });
+  const trigger = page.getByRole("button", { name: `Host options for ${hostName}`, exact: true });
   await trigger.click();
   await page.getByRole("menuitem", { name: /Settings/ }).click();
   const panel = page.getByRole("dialog", { name: `${hostName} settings` });

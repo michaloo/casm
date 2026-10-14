@@ -4,24 +4,34 @@ import type { Project } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { InstructionEditor, ProjectMemories, type InstructionFile } from "./settings-shared";
 import { FileBrowser, FilePreview } from "./files";
+import { RowMenu } from "./row-menu";
 
-export function ProjectSettingsButton({ host, project, agentCount, rpc, online, newAgent }: {
+type Section = "instructions" | "memories" | "files" | "info";
+
+/** The project row's ⋯ menu: settings, files and a new agent. */
+export function ProjectMenu({ host, project, agentCount, rpc, online, newAgent }: {
   host: string; project: Project; agentCount: number; rpc: Rpc | null; online: boolean; newAgent: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState<Section>();
   const trigger = useRef<HTMLButtonElement>(null);
   return <>
-    <button ref={trigger} type="button" className="project-settings-trigger" aria-label={`Settings for ${project.name}`} title={`Settings for ${project.name}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>⋯</button>
-    {open && <ProjectSettings host={host} project={project} agentCount={agentCount} rpc={rpc} online={online}
-      close={() => { setOpen(false); trigger.current?.focus(); }} newAgent={() => { setOpen(false); newAgent(); }} />}
+    <RowMenu label={`Project options for ${project.name}`} title="Project options" triggerRef={trigger}
+      heading={<span><strong>{project.name}</strong><small>{agentCount === 1 ? "1 agent" : `${agentCount} agents`}</small></span>}
+      items={[
+        { label: "Settings", hint: "AGENTS.md, memories and project info", onSelect: () => setOpen("instructions") },
+        { label: "Files", hint: "Browse, preview and download", onSelect: () => setOpen("files") },
+        { label: "New agent here", hint: "Start a conversation in this project", disabled: !online, onSelect: newAgent },
+      ]} />
+    {open && <ProjectSettings host={host} project={project} agentCount={agentCount} rpc={rpc} online={online} initial={open}
+      close={() => { setOpen(undefined); trigger.current?.focus(); }} newAgent={() => { setOpen(undefined); newAgent(); }} />}
   </>;
 }
 
-function ProjectSettings({ host, project, agentCount, rpc, online, close, newAgent }: {
-  host: string; project: Project; agentCount: number; rpc: Rpc | null; online: boolean; close: () => void; newAgent: () => void;
+function ProjectSettings({ host, project, agentCount, rpc, online, close, newAgent, initial }: {
+  host: string; project: Project; agentCount: number; rpc: Rpc | null; online: boolean; close: () => void; newAgent: () => void; initial: Section;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [section, setSection] = useState<"instructions" | "memories" | "files" | "info">("instructions");
+  const [section, setSection] = useState<Section>(initial);
   useEffect(() => { dialog.current?.showModal(); }, []);
   return createPortal(<dialog ref={dialog} className="host-settings" aria-label={`${project.name} project settings`} onClose={close}>
     <header><h2>{project.name} settings</h2><button type="button" aria-label="Close project settings" onClick={() => dialog.current?.close()}>×</button></header>

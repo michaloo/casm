@@ -1,14 +1,16 @@
-import { useId, useRef, useState, type KeyboardEvent } from "react";
+import { useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Agent, Project } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { HostUsage, useAnchoredPosition } from "./host-usage";
 import { HostSettings } from "./host-settings";
 import { HostSchedules } from "./host-schedules";
+import { MoreGlyph, focusFirstItem, menuKeys } from "./row-menu";
 
 export type HostState = "online" | "slow" | "offline" | "connecting";
 const stateLabels: Record<HostState, string> = { online: "Online", slow: "Slow", offline: "Offline", connecting: "Connecting" };
 type View = "menu" | "usage" | "schedules";
+export const hostStateLabel = (state: HostState) => stateLabels[state];
 
 export function ServerGlyph() {
   return <svg className="server-glyph" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
@@ -19,7 +21,18 @@ export function ServerGlyph() {
   </svg>;
 }
 
-/** The host row: a server button that opens a menu with on-demand usage and schedules. */
+/** The host's icon, name and status, shown in its fold button and its menu. */
+export function HostIdentity({ name, state, detail }: { name: string; state: HostState; detail?: string }) {
+  return <>
+    <span className="host-icon"><ServerGlyph /><span className={`host-dot ${state}`} /></span>
+    <span className="host-label">
+      <span className="host-name">{name}</span>
+      <small>{stateLabels[state]}{detail ? ` · ${detail}` : ""}</small>
+    </span>
+  </>;
+}
+
+/** The host row's ⋯ button: a menu with on-demand usage, schedules and settings. */
 export function HostMenu({ host, name, state, detail, rpc, agents, projects, openAgent }: {
   host: string; name: string; state: HostState; detail?: string; rpc: Rpc | null; agents: Agent[]; projects: Project[];
   openAgent?: (agent: Agent) => void;
@@ -33,30 +46,16 @@ export function HostMenu({ host, name, state, detail, rpc, agents, projects, ope
   useAnchoredPosition(open, trigger, panel, view);
   const online = state === "online" || state === "slow";
   const status = stateLabels[state];
-  const focusFirst = () => requestAnimationFrame(() => panel.current?.querySelector<HTMLElement>("[role=menuitem]:not(:disabled), .host-panel-back")?.focus());
+  const focusFirst = () => focusFirstItem(panel);
   const show = (next: View) => { setView(next); focusFirst(); };
-  const menuKeys = (e: KeyboardEvent) => {
-    const items = [...(panel.current?.querySelectorAll<HTMLElement>("[role=menuitem]:not(:disabled)") ?? [])];
-    const at = items.indexOf(document.activeElement as HTMLElement);
-    const go = (i: number) => { e.preventDefault(); items[(i + items.length) % items.length]?.focus(); };
-    if (e.key === "ArrowDown") go(at + 1);
-    else if (e.key === "ArrowUp") go(at - 1);
-    else if (e.key === "Home") go(0);
-    else if (e.key === "End") go(items.length - 1);
-  };
-  const title = view === "usage" ? `${name} provider usage` : view === "schedules" ? `${name} schedules` : `${name} host`;
+  const title = view === "usage" ? `${name} provider usage` : view === "schedules" ? `${name} schedules` : `Host options for ${name}`;
   return <>
-    <button ref={trigger} type="button" className={`host-trigger host-${state}`} popoverTarget={id} data-host-menu-trigger
-      aria-haspopup="menu" aria-expanded={open} aria-label={`${name}, ${status.toLowerCase()} · host menu`} title={`${name} · ${status}`}>
-      <span className="host-icon"><ServerGlyph /><span className={`host-dot ${state}`} /></span>
-      <span className="host-label">
-        <span className="host-name">{name}</span>
-        <small>{status}{detail ? ` · ${detail}` : ""}</small>
-      </span>
-      <span className="host-chevron" aria-hidden="true" />
+    <button ref={trigger} type="button" className="row-more" popoverTarget={id} data-host-menu-trigger
+      aria-haspopup="menu" aria-expanded={open} aria-label={`Host options for ${name}`} title="Host options">
+      <MoreGlyph />
     </button>
     {createPortal(<div ref={panel} id={id} popover="auto" className="host-panel" data-view={view}
-      role={view === "menu" ? "menu" : "dialog"} aria-label={title} onKeyDown={view === "menu" ? menuKeys : undefined}
+      role={view === "menu" ? "menu" : "dialog"} aria-label={title} onKeyDown={view === "menu" ? menuKeys(panel) : undefined}
       onToggle={(event) => {
         const isOpen = event.currentTarget.matches(":popover-open");
         setOpen(isOpen);

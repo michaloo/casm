@@ -48,7 +48,7 @@ for (const width of [1440, 375]) test(`host collapse brings peers above the fold
   await expect(page.getByRole("button", { name: /Agent 00/ })).toBeVisible();
   await toggle.click();
   await expect(page.getByRole("button", { name: /Agent 00/ })).toBeHidden();
-  const peer = page.getByRole("button", { name: /Peer host,.*host menu/ });
+  const peer = page.getByRole("button", { name: "Toggle Peer host host", exact: true });
   await expect(peer).toBeInViewport();
   await page.reload();
   await open();

@@ -39,11 +39,9 @@ struct PendingStrip: View {
                     if message.reason == .failed {
                         FailedPendingRow(message: message,
                                          retry: { Task { await chat.retryPending(message) } },
-                                         edit: { Task { await chat.editPending(message) } },
                                          cancel: { Task { await chat.cancelPending(message) } })
                     } else {
                         PendingRow(message: message,
-                                   edit: { Task { await chat.editPending(message) } },
                                    sendNow: { Task { await chat.sendPendingNow(message) } },
                                    cancel: { Task { await chat.cancelPending(message) } })
                     }
@@ -62,7 +60,6 @@ struct PendingStrip: View {
 
 struct PendingRow: View {
     let message: PendingMessage
-    let edit: () -> Void
     let sendNow: () -> Void
     let cancel: () -> Void
 
@@ -77,7 +74,6 @@ struct PendingRow: View {
                 }
             }
             Spacer(minLength: 8)
-            RoundIconButton(label: "Edit", systemImage: "pencil", fill: Theme.surface2, tint: .primary, action: edit)
             RoundIconButton(label: "Send now", systemImage: "arrow.up", fill: .accentColor, tint: .white, action: sendNow)
         }
         .padding(.leading, 12)
@@ -87,7 +83,6 @@ struct PendingRow: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
         .contextMenu {
             Button("Send Now", action: sendNow)
-            Button("Edit", action: edit)
             Divider()
             Button("Cancel Message", role: .destructive, action: cancel)
         }
@@ -106,11 +101,10 @@ struct PendingRow: View {
 }
 
 /// A prompt whose turn failed before the agent answered: never resent on its own, so it stands
-/// out (red outline, the error) and offers Retry and Cancel; Edit is in the context menu.
+/// out (red outline, the error) and offers Retry and Cancel.
 struct FailedPendingRow: View {
     let message: PendingMessage
     let retry: () -> Void
-    let edit: () -> Void
     let cancel: () -> Void
 
     var body: some View {
@@ -140,7 +134,6 @@ struct FailedPendingRow: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.red.opacity(0.4)))
         .contextMenu {
             Button("Retry", action: retry)
-            Button("Edit", action: edit)
             Divider()
             Button("Cancel Message", role: .destructive, action: cancel)
         }

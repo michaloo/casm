@@ -152,6 +152,14 @@ final class FlowTests: XCTestCase {
         waitIdle()
         sleep(1)
         shot("ios-14-new-agent-created")
+
+        // Clean up: each run creates an agent.
+        app.buttons["More"].tap()
+        XCTAssertTrue(app.buttons["Delete Agent…"].waitForExistence(timeout: 5))
+        app.buttons["Delete Agent…"].tap()
+        XCTAssertTrue(app.buttons["Delete"].waitForExistence(timeout: 5))
+        app.buttons["Delete"].tap()
+        XCTAssertTrue(app.navigationBars.staticTexts[name].waitForNonExistence(timeout: 10), "agent deleted")
     }
 
     /// A prompt kept as failed (make one by stopping the server mid-turn) shows its error with

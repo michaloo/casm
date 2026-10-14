@@ -2059,3 +2059,9 @@ nav .host-collapse { display: grid; place-items: center; flex: 0 0 28px; width: 
 .host-heading .host-trigger { min-width: 0; flex: 1; }
 .host-collapse[aria-expanded="false"] .chevron { transform: rotate(-45deg); }
 @media (max-width: 650px) { nav .host-collapse { flex-basis: 44px; width: 44px; } }
+
+.message-sender { min-width: 0; overflow-wrap: anywhere; }
+nav .agent-held { color: var(--waiting); gap: 0; }
+nav .agent-held.failed { color: var(--danger); }
+.agent-held > span:first-child { flex-shrink: 0; }
+.agent-held-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

@@ -367,7 +367,7 @@ export function Row({
       <div className="message-content">
         <small className="message-role">
           {item.kind === "user" ? (
-            messageAuthor(item)
+            <span className="message-sender">{messageAuthor(item)}</span>
           ) : (
             <>
               <span className="mini-glyph" aria-hidden="true" />

@@ -26,3 +26,34 @@ test("compact provider/model rows and remembered collapse preserve routed agent 
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   expect(await page.evaluate(() => localStorage.getItem("casm.collapsed-projects"))).toBe(saved);
 });
+
+for (const width of [1440, 375]) test(`host collapse brings peers above the fold and persists at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 812 });
+  await page.routeWebSocket("**", (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((raw) => {
+      const request = JSON.parse(String(raw));
+      if (request.method === "peer.list") socket.send(JSON.stringify({ id: request.id, result: { peers: [{ name: "Peer host", serverId: "peer" }] } }));
+      else server.send(raw);
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  const open = async () => {
+    if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  };
+  await open();
+  const toggle = page.getByRole("button", { name: "Toggle Test host host", exact: true });
+  await expect(page.getByRole("button", { name: /Agent 00/ })).toBeVisible();
+  await toggle.click();
+  await expect(page.getByRole("button", { name: /Agent 00/ })).toBeHidden();
+  const peer = page.getByRole("button", { name: /Peer host,.*host menu/ });
+  await expect(peer).toBeInViewport();
+  await page.reload();
+  await open();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(peer).toBeInViewport();
+  await toggle.click();
+  await expect(page.getByRole("button", { name: /Agent 00/ })).toBeVisible();
+});

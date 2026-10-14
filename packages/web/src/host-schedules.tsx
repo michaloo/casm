@@ -19,6 +19,7 @@ export function HostSchedules({ host, rpc, online, agents, projects }: {
   const [busy, setBusy] = useState("");
   const [confirming, setConfirming] = useState("");
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<string>();
   const [version, setVersion] = useState(0);
   useEffect(() => {
     const listener = (changed: string) => { if (changed === host) setVersion((v) => v + 1); };
@@ -47,7 +48,7 @@ export function HostSchedules({ host, rpc, online, agents, projects }: {
   if (!online) return <p>Host offline.</p>;
   return <>
     <div className="host-panel-toolbar">
-      <button type="button" aria-expanded={creating} onClick={() => setCreating((v) => !v)}>{creating ? "Cancel" : "New schedule"}</button>
+      <button type="button" aria-expanded={creating} onClick={() => { setEditing(undefined); setCreating((v) => !v); }}>{creating ? "Cancel" : "New schedule"}</button>
     </div>
     {error && <p role="alert" className="error">{error}</p>}
     {creating && <ScheduleForm agents={agents} projects={projects} onCreate={(params) => act("create", async () => {
@@ -67,9 +68,15 @@ export function HostSchedules({ host, rpc, online, agents, projects }: {
               <button type="button" onClick={() => setConfirming("")}>Keep</button>
             </span> : <span className="schedule-actions">
               <button type="button" disabled={busy === s.id} aria-label={`Run ${s.name} now`} onClick={() => act(s.id, () => rpc!.call("schedule.runNow", { id: s.id }, host))}>Run now</button>
+              <button type="button" disabled={busy === s.id} aria-label={`Edit ${s.name}`} onClick={() => { setCreating(false); setEditing(editing === s.id ? undefined : s.id); }}>Edit</button>
               <button type="button" aria-label={`Delete ${s.name}`} title="Delete" onClick={() => setConfirming(s.id)}>Delete</button>
             </span>}
           </div>
+          {editing === s.id && <ScheduleForm key={s.id} initial={s} agents={agents} projects={projects} busy={busy === s.id}
+            onCancel={() => setEditing(undefined)} onCreate={(params) => act(s.id, async () => {
+              await rpc!.call("schedule.update", { id: s.id, ...params }, host);
+              setEditing(undefined);
+            })} />}
           <small>{cadenceLabel(s.cadence)} · {targetLabel(s.target, names)}</small>
           <small>
             {s.enabled ? s.nextRunAt ? <>Next <time dateTime={s.nextRunAt} title={new Date(s.nextRunAt).toLocaleString()}>{resetLabel(s.nextRunAt)}</time></> : "Not scheduled" : "Disabled"}
@@ -83,16 +90,26 @@ export function HostSchedules({ host, rpc, online, agents, projects }: {
 
 type CreateParams = { name?: string; cadence: Schedule["cadence"]; target: ScheduleTarget; prompt: string };
 
-function ScheduleForm({ agents, projects, onCreate }: { agents: Agent[]; projects: Project[]; onCreate: (p: CreateParams) => void }) {
+function ScheduleForm({ agents, projects, onCreate, initial, onCancel, busy }: {
+  agents: Agent[]; projects: Project[]; onCreate: (p: CreateParams) => void;
+  initial?: Schedule; onCancel?: () => void; busy?: boolean;
+}) {
   const live = agents.filter((a) => !a.archivedAt).sort((a, b) => a.name.localeCompare(b.name));
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState("every");
-  const [when, setWhen] = useState("60");
-  const [targetKind, setTargetKind] = useState<"agent" | "newAgent">(live.length ? "agent" : "newAgent");
-  const [agentId, setAgentId] = useState(live[0]?.id ?? "");
-  const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
-  const [provider, setProvider] = useState<ProviderId>("claude");
-  const [prompt, setPrompt] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [kind, setKind] = useState(initial?.cadence.type ?? "every");
+  const [when, setWhen] = useState(() => {
+    const cadence = initial?.cadence;
+    if (!cadence) return "60";
+    if (cadence.type === "every") return String(cadence.minutes);
+    if (cadence.type === "cron") return cadence.expr;
+    const at = new Date(cadence.at);
+    return new Date(at.getTime() - at.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [targetKind, setTargetKind] = useState<"agent" | "newAgent">(initial?.target.type ?? (live.length ? "agent" : "newAgent"));
+  const [agentId, setAgentId] = useState(initial?.target.type === "agent" ? initial.target.agentId : live[0]?.id ?? "");
+  const [projectId, setProjectId] = useState(initial?.target.type === "newAgent" ? initial.target.projectId : projects[0]?.id ?? "");
+  const [provider, setProvider] = useState<ProviderId>(initial?.target.type === "newAgent" ? initial.target.provider : "claude");
+  const [prompt, setPrompt] = useState(initial?.prompt ?? "");
   const [problem, setProblem] = useState("");
   const whenLabel = kind === "every" ? "Minutes" : kind === "cron" ? "Cron expression" : "At";
   const submit = (e: FormEvent) => {
@@ -104,14 +121,16 @@ function ScheduleForm({ agents, projects, onCreate }: { agents: Agent[]; project
     onCreate({
       name: name.trim() || undefined,
       cadence,
-      target: targetKind === "agent" ? { type: "agent", agentId } : { type: "newAgent", projectId, provider },
+      target: targetKind === "agent"
+        ? { ...(initial?.target.type === "agent" ? initial.target : {}), type: "agent", agentId }
+        : { ...(initial?.target.type === "newAgent" ? initial.target : {}), type: "newAgent", projectId, provider },
       prompt,
     });
   };
   return <form className="schedule-form" onSubmit={submit}>
     <label><span>Name</span><input aria-label="Name" value={name} placeholder="Optional" onChange={(e) => setName(e.target.value)} /></label>
     <div className="schedule-form-row">
-      <label><span>When</span><select aria-label="When" value={kind} onChange={(e) => { setKind(e.target.value); setWhen(e.target.value === "every" ? "60" : ""); }}>
+      <label><span>When</span><select aria-label="When" value={kind} onChange={(e) => { setKind(e.target.value as Schedule["cadence"]["type"]); setWhen(e.target.value === "every" ? "60" : ""); }}>
         <option value="every">Every N minutes</option><option value="cron">Cron</option><option value="once">Once</option>
       </select></label>
       <label><span>{whenLabel}</span>
@@ -133,6 +152,7 @@ function ScheduleForm({ agents, projects, onCreate }: { agents: Agent[]; project
     </select></label>}
     <label><span>Prompt</span><textarea aria-label="Prompt" required rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} /></label>
     {problem && <p role="alert" className="error">{problem}</p>}
-    <button className="primary">Create schedule</button>
+    {onCancel && <button type="button" onClick={onCancel}>Cancel edit</button>}
+    <button className="primary" disabled={busy}>{initial ? "Save schedule" : "Create schedule"}</button>
   </form>;
 }

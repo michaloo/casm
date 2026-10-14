@@ -13,6 +13,7 @@ import { Rpc, chat, chats, event, key, syncPending, type Host } from "./state";
 import { resolveView, viewPath, type Selection } from "./navigation";
 import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
 import { ProviderIcon } from "./provider-icon";
+import { HostSection } from "./host-section";
 import { HostMenu, type HostState } from "./host-menu";
 import { schedulesChanged } from "./host-schedules";
 import { AgentActivity } from "./agent-activity-view";
@@ -542,11 +543,10 @@ function App() {
               : (h.latencyMs ?? 0) > SLOW_HOST_MS ? "slow" : "online";
             const working = h.agents.filter((a) => a.status !== "idle" && !a.archivedAt).length;
             return (
-            <section key={h.id} className="host">
-              <h2>
+            <HostSection key={h.id} host={h.id} name={h.name} heading={
                 <HostMenu host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
                   detail={working ? `${working} working` : undefined} />
-              </h2>
+              }>
               {h.error && <p className="host-error" title={h.error}>{h.error}</p>}
               {!h.error && !h.loading && !h.projects.length && <p className="sidebar-empty">No projects on this host yet.</p>}
               {[...h.projects]
@@ -600,7 +600,7 @@ function App() {
                   </div>
                   );
                 })}
-            </section>
+            </HostSection>
             );
           })}
         </nav>

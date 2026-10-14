@@ -27,7 +27,7 @@ export function HostMenu({ host, name, state, detail, rpc, agents, projects }: {
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("menu");
-  useAnchoredPosition(open, trigger, panel);
+  useAnchoredPosition(open, trigger, panel, view);
   const online = state === "online" || state === "slow";
   const status = stateLabels[state];
   const focusFirst = () => requestAnimationFrame(() => panel.current?.querySelector<HTMLElement>("[role=menuitem]:not(:disabled), .host-panel-back")?.focus());

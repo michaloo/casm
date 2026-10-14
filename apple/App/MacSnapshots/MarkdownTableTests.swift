@@ -9,6 +9,21 @@ final class MarkdownTableTests: XCTestCase {
 
     func plain(_ s: AttributedString) -> String { String(s.characters) }
 
+    func testDisplayMathBecomesMathCodeBlocks() {
+        let blocks = Markdown.parse("""
+        So:
+        $$D_9 = 9 \\cdot 14{,}833 - 1$$
+        \\[ x^2 \\]
+        $$
+        a = b
+        $$
+        It costs $5 and $6.
+        """)
+        let math = blocks.compactMap { if case .code("math", let source) = $0 { source } else { nil } }
+        XCTAssertEqual(math, ["D_9 = 9 \\cdot 14{,}833 - 1", "x^2", "a = b"])
+        XCTAssertEqual(blocks.count, 5, "the dollar amounts stay a paragraph")
+    }
+
     func testBasicTableWithAlignment() throws {
         let t = try table("""
         | Test | Before | After |

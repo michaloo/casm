@@ -46,6 +46,16 @@ enum Markdown {
         return blocks
     }
 
+    /// `$$ … $$` or `\[ … \]` on one line: the formula inside.
+    static func displayMath(_ line: Substring) -> String? {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        for (open, close) in [("$$", "$$"), ("\\[", "\\]")] where t.count > open.count + close.count && t.hasPrefix(open) && t.hasSuffix(close) {
+            let inner = t.dropFirst(open.count).dropLast(close.count).trimmingCharacters(in: .whitespaces)
+            return inner.isEmpty ? nil : inner
+        }
+        return nil
+    }
+
     static func parse(_ text: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
         var paragraph: [Substring] = []
@@ -117,7 +127,14 @@ enum Markdown {
                 }
                 continue
             }
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+            if let math = displayMath(trimmed) {
+                // No native LaTeX renderer: display math reads best as source in a code block.
+                flushAll()
+                blocks.append(.code(language: "math", math))
+            } else if trimmed.trimmingCharacters(in: .whitespaces) == "$$" {
+                flushAll()
+                fence = ("$$", "math", [])
+            } else if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 flushAll()
                 let marker = trimmed.prefix(while: { $0 == trimmed.first })
                 let language = trimmed.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)

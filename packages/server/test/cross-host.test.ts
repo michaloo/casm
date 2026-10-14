@@ -226,11 +226,12 @@ test("list_hosts and list_projects, local and remote", async () => {
 
 test("create_agent, send, wait, list_agents and get_history on a peer; parent is the calling agent", async () => {
   const alphaId = (await alpha.client.call("server.info", {})).id;
-  const created = await tool("create_agent", { host: "beta", project: "BetaProj", provider: "claude", prompt: "remote hello", name: "child" });
+  const created = await tool("create_agent", { host: "beta", project: "BetaProj", provider: "claude", prompt: "remote hello", name: "child", env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:8080" } });
   assert.equal(created.isError, false, created.text);
   assert.equal(created.data.host, "beta");
   const child = await beta.client.call("agent.get", { id: created.data.id });
   assert.deepEqual(child.parent, { serverId: alphaId, agentId: parentId, host: "alpha" });
+  assert.deepEqual(child.config.env, { ANTHROPIC_BASE_URL: "http://127.0.0.1:8080" });
 
   const w = await tool("wait", { host: "beta", agent: "child", timeout_s: 5 });
   assert.deepEqual(w.data, { status: "idle", timedOut: false, lastReply: "echo: remote hello", lastTurn: { outcome: "completed" } });

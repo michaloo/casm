@@ -33,6 +33,7 @@ import { Question } from "./question";
 import { ChatWorking } from "./chat-working";
 import { newMessageId, sendMode, visiblePending } from "./outbox";
 import { PendingRows } from "./pending-strip";
+import "./fonts/fonts.css";
 import "./style.css";
 // Same threshold the server uses for a slow peer probe.
 const SLOW_HOST_MS = 2000;
@@ -951,6 +952,7 @@ function App() {
                   <>
                     <button
                       type="button"
+                      className="interrupt"
                       disabled={!online}
                       onClick={() =>
                         void run(() =>
@@ -966,6 +968,7 @@ function App() {
                     </button>
                     <button
                       type="button"
+                      className="steer"
                       title={`Send into the running turn (${mac ? "⌘" : "Ctrl"}+Enter)`}
                       disabled={!online || (!c.input.trim() && !c.images.length) || creating}
                       onClick={() => void send(true)}
@@ -975,6 +978,7 @@ function App() {
                   </>
                 )}
                 <button
+                  className={primary === "queue" ? "queue" : "send"}
                   title={primary === "queue" ? "Send after the running turn and the waiting messages (Enter)" : "Send (Enter)"}
                   disabled={!online || (!c.input.trim() && !c.images.length) || creating}
                 >

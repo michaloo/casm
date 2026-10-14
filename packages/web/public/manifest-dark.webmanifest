@@ -4,8 +4,8 @@
   "description": "A focused workspace for your coding agents",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#18171d",
-  "theme_color": "#18171d",
+  "background_color": "#0e1920",
+  "theme_color": "#0e1920",
   "icons": [
     {
       "src": "/icon-dark-192.png",

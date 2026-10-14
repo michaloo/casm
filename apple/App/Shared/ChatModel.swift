@@ -400,8 +400,6 @@ final class ChatModel {
     private(set) var pending: [PendingMessage] = []
     /// The last turn failed on a usage limit (cleared by a completed turn).
     private(set) var limit: TurnLimit?
-    /// Text the composer should take over (Edit on a pending message).
-    var composerTakeover: String?
 
     func refreshPending() async {
         guard let host else { return }
@@ -445,19 +443,6 @@ final class ChatModel {
     func retryPending(_ message: PendingMessage) async {
         await perform { _ = try await $0.retryPending(agentId: self.agentId, messageId: message.id) }
         scrollToBottomRequest += 1
-        await refreshPending()
-    }
-
-    /// Takes a pending message back into the composer to change it.
-    func editPending(_ message: PendingMessage) async {
-        guard let host else { return }
-        do {
-            let cancelled = try await host.client.cancelPending(agentId: agentId, messageId: message.id)
-            // 0 means it was sent meanwhile; don't duplicate it.
-            if cancelled > 0 { composerTakeover = message.text }
-        } catch {
-            self.error = error.localizedDescription
-        }
         await refreshPending()
     }
 

@@ -38,7 +38,7 @@ final class SchedulesTests: XCTestCase {
                     ForEach(rows) { ScheduleRow(host: host, schedule: $0, edit: {}) }
                 }
                 VStack(alignment: .trailing, spacing: 6) {
-                    ForEach(pending) { PendingRow(message: $0, edit: {}, sendNow: {}, cancel: {}) }
+                    ForEach(pending) { PendingRow(message: $0, sendNow: {}, cancel: {}) }
                 }
             }
             .environment(AppModel())

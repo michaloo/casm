@@ -98,6 +98,7 @@ schedules (run on the host; messages to busy or limited agents become pending):
   schedules [--agent a]
   schedule add (--cron "0 9 * * 1-5" | --every 30m | --at 18:30|"in 2h"|ISO) <prompt>
                (--agent a [--skip-if-busy] | --project p --provider claude [--model m] [--mode m] [--env K=V]... [--name n])
+  schedule edit <schedule> [--name n] [--cron e | --every d | --at t] [new prompt]
   schedule run | enable | disable | rm <schedule>
   cancel <agent> [message-id|--all]  cancel pending messages
   retry <agent> <message-id>         retry now a message held back by a failure or a limit
@@ -293,7 +294,7 @@ function messageSender() {
 function renderItem(i: Item): string {
   switch (i.kind) {
     case "user":
-      return `\n${i.sender ? `from ${i.sender.schedule?.name ?? i.sender.name ?? i.sender.agentId}${i.sender.host ? ` · ${i.sender.host}` : ""}\n` : ""}> ${i.text.replaceAll("\n", "\n> ")}${i.images?.length ? `\n> [${i.images.length} image(s)]` : ""}`;
+      return `\n${i.sender ? `from ${i.sender.schedule ? `schedule ${i.sender.schedule.name}` : (i.sender.name ?? i.sender.agentId)}${i.sender.host ? ` · ${i.sender.host}` : ""}\n` : ""}> ${i.text.replaceAll("\n", "\n> ")}${i.images?.length ? `\n> [${i.images.length} image(s)]` : ""}`;
     case "assistant":
       return `\n${i.text}`;
     case "reasoning":
@@ -800,7 +801,20 @@ async function run(c: CasmClient) {
         const r = await c.call("schedule.runNow", { id: x.id });
         return out(r, () => console.log(`${r.outcome}${r.agentId ? `  agent ${shortId(r.agentId)}` : ""}${r.error ? `: ${r.error}` : ""}`));
       }
-      fail("usage: casm schedule add|run|enable|disable|rm");
+      if (sub2 === "edit") {
+        const prompt = args.slice(2).join(" ");
+        const cadence = opt.cron
+          ? { type: "cron" as const, expr: opt.cron }
+          : opt.every
+            ? { type: "every" as const, minutes: Math.max(1, Math.round((Date.parse(parseWhen(opt.every)) - Date.now()) / 60_000)) }
+            : opt.at
+              ? { type: "once" as const, at: parseWhen(opt.at) }
+              : undefined;
+        if (!prompt && !cadence && !opt.name) fail("schedule edit needs a new prompt, --name, --cron, --every or --at");
+        const e = await c.call("schedule.update", { id: x.id, name: opt.name, cadence, prompt: prompt || undefined });
+        return out(e, () => console.log(`${shortId(e.id)}  next ${e.nextRunAt ? new Date(e.nextRunAt).toLocaleString() : "-"}`));
+      }
+      fail("usage: casm schedule add|edit|run|enable|disable|rm");
     }
 
     case "pending": {

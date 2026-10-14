@@ -34,6 +34,15 @@ final class ComposerLogicTests: XCTestCase {
         XCTAssertNil(shown("claude-opus-5"), "no catalog entry by that name")
     }
 
+    func testAgentNamesComeFromTheFirstLine() {
+        XCTAssertEqual(ChatModel.agentName(from: "  Fix the   login\tbug  \nmore detail"), "Fix the login bug")
+        XCTAssertEqual(ChatModel.agentName(from: "\n\nsecond line first"), "second line first")
+        XCTAssertEqual(ChatModel.agentName(from: "Refactor the authentication middleware so tokens refresh"),
+                       "Refactor the authentication middleware…")
+        XCTAssertEqual(ChatModel.agentName(from: String(repeating: "x", count: 50)), String(repeating: "x", count: 40) + "…")
+        XCTAssertNil(ChatModel.agentName(from: " \n "), "no text: the server's default name")
+    }
+
     func testCompletionContexts() {
         XCTAssertEqual(context("/rev")?.kind, .command)
         XCTAssertEqual(context("/rev")?.query, "rev")

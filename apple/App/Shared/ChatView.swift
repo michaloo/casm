@@ -335,7 +335,7 @@ struct ThinkingRow: View {
             }
             .buttonStyle(.plain)
             if expanded {
-                Text(text)
+                Text(rendered)
                     .font(.system(size: 14))
                     .lineSpacing(3)
                     .foregroundStyle(Theme.muted)
@@ -346,6 +346,14 @@ struct ThinkingRow: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .padding(.horizontal, -8)
+    }
+
+    /// Summaries come as light markdown (Codex bolds a heading per step) and Claude's end in blank
+    /// lines: inline styles only, trimmed.
+    private var rendered: AttributedString {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (try? AttributedString(markdown: trimmed, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(trimmed)
     }
 }
 

@@ -6,6 +6,7 @@ import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
 import type { Scheduler } from "./schedules.ts";
 import { searchFiles } from "./fs-search.ts";
+import type { Files } from "./files.ts";
 import { hostAgentsMd, setHostAgentsMd } from "./host-details.ts";
 import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts";
 import type { PeerPool } from "./peers.ts";
@@ -47,6 +48,7 @@ export function createHandlers(
   identity: Identity,
   peers: PeerPool,
   schedules: () => Scheduler,
+  files: Files,
 ): Handlers {
   const getProject = (id: string) => {
     const p = store.getProject(id);
@@ -114,6 +116,10 @@ export function createHandlers(
       if (!root || !isAbsolute(root)) throw new RpcError(ErrorCode.InvalidParams, "give an agentId or an absolute cwd");
       return { root, entries: await searchFiles(root, p.query, p.limit) };
     },
+
+    "fs.list": (p) => files.list(p),
+    "fs.read": (p) => files.read(p),
+    "fs.downloadLink": (p) => files.link(p),
 
     "peer.list": async (p) => ({
       peers: await Promise.all(

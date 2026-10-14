@@ -27,6 +27,7 @@ export type Chat = {
   // Optimistic queue state (see outbox.ts): rows sent but not yet listed by the
   // server, and rows being sent now or cancelled.
   outbox?: PendingMessage[];
+  inFlight?: Map<string, Item>;
   hidden?: Set<string>;
   // A message whose send failed and was put back in the composer: sending the
   // same text and images again reuses its id, so the server sends it once.
@@ -78,6 +79,13 @@ export async function syncPending(c: Chat, read: () => Promise<{ messages: Pendi
   c.pending = result.messages;
   return true;
 }
+// Keep unconfirmed immediate sends across a reconnect snapshot. History and
+// pending rows take precedence; confirmed live events are replayed afterwards.
+export function replaceHistory(c: Chat, items: Item[]) {
+  const known = new Set([...items.map((i) => i.id), ...c.pending.map((p) => p.id)]);
+  c.items = [...items, ...[...(c.inFlight?.values() ?? [])].filter((i) => !known.has(i.id))];
+}
+
 export function event(c: Chat, e: AgentEvent, replay = false) {
   if (e.type === "turnStarted") c.failed = false;
   if (e.type === "turnEnded") c.failed = e.outcome === "failed";

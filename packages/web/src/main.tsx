@@ -12,6 +12,8 @@ import type {
   QuestionRequest,
 } from "@casm/protocol";
 import { Rpc, chat, chats, event, key, type Host } from "./state";
+import { resolveView, viewPath } from "./navigation";
+import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
 import "./style.css";
 const md = (text: string) => (
   <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
@@ -154,6 +156,23 @@ function Question({
 function App() {
   const [token, setToken] = useState(localStorage.getItem("casm.token") ?? "");
   const [entry, setEntry] = useState("");
+  const [path, setPath] = useState(location.pathname);
+  const [routeError, setRouteError] = useState("");
+  useEffect(() => {
+    const pop = () => setPath(location.pathname);
+    const hidden = () => {
+      if (document.visibilityState === "hidden") flushDrafts();
+    };
+    window.addEventListener("popstate", pop);
+    window.addEventListener("pagehide", flushDrafts);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      flushDrafts();
+      window.removeEventListener("popstate", pop);
+      window.removeEventListener("pagehide", flushDrafts);
+      document.removeEventListener("visibilitychange", hidden);
+    };
+  }, []);
   const [online, setOnline] = useState(false);
   const [hosts, setHosts] = useState<Host[]>([]);
   const hostsRef = useRef(hosts);
@@ -163,6 +182,12 @@ function App() {
     project: string;
     id?: string;
   }>();
+  useEffect(() => {
+    if (!hosts.length) return;
+    const view = resolveView(path, hosts);
+    setRouteError(view.error ?? "");
+    select(view.selection);
+  }, [path, hosts]);
   const selected = useRef(selection);
   selected.current = selection;
   const [, render] = useState(0);
@@ -317,6 +342,12 @@ function App() {
     ? key(selection.host, selection.id ?? `new:${selection.project}`)
     : "";
   const c = chat(ckey);
+  if (selection && host)
+    restoreDraft(
+      c,
+      host.name,
+      selection.id ? `agent:${selection.id}` : `project:${selection.project}`,
+    );
   useEffect(() => {
     if (selection?.id && online)
       void run(() => load(selection.host, selection.id!));
@@ -341,6 +372,17 @@ function App() {
     };
   }, [provider, selection?.host, online]);
   function choose(s: typeof selection) {
+    if (s) {
+      const next = viewPath(s, hostsRef.current);
+      if (next !== location.pathname) {
+        history.pushState(null, "", next + location.search);
+        setPath(next);
+      }
+    } else if (location.pathname !== "/") {
+      history.pushState(null, "", "/" + location.search);
+      setPath("/");
+    }
+    setRouteError("");
     select(s);
     showSidebar(false);
   }
@@ -363,8 +405,28 @@ function App() {
           s.host,
         );
         id = a.id;
-        chat(key(s.host, id)).input = text;
-        select({ ...s, id });
+        setHosts((hs) =>
+          hs.map((h) =>
+            h.id === s.host
+              ? {
+                  ...h,
+                  agents: [
+                    ...h.agents.filter((existing) => existing.id !== a.id),
+                    a,
+                  ],
+                }
+              : h,
+          ),
+        );
+        const destination = chat(key(s.host, id));
+        restoreDraft(
+          destination,
+          hostsRef.current.find((h) => h.id === s.host)?.name ?? s.host,
+          `agent:${id}`,
+        );
+        destination.input = text;
+        saveDraft(destination, true);
+        choose({ ...s, id });
       } else if (
         agent &&
         (agent.config.model !== model || agent.config.mode !== mode)
@@ -382,6 +444,8 @@ function App() {
       if (c.input === text) c.input = "";
       const destination = chat(key(s.host, id));
       if (destination.input === text) destination.input = "";
+      saveDraft(c, true);
+      saveDraft(destination, true);
       await load(s.host, id);
       redraw();
     });
@@ -450,7 +514,7 @@ function App() {
                       <span>＋</span>
                     </button>
                     {h.agents
-                      .filter((a) => a.projectId === p.id)
+                      .filter((a) => a.projectId === p.id && !a.archivedAt)
                       .sort(
                         (a, b) =>
                           a.name.localeCompare(b.name) ||
@@ -523,6 +587,14 @@ function App() {
           </div>
         )}
         <div className="transcript">
+          {routeError && (
+            <div role="alert" className="empty">
+              {routeError}
+            </div>
+          )}
+          {!hosts.length && path !== "/" && (
+            <div className="empty">Loading view…</div>
+          )}
           {selection && (
             <Transcript
               key={ckey}
@@ -710,6 +782,7 @@ function App() {
                 value={c.input}
                 onChange={(e) => {
                   c.input = e.target.value;
+                  saveDraft(c);
                   redraw();
                 }}
                 onKeyDown={(e) => {

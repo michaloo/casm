@@ -117,6 +117,15 @@ for (let i = 0; i < 65; i++) {
   histories.set(`fake-history-${i}`, [...history]);
   store.updateAgent(a.id, { nativeSessionId: `fake-history-${i}` });
 }
+const archived = store.createAgent({
+  projectId: p.id,
+  name: "Archived agent",
+  provider: "claude",
+  cwd: home,
+  config: {},
+});
+store.updateAgent(archived.id, { archived: true });
+writeFileSync(`${home}/web-archived-id`, archived.id);
 const server = await startServer({
   store,
   providers: [provider],

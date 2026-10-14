@@ -179,6 +179,17 @@ final class FlowTests: XCTestCase {
         shot("ios-17-thinking-expanded")
     }
 
+    /// The host's schedules list (create some with `casm schedule add` first).
+    func testSchedulesList() throws {
+        XCTAssertTrue(element("ios-scratch").waitForExistence(timeout: 15), "sidebar loaded")
+        // Schedules is the host's last row, below the projects.
+        for _ in 0..<4 where !element("Schedules").isHittable { app.swipeUp() }
+        element("Schedules").tap()
+        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 10))
+        sleep(2)
+        shot("ios-18-schedules")
+    }
+
     static func sampleImage() -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 120, height: 80)).image { ctx in
             UIColor.systemTeal.setFill()

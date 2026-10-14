@@ -82,7 +82,9 @@ type Tracked = { item: SubagentItem; startedAt: string; updatedAt: string; stale
 // Finished subagents kept per agent for agent.subagents.
 const KEEP_FINISHED = 50;
 
-export type Prompt = { text: string; images?: ImageData[] };
+// id: the user item's id. A delivered pending message keeps its pending id, so
+// clients can match the bubble they showed as pending to the item that lands.
+export type Prompt = { text: string; images?: ImageData[]; id?: string };
 
 export type Notify = <N extends NotificationName>(name: N, params: NotificationParams<N>, agentId?: string) => void;
 
@@ -321,7 +323,7 @@ export class AgentManager {
     this.store.removePending(m.id);
     const before = new Set(this.store.listPending(id).map((x) => x.id));
     try {
-      return this.send(id, { text: m.text, images: m.images }, whenBusy);
+      return this.send(id, { text: m.text, images: m.images, id: m.id }, whenBusy);
     } catch (e) {
       // A turn that started and failed has kept it again already.
       const keptAgain = this.store.listPending(id).some((x) => !before.has(x.id) && x.reason === "failed" && x.text === m.text);
@@ -451,7 +453,7 @@ export class AgentManager {
   }
 
   private sendToSession(id: string, l: Live, prompt: Prompt) {
-    const itemId = randomUUID();
+    const itemId = prompt.id ?? randomUUID();
     const images = prompt.images?.length ? prompt.images : undefined;
     this.emit(id, { type: "item", item: { kind: "user", id: itemId, text: prompt.text, images } });
     this.guard(id, l, () => l.session!.send(prompt.text, itemId, images));
@@ -780,7 +782,7 @@ export class AgentManager {
       // A retried limit message that hits the limit again backs off further.
       if (m.reason === "limit") this.retryAttempts.set(id, m.attempts + 1);
       try {
-        this.startTurn(a, l, { text: m.text, images: m.images });
+        this.startTurn(a, l, { text: m.text, images: m.images, id: m.id });
       } catch (e) {
         // A refusal (e.g. the folder is gone) won't pass on retry: keep it for the user.
         if (e instanceof RpcError) this.store.addPending({ ...m, reason: "failed", notBefore: null, note: e.message, front: true });

@@ -664,6 +664,7 @@ test("a pending message is sent now or taken back with its images", async () => 
   await new Promise((r) => setTimeout(r, 20));
   const user = events.find((e) => e.type === "item" && e.item.kind === "user");
   assert.deepEqual(user?.type === "item" && user.item.kind === "user" && user.item.images, [image]);
+  assert.equal(user?.type === "item" && user.item.id, q1.pendingId);
   await assert.rejects(client.call("agent.steerPending", { id: a.id, messageId: q1.pendingId! }), (e: CasmError) => e.code === 1001);
 
   // Take: removed, and the whole prompt comes back to edit.
@@ -986,4 +987,25 @@ test("a prompt the agent hasn't answered when the server stops is kept as a fail
   assert.deepEqual(s2.listPending(answered.id).map((x) => x.id), [other.id]);
   await again.close();
   s2.close();
+});
+
+test("a queued message lands as a user item with its pending id", async () => {
+  fake.gate = Promise.withResolvers<void>();
+  const p = await client.call("project.create", { name: "P-pending-id", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  const events: AgentEvent[] = [];
+  const off = client.on("agent.event", (n) => n.agentId === a.id && events.push(n.event));
+  await client.call("agent.subscribe", { id: a.id });
+  await client.call("agent.send", { id: a.id, text: "held first" });
+  const q = await client.call("agent.send", { id: a.id, text: "second" });
+  assert.equal(q.queued, true);
+  fake.gate.resolve();
+  for (let i = 0; i < 100 && !events.some((e) => e.type === "item" && e.item.kind === "user" && e.item.text === "second"); i++)
+    await new Promise((r) => setTimeout(r, 10));
+  const users = events.filter((e) => e.type === "item" && e.item.kind === "user" && e.item.text === "second");
+  // Once, and with the id clients showed while it was pending.
+  assert.equal(users.length, 1);
+  assert.equal(users[0].type === "item" && users[0].item.id, q.pendingId);
+  await client.call("agent.wait", { id: a.id });
+  off();
 });

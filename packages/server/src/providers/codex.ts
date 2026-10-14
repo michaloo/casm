@@ -794,6 +794,8 @@ class CodexSession implements ProviderSession {
     this.threadId = res.thread.id;
     this.thread = { model: str(res.model), effort: res.reasoningEffort ?? null };
     this.model = config.model || str(res.model);
+    // Unset config.model means Codex's own default (config.toml), not the catalog's.
+    if (this.model) this.opts.emit({ type: "model", model: this.model });
     try {
       this.presets = (await this.rpc.request<{ data: CollaborationPreset[] }>("collaborationMode/list", {})).data;
     } catch {

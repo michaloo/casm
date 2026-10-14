@@ -26,6 +26,9 @@ test("nested projects migrate to grouped folders and keep their agents", () => {
   assert.equal(app.group, "Work");
   assert.equal(store.getProject("w")!.group, null);
   assert.equal(store.getAgent("x")!.projectId, "a");
+  // Columns added later appear on old tables.
+  assert.equal(store.getAgent("x")!.effectiveModel, null);
+  assert.equal(store.updateAgent("x", { effectiveModel: "gpt-6-astra" })!.effectiveModel, "gpt-6-astra");
   store.close();
   new Store(file).close(); // migrating twice is a no-op
 });

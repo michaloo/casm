@@ -18,6 +18,8 @@ import type {
 // What a provider reports while a session is open.
 export type ProviderEvent =
   | { type: "sessionId"; id: string }
+  // The model the session runs (resolved by the provider when config.model is unset).
+  | { type: "model"; model: string }
   | { type: "item"; item: Item }
   | { type: "delta"; kind: "assistant" | "reasoning"; text: string }
   // Output of a running tool, appended to the tool item with that id.

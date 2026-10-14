@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { codexProvider } from "../src/providers/codex.ts";
+import type { ProviderEvent } from "../src/providers/types.ts";
 
 // A fake app-server that logs thread/start and thread/resume params and answers every request.
 function fakeCodex(dir: string) {
@@ -28,15 +29,16 @@ createInterface({input: process.stdin}).on('line', line => {
 }
 
 for (const resumeId of [null, "thread-1"]) {
-  test(`Codex ${resumeId ? "resumed" : "new"} threads ask for detailed reasoning summaries and keep MCP servers`, { timeout: 10000 }, async (t) => {
+  test(`Codex ${resumeId ? "resumed" : "new"} threads ask for detailed reasoning summaries, keep MCP servers and report their model`, { timeout: 10000 }, async (t) => {
     const dir = mkdtempSync(join(tmpdir(), "casm-codex-reasoning-"));
     const fake = fakeCodex(dir);
     const oldPath = process.env.CASM_CODEX_PATH;
     process.env.CASM_CODEX_PATH = fake.binary;
     const mcpServers = { docs: { command: "docs-mcp" } };
+    const events: ProviderEvent[] = [];
     const session = codexProvider().open({
       cwd: dir, config: { mcpServers }, resumeId,
-      emit: () => {},
+      emit: (e) => events.push(e),
       askPermission: async () => { throw new Error("unexpected permission"); },
       askQuestion: async () => { throw new Error("unexpected question"); },
     });
@@ -50,5 +52,8 @@ for (const resumeId of [null, "thread-1"]) {
     const [request] = fake.requests();
     assert.equal(request.method, resumeId ? "thread/resume" : "thread/start");
     assert.deepEqual(request.params.config, { model_reasoning_summary: "detailed", mcp_servers: mcpServers });
+    // No config.model: the model the thread runs is Codex's own default, reported as the effective model.
+    while (!events.some((e) => e.type === "model")) await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(events.find((e) => e.type === "model"), { type: "model", model: "fake" });
   });
 }

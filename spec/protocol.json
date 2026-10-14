@@ -2015,6 +2015,12 @@
                     "null"
                   ]
                 },
+                "effectiveModel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "parent": {
                   "anyOf": [
                     {
@@ -2201,6 +2207,12 @@
             }
           },
           "nativeSessionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveModel": {
             "type": [
               "string",
               "null"
@@ -2484,6 +2496,12 @@
               "null"
             ]
           },
+          "effectiveModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "parent": {
             "anyOf": [
               {
@@ -2713,6 +2731,12 @@
             }
           },
           "nativeSessionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveModel": {
             "type": [
               "string",
               "null"
@@ -5415,6 +5439,12 @@
               }
             },
             "nativeSessionId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "effectiveModel": {
               "type": [
                 "string",
                 "null"

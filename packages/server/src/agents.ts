@@ -341,6 +341,14 @@ export class AgentManager {
         }
         return;
       }
+      case "model": {
+        const a = this.store.getAgent(id);
+        if (a && a.effectiveModel !== e.model) {
+          const updated = this.store.updateAgent(id, { effectiveModel: e.model })!;
+          this.notify("agent.changed", { agent: this.withStatus(updated) });
+        }
+        return;
+      }
       case "item":
         if (e.item.kind === "assistant") l.lastReply = e.item.text;
         this.emit(id, { type: "item", item: e.item });

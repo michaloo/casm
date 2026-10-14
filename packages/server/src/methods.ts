@@ -118,7 +118,9 @@ export function createHandlers(
       const config = p.config
         ? Object.fromEntries(Object.entries({ ...current.config, ...p.config }).filter(([, v]) => v !== "" && v !== undefined))
         : undefined;
-      store.updateAgent(p.id, { ...p, config });
+      // A different model makes the reported one stale until the next session reports again.
+      const effectiveModel = config && config.model !== current.config.model ? null : undefined;
+      store.updateAgent(p.id, { ...p, config, effectiveModel });
       if (config) agents.configChanged(p.id);
       return changed(p.id);
     },

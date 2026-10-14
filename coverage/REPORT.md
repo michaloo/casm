@@ -13,7 +13,7 @@ source of truth) and the hand-written classifications in `coverage/<source>.json
 
 | Source | Version | Ids | Mapped | Ignored | Gap | Unclassified | Mapped % |
 |---|---|--:|--:|--:|--:|--:|--:|
-| Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 49 | 62 | 31 | 0 | 61% |
+| Claude Code (Agent SDK) | claude-agent-sdk 0.3.296 | 142 | 50 | 61 | 31 | 0 | 62% |
 | Codex (app-server) | codex-cli 0.160.1 | 225 | 64 | 112 | 49 | 0 | 57% |
 | OpenCode (serve) | opencode 1.19.0 | 147 | 35 | 66 | 46 | 0 | 43% |
 | pi (RPC mode) | pi-coding-agent 1.1.0 | 102 | 53 | 26 | 23 | 0 | 70% |
@@ -235,11 +235,11 @@ claude-agent-sdk 0.3.296, from node_modules/@anthropic-ai/claude-agent-sdk/sdk.d
 | block | 5 | 9 | 8 | 0 | 38% |
 | callback | 2 | 0 | 1 | 0 | 67% |
 | hook | 0 | 33 | 0 | 0 | - |
-| query | 12 | 7 | 11 | 0 | 52% |
+| query | 13 | 6 | 11 | 0 | 54% |
 | sdkmessage | 24 | 9 | 9 | 0 | 73% |
 | streamdelta | 3 | 1 | 2 | 0 | 60% |
 | streamevent | 3 | 3 | 0 | 0 | 100% |
-| **total** | **49** | **62** | **31** | **0** | **61%** |
+| **total** | **50** | **61** | **31** | **0** | **62%** |
 
 ### Codex (app-server)
 

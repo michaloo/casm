@@ -3,13 +3,13 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createTcpServer, type Server as TcpServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { CasmClient } from "@casm/client";
-import type { Item } from "@casm/protocol";
+import { CasmClient, type CasmError } from "@casm/client";
+import { ErrorCode, type Item } from "@casm/protocol";
 import { Store } from "../src/db.ts";
 import { verifyPeer } from "../src/peers.ts";
 import { startServer, type RunningServer } from "../src/server.ts";
@@ -287,4 +287,102 @@ test("casm run links the child from CASM_* env or --parent", async () => {
   });
   assert.deepEqual(await run(["--parent", "s2/a2"], { CASM_SERVER_ID: "srv", CASM_AGENT_ID: "agt" }), { serverId: "s2", agentId: "a2" });
   assert.equal(await run(["--parent", "none"], { CASM_SERVER_ID: "srv", CASM_AGENT_ID: "agt" }), null);
+});
+
+// Clients (the CLI on a server machine) reach peers through their own server:
+// a request with `host` is forwarded over the same peer connections as the MCP tools.
+test("requests with a host are forwarded to that peer", async () => {
+  const viaBeta = await CasmClient.connect(alpha.url, alpha.token, { host: "beta" });
+  const viaSelf = await CasmClient.connect(alpha.url, alpha.token, { host: "alpha" });
+  try {
+    assert.equal((await viaBeta.call("server.info", {})).name, "beta");
+    assert.deepEqual((await viaBeta.call("project.list", {})).projects.map((p) => p.name), ["BetaProj"]);
+    // This server's own name (or id) means here.
+    assert.equal((await viaSelf.call("server.info", {})).name, "alpha");
+    // The peer's errors keep their code.
+    await assert.rejects(viaBeta.call("agent.get", { id: "nope" }), (e: CasmError) => e.code === ErrorCode.NotFound && /agent nope/.test(e.message));
+  } finally {
+    viaBeta.close();
+    viaSelf.close();
+  }
+
+  const mars = await CasmClient.connect(alpha.url, alpha.token, { host: "mars" });
+  await assert.rejects(mars.call("agent.list", {}), (e: CasmError) => e.code === ErrorCode.NotFound && /unknown host "mars": not a peer of alpha \(peers: asleep, beta\)/.test(e.message));
+  mars.close();
+
+  const asleep = await CasmClient.connect(alpha.url, alpha.token, { host: "asleep" });
+  const t0 = Date.now();
+  await assert.rejects(asleep.call("agent.list", {}), (e: CasmError) => e.code === ErrorCode.Unreachable && /host "asleep" is unreachable/.test(e.message));
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+  asleep.close();
+});
+
+test("subscriptions through a peer relay its notifications until unsubscribed or disconnected", async () => {
+  const project = (await beta.client.call("project.list", {})).projects.find((p) => p.name === "BetaProj")!;
+  const agent = await beta.client.call("agent.create", { projectId: project.id, provider: "claude", name: "relayed" });
+  const watchers = await Promise.all([0, 1].map(() => CasmClient.connect(alpha.url, alpha.token, { host: "beta" })));
+  const replies: string[][] = [[], []];
+  watchers.forEach((w, i) =>
+    w.on("agent.event", ({ agentId, event }) => {
+      if (agentId === agent.id && event.type === "item" && event.item.kind === "assistant") replies[i].push(event.item.text);
+    }),
+  );
+  const turn = async (text: string) => {
+    await beta.client.call("agent.send", { id: agent.id, text });
+    await beta.client.call("agent.wait", { id: agent.id });
+    await new Promise((r) => setTimeout(r, 50));
+  };
+  try {
+    for (const w of watchers) assert.equal((await w.call("agent.subscribe", { id: agent.id })).status, "idle");
+    await turn("one");
+    assert.deepEqual(replies, [["echo: one"], ["echo: one"]]);
+    // One local client leaving keeps the shared peer subscription for the other.
+    await watchers[0].call("agent.unsubscribe", { id: agent.id });
+    await turn("two");
+    assert.deepEqual(replies, [["echo: one"], ["echo: one", "echo: two"]]);
+  } finally {
+    for (const w of watchers) w.close();
+  }
+
+  // A peer that goes away ends the forwarded subscriptions, once per client.
+  const gamma = await host("gamma");
+  await gamma.client.call("project.create", { name: "GammaProj", path: "/tmp" });
+  const g = (await gamma.client.call("project.list", {})).projects[0];
+  const ga = await gamma.client.call("agent.create", { projectId: g.id, provider: "claude" });
+  alpha.store.setPeer({ name: "gamma", url: gamma.url, token: gamma.token, serverId: null });
+  const w = await CasmClient.connect(alpha.url, alpha.token, { host: "gamma" });
+  const lost: string[] = [];
+  w.on("peer.disconnected", ({ host }) => lost.push(host));
+  await w.call("agent.subscribe", { id: ga.id });
+  gamma.client.close();
+  await gamma.server.close();
+  gamma.store.close();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(lost, ["gamma"]);
+  w.close();
+  alpha.store.removePeer("gamma");
+});
+
+test("the CLI on a server machine reaches peers through its server; hosts.json is for machines without one", async () => {
+  const cli = join(import.meta.dirname, "../../cli/src/main.ts");
+  const home = mkdtempSync(join(tmpdir(), "casm-cli-"));
+  const casm = (args: string[], env: Record<string, string> = {}) => {
+    const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("CASM_")));
+    return promisify(execFile)(process.execPath, [cli, ...args], { env: { ...clean, CASM_HOME: home, ...env } });
+  };
+  // What `casm serve` writes on alpha's machine.
+  writeFileSync(join(home, "local.json"), JSON.stringify({ url: alpha.url, token: alpha.token }));
+  assert.equal(JSON.parse((await casm(["--json", "info"])).stdout).name, "alpha");
+  assert.equal(JSON.parse((await casm(["-H", "beta", "--json", "info"])).stdout).name, "beta");
+  assert.equal(JSON.parse((await casm(["--json", "info"], { CASM_HOST: "beta" })).stdout).name, "beta");
+  const projects = JSON.parse((await casm(["-H", "beta", "--json", "projects"])).stdout);
+  assert.deepEqual(projects.map((p: { name: string }) => p.name), ["BetaProj"]);
+  await assert.rejects(casm(["-H", "mars", "agents"]), /unknown host "mars": not a peer of alpha/);
+  await assert.rejects(casm(["host", "add", "beta", beta.url, beta.token]), /runs a casm server.*casm peer add beta/s);
+
+  // Without a server here, -H picks from hosts.json.
+  rmSync(join(home, "local.json"));
+  await casm(["host", "add", "beta", beta.url, beta.token]);
+  assert.equal(JSON.parse((await casm(["--json", "info"])).stdout).name, "beta");
+  await assert.rejects(casm(["-H", "alpha", "info"]), /unknown host "alpha" \(known: beta\)/);
 });

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // casm — the casm server (`casm serve`, `casm token`) and its command-line client.
-// Client commands take -H/--host and --json.
+// Client commands take -H/--host and --json. On a machine running a server the
+// client talks to it, and -H names one of its peers (the server forwards);
+// elsewhere -H picks an entry of hosts.json.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -11,6 +13,8 @@ import type { Agent, AgentEvent, Item, Project, ProviderId, Usage } from "@casm/
 
 const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");
 const hostsFile = join(home, "hosts.json");
+// Written by `casm serve` on this machine.
+const localFile = join(home, "local.json");
 
 type Hosts = { default?: string; hosts: Record<string, { url: string; token: string }> };
 
@@ -22,6 +26,17 @@ function readHosts(): Hosts {
   }
 }
 
+// The server this CLI talks to directly: $CASM_URL + $CASM_TOKEN, else the one
+// running on this machine. Undefined on a machine without a server.
+function localServer(): { url: string; token: string; source: string } | undefined {
+  if (process.env.CASM_URL && process.env.CASM_TOKEN) return { url: process.env.CASM_URL, token: process.env.CASM_TOKEN, source: "CASM_URL" };
+  try {
+    const { url, token } = JSON.parse(readFileSync(localFile, "utf8"));
+    if (typeof url === "string" && typeof token === "string") return { url, token, source: localFile };
+  } catch {}
+  return undefined;
+}
+
 function writeHosts(h: Hosts) {
   mkdirSync(home, { recursive: true });
   writeFileSync(hostsFile, JSON.stringify(h, null, 2) + "\n", { mode: 0o600 });
@@ -29,12 +44,16 @@ function writeHosts(h: Hosts) {
 
 const usage = `usage: casm [-H host] [--json] <command>
 
+-H host: on a machine running a casm server, commands go to that server, and
+-H <peer> makes it forward them to its peer of that name (see "peer add").
+Without a server here, -H picks a host from ${hostsFile}.
+
 server (runs on this machine):
   serve [--listen host:port] [--name n]
   token create <name> | token list | token revoke <name>
   peer add <name> <ws-url> <token> | peer list [--probe] | peer rm <name>
 
-hosts (stored in ${hostsFile}):
+hosts (only for a CLI on a machine without a server):
   host add <name> <ws-url> <token> [--default]
   host list | host rm <name>
 
@@ -76,7 +95,8 @@ schedules (run on the host; messages to busy or limited agents become pending):
   interrupt | reload | restart | archive | rm <agent>
 
 <project> and <agent> accept an id, an id prefix or an exact name.
-Environment: CASM_HOST, CASM_URL + CASM_TOKEN override the host list.
+Environment: CASM_HOST is the default for -H; CASM_URL + CASM_TOKEN name the
+server to talk to instead of this machine's (${localFile}).
 Inside a casm agent, CASM_SERVER_ID, CASM_SERVER_NAME and CASM_AGENT_ID are set,
 so "casm run" links the new agent to it as parent (override with --parent, or --parent none).`;
 
@@ -133,9 +153,14 @@ function out(json: unknown, human: () => void) {
 }
 
 async function connect(): Promise<CasmClient> {
-  if (process.env.CASM_URL && process.env.CASM_TOKEN) return CasmClient.connect(process.env.CASM_URL, process.env.CASM_TOKEN);
+  const local = localServer();
+  const peer = opt.host ?? process.env.CASM_HOST;
+  if (local)
+    return CasmClient.connect(local.url, local.token, { host: peer }).catch((e: Error) =>
+      fail(`${e.message}\n(the casm server from ${local.source}; is it running? "casm service status")`),
+    );
   const h = readHosts();
-  const name = opt.host ?? process.env.CASM_HOST ?? h.default ?? Object.keys(h.hosts)[0];
+  const name = peer ?? h.default ?? Object.keys(h.hosts)[0];
   if (!name) fail(`no hosts configured; run "casm host add <name> <ws-url> <token>"`);
   const host = h.hosts[name];
   if (!host) fail(`unknown host "${name}" (known: ${Object.keys(h.hosts).join(", ") || "none"})`);
@@ -237,6 +262,8 @@ async function main() {
   if (cmd === "host") {
     const [sub, name, url, token] = args;
     const h = readHosts();
+    if (sub === "add" && localServer())
+      fail(`this machine runs a casm server (${localServer()!.source}), so -H names its peers; add the host with "casm peer add ${name ?? "<name>"} <ws-url> <token>"`);
     if (sub === "add" && name && url && token) {
       h.hosts[name] = { url, token };
       if (opt.default || !h.default) h.default = name;
@@ -255,9 +282,13 @@ async function main() {
   }
 
   const c = await connect();
+  // Streaming commands end when the server, or the peer it forwards to, goes away.
+  c.on("peer.disconnected", ({ host }) => fail(`lost the connection to host "${host}"`));
+  const offClose = c.onClose(() => fail("lost the connection to the casm server"));
   try {
     await run(c);
   } finally {
+    offClose();
     c.close();
   }
 }

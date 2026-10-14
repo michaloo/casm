@@ -3,6 +3,7 @@
 import { createServer, type Server } from "node:http";
 import { hostname } from "node:os";
 import { WebSocketServer, type WebSocket } from "ws";
+import { CasmError } from "@casm/client";
 import {
   ErrorCode,
   PROTOCOL_VERSION,
@@ -39,12 +40,15 @@ export type ServerOptions = {
 export type RunningServer = {
   http: Server;
   port: number;
+  // How clients on this machine reach it (loopback when bound to every address).
+  url: string;
   agents: AgentManager;
   scheduler: Scheduler;
   close: () => Promise<void>;
 };
 
-type Client = Conn & { ws: WebSocket; name: string };
+// `remote`: subscriptions forwarded to peers, keyed "<peer>\n<agentId>".
+type Client = Conn & { ws: WebSocket; name: string; remote: Map<string, () => void> };
 
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? (() => {});
@@ -92,10 +96,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const client: Client = { ws, name, subscriptions: new Set() };
+      const client: Client = { ws, name, subscriptions: new Set(), remote: new Map() };
       clients.add(client);
       log(`client connected: ${name}`);
-      ws.on("close", () => (clients.delete(client), log(`client disconnected: ${name}`)));
+      ws.on("close", () => {
+        clients.delete(client);
+        for (const unsubscribe of client.remote.values()) unsubscribe();
+        log(`client disconnected: ${name}`);
+      });
       ws.on("message", (data) => void handle(client, data.toString()));
     });
   });
@@ -113,14 +121,54 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const parsed = method.params.safeParse(req.params ?? {});
     if (!parsed.success)
       return reply(client, { jsonrpc: "2.0", id, error: { code: ErrorCode.InvalidParams, message: parsed.error.message } });
+    // A request for a peer is forwarded; this server's own name or id means here.
+    const host = typeof req.host === "string" && req.host !== identity.name && req.host !== identity.id ? req.host : undefined;
     try {
       const handler = handlers[req.method as MethodName] as (p: unknown, c: Conn) => unknown;
-      const result = await handler(parsed.data, client);
+      const result = host ? await forward(client, host, req.method as MethodName, parsed.data) : await handler(parsed.data, client);
       if (id !== null) reply(client, { jsonrpc: "2.0", id, result });
     } catch (e) {
-      const code = e instanceof RpcError ? e.code : ErrorCode.Internal;
+      const code = e instanceof RpcError || e instanceof CasmError ? e.code : ErrorCode.Internal;
       if (code === ErrorCode.Internal) log(`${req.method} failed: ${e instanceof Error ? e.stack : e}`);
       reply(client, { jsonrpc: "2.0", id, error: { code, message: e instanceof Error ? e.message : String(e) } });
+    }
+  }
+
+  // Through the same peer connections the MCP tools use. Subscriptions are
+  // relayed: the peer's notifications for the agent reach this client.
+  async function forward(client: Client, ref: string, method: MethodName, params: unknown): Promise<unknown> {
+    const peer = peers.find(ref);
+    if (!peer) {
+      const known = peers.list().map((p) => p.name).join(", ") || "none";
+      throw new RpcError(ErrorCode.NotFound, `unknown host "${ref}": not a peer of ${identity.name} (peers: ${known})`);
+    }
+    const key = `${peer.name}\n${(params as { id?: string }).id}`;
+    const send = (msg: object) => client.ws.send(JSON.stringify({ jsonrpc: "2.0", ...msg, host: peer.name }));
+    try {
+      if (method === "agent.subscribe") {
+        const { id } = params as Params<"agent.subscribe">;
+        client.remote.get(key)?.();
+        const { state, unsubscribe } = await peers.subscribe(peer, id, {
+          notify: (m, p) => send({ method: m, params: p }),
+          lost: () => {
+            const gone = [...client.remote.keys()].filter((k) => k.startsWith(`${peer.name}\n`));
+            for (const k of gone) client.remote.delete(k);
+            if (gone.length) send({ method: "peer.disconnected", params: { host: peer.name } });
+          },
+        });
+        client.remote.set(key, unsubscribe);
+        return state;
+      }
+      if (method === "agent.unsubscribe") {
+        client.remote.get(key)?.();
+        client.remote.delete(key);
+        return { ok: true };
+      }
+      return await peers.caller(peer)(method, params as never);
+    } catch (e) {
+      // The peer's own errors keep their code; the connection's become Unreachable.
+      if (e instanceof CasmError) throw e;
+      throw new RpcError(ErrorCode.Unreachable, e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -145,6 +193,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   return {
     http,
     port,
+    url: `ws://${mcpHost}:${port}`,
     agents,
     scheduler,
     async close() {

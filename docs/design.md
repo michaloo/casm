@@ -206,6 +206,10 @@ Each adapter implements: `start`, `resume`, `send`, `steer`, `interrupt`, `event
 
 ## 4. Clients (SwiftUI, macOS + iOS)
 
+> **2026-10-14:** the native SwiftUI apps (`apple/`: CasmKit, macOS, iOS) moved to the
+> `apple` branch. The web client (`packages/web`, served by `casm serve` at `/`, installable
+> as a PWA) is the primary client. The notes below describe the native apps as designed.
+
 - **Sidebar grouping:** `Host → Projects (nested) → Agents` by default. The host is the top level
   because a project's path only means something on one machine. Alternative groupings (by tag,
   flattened "all hosts") are client-side views.

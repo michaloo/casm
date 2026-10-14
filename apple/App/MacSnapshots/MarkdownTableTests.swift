@@ -18,10 +18,15 @@ final class MarkdownTableTests: XCTestCase {
         a = b
         $$
         It costs $5 and $6.
+
+        \\[
+        c = d
+        \\]
+        $$a$$ and $$b$$
         """)
         let math = blocks.compactMap { if case .code("math", let source) = $0 { source } else { nil } }
-        XCTAssertEqual(math, ["D_9 = 9 \\cdot 14{,}833 - 1", "x^2", "a = b"])
-        XCTAssertEqual(blocks.count, 5, "the dollar amounts stay a paragraph")
+        XCTAssertEqual(math, ["D_9 = 9 \\cdot 14{,}833 - 1", "x^2", "a = b", "c = d"])
+        XCTAssertEqual(blocks.count, 7, "dollar amounts and two inline formulas stay paragraphs")
     }
 
     func testBasicTableWithAlignment() throws {

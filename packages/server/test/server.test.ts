@@ -33,6 +33,7 @@ class FakeSession implements ProviderSession {
         this.opts.emit({ type: "item", item: { kind: "notice", id: `e-${text}`, text: "You've hit your usage limit. Try again in 2 hours.", level: "error" } });
         return this.opts.emit({ type: "turnEnded", outcome: "failed", error: "usage limit" });
       }
+      if (text.includes("unknown-usage")) this.opts.emit({ type: "limits", limits: { windows: [{ id: "seven_day", status: "ok" }] } });
       if (text.includes("limits")) {
         this.opts.emit({ type: "limits", limits: { windows: [{ id: "five_hour", usedPercent: 80, status: "warning" }] } });
         this.opts.emit({ type: "item", item: { kind: "subagent", id: "sa1", title: "Explore repo", status: "done", summary: "found 3 files" } });
@@ -94,6 +95,7 @@ const fake = {
   commandCalls: [] as string[],
   commandFailure: false,
   limitHit: false,
+  limitsCalls: 0,
 };
 
 const provider: Provider = {
@@ -113,6 +115,10 @@ const provider: Provider = {
     await new Promise((r) => setTimeout(r, 20));
     if (fake.commandFailure) throw new Error("commands unavailable");
     return [{ name: "review", description: "Review changes", kind: "command" as const }];
+  },
+  async limits() {
+    fake.limitsCalls++;
+    return { windows: [{ id: "seven_day", usedPercent: 17 }] };
   },
   async catalog() {
     fake.catalogCalls++;
@@ -403,6 +409,22 @@ test("the model a session reports is the agent's effectiveModel until config.mod
   await client.call("agent.wait", { id: a.id });
   assert.equal((await client.call("agent.get", { id: a.id })).effectiveModel, "sonnet");
   off();
+});
+
+test("a window reported without usage asks the account once, and later reports keep the value", async () => {
+  const p = await client.call("project.create", { name: "P-usage", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  await client.call("agent.send", { id: a.id, text: "unknown-usage" });
+  await client.call("agent.wait", { id: a.id });
+  const before = fake.limitsCalls;
+  const week = async () => (await client.call("provider.limits", {})).limits[0].windows.find((w) => w.id === "seven_day");
+  assert.equal((await week())?.usedPercent, 17);
+  assert.equal(fake.limitsCalls, before + 1);
+  // Another live report without usage keeps 17, and doesn't query again.
+  await client.call("agent.send", { id: a.id, text: "unknown-usage again" });
+  await client.call("agent.wait", { id: a.id });
+  assert.equal((await week())?.usedPercent, 17);
+  assert.equal(fake.limitsCalls, before + 1);
 });
 
 test("a turn that hits a usage limit is deferred, blocks further sends and retries later", async () => {

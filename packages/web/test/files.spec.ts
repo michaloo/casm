@@ -50,7 +50,7 @@ for (const width of [1440, 375]) {
     // The link is signed and short-lived; the response is an attachment.
     const download = dialog.getByRole("link", { name: "Download", exact: true });
     const href = (await download.getAttribute("href"))!;
-    expect(href).toMatch(/\/dl\/[\w-]+\.[\w-]+$/);
+    expect(href).toMatch(/^\/dl\/[\w-]+\.[\w-]+\/cykelhuset-web-merge\.json$/);
     expect(href).not.toContain(readFileSync(`${testHome}/web-token`, "utf8"));
     const res = await page.request.get(href);
     expect(res.status()).toBe(200);

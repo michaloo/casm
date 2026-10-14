@@ -30,10 +30,20 @@ export function formatSize(bytes: number) {
 }
 const formatTime = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
+// Follows a download link the way a click on <a href download> does.
+function save(href: string, name: string) {
+  const a = Object.assign(document.createElement("a"), { href, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
 type Link = { href: string; expires: number };
 async function signedLink(rpc: Rpc, host: string, path: string, inline = false): Promise<Link> {
   const r = await rpc.call("fs.downloadLink", { path, inline }, host);
-  return { href: new URL(r.url, serverURL()).href, expires: Date.parse(r.expiresAt) };
+  // Same origin when possible (browsers only honour a[download] there): the
+  // Vite dev server proxies /dl to VITE_CASM_URL; only ?server= goes cross-origin.
+  const href = new URLSearchParams(location.search).has("server") ? new URL(r.url, serverURL()).href : r.url;
+  return { href, expires: Date.parse(r.expiresAt) };
 }
 
 export function FilePreview({ rpc, host, path: initial, roots, close }: {
@@ -72,7 +82,7 @@ export function FilePreview({ rpc, host, path: initial, roots, close }: {
   const fresh = (e: MouseEvent<HTMLAnchorElement>) => {
     if (download && download.expires - Date.now() > 30_000) return;
     e.preventDefault();
-    void signedLink(rpc, host, path).then((link) => { setDownload(link); location.assign(link.href); }).catch((err) => setError(message(err)));
+    void signedLink(rpc, host, path).then((link) => { setDownload(link); save(link.href, name); }).catch((err) => setError(message(err)));
   };
   const name = baseName(path);
   return createPortal(<dialog ref={dialog} className="host-settings file-preview" aria-label={`File ${name}`}

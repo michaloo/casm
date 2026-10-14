@@ -197,7 +197,8 @@ export class Files {
   // A peer's link (from its fs.downloadLink) re-signed here, so the client only
   // ever talks to the server it is connected to.
   proxyLink(peer: StoredPeer, path: string, inline: boolean | undefined, theirs: Result<"fs.downloadLink">): Result<"fs.downloadLink"> {
-    const token = theirs.url.replace(/^.*\/dl\//, "");
+    // Their whole path after /dl/, including the name segment.
+    const token = theirs.url.replace(/^.*?\/dl\//, "");
     const e = Math.min(Date.parse(theirs.expiresAt) || 0, this.now() + this.ttlMs);
     return this.sign({ p: path, n: theirs.name, e, h: peer.name, t: token, ...(inline ? { i: true } : {}) }, theirs.size);
   }
@@ -205,10 +206,14 @@ export class Files {
   private sign(payload: LinkPayload, size: number): Result<"fs.downloadLink"> {
     const body = b64(JSON.stringify(payload));
     const mac = b64(createHmac("sha256", this.secret).update(body).digest());
-    return { url: `/dl/${body}.${mac}`, name: payload.n, size, expiresAt: new Date(payload.e).toISOString() };
+    // The name rides in the path too, for clients that name a download after
+    // the URL's last segment; respond() checks it against the signed name.
+    return { url: `/dl/${body}.${mac}/${encodeURIComponent(payload.n)}`, name: payload.n, size, expiresAt: new Date(payload.e).toISOString() };
   }
 
-  private verify(token: string): LinkPayload | string {
+  private verify(path: string): LinkPayload | string {
+    const slash = path.indexOf("/");
+    const token = slash < 0 ? path : path.slice(0, slash);
     const [body, mac, extra] = token.split(".");
     if (!body || !mac || extra !== undefined) return "invalid download link";
     const want = createHmac("sha256", this.secret).update(body).digest();
@@ -221,6 +226,15 @@ export class Files {
       return "invalid download link";
     }
     if (typeof payload.e !== "number" || payload.e < this.now()) return "this download link has expired; open the file again for a new one";
+    if (slash >= 0) {
+      let name: string;
+      try {
+        name = decodeURIComponent(path.slice(slash + 1));
+      } catch {
+        return "invalid download link";
+      }
+      if (name !== payload.n) return "invalid download link";
+    }
     return payload;
   }
 
@@ -272,7 +286,7 @@ export class Files {
     if (!peer) return text(res, 404, `unknown host "${payload.h}"`);
     const url = new URL(peer.url);
     url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-    url.pathname = `/dl/${payload.t}`;
+    url.pathname = `/dl/${payload.t}`; // already encoded
     url.search = "";
     const abort = new AbortController();
     res.on("close", () => abort.abort());

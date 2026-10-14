@@ -161,7 +161,7 @@ export class Scheduler {
     if (t.type === "agent") {
       const a = this.store.getAgent(t.agentId);
       if (!a) return { at, outcome: "failed", error: "agent no longer exists" };
-      if (t.whenBusy === "skip" && (this.agents.status(a.id) !== "idle" || this.store.listPending(a.id).some((m) => m.reason !== "failed")))
+      if (t.whenBusy === "skip" && (this.agents.status(a.id) !== "idle" || this.store.listPending(a.id).length > 0))
         return { at, outcome: "skipped", agentId: a.id };
       const r = this.agents.send(a.id, { text: x.prompt });
       return { at, outcome: r.queued ? "queued" : "sent", agentId: a.id };

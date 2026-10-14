@@ -36,7 +36,8 @@ function setup() {
     async commands() { return []; }, async catalog() { return { models: [], modes: [] }; },
   };
   const finish = () => sessions.at(-1)!.emit({ type: "turnEnded", outcome: "completed" });
-  return { dir, store, token, sent, state, provider, finish };
+  const fail = (error: string) => sessions.at(-1)!.emit({ type: "turnEnded", outcome: "failed", error });
+  return { dir, store, token, sent, state, provider, finish, fail };
 }
 
 async function run(fn: (t: ReturnType<typeof setup> & { client: CasmClient; agent: string }) => Promise<void>) {
@@ -161,5 +162,55 @@ test("a pending message can be edited in place until it is sent", async () => {
     await assert.rejects(client.call("agent.editPending", { id: agent, messageId: a.pendingId!, text: " " }), /nothing to send/);
     finish();
     await assert.rejects(client.call("agent.editPending", { id: agent, messageId: a.pendingId!, text: "too late" }), /no such pending/);
+  });
+});
+
+test("interrupt stops the turn and the queue goes on in order", async () => {
+  await run(async ({ client, agent, sent, finish }) => {
+    await client.call("agent.send", { id: agent, text: "long task" });
+    await client.call("agent.send", { id: agent, text: "next 1" });
+    await client.call("agent.send", { id: agent, text: "next 2" });
+    await client.call("agent.interrupt", { id: agent });
+    assert.deepEqual(sent.map((s) => s.text), ["long task", "next 1"]);
+    assert.deepEqual((await client.call("agent.pending", { id: agent })).messages.map((m) => m.text), ["next 2"]);
+    finish();
+    assert.deepEqual(sent.map((s) => s.text), ["long task", "next 1", "next 2"]);
+  });
+});
+
+test("a prompt kept after a failed turn holds the queue until Retry now or Cancel", async () => {
+  await run(async ({ client, agent, sent, finish, fail }) => {
+    await client.call("agent.send", { id: agent, text: "unlucky" });
+    await client.call("agent.send", { id: agent, text: "behind 1" });
+    fail("No conversation found");
+    // Kept ahead of the queue, and nothing behind it overtakes it.
+    const pending = async () => (await client.call("agent.pending", { id: agent })).messages.map((m) => [m.reason, m.text]);
+    assert.deepEqual(await pending(), [["failed", "unlucky"], ["queued", "behind 1"]]);
+    assert.equal((await client.call("agent.send", { id: agent, text: "behind 2" })).queued, true);
+    assert.deepEqual(sent.map((s) => s.text), ["unlucky"]);
+    // Retry now sends it again; the rest follows it.
+    const [held] = (await client.call("agent.pending", { id: agent })).messages;
+    assert.deepEqual(await client.call("agent.retryPending", { id: agent, messageId: held.id }), { queued: false });
+    finish();
+    assert.deepEqual(sent.map((s) => s.text), ["unlucky", "unlucky", "behind 1"]);
+    // Failing again holds it again; cancelling it lets the queue go on.
+    fail("still broken");
+    const [again] = (await client.call("agent.pending", { id: agent })).messages;
+    assert.deepEqual([again.reason, again.text], ["failed", "behind 1"]);
+    await client.call("agent.cancelPending", { id: agent, messageId: again.id });
+    assert.deepEqual(sent.map((s) => s.text), ["unlucky", "unlucky", "behind 1", "behind 2"]);
+  });
+});
+
+test("Retry now on a later message keeps its place when it fails again", async () => {
+  await run(async ({ client, agent, state, fail }) => {
+    await client.call("agent.send", { id: agent, text: "a" });
+    await client.call("agent.send", { id: agent, text: "b", whenBusy: "steer" });
+    fail("process exited");
+    const [a, b] = (await client.call("agent.pending", { id: agent })).messages;
+    assert.deepEqual([a.text, b.text], ["a", "b"]);
+    state.throwOn.add("b");
+    await assert.rejects(client.call("agent.retryPending", { id: agent, messageId: b.id }), /cannot take/);
+    assert.deepEqual((await client.call("agent.pending", { id: agent })).messages.map((m) => [m.reason, m.text]), [["failed", "a"], ["failed", "b"]]);
   });
 });

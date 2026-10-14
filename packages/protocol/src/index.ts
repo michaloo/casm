@@ -127,12 +127,15 @@ export const Usage = z.object({
 export type Usage = z.infer<typeof Usage>;
 
 // A message waiting for its agent to become available: behind a running turn
-// ("queued") or until a usage limit resets ("limit"). Sent in order; a waiting
-// "limit" entry holds back the rest. Time-based sends are schedules.
+// ("queued") or until a usage limit resets ("limit"). Each agent's queue goes
+// strictly in order, one message per turn; only Send now (agent.steerPending)
+// and Retry now (agent.retryPending) take one out of turn. A "limit" entry at
+// the front holds the queue until `notBefore`. Time-based sends are schedules.
 // "failed": the prompt of a turn that failed before the agent produced
-// anything (say its session could not be resumed), so it may never have reached
-// the agent's own history. `note` has the error. It is kept, not resent, until
-// agent.retryPending or agent.cancelPending.
+// anything (say its session could not be resumed, the provider logged out or
+// unreachable), so it may never have reached the agent's own history. `note`
+// has the error. It is kept at the front and holds the queue, not resent,
+// until agent.retryPending or agent.cancelPending.
 // Snapshot of the agent that authored a prompt. Absent for human/legacy sends.
 export const MessageSender = z.object({ serverId: z.string(), agentId: z.string(), name: z.string().optional() });
 export type MessageSender = z.infer<typeof MessageSender>;
@@ -618,7 +621,9 @@ export const methods = {
   "agent.shell": method(z.object({ id: z.string(), command: z.string().min(1) }), Ok),
   // Messages waiting to be sent to this agent, in order.
   "agent.pending": method(ById, z.object({ messages: z.array(PendingMessage) })),
-  // Sends a "failed" pending message again (as agent.send would) and removes it.
+  // Retry now: a message held back by a failure or a limit gets one attempt
+  // right away when the agent is idle (another failure keeps it in its place);
+  // while the agent is busy it stops holding the queue and goes after the turn.
   "agent.retryPending": method(
     z.object({ id: z.string(), messageId: z.string() }),
     z.object({ queued: z.boolean(), deferredUntil: z.string().optional(), pendingId: z.string().optional() }),
@@ -636,8 +641,10 @@ export const methods = {
   // place in the queue stay). NotFound when it is gone (sent or cancelled meanwhile).
   "agent.editPending": method(z.object({ id: z.string(), messageId: z.string(), text: z.string() }), Ok),
   // Cancels one pending message, or all of them when `messageId` is omitted.
+  // Cancelling the one that held the queue lets the rest go on.
   "agent.cancelPending": method(z.object({ id: z.string(), messageId: z.string().optional() }), z.object({ cancelled: z.number() })),
-  // Interrupts the running turn and drops its pending messages.
+  // Interrupts the running turn. Pending messages stay; the next one goes
+  // after it as usual.
   "agent.interrupt": method(ById, Ok),
   // Reload: new process, same native session. Restart: next turn starts a new session.
   "agent.reload": method(ById, Ok),

@@ -91,7 +91,8 @@ schedules (run on the host; messages to busy or limited agents become pending):
                (--agent a [--skip-if-busy] | --project p --provider claude [--model m] [--mode m] [--name n])
   schedule run | enable | disable | rm <schedule>
   cancel <agent> [message-id|--all]  cancel pending messages
-  retry <agent> <message-id>         send a failed message again (see casm pending)
+  retry <agent> <message-id>         retry now a message held back by a failure or a limit
+                                     (see casm pending); while busy, it goes after the turn
   send-now <agent> <message-id> [--wait]   send a pending message now, images included:
                                      into the running turn, or as a new turn if idle
   wait <agent> [--timeout seconds]   exit 3: still busy, 4: deferred by a limit, 5: the turn failed

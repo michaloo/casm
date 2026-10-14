@@ -16,6 +16,7 @@ import type { OpenOptions, Provider, ProviderSession } from "../src/providers/ty
 class FakeSession implements ProviderSession {
   opts: OpenOptions;
   closed = false;
+  interrupted = false;
   private abort = new AbortController();
   constructor(opts: OpenOptions) {
     this.opts = opts;
@@ -39,6 +40,9 @@ class FakeSession implements ProviderSession {
       if (text.includes("partial")) this.opts.emit({ type: "delta", kind: "assistant", text: "Let me" });
       if (text.includes("slow")) {
         await new Promise((r) => this.abort.signal.addEventListener("abort", r, { once: true }));
+        // One turn ends once, however many slow prompts were steered into it.
+        if (this.interrupted) return;
+        this.interrupted = true;
         return this.opts.emit({ type: "turnEnded", outcome: "interrupted" });
       }
       if (text.includes("hit-limit") && !fake.limitHit) {
@@ -651,7 +655,10 @@ test("a turn that hits a usage limit is deferred, blocks further sends and retri
   await client.call("agent.send", { id: a.id, text: "slow steer", whenBusy: "steer" });
   await client.call("agent.wait", { id: a.id });
   const kept = (await client.call("agent.pending", { id: a.id })).messages.map((m) => [m.reason, m.text]);
-  assert.deepEqual(kept, [["limit", "please hit-limit"], ["failed", "slow steer"]]);
+  // Both wait for the reset, in the order they were sent.
+  assert.deepEqual(kept, [["limit", "please hit-limit"], ["limit", "slow steer"]]);
+  const steer = (await client.call("agent.pending", { id: a.id })).messages[1];
+  await client.call("agent.cancelPending", { id: a.id, messageId: steer.id });
 
   const turn = ended.at(-1);
   assert.ok(turn?.type === "turnEnded" && turn.limit?.resetsAt, "turnEnded carries the limit");
@@ -677,12 +684,12 @@ test("a turn that hits a usage limit is deferred, blocks further sends and retri
   assert.equal((await client.call("agent.wait", { id: a.id })).lastReply, "echo: later");
   assert.equal((await client.call("agent.get", { id: a.id })).deferred, null);
 
-  // Interrupt drops a deferred prompt.
-  await client.call("agent.interrupt", { id: b.id });
+  // The other agent's prompt went out after the reset too.
+  assert.equal((await client.call("agent.wait", { id: b.id })).lastReply, "echo: hello");
   assert.equal((await client.call("agent.get", { id: b.id })).deferred, null);
 });
 
-test("pending messages retain their images when steered; interrupt clears the rest", async () => {
+test("pending messages retain their images when steered; interrupt keeps the rest", async () => {
   const p = await client.call("project.create", { name: "P-steer-pending", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   const image = { mediaType: "image/png", data: Buffer.from("png bytes").toString("base64") };
@@ -706,11 +713,13 @@ test("pending messages retain their images when steered; interrupt clears the re
   assert.equal(user?.type === "item" && user.item.id, q1.pendingId);
   await assert.rejects(client.call("agent.steerPending", { id: a.id, messageId: q1.pendingId! }), (e: CasmError) => e.code === 1001);
 
-  // Interrupt still explicitly clears queued messages.
+  // Interrupt stops the turn; the queue goes on after it.
   assert.equal((await client.call("agent.get", { id: a.id })).pending?.count, 1);
   assert.equal((await client.call("agent.pending", { id: a.id })).messages[0].id, q2.pendingId);
   await client.call("agent.interrupt", { id: a.id });
   await client.call("agent.wait", { id: a.id });
+  assert.equal((await client.call("agent.wait", { id: a.id })).lastReply, "echo: and this");
+  assert.deepEqual(fake.sent.at(-1), { text: "and this", images: [image, image] });
   assert.deepEqual((await client.call("agent.pending", { id: a.id })).messages, []);
   assert.deepEqual((await client.call("agent.get", { id: a.id })).pending, { count: 0 });
 
@@ -772,9 +781,10 @@ test("pending messages are listed and cancellable", async () => {
   assert.ok((await client.call("pending.list", {})).messages.some((m) => m.id === q1.pendingId));
   assert.deepEqual(await client.call("agent.cancelPending", { id: b.id, messageId: q1.pendingId! }), { cancelled: 1 });
   await assert.rejects(client.call("agent.cancelPending", { id: b.id, messageId: q1.pendingId! }), (e: CasmError) => e.code === 1001);
-  // Interrupt drops the rest.
+  // Interrupt keeps the rest, which goes next.
   await client.call("agent.interrupt", { id: b.id });
   await client.call("agent.wait", { id: b.id });
+  assert.equal((await client.call("agent.wait", { id: b.id })).lastReply, "echo: and then this");
   assert.deepEqual((await client.call("agent.pending", { id: b.id })).messages, []);
   assert.ok(q2.pendingId);
 });
@@ -801,10 +811,14 @@ test("schedules message an agent or create one, and busy agents get pending mess
   assert.equal((await client.call("schedule.runNow", { id: skip.id })).outcome, "skipped");
   await client.call("agent.interrupt", { id: a.id });
   await client.call("agent.wait", { id: a.id });
-  // A kept failed message doesn't make an idle agent busy.
+  await client.call("agent.wait", { id: a.id });
+  // A kept failed message holds the queue, so a skip-if-busy run skips too.
   await client.call("agent.send", { id: a.id, text: "no-session" });
   await client.call("agent.wait", { id: a.id });
-  assert.equal((await client.call("agent.pending", { id: a.id })).messages[0].reason, "failed");
+  const [held] = (await client.call("agent.pending", { id: a.id })).messages;
+  assert.equal(held.reason, "failed");
+  assert.equal((await client.call("schedule.runNow", { id: skip.id })).outcome, "skipped");
+  await client.call("agent.cancelPending", { id: a.id, messageId: held.id });
   assert.equal((await client.call("schedule.runNow", { id: skip.id })).outcome, "sent");
   await client.call("agent.wait", { id: a.id });
 
@@ -936,23 +950,25 @@ test("a prompt whose turn failed before any answer is kept as a failed pending m
   await client.call("agent.send", { id: u.id, text: "init-usage, then no-session" });
   await client.call("agent.wait", { id: u.id });
   assert.deepEqual((await client.call("agent.pending", { id: u.id })).messages.map((x) => [x.reason, x.text]), [["failed", "init-usage, then no-session"]]);
-  // Never resent on its own, and it doesn't hold back later messages.
+  // Never resent on its own, and later messages wait behind it until it is
+  // retried or cancelled.
   server.agents.runDuePending(Date.now() + 86_400_000);
   assert.equal((await client.call("agent.get", { id: a.id })).status, "idle");
-  await client.call("agent.send", { id: a.id, text: "hello" });
+  assert.equal((await client.call("agent.send", { id: a.id, text: "hello" })).queued, true);
+  assert.deepEqual((await client.call("agent.pending", { id: a.id })).messages.map((x) => [x.reason, x.text]), [["failed", "no-session please"], ["queued", "hello"]]);
+  await client.call("agent.cancelPending", { id: a.id, messageId: m.id });
   assert.equal((await client.call("agent.wait", { id: a.id })).lastReply, "echo: hello");
-  assert.equal((await client.call("agent.pending", { id: a.id })).messages.length, 1);
+  assert.equal((await client.call("agent.pending", { id: a.id })).messages.length, 0);
   // A turn that failed after the agent answered has the prompt in its history already.
   await client.call("agent.send", { id: a.id, text: "fails-late" });
   assert.deepEqual((await client.call("agent.wait", { id: a.id })).lastTurn, { outcome: "failed", error: "API error" });
-  assert.equal((await client.call("agent.pending", { id: a.id })).messages.length, 1);
+  assert.equal((await client.call("agent.pending", { id: a.id })).messages.length, 0);
   // Retry sends it again (and fails again here, keeping it once more).
   const queued = await client.call("agent.send", { id: a.id, text: "slow" });
   await assert.rejects(client.call("agent.retryPending", { id: a.id, messageId: queued.pendingId ?? "x" }), (e: CasmError) => e.code === 1001);
   await new Promise((r) => setTimeout(r, 30));
   await client.call("agent.interrupt", { id: a.id });
   await client.call("agent.wait", { id: a.id });
-  // interrupt dropped the pending messages, including the failed one; make a new one.
   await client.call("agent.send", { id: a.id, text: "no-session again" });
   await client.call("agent.wait", { id: a.id });
   const failed = (await client.call("agent.pending", { id: a.id })).messages[0];
@@ -961,14 +977,17 @@ test("a prompt whose turn failed before any answer is kept as a failed pending m
   const again = (await client.call("agent.pending", { id: a.id })).messages;
   assert.deepEqual(again.map((x) => [x.reason, x.text]), [["failed", "no-session again"]]);
   assert.notEqual(again[0].id, failed.id);
-  // Only failed messages can be retried (a fresh agent: the fake can be interrupted once per session).
+  // Retry now while the agent is busy: it goes after the running turn, in its
+  // place (a fresh agent: the fake can be interrupted once per session).
+  await client.call("agent.cancelPending", { id: a.id });
   const b = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   await client.call("agent.send", { id: b.id, text: "slow" });
   await new Promise((r) => setTimeout(r, 30));
   const q = await client.call("agent.send", { id: b.id, text: "queued one" });
-  await assert.rejects(client.call("agent.retryPending", { id: b.id, messageId: q.pendingId! }), (e: CasmError) => e.code === -32602);
+  assert.deepEqual(await client.call("agent.retryPending", { id: b.id, messageId: q.pendingId! }), { queued: true, pendingId: q.pendingId });
   await client.call("agent.interrupt", { id: b.id });
   await client.call("agent.wait", { id: b.id });
+  assert.equal((await client.call("agent.wait", { id: b.id })).lastReply, "echo: queued one");
 });
 
 test("a retry whose send throws keeps the message once", async () => {

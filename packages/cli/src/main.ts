@@ -94,7 +94,7 @@ schedules (run on the host; messages to busy or limited agents become pending):
   usage <agent>                      context-window usage and cost of one agent
   approve <agent> <request> [--always]
   deny <agent> <request> [--message text]
-  shell <agent> <command>            run a command in the agent's directory (like "!cmd")
+  shell <agent> <command>            run a command in the agent's directory (like "!cmd"); exit 1 if it fails
   interrupt | reload | restart | archive | rm <agent>
 
 <project> and <agent> accept an id, an id prefix or an exact name.
@@ -350,14 +350,18 @@ async function run(c: CasmClient) {
       const a = await agentRef(c, args[0]);
       const command = args.slice(1).join(" ");
       if (!command) fail("shell needs a command");
+      let failed = false;
       c.on("agent.event", ({ agentId, event }) => {
         if (agentId !== a.id) return;
         if (event.type === "toolOutput") process.stdout.write(event.text);
+        if (event.type === "item" && event.item.kind === "tool" && event.item.origin === "user") failed = event.item.status === "error";
       });
       await c.call("agent.subscribe", { id: a.id });
       await c.call("agent.shell", { id: a.id, command });
       const r = await c.call("agent.wait", { id: a.id });
+      // Exit 1 when the command failed, 3 when the agent is still busy.
       if (r.status !== "idle") process.exitCode = 3;
+      else if (failed || r.lastTurn?.outcome === "failed") process.exitCode = 1;
       return;
     }
 

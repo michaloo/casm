@@ -44,7 +44,12 @@ const provider: Provider = {
           opts.emit({ type: "turnEnded", outcome: "completed" });
         })();
       },
-      shell() {
+      shell(command, itemId) {
+        // "fail…" commands exit non-zero.
+        const item = { kind: "tool" as const, id: itemId, name: "shell", origin: "user" as const, input: { command } };
+        opts.emit({ type: "item", item: { ...item, status: "running" } });
+        opts.emit({ type: "toolOutput", itemId, text: `ran ${command}\n` });
+        opts.emit({ type: "item", item: { ...item, status: command.startsWith("fail") ? "error" : "done" } });
         opts.emit({ type: "turnEnded", outcome: "completed" });
       },
       async interrupt() {
@@ -381,6 +386,13 @@ test("the CLI on a server machine reaches peers through its server; hosts.json i
   // `casm peers` lists the names -H takes.
   assert.deepEqual(JSON.parse((await casm(["--json", "peers"])).stdout).map((p: { name: string }) => p.name), ["asleep", "beta"]);
   await assert.rejects(casm(["host", "add", "beta", beta.url, beta.token]), /runs a casm server.*casm peer add beta/s);
+
+  // Streaming commands work through the peer; shell exits 1 when the command fails.
+  const agent = JSON.parse((await casm(["-H", "beta", "--json", "run", "--project", "BetaProj", "--parent", "none", "--wait", "hi"])).stdout);
+  assert.equal(agent.lastReply, "echo: hi");
+  const id = (await beta.client.call("agent.list", {})).agents.findLast((x) => x.parent === null)!.id;
+  assert.equal((await casm(["-H", "beta", "shell", id, "echo", "ok"])).stdout, "ran echo ok\n");
+  await assert.rejects(casm(["-H", "beta", "shell", id, "fail", "now"]), (e: { code: number; stdout: string }) => e.code === 1 && e.stdout === "ran fail now\n");
 
   // Without a server here, -H picks from hosts.json.
   rmSync(join(home, "local.json"));

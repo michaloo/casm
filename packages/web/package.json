@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json && vite build",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json && vite build",
     "test": "playwright test"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
     "@playwright/test": "^1.58.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "rolldown": "^1.2.13",
     "vite": "^8.0.0"
   }
 }

@@ -1,3 +1,4 @@
+import { providerEnv } from "./env.ts";
 import { toolImages } from "./tool-images.ts";
 // OpenCode via one shared `opencode serve` per provider: HTTP API for sessions,
 // prompts and permission replies, one /global/event SSE stream routed by session.
@@ -425,6 +426,7 @@ export class OpencodeServer {
     const port = await freePort();
     const bin = process.env.CASM_OPENCODE_PATH ?? "opencode";
     const proc = spawn(bin, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+      env: providerEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     this.proc = proc;

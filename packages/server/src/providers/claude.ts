@@ -1,3 +1,4 @@
+import { providerEnv } from "./env.ts";
 import { toolImages } from "./tool-images.ts";
 // Claude Code via the Claude Agent SDK: one long-lived query() per open
 // session, fed by an async input queue. History comes from Claude's own JSONL.
@@ -829,7 +830,7 @@ class ClaudeSession implements ProviderSession {
       thinking: { type: "adaptive", display: "summarized" },
       systemPrompt: { type: "preset", preset: "claude_code", append: config.systemPrompt },
       mcpServers: config.mcpServers as Options["mcpServers"],
-      env: { ...(process.env as Record<string, string>), ...config.env },
+      env: providerEnv(config.env),
       includePartialMessages: true,
       pathToClaudeCodeExecutable: executable,
       canUseTool: this.canUseTool,
@@ -1081,7 +1082,7 @@ class ClaudeSession implements ProviderSession {
     const { cwd, config, emit } = this.opts;
     const item: ToolItem = { kind: "tool", id: itemId, name: "shell", origin: "user", input: { command }, status: "running" };
     this.item(item);
-    const env = { ...(process.env as Record<string, string>), ...config.env };
+    const env = providerEnv(config.env);
     const proc = spawn(shellPath(env.SHELL), ["-c", command], { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     const run = { proc, interrupted: false };
     this.shellRun = run;
@@ -1185,7 +1186,7 @@ async function withIdleQuery<T>(executable: string | undefined, cwd: string, wha
   const idle: AsyncIterable<SDKUserMessage> = {
     [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<SDKUserMessage>>(() => {}) }),
   };
-  const q = query({ prompt: idle, options: { cwd, model, pathToClaudeCodeExecutable: executable, env: process.env as Record<string, string> } });
+  const q = query({ prompt: idle, options: { cwd, model, pathToClaudeCodeExecutable: executable, env: providerEnv() } });
   let timer: NodeJS.Timeout | undefined;
   try {
     const timeout = new Promise<never>((_, reject) => {

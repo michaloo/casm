@@ -1,7 +1,14 @@
-# casm NG (working name)
+# casm
 
-A small, self-hosted server for coding agents (Claude Code, Codex, pi and OpenCode), with
-native macOS/iOS clients to come. Design: [docs/design.md](docs/design.md).
+A small, self-hosted orchestrator for coding agents (Claude Code, Codex, pi and OpenCode):
+a server per machine, peers across machines, a scriptable CLI, and a web client (served at
+`/`, installable as a PWA). Design: [docs/design.md](docs/design.md).
+
+Scope: casm runs and coordinates agents (projects, agents, subagents, messages, steering,
+queues, schedules, limits). It does not sandbox or containerize agents, import sessions, or
+sync them between machines. Full-text search over agent sessions is a separate tool,
+[cass](https://github.com/michaloo/cass). This replaces the earlier casm CLI/TUI, which is
+kept on the `legacy` branch.
 
 ```
 packages/protocol   zod schemas for the wire protocol (source of truth)

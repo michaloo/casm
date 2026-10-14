@@ -60,6 +60,7 @@ type Live = {
   prompt: Prompt | null;
   // When the running turn started, to tell fresh limit reports from old ones.
   turnStartedAt: number;
+  lastTurn: { outcome: "completed" | "interrupted" | "failed"; error?: string } | null;
   statusWaiters: Set<() => void>;
 };
 
@@ -185,6 +186,21 @@ export class AgentManager {
     return n;
   }
 
+  retryPending(id: string, messageId: string) {
+    const m = this.store.listPending(id).find((x) => x.id === messageId);
+    if (!m) throw new RpcError(1001, "no such pending message");
+    if (m.reason !== "failed") throw new RpcError(-32602, `only failed messages can be retried; this one is ${m.reason}`);
+    this.store.removePending(m.id);
+    try {
+      return this.send(id, { text: m.text, images: m.images });
+    } catch (e) {
+      this.store.addPending({ ...m, front: true });
+      throw e;
+    } finally {
+      this.changed(id);
+    }
+  }
+
   blocked() {
     return [...this.live.entries()].flatMap(([agentId, l]) => {
       const kinds = [...l.pending.values()];
@@ -209,7 +225,7 @@ export class AgentManager {
   private liveFor(id: string): Live {
     let l = this.live.get(id);
     if (!l) {
-      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, statusWaiters: new Set() };
+      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, statusWaiters: new Set() };
       this.live.set(id, l);
     }
     return l;
@@ -393,6 +409,9 @@ export class AgentManager {
   ) {
     if (!l.turnId) return;
     const turnId = l.turnId;
+    // Nothing came back from the agent: its own history may not have the prompt.
+    const unanswered = !l.turn.some((e) => (e.type === "item" && e.item.kind !== "user" && e.item.kind !== "notice") || e.type === "delta" || e.type === "usage" || e.type === "toolOutput");
+    l.lastTurn = { outcome, ...(error ? { error } : {}) };
     for (const p of l.pending.values()) p.reject(new Error("turn ended"));
     l.pending.clear();
     this.emit(id, { type: "turnEnded", turnId, outcome, error, limit: limit ?? undefined });
@@ -412,6 +431,10 @@ export class AgentManager {
         attempts,
         front: true,
       });
+      this.changed(id);
+    } else if (outcome === "failed" && unanswered && l.prompt && a) {
+      // Kept where the user can see, retry or cancel it, instead of vanishing.
+      this.store.addPending({ agentId: id, ...l.prompt, reason: "failed", notBefore: null, note: error ?? "the turn failed" });
       this.changed(id);
     }
     l.prompt = null;
@@ -588,6 +611,7 @@ export class AgentManager {
     if (!a || l.turnId) return;
     if (a.archivedAt) return;
     for (const m of this.store.listPending(id)) {
+      if (m.reason === "failed") continue;
       const due = !m.notBefore || Date.parse(m.notBefore) <= now;
       if (!due && m.reason === "limit") return;
       if (!due) continue;
@@ -708,7 +732,7 @@ export class AgentManager {
       const { items } = await this.history(id, undefined, 50);
       lastReply = items.findLast((i) => i.kind === "assistant")?.text ?? null;
     }
-    return { status: this.status(id), timedOut, lastReply };
+    return { status: this.status(id), timedOut, lastReply, lastTurn: l.lastTurn };
   }
 
   async shutdown() {

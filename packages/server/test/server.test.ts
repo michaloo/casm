@@ -33,6 +33,12 @@ class FakeSession implements ProviderSession {
         this.opts.emit({ type: "item", item: { kind: "notice", id: `e-${text}`, text: "You've hit your usage limit. Try again in 2 hours.", level: "error" } });
         return this.opts.emit({ type: "turnEnded", outcome: "failed", error: "usage limit" });
       }
+      // A session that can't be resumed fails before the agent answers anything.
+      if (text.includes("no-session")) return this.opts.emit({ type: "turnEnded", outcome: "failed", error: "No conversation found with session ID: x" });
+      if (text.includes("fails-late")) {
+        this.opts.emit({ type: "item", item: { kind: "assistant", id: `a-${text}`, text: "working" } });
+        return this.opts.emit({ type: "turnEnded", outcome: "failed", error: "API error" });
+      }
       if (text.includes("unknown-usage")) this.opts.emit({ type: "limits", limits: { windows: [{ id: "seven_day", status: "ok" }] } });
       if (text.includes("limits")) {
         this.opts.emit({ type: "limits", limits: { windows: [{ id: "five_hour", usedPercent: 80, status: "warning" }] } });
@@ -169,7 +175,7 @@ test("send, wait, history and session id are wired through", async () => {
   const p = await client.call("project.create", { name: "P1", path: "/tmp" });
   const a = await client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "hello" });
   const w = await client.call("agent.wait", { id: a.id });
-  assert.deepEqual(w, { status: "idle", timedOut: false, lastReply: "echo: hello" });
+  assert.deepEqual(w, { status: "idle", timedOut: false, lastReply: "echo: hello", lastTurn: { outcome: "completed" } });
   const stored = await client.call("agent.get", { id: a.id });
   assert.match(stored.nativeSessionId!, /^native-/);
 
@@ -601,4 +607,66 @@ test("an agent whose folder disappeared fails loudly instead of dropping the mes
   const agent = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   rmSync(dir, { recursive: true });
   await assert.rejects(client.call("agent.send", { id: agent.id, text: "hi" }), /folder does not exist/);
+});
+
+test("a prompt whose turn failed before any answer is kept as a failed pending message", async () => {
+  const p = await client.call("project.create", { name: "P-failed", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  await client.call("agent.send", { id: a.id, text: "no-session please" });
+  const w = await client.call("agent.wait", { id: a.id });
+  assert.deepEqual(w.lastTurn, { outcome: "failed", error: "No conversation found with session ID: x" });
+  const [m] = (await client.call("agent.pending", { id: a.id })).messages;
+  assert.deepEqual([m.reason, m.text, m.note], ["failed", "no-session please", "No conversation found with session ID: x"]);
+  assert.deepEqual((await client.call("agent.get", { id: a.id })).pending, { count: 1 });
+  // Never resent on its own, and it doesn't hold back later messages.
+  server.agents.runDuePending(Date.now() + 86_400_000);
+  assert.equal((await client.call("agent.get", { id: a.id })).status, "idle");
+  await client.call("agent.send", { id: a.id, text: "hello" });
+  assert.equal((await client.call("agent.wait", { id: a.id })).lastReply, "echo: hello");
+  assert.equal((await client.call("agent.pending", { id: a.id })).messages.length, 1);
+  // A turn that failed after the agent answered has the prompt in its history already.
+  await client.call("agent.send", { id: a.id, text: "fails-late" });
+  assert.equal((await client.call("agent.wait", { id: a.id })).lastTurn?.outcome, "failed");
+  assert.equal((await client.call("agent.pending", { id: a.id })).messages.length, 1);
+  // Retry sends it again (and fails again here, keeping it once more).
+  const queued = await client.call("agent.send", { id: a.id, text: "slow" });
+  await assert.rejects(client.call("agent.retryPending", { id: a.id, messageId: queued.pendingId ?? "x" }), (e: CasmError) => e.code === 1001);
+  await new Promise((r) => setTimeout(r, 30));
+  await client.call("agent.interrupt", { id: a.id });
+  await client.call("agent.wait", { id: a.id });
+  // interrupt dropped the pending messages, including the failed one; make a new one.
+  await client.call("agent.send", { id: a.id, text: "no-session again" });
+  await client.call("agent.wait", { id: a.id });
+  const failed = (await client.call("agent.pending", { id: a.id })).messages[0];
+  assert.deepEqual(await client.call("agent.retryPending", { id: a.id, messageId: failed.id }), { queued: false });
+  await client.call("agent.wait", { id: a.id });
+  const again = (await client.call("agent.pending", { id: a.id })).messages;
+  assert.deepEqual(again.map((x) => [x.reason, x.text]), [["failed", "no-session again"]]);
+  assert.notEqual(again[0].id, failed.id);
+  // Only failed messages can be retried (a fresh agent: the fake can be interrupted once per session).
+  const b = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  await client.call("agent.send", { id: b.id, text: "slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  const q = await client.call("agent.send", { id: b.id, text: "queued one" });
+  await assert.rejects(client.call("agent.retryPending", { id: b.id, messageId: q.pendingId! }), (e: CasmError) => e.code === -32602);
+  await client.call("agent.interrupt", { id: b.id });
+  await client.call("agent.wait", { id: b.id });
+});
+
+test("messages queued when the server stopped are sent as soon as it starts", async () => {
+  const s2 = new Store(join(mkdtempSync(join(tmpdir(), "casm-test-")), "casm.db"));
+  const token = s2.createToken("t");
+  const project = s2.createProject({ name: "P", path: "/tmp" });
+  const agent = s2.createAgent({ projectId: project.id, name: "a", provider: "claude", cwd: "/tmp", config: {} });
+  s2.addPending({ agentId: agent.id, text: "left over", reason: "queued", notBefore: null, note: null });
+  const srv = await startServer({ store: s2, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  const c = await CasmClient.connect(`ws://127.0.0.1:${srv.port}`, token);
+  try {
+    assert.deepEqual((await c.call("agent.pending", { id: agent.id })).messages, []);
+    assert.equal((await c.call("agent.wait", { id: agent.id })).lastReply, "echo: left over");
+  } finally {
+    c.close();
+    await srv.close();
+    s2.close();
+  }
 });

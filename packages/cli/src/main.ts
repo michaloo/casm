@@ -81,7 +81,8 @@ schedules (run on the host; messages to busy or limited agents become pending):
                (--agent a [--skip-if-busy] | --project p --provider claude [--model m] [--mode m] [--name n])
   schedule run | enable | disable | rm <schedule>
   cancel <agent> [message-id|--all]  cancel pending messages
-  wait <agent> [--timeout seconds]
+  retry <agent> <message-id>         send a failed message again (see casm pending)
+  wait <agent> [--timeout seconds]   exit 3: still busy, 4: deferred by a limit, 5: the turn failed
   history <agent> [-n count]
   watch <agent>                      stream live events
   permissions <agent>                list pending permission requests
@@ -312,15 +313,20 @@ async function waitAndPrint(c: CasmClient, id: string) {
   const r = await c.call("agent.wait", { id, timeoutMs });
   // A turn that hit a usage limit ends idle with its prompt deferred.
   const { deferred } = await c.call("agent.get", { id });
+  const failed = r.status === "idle" && r.lastTurn?.outcome === "failed";
+  // A turn that failed before the agent answered keeps its prompt as a pending message.
+  const kept = failed ? (await c.call("agent.pending", { id })).messages.findLast((m) => m.reason === "failed") : undefined;
   out({ ...r, deferred }, () => {
     if (r.status === "waiting") console.error(`agent is waiting for you: casm permissions ${shortId(id)} / casm questions ${shortId(id)}`);
     if (r.timedOut) console.error("timed out; the agent is still running");
     if (deferred) console.error(`usage limit: ${deferred.reason}\nqueued; retries ${new Date(deferred.until).toLocaleString()}`);
+    else if (failed) console.error(`the turn failed: ${r.lastTurn!.error ?? "no reason given"}${kept ? `\nthe message is kept: casm retry ${shortId(id)} ${shortId(kept.id)} (or casm cancel)` : ""}`);
     else if (r.lastReply) console.log(r.lastReply);
   });
-  // Exit codes: 3 still running or waiting for you, 4 deferred by a usage limit.
+  // Exit codes: 3 still running or waiting for you, 4 deferred by a usage limit, 5 the turn failed.
   if (r.status !== "idle") process.exitCode = 3;
   else if (deferred) process.exitCode = 4;
+  else if (failed) process.exitCode = 5;
 }
 
 async function run(c: CasmClient) {
@@ -658,6 +664,16 @@ async function run(c: CasmClient) {
       } else if (!opt.all) fail("cancel needs a message id, or --all");
       const r = await c.call("agent.cancelPending", { id: a.id, messageId });
       return out(r, () => console.error(`cancelled ${r.cancelled}`));
+    }
+
+    case "retry": {
+      const a = await agentRef(c, args[0]);
+      if (!args[1]) fail("retry needs a message id (see casm pending)");
+      const { messages } = await c.call("agent.pending", { id: a.id });
+      const m = pick(messages.map((x) => ({ ...x, name: x.id })), args[1], "pending message");
+      const r = await c.call("agent.retryPending", { id: a.id, messageId: m.id });
+      if (opt.wait && !r.queued) return waitAndPrint(c, a.id);
+      return out(r, () => r.queued && console.error(r.deferredUntil ? `queued until ${new Date(r.deferredUntil).toLocaleString()}` : "queued behind the running turn"));
     }
 
     case "usage": {

@@ -158,6 +158,7 @@ export function createHandlers(
       getAgent(p.id);
       return { messages: agents.pendingMessages(p.id) };
     },
+    "agent.retryPending": (p) => agents.retryPending(p.id, p.messageId),
     "agent.cancelPending": (p) => ({ cancelled: agents.cancelPending(p.id, p.messageId) }),
     "pending.list": () => ({ messages: agents.pendingMessages(), blocked: agents.blocked() }),
     "agent.usage": async (p) => ({ usage: await agents.usage(p.id) }),

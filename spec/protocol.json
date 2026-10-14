@@ -1312,7 +1312,8 @@
                   "type": "string",
                   "enum": [
                     "queued",
-                    "limit"
+                    "limit",
+                    "failed"
                   ]
                 },
                 "notBefore": {
@@ -4476,7 +4477,8 @@
                   "type": "string",
                   "enum": [
                     "queued",
-                    "limit"
+                    "limit",
+                    "failed"
                   ]
                 },
                 "notBefore": {
@@ -4501,6 +4503,42 @@
         },
         "required": [
           "messages"
+        ]
+      }
+    },
+    "agent.retryPending": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "messageId"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "boolean"
+          },
+          "deferredUntil": {
+            "type": "string"
+          },
+          "pendingId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queued"
         ]
       }
     },
@@ -4745,6 +4783,32 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "lastTurn": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "outcome": {
+                    "type": "string",
+                    "enum": [
+                      "completed",
+                      "interrupted",
+                      "failed"
+                    ]
+                  },
+                  "error": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "outcome"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         },

@@ -7,10 +7,10 @@ import type { Agent, AgentConfig, AgentParent, ImageData, Project, ProviderId, S
 
 export type StoredAgent = Omit<Agent, "status" | "deferred" | "pending">;
 
-export type PendingReason = "queued" | "limit";
+export type PendingReason = "queued" | "limit" | "failed";
 
-// A message waiting for its agent: behind a running turn ("queued") or until a
-// usage limit resets ("limit").
+// A message waiting for its agent: behind a running turn ("queued"), until a
+// usage limit resets ("limit"), or kept after its turn failed early ("failed").
 export type Pending = {
   id: string;
   agentId: string;

@@ -4,11 +4,11 @@
 //   npm run build
 //   node scripts/docs-media/capture-web.ts [scene...]
 //
-// Needs Playwright's Chromium and ffmpeg on PATH. SHOWCASE_PORT (default 7497)
+// Needs Playwright's Chromium, ffmpeg, gifsicle, pngquant and optipng on PATH. SHOWCASE_PORT (default 7497)
 // and SHOWCASE_HOME (default /tmp/demo) pick the server's port and state; each
 // scene starts a fresh server. Stills are 2x; GIFs come from a CDP screencast.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
@@ -84,12 +84,10 @@ async function around(page: Page, targets: Locator[], pad = 24): Promise<Box> {
   return { x, y, width: right - x, height: bottom - y };
 }
 
+// pngquant (lossy palette, only when it keeps the quality floor) then optipng.
 function optimizePng(file: string) {
-  // Flat UI compresses well at 256 colours; keep the original if it isn't smaller.
-  const tmp = `${file}.tmp.png`;
-  const r = spawnSync("ffmpeg", ["-loglevel", "error", "-y", "-i", file, "-vf", "split[a][b];[a]palettegen=max_colors=256:stats_mode=full:reserve_transparent=0[p];[b][p]paletteuse=dither=none", tmp]);
-  if (r.status === 0 && statSync(tmp).size < statSync(file).size) renameSync(tmp, file);
-  else rmSync(tmp, { force: true });
+  spawnSync("pngquant", ["--quality=85-98", "--skip-if-larger", "--strip", "--force", "--output", file, file]);
+  spawnSync("optipng", ["-quiet", "-o2", "-strip", "all", file]);
 }
 
 async function shot(page: Page, name: string, clip?: Box) {
@@ -145,6 +143,7 @@ async function gif(page: Page, name: string, act: () => Promise<void>, { clip, w
     "-vf", `${crop}fps=${fps},scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`,
     "-loop", "0", file]);
   if (r.status !== 0) throw new Error(`ffmpeg: ${r.stderr}`);
+  spawnSync("gifsicle", ["-O3", "--batch", file]);
   rmSync(dir, { recursive: true, force: true });
   const seconds = end - frames[0].t;
   console.log(`${name}.gif  ${frames.length} frames  ${seconds.toFixed(1)} s  ${(statSync(file).size / 1024).toFixed(0)} KB`);

@@ -441,3 +441,23 @@ test("resumed tasks restore child routing without a session.created event", asyn
   server.event("message.part.updated", { part: childTool });
   assert.equal(events.filter((e) => e.type === "item").length, 1);
 });
+
+test("OpenCode dispatch binds CASM prompt IDs to explicit native IDs before sending", async () => {
+  const requests: { path: string; body: unknown }[] = [];
+  class PromptServer extends FakeOpencodeServer {
+    override async request<T>(method: string, path: string, directory?: string, body?: unknown): Promise<T> {
+      if (path.endsWith("/prompt_async")) { requests.push({ path, body }); return {} as T; }
+      return super.request<T>(method, path);
+    }
+  }
+  const server = new PromptServer();
+  const events: ProviderEvent[] = [];
+  const session = opencodeProvider(server).open({ cwd: "/tmp", config: {}, resumeId: null,
+    emit: (e) => events.push(e), askPermission: async () => ({ decision: "allow" }), askQuestion: async () => null });
+  try {
+    session.send("hello", "casm-id");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal((requests[0].body as { messageID: string }).messageID, "msg_casmid");
+    assert.deepEqual(events.find((e) => e.type === "userMessageId"), { type: "userMessageId", itemId: "casm-id", nativeId: "msg_casmid" });
+  } finally { await session.close(); }
+});

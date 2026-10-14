@@ -94,7 +94,6 @@ schedules (run on the host; messages to busy or limited agents become pending):
   retry <agent> <message-id>         send a failed message again (see casm pending)
   send-now <agent> <message-id> [--wait]   send a pending message now, images included:
                                      into the running turn, or as a new turn if idle
-  take <agent> <message-id>          remove a pending message and print its text (--json: with images)
   wait <agent> [--timeout seconds]   exit 3: still busy, 4: deferred by a limit, 5: the turn failed
   history <agent> [-n count] [--subagent id]   --subagent: that subagent's own transcript
   watch <agent>                      stream live events
@@ -251,6 +250,12 @@ function runParent(): { serverId: string; agentId: string; host?: string } | und
   }
   const { CASM_SERVER_ID: serverId, CASM_AGENT_ID: agentId, CASM_SERVER_NAME: host } = process.env;
   return serverId && agentId ? { serverId, agentId, host: host || undefined } : undefined;
+}
+
+// Agent sessions supply their origin explicitly; ordinary shells send no sender.
+function messageSender() {
+  const { CASM_SERVER_ID: serverId, CASM_AGENT_ID: agentId, CASM_AGENT_NAME: name } = process.env;
+  return serverId && agentId ? { serverId, agentId, ...(name ? { name } : {}) } : undefined;
 }
 
 function renderItem(i: Item): string {
@@ -523,6 +528,7 @@ async function run(c: CasmClient) {
         name: opt.name,
         config: { model: opt.model, mode: opt.mode, casmTools: opt["casm-tools"] },
         parent: runParent(),
+        sender: messageSender(),
         prompt,
       });
       if (opt.wait) return waitAndPrint(c, a.id);
@@ -538,6 +544,7 @@ async function run(c: CasmClient) {
       const r = await c.call("agent.send", {
         id: a.id,
         text,
+        sender: messageSender(),
         whenBusy: opt.steer ? "steer" : "queue",
         whenLimited: opt["fail-if-limited"] ? "fail" : "queue",
       });
@@ -772,19 +779,11 @@ async function run(c: CasmClient) {
       return out(r, () => r.queued && console.error(r.deferredUntil ? `queued until ${new Date(r.deferredUntil).toLocaleString()}` : "queued behind the running turn"));
     }
 
-    case "send-now":
-    case "take": {
+    case "send-now": {
       const a = await agentRef(c, args[0]);
       if (!args[1]) fail(`${cmd} needs a message id (see casm pending)`);
       const { messages } = await c.call("agent.pending", { id: a.id });
       const m = pick(messages.map((x) => ({ ...x, name: x.id })), args[1], "pending message");
-      if (cmd === "take") {
-        const r = await c.call("agent.takePending", { id: a.id, messageId: m.id });
-        return out(r, () => {
-          console.log(r.text);
-          if (r.images?.length) console.error(`[${r.images.length} image(s); --json returns them]`);
-        });
-      }
       const r = await c.call("agent.steerPending", { id: a.id, messageId: m.id });
       if (opt.wait && !r.queued) return waitAndPrint(c, a.id);
       return out(r, () => r.queued && console.error(r.deferredUntil ? `${a.provider} is over its usage limit; queued until ${new Date(r.deferredUntil).toLocaleString()}` : "queued"));

@@ -1,3 +1,4 @@
+import { toolImages, viewedImage } from "./tool-images.ts";
 // Codex via `codex app-server`: JSON-RPC over stdio, one process per open
 // session. The native session id is the thread id; history comes from
 // `thread/items/list`, which reads Codex's own rollout files.
@@ -168,19 +169,21 @@ export function normalize(item: CodexItem, live = false): Item | null {
     }
     case "mcpToolCall": {
       const output = item.error ? str(rec(item.error).message) : item.result ? contentText(rec(item.result).content) : "";
-      return tool(item, `mcp__${str(item.server)}__${str(item.tool)}`, item.arguments, status, output);
+      return { ...tool(item, `mcp__${str(item.server)}__${str(item.tool)}`, item.arguments, status, output), ...toolImages(rec(item.result).content) };
     }
     case "dynamicToolCall":
-      return tool(item, str(item.tool), item.arguments, status, contentText(item.contentItems));
+      return { ...tool(item, str(item.tool), item.arguments, status, contentText(item.contentItems)), ...toolImages(item.contentItems) };
     case "collabAgentToolCall":
     case "subAgentActivity":
       return subagentItems(item)[0] ?? null;
     case "functionCallOutput":
-      return tool(item, str(item.name) || "tool", undefined, "done", typeof item.output === "string" ? item.output : contentText(item.output));
+      return { ...tool(item, str(item.name) || "tool", undefined, "done", typeof item.output === "string" ? item.output : contentText(item.output)), ...toolImages(item.output) };
     case "webSearch":
       return tool(item, "web_search", { query: item.query, action: item.action }, status);
-    case "imageView":
-      return tool(item, "view_image", { path: item.path }, status);
+    case "imageView": {
+      const image = viewedImage(item.path);
+      return { ...tool(item, "view_image", { path: item.path }, status), ...(image ? { images: [image] } : {}) };
+    }
     case "contextCompaction":
       return { kind: "notice", id, text: "Context compacted", level: "info" };
     case "enteredReviewMode":

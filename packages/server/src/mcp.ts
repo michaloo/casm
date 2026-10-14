@@ -252,14 +252,15 @@ export function createMcp(ctx: McpContext) {
         config: Object.fromEntries(Object.entries({ model: a.model, mode: a.mode }).filter(([, v]) => v)),
         parent: { serverId: identity.id, agentId: caller, host: identity.name },
         prompt: a.prompt,
+        sender: ctx.agents.messageSender(caller),
       });
       return { host: t.host, id: created.id, name: created.name, status: created.status, cwd: created.cwd };
     },
 
-    async send(a) {
+    async send(a, caller) {
       const t = target(a.host);
       const agent = await findAgent(t, a.agent);
-      return t.call("agent.send", { id: agent.id, text: a.text });
+      return t.call("agent.send", { id: agent.id, text: a.text, sender: ctx.agents.messageSender(caller) });
     },
 
     async wait(a) {

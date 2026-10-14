@@ -1,3 +1,4 @@
+import { toolImages } from "./tool-images.ts";
 // OpenCode via one shared `opencode serve` per provider: HTTP API for sessions,
 // prompts and permission replies, one /global/event SSE stream routed by session.
 // Account limits are unavailable: GET /doc exposes no provider quota endpoint.
@@ -26,6 +27,7 @@ type ToolState = {
   status: "pending" | "running" | "completed" | "error";
   input?: unknown;
   output?: string;
+  attachments?: OcPart[];
   error?: string;
   // Running bash tools carry the output so far in metadata.output.
   metadata?: { output?: unknown; todos?: unknown; sessionId?: string };
@@ -178,7 +180,7 @@ export function normalizePart(p: OcPart, turn?: string): Item | null {
   if (p.type === "tool" && p.state) {
     const s = p.state;
     const base = { kind: "tool" as const, id: p.id, name: p.tool ?? "tool", input: s.input };
-    if (s.status === "completed") return { ...base, status: "done", output: truncate(s.output ?? "") };
+    if (s.status === "completed") return { ...base, status: "done", output: truncate(s.output ?? ""), ...toolImages(s.attachments) };
     if (s.status === "error") return { ...base, status: "error", output: truncate(s.error ?? "") };
     return { ...base, status: "running" };
   }
@@ -799,19 +801,22 @@ class OpencodeSession implements ProviderSession {
     void this.close();
   }
 
-  send(text: string, _itemId: string, images?: ImageData[]) {
+  send(text: string, itemId: string, images?: ImageData[]) {
     const { config, cwd } = this.opts;
     const seq = this.turnSeq;
     const files = imageParts(images);
     void this.sessionId
       .then(async (id) => {
         this.busy = true;
+        const messageID = `msg_${itemId.replaceAll("-", "")}`;
+        this.emit({ type: "userMessageId", itemId, nativeId: messageID });
         const slash = parseSlash(text);
         if (slash) {
           const commands = await this.server.request<OcCommand[]>("GET", "/command", cwd).catch(() => []);
           if (commands.some((c) => c.name === slash.name)) {
             // Blocks until the command's turn is done; the event stream drives the turn.
             return this.server.request("POST", `/session/${id}/command`, cwd, {
+              messageID,
               command: slash.name,
               arguments: slash.args,
               model: config.model,
@@ -822,6 +827,7 @@ class OpencodeSession implements ProviderSession {
           }
         }
         return this.server.request("POST", `/session/${id}/prompt_async`, cwd, {
+          messageID,
           parts: [...(text.trim() ? [{ type: "text", text }] : []), ...files],
           model: modelRef(config.model),
           agent: config.mode,

@@ -74,6 +74,8 @@ agents:
   send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--at 18:30|"in 2h"|ISO]
   pending [agent]                    messages waiting for their agent (busy or over a limit),
                                      and agents waiting for a permission or answer
+  subagents [agent] [-n count]       subagents the agents run themselves (Claude Task/Agent,
+                                     Codex sub-agents, OpenCode tasks): running, then recent
 
 schedules (run on the host; messages to busy or limited agents become pending):
   schedules [--agent a]
@@ -83,7 +85,7 @@ schedules (run on the host; messages to busy or limited agents become pending):
   cancel <agent> [message-id|--all]  cancel pending messages
   retry <agent> <message-id>         send a failed message again (see casm pending)
   wait <agent> [--timeout seconds]   exit 3: still busy, 4: deferred by a limit, 5: the turn failed
-  history <agent> [-n count]
+  history <agent> [-n count] [--subagent id]   --subagent: that subagent's own transcript
   watch <agent>                      stream live events
   permissions <agent>                list pending permission requests
   questions <agent>                  list pending questions
@@ -136,6 +138,7 @@ const options = {
   "casm-tools": { type: "boolean" },
   edit: { type: "boolean" },
   probe: { type: "boolean" },
+  subagent: { type: "string" },
 } as const;
 
 // The first positional decides; flags (and the values of flags that take one) may
@@ -444,7 +447,7 @@ async function run(c: CasmClient) {
       return out(rows, () => {
         for (const a of agents)
           console.log(
-            `${shortId(a.id)}  ${a.status.padEnd(7)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}${a.deferred ? `  limited, retries ${new Date(a.deferred.until).toLocaleTimeString()}` : ""}${a.pending?.count && !a.deferred ? `  ${a.pending.count} pending` : ""}${opt.usage ? `  ${usage.get(a.id) ? formatUsage(usage.get(a.id)!) : "-"}` : ""}`,
+            `${shortId(a.id)}  ${a.status.padEnd(7)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}${a.deferred ? `  limited, retries ${new Date(a.deferred.until).toLocaleTimeString()}` : ""}${a.pending?.count && !a.deferred ? `  ${a.pending.count} pending` : ""}${a.subagents?.running ? `  ${a.subagents.running} subagent${a.subagents.running === 1 ? "" : "s"}` : ""}${opt.usage ? `  ${usage.get(a.id) ? formatUsage(usage.get(a.id)!) : "-"}` : ""}`,
           );
       });
     }
@@ -494,11 +497,39 @@ async function run(c: CasmClient) {
       return out(r, () => r.queued && console.error("queued behind the running turn"));
     }
 
+    case "subagents": {
+      const a = args[0] ? await agentRef(c, args[0]) : null;
+      const { subagents } = await c.call("agent.subagents", { id: a?.id, limit: opt.n ? Number(opt.n) : undefined });
+      const names = new Map((await c.call("agent.list", { includeArchived: true })).agents.map((x) => [x.id, x.name]));
+      return out(subagents, () => {
+        if (!subagents.length) console.log(a ? "no subagents" : "no subagents since the server started (give an agent to read its transcript too)");
+        for (const x of subagents) {
+          const status = x.stale ? "stale" : x.status;
+          const u = x.usage;
+          const usage = u ? [u.totalTokens !== undefined ? `${kTokens(u.totalTokens)} tok` : "", u.toolUses !== undefined ? `${u.toolUses} tools` : "", u.durationMs !== undefined ? `${Math.round(u.durationMs / 1000)}s` : ""].filter(Boolean).join(" ") : "";
+          const title = x.title.replace(/\s+/g, " ");
+          console.log(
+            `${shortId(x.agentId)}  ${(names.get(x.agentId) ?? "").slice(0, 20).padEnd(20)}  ${status.padEnd(7)}  ${title.length > 50 ? title.slice(0, 47) + "..." : title}${x.agentType ? ` (${x.agentType})` : ""}${usage ? `  ${usage}` : ""}`,
+          );
+          const detail = x.status === "running" && !x.stale ? x.activity : x.summary?.replace(/\s+/g, " ");
+          if (detail) console.log(`          ${detail.length > 110 ? detail.slice(0, 107) + "..." : detail}`);
+          console.log(`          casm history ${shortId(x.agentId)} --subagent ${x.id}`);
+        }
+      });
+    }
+
     case "wait":
       return waitAndPrint(c, (await agentRef(c, args[0])).id);
 
     case "history": {
       const a = await agentRef(c, args[0]);
+      if (opt.subagent) {
+        const { items } = await c.call("agent.subagentHistory", { id: a.id, subagentId: opt.subagent, limit: opt.n ? Number(opt.n) : 50 });
+        return out(items, () => {
+          if (!items.length) console.log("no transcript for that subagent (see casm subagents)");
+          for (const i of items) console.log(renderItem(i));
+        });
+      }
       const h = await c.call("agent.history", { id: a.id, limit: opt.n ? Number(opt.n) : 50 });
       return out(h, () => {
         if (h.start > 0) console.log(`(${h.start} earlier items)`);

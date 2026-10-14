@@ -89,10 +89,12 @@ for (const width of [1440, 375]) {
     expect(await page.locator(".composer").boundingBox()).toEqual(composer);
     expect(composer.y + composer.height).toBeLessThanOrEqual(812);
     // The status line starts at the composer's left edge, above it.
-    const spinner = (await working.locator(".activity-spinner").boundingBox())!;
-    expect(spinner.x - composer.x).toBeGreaterThanOrEqual(0);
-    expect(spinner.x - composer.x).toBeLessThan(8);
-    expect(spinner.y + spinner.height).toBeLessThanOrEqual(composer.y);
+    // Measure the status element, not the spinner: a rotating box's bounds
+    // change with the animation phase.
+    const status = (await working.boundingBox())!;
+    expect(status.x - composer.x).toBeGreaterThanOrEqual(-0.5);
+    expect(status.x - composer.x).toBeLessThan(8);
+    expect(status.y + status.height).toBeLessThanOrEqual(composer.y + 0.5);
     notify("idle", true);
     await expect(working).toBeEmpty();
     expect(Math.abs(await scroller.evaluate((element) => element.scrollTop) - before)).toBeLessThan(2);

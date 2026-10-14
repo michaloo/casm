@@ -108,6 +108,21 @@ const provider: Provider = {
             return;
           }
           if (text === "slow") return;
+          // A turn whose rows keep growing after they mount: Thinking, a
+          // running tool with streaming output, then a streamed reply.
+          if (text === "grow") {
+            const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+            for (let i = 0; i < 8; i++) { o.emit({ type: "delta", kind: "reasoning", text: `Thinking about step ${i}. ` + "Weighing the options. ".repeat(4) + "\n\n" }); await wait(50); }
+            o.emit({ type: "item", item: { kind: "reasoning", id: `grow-think-${++seq}`, text: "Planned the run." } });
+            const tool = { kind: "tool" as const, id: `grow-tool-${++seq}`, name: "Bash", input: { command: "npm test --workspace @casm/web" }, status: "running" as const, output: "" };
+            o.emit({ type: "item", item: tool });
+            for (let i = 0; i < 14; i++) { o.emit({ type: "toolOutput", itemId: tool.id, text: `  ✓ check ${i} passed\n` }); await wait(60); }
+            o.emit({ type: "item", item: { ...tool, status: "done", output: Array.from({ length: 14 }, (_, i) => `  ✓ check ${i} passed`).join("\n") } });
+            for (let i = 0; i < 10; i++) { o.emit({ type: "delta", kind: "assistant", text: `Result line ${i}: ` + "all good. ".repeat(6) + "\n\n" }); await wait(50); }
+            o.emit({ type: "item", item: { kind: "assistant", id: `grow-reply-${++seq}`, text: Array.from({ length: 10 }, (_, i) => `Result line ${i}: ` + "all good. ".repeat(6)).join("\n\n") + "\n\ngrow done" } });
+            o.emit({ type: "turnEnded", outcome: "completed" });
+            return;
+          }
           // The provider is unreachable the first time this text is sent.
           if (text.startsWith("unavailable") && !failedOnce.has(text)) {
             failedOnce.add(text);

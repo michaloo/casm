@@ -564,14 +564,18 @@ export const methods = {
     Ok,
   ),
   // Resolves when the agent is idle (or waiting for permission or an answer) or the timeout passes.
-  // `lastTurn`: how the agent's last turn since the server started ended.
+  // `lastTurn`: how the agent's last turn since the server started ended; `kept`: the
+  // pending messages it kept as failed (prompts nothing came back for), oldest first.
   "agent.wait": method(
     z.object({ id: z.string(), timeoutMs: z.number().optional() }),
     z.object({
       status: AgentStatus,
       timedOut: z.boolean(),
       lastReply: z.string().nullable(),
-      lastTurn: z.object({ outcome: z.enum(["completed", "interrupted", "failed"]), error: z.string().optional() }).nullable().optional(),
+      lastTurn: z
+        .object({ outcome: z.enum(["completed", "interrupted", "failed"]), error: z.string().optional(), kept: z.array(z.string()).optional() })
+        .nullable()
+        .optional(),
     }),
   ),
 } as const;

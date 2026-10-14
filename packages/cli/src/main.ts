@@ -315,12 +315,12 @@ async function waitAndPrint(c: CasmClient, id: string) {
   const { deferred } = await c.call("agent.get", { id });
   const failed = r.status === "idle" && r.lastTurn?.outcome === "failed";
   // A turn that failed before the agent answered keeps its prompt as a pending message.
-  const kept = failed ? (await c.call("agent.pending", { id })).messages.findLast((m) => m.reason === "failed") : undefined;
+  const kept = failed ? r.lastTurn?.kept?.[0] : undefined;
   out({ ...r, deferred }, () => {
     if (r.status === "waiting") console.error(`agent is waiting for you: casm permissions ${shortId(id)} / casm questions ${shortId(id)}`);
     if (r.timedOut) console.error("timed out; the agent is still running");
     if (deferred) console.error(`usage limit: ${deferred.reason}\nqueued; retries ${new Date(deferred.until).toLocaleString()}`);
-    else if (failed) console.error(`the turn failed: ${r.lastTurn!.error ?? "no reason given"}${kept ? `\nthe message is kept: casm retry ${shortId(id)} ${shortId(kept.id)} (or casm cancel)` : ""}`);
+    else if (failed) console.error(`the turn failed: ${r.lastTurn!.error ?? "no reason given"}${kept ? `\nthe message is kept: casm retry ${shortId(id)} ${shortId(kept)} (or casm cancel)` : ""}`);
     else if (r.lastReply) console.log(r.lastReply);
     if (r.status === "idle" && r.lastTurn?.outcome === "interrupted") console.error("the turn was interrupted");
   });

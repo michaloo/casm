@@ -4800,6 +4800,12 @@
                   },
                   "error": {
                     "type": "string"
+                  },
+                  "kept": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": [

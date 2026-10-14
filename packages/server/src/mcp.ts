@@ -108,6 +108,7 @@ const tools = {
       request_id: z.string(),
       decision: z.enum(["allow", "allowAlways", "deny"]),
       message: z.string().optional().describe("Reason, shown to the agent on deny"),
+      rule: z.string().optional().describe("With allowAlways: the rule to save instead of the request's suggested rule (when it is editable)"),
     }),
   },
   answer_question: {
@@ -288,7 +289,7 @@ export function createMcp(ctx: McpContext) {
     async answer_permission(a) {
       const t = target(a.host);
       const agent = await findAgent(t, a.agent);
-      return t.call("agent.respondPermission", { id: agent.id, requestId: a.request_id, decision: a.decision, message: a.message });
+      return t.call("agent.respondPermission", { id: agent.id, requestId: a.request_id, decision: a.decision, message: a.message, rule: a.rule });
     },
 
     async answer_question(a) {

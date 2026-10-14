@@ -15,6 +15,7 @@ import {
   sessionUsage,
   shellItem,
   type PiMessage,
+  PI_MODES,
 } from "../src/providers/pi.ts";
 
 type Tool = Extract<Item, { kind: "tool" }>;
@@ -172,7 +173,7 @@ test("catalog: thinking levels per model, default from get_state, provider-quali
       { id: "a/dup", name: "Dup (a)", description: "a", isDefault: false, efforts: ["off"] },
       { id: "b/dup", name: "Dup (b)", description: "b", isDefault: false, efforts: ["off"] },
     ],
-    modes: [],
+    modes: PI_MODES,
   });
 });
 

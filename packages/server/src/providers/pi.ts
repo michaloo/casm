@@ -4,9 +4,11 @@ import { toolImages } from "./tool-images.ts";
 // stdin, responses and session events on stdout. The native session id is the
 // session file path (what `--session` resumes); history reads that file.
 //
-// pi has no permission system of its own. Extensions can ask through dialogs
-// (extension_ui_request): `confirm` goes through askPermission; `select`,
-// `input` and `editor` become questions.
+// pi has no permission system of its own. casm loads its own gate,
+// pi-permissions.ts, into every session: its modes are the catalog's, and its
+// MARKER select becomes a permission card with "Always" and the rule to save.
+// Other extensions can ask through dialogs (extension_ui_request): `confirm`
+// goes through askPermission; `select`, `input` and `editor` become questions.
 //
 // MCP: casm passes the agent's MCP servers (its own casm server and
 // config.mcpServers) through pi-extension.ts, which registers them for the
@@ -24,6 +26,7 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Answers, Catalog, Command, ImageData, Item, McpServer, ModelInfo, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
 import { COMMAND as CASM_MCP_COMMAND, ENV as CASM_MCP_ENV } from "./pi-extension.ts";
+import { MARKER, MODE_COMMAND, MODE_ENV, MODES, type Suggestion } from "./pi-permissions.ts";
 import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -327,6 +330,14 @@ export function outputDelta(prev: string, next: string): string {
 // --- MCP
 
 const EXTENSION = fileURLToPath(new URL("./pi-extension.ts", import.meta.url));
+const PERMISSIONS = fileURLToPath(new URL("./pi-permissions.ts", import.meta.url));
+
+// The modes of casm's permission extension.
+export const PI_MODES: Catalog["modes"] = [
+  { id: "default", name: "Default", description: "Ask before anything an allow rule doesn't cover; reads are allowed" },
+  { id: "acceptEdits", name: "Accept edits", description: "Allow edits and writes inside the project; ask for the rest" },
+  { id: "bypass", name: "Bypass", description: "Allow every tool call. pi has no sandbox: commands run with your permissions" },
+];
 // pi's rule for MCP server names; anything else can't be one.
 const SERVER_NAME = /^[A-Za-z0-9_-]+$/;
 
@@ -359,6 +370,13 @@ export function parseMcpStatus(text: string, toggleable: ReadonlySet<string>): M
 }
 
 // --- dialogs and catalog
+
+// The answer to casm's permission select: the choice, then on later lines the
+// edited rule ("Always") or the reason ("Deny").
+export function permissionValue(decision: string, extra?: string): string {
+  const choice = decision === "allowAlways" ? "Always" : decision === "deny" ? "Deny" : "Approve";
+  return extra !== undefined && choice !== "Approve" ? `${choice}\n${extra}` : choice;
+}
 
 type Rec = { type: string; id?: string; [k: string]: unknown };
 
@@ -429,7 +447,7 @@ export function parseCatalog(models: PiModel[], current?: { id: string; provider
         efforts: thinkingLevels(m),
       };
     }),
-    modes: [],
+    modes: PI_MODES,
   };
 }
 
@@ -590,6 +608,7 @@ class PiSession implements ProviderSession {
     if (config.model) args.push("--model", config.model);
     if (config.effort) args.push("--thinking", config.effort);
     if (config.systemPrompt) args.push("--append-system-prompt", config.systemPrompt);
+    args.push("-e", PERMISSIONS);
     const mcpServers = config.mcpServers ?? {};
     this.casmServers = new Set(Object.keys(mcpServers));
     if (this.casmServers.size) {
@@ -597,7 +616,8 @@ class PiSession implements ProviderSession {
       this.mcpToggle = (server, enabled) => this.toggleMcp(server, enabled);
     }
     if (process.env.CASM_PI_ARGS) args.push(...process.env.CASM_PI_ARGS.split(" ").filter(Boolean));
-    const env = this.casmServers.size ? { ...config.env, [CASM_MCP_ENV]: JSON.stringify(mcpServers) } : config.env;
+    const env: Record<string, string> = { ...config.env, [MODE_ENV]: config.mode && (MODES as string[]).includes(config.mode) ? config.mode : "default" };
+    if (this.casmServers.size) env[CASM_MCP_ENV] = JSON.stringify(mcpServers);
     this.proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, env: providerEnv(env) });
     this.proc.stdout.setEncoding("utf8");
     this.proc.stdout.on("data", (chunk: string) => this.read(chunk));
@@ -829,6 +849,20 @@ class PiSession implements ProviderSession {
       }
       return;
     }
+    if (r.method === "select" && typeof r.title === "string" && r.title.startsWith(MARKER)) {
+      try {
+        if (signal.aborted) throw new Error("aborted");
+        const { tool, input, rule } = JSON.parse(r.title.slice(MARKER.length)) as { tool: string; input: unknown; rule: Suggestion };
+        const answer = await this.opts.askPermission({
+          id, toolName: tool, input, canAlwaysAllow: true,
+          rule: { kind: rule.kind, value: rule.value, editable: rule.editable, savedTo: rule.project ? `${rule.file}, casmPermissions.projects["${rule.project}"]` : rule.file },
+        }, signal);
+        this.write({ type: "extension_ui_response", id, value: permissionValue(answer.decision, answer.decision === "deny" ? answer.message : answer.rule) });
+      } catch {
+        this.write({ type: "extension_ui_response", id, cancelled: true });
+      }
+      return;
+    }
     const req = dialogQuestion(r);
     if (!req) return;
     try {
@@ -946,6 +980,14 @@ class PiSession implements ProviderSession {
     if (!this.casmServers.has(server))
       throw new Error(`pi saves enabling or disabling "${server}" to its mcp.json; casm only toggles the MCP servers it adds to the session. Edit pi's mcp.json (or run /mcp in pi) and reload the agent.`);
     const notes = await this.command(`/${CASM_MCP_COMMAND} ${enabled ? "enable" : "disable"} ${server}`);
+    const failed = notes.find((n) => n.level === "error");
+    if (failed) throw new Error(failed.text);
+  }
+
+  // The permission mode, changed in place by /casm-mode.
+  async setMode(mode: string) {
+    if (!(MODES as string[]).includes(mode)) throw new Error(`unknown pi mode "${mode}"`);
+    const notes = await this.command(`/${MODE_COMMAND} ${mode}`);
     const failed = notes.find((n) => n.level === "error");
     if (failed) throw new Error(failed.text);
   }

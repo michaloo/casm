@@ -277,12 +277,25 @@ export const Item = z.discriminatedUnion("kind", [
 ]);
 export type Item = z.infer<typeof Item>;
 
+// The allow rule an "Always" answer saves (pi's casm permission extension):
+// bash command patterns (one per line), an edit path glob, or a tool name.
+// When `editable`, the answer may carry an edited `rule`. `savedTo` is the
+// settings file it goes to.
+export const PermissionRule = z.object({
+  kind: z.enum(["bash", "edit", "tool"]),
+  value: z.string(),
+  editable: z.boolean(),
+  savedTo: z.string().optional(),
+});
+export type PermissionRule = z.infer<typeof PermissionRule>;
+
 export const PermissionRequest = z.object({
   id: z.string(),
   toolName: z.string(),
   input: z.unknown(),
   title: z.string().optional(),
   canAlwaysAllow: z.boolean(),
+  rule: PermissionRule.optional(),
 });
 export type PermissionRequest = z.infer<typeof PermissionRequest>;
 
@@ -770,7 +783,8 @@ export const methods = {
   // Omit `answers` to dismiss the question.
   "agent.answerQuestion": method(z.object({ id: z.string(), requestId: z.string(), answers: Answers.optional() }), Ok),
   "agent.respondPermission": method(
-    z.object({ id: z.string(), requestId: z.string(), decision: PermissionDecision, message: z.string().optional() }),
+    // `rule`: the edited PermissionRequest.rule value, with allowAlways.
+    z.object({ id: z.string(), requestId: z.string(), decision: PermissionDecision, message: z.string().optional(), rule: z.string().optional() }),
     Ok,
   ),
   // Resolves when the agent is idle (or waiting for permission or an answer) or the timeout passes.

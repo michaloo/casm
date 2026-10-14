@@ -12,3 +12,15 @@ test("only active execution displays Working; deferred and disconnected states d
   // A pending-message failure is not an active loading state.
   assert.deepEqual(agentActivity({ status: "idle", deferred: null }, "failed"), { label: "Failed", working: false });
 });
+
+test("one status dot represents execution, held queues, and offline state", async () => {
+  const { agentStatus } = await import("../src/agent-activity.ts");
+  const agent = { status: "idle" as const, deferred: null, pending: { count: 2, held: { reason: "failed" as const, note: "Provider failed" } } };
+  assert.deepEqual(agentStatus(agent), { kind: "failed", label: "Queue needs retry", detail: "Queue needs retry · Provider failed" });
+  assert.equal(agentStatus(agent, "failed").kind, "failed");
+  assert.equal(agentStatus(agent, "running").kind, "running");
+  assert.equal(agentStatus(agent, "waiting").label, "Needs you");
+  assert.equal(agentStatus(agent, "running", false).kind, "offline");
+  assert.equal(agentStatus({ ...agent, pending: { count: 2, held: { reason: "limit" } } }).kind, "limited");
+  assert.equal(agentStatus({ ...agent, pending: { count: 2, held: { reason: "limit" } } }, "failed").kind, "failed");
+});

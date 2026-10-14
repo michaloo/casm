@@ -36,10 +36,10 @@ for (const width of [1440, 375]) test(`sender provenance and held queue metadata
   const failed = page.getByRole("button", { name: /Agent 00/ });
   const limited = page.getByRole("button", { name: /Agent 01/ });
   await expect(failed).toContainText("3 queued");
-  await expect(failed).toContainText("Queue needs retry");
-  await expect(failed.locator(".agent-held")).toHaveAttribute("title", "Provider could not resume the session");
+  await expect(failed.locator(".dot")).toHaveAttribute("aria-label", "Queue needs retry");
+  await expect(failed.locator(".dot")).toHaveAttribute("title", "Queue needs retry · Provider could not resume the session");
   await expect(failed.locator(".dot")).toHaveClass(/failed/);
-  await expect(limited).toContainText("Queue waiting for limit");
+  await expect(limited.locator(".dot")).toHaveAttribute("aria-label", "Queue waiting for limit");
   expect(await failed.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await failed.click();
   await expect(page.locator(".message-sender").filter({ hasText: "Researcher · studio" })).toBeVisible();

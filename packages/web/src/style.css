@@ -406,26 +406,19 @@ nav .agent {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 6px 10px 6px calc(10px + min(48px, calc(var(--agent-depth, 0) * 14px)));
+  padding: 6px 0 6px calc(10px + min(48px, calc(var(--agent-depth, 0) * 14px)));
+  height: 52px;
   margin: 1px 0 1px 24px;
   width: calc(100% - 24px);
   font-size: 13px;
   flex-wrap: nowrap;
   border-radius: 8px;
   content-visibility: auto;
-  contain-intrinsic-size: auto 46px;
+  contain-intrinsic-size: auto 52px;
 }
 nav .agent:hover {
   background: color-mix(in srgb, var(--raised) 75%, transparent);
   border-color: transparent;
-}
-nav .agent:has(.dot.running) .agent-status {
-  color: var(--accent);
-}
-nav .agent:has(.dot.waiting) .agent-status,
-nav .agent:has(.dot.failed) .agent-status {
-  color: var(--attention);
-  font-weight: 550;
 }
 nav .agent[data-depth]:not([data-depth="0"]) {
   background-image: linear-gradient(var(--line), var(--line));
@@ -462,9 +455,11 @@ nav .agent-model {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-nav .agent-status {
-  flex-shrink: 0;
-}
+nav .agent-counts { flex-shrink: 0; max-width: 65%; overflow: hidden; text-overflow: ellipsis; }
+nav .agent .agent-meta { gap: 0; overflow: hidden; }
+nav .agent-end { display: grid; place-items: center; flex: 0 0 28px; width: 28px; }
+.chat-model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 650px) { nav .agent-end { flex-basis: 44px; width: 44px; } }
 .provider-icon {
   display: inline-block;
   width: 15px;
@@ -516,7 +511,9 @@ nav .agent.selected .agent-name {
   height: 8px;
   width: 8px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--faint) 45%, transparent);
+  display: inline-block;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--faint);
   flex-shrink: 0;
 }
 .dot.running {
@@ -529,9 +526,10 @@ nav .agent.selected .agent-name {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--attention-bright) 24%, transparent);
 }
 .dot.failed {
-  background: var(--surface);
-  box-shadow: inset 0 0 0 2.5px var(--attention-bright);
+  background: var(--attention-bright);
+  box-shadow: none;
 }
+.dot.limited { background: var(--faint); box-shadow: none; }
 @keyframes dot-breathe {
   50% {
     box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-bright) 8%, transparent);
@@ -1737,7 +1735,8 @@ textarea::placeholder {
     font-size: 16px;
   }
   nav .agent {
-    min-height: 56px;
+    height: 58px;
+    min-height: 58px;
     margin-left: 32px;
     width: calc(100% - 32px);
     font-size: 16px;
@@ -1948,12 +1947,6 @@ textarea::placeholder {
 }
 
 /* Actual execution only: permissions, deferral and offline states stay still. */
-.agent-activity {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  vertical-align: baseline;
-}
 .activity-spinner {
   display: inline-block;
   flex: none;
@@ -2241,10 +2234,7 @@ nav .row-more:hover, nav .row-more:focus-visible, nav .row-more[aria-expanded="t
 @media (max-width: 650px) { nav .row-more { flex-basis: 44px; width: 44px; height: 44px; } .more-glyph { width: 18px; height: 18px; } }
 
 .message-sender { min-width: 0; overflow-wrap: anywhere; }
-nav .agent-held { color: var(--attention); gap: 0; }
-nav .agent-held.failed { color: var(--attention); font-weight: 550; }
-.agent-held > span:first-child { flex-shrink: 0; }
-.agent-held-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
 
 .host-settings {
   width: min(960px, calc(100vw - 40px));

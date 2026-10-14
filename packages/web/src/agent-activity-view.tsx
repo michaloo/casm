@@ -1,12 +1,10 @@
 import type { Agent } from "@casm/protocol";
-import { agentActivity } from "./agent-activity.ts";
+import { agentStatus } from "./agent-activity.ts";
 
 export function AgentActivity({ agent, status, online = true, announce = false }: {
-  agent: Pick<Agent, "status" | "deferred">; status?: string; online?: boolean; announce?: boolean;
+  agent: Pick<Agent, "status" | "deferred" | "pending">; status?: string; online?: boolean; announce?: boolean;
 }) {
-  const activity = agentActivity(agent, status, online);
-  return <span className="agent-activity" role={announce ? "status" : undefined}>
-    {activity.working && <span className="activity-spinner" aria-hidden="true" />}
-    {activity.label}
-  </span>;
+  const indicator = agentStatus(agent, status, online);
+  return <span className={`dot ${indicator.kind}`} role={announce ? "status" : "img"}
+    aria-label={indicator.label} title={indicator.detail} />;
 }

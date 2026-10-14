@@ -692,7 +692,7 @@ function App() {
             </strong>
             <small className="chat-model" title={agent ? sessionModel.sessionTitle : undefined}>
               {agent
-                ? <><ProviderIcon provider={agent.provider} /> {sessionModel.sessionLabel} · <AgentActivity agent={agent} online={online} announce /></>
+                ? <><ProviderIcon provider={agent.provider} /> <span className="chat-model-label">{sessionModel.sessionLabel}</span> <AgentActivity agent={agent} status={agent.status === "idle" && (c.failed || c.pending.some(p => p.reason === "failed")) ? "failed" : agent.status} online={online} announce /></>
                 : project
                   ? "New agent"
                   : "Choose a project to start a conversation"}

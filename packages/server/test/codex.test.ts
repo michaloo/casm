@@ -272,14 +272,15 @@ test("catalog modes are Paseo's Codex modes plus Plan, in order", () => {
     MODE_INFO.map((m) => [m.id, m.name]),
     [
       ["plan", "Plan mode"],
-      ["auto", "Default permissions"],
+      ["auto", "Codex defaults"],
       ["auto-review", "Auto-review"],
       ["full-access", "Full access"],
     ],
   );
-  assert.deepEqual(Object.keys(MODES), MODE_INFO.map((m) => m.id));
+  // "auto" applies no overrides: Codex's own config.toml decides sandbox and approvals.
+  assert.deepEqual(Object.keys(MODES), MODE_INFO.map((m) => m.id).filter((id) => id !== "auto"));
+  assert.equal(MODES.auto, undefined);
   assert.equal(MODES["auto-review"].approvalsReviewer, "auto_review");
-  assert.equal(MODES.auto.approvalsReviewer, "user");
   assert.deepEqual(
     Object.entries(MODES).filter(([, m]) => m.collaboration === "plan").map(([id]) => id),
     ["plan"],

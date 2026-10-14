@@ -29,23 +29,68 @@
 | 6 | Low-medium | `c717106` | **CLI: two holes in the host refusal for server commands.** `casm -Hbeta peer list` (value attached to `-H`) got past `62d610a`'s refusal and printed local peers as beta's. Separately, an exported `CASM_HOST` made `casm serve` fail. `serve` shows no host's data, so `CASM_HOST` no longer blocks it; an explicit `-H` still does. |
 | 7 | Low | `aa80c6e` | **iOS UI test crashed with no Thinking row.** `testFailedPendingAndThinkingRows` crashed on `element(boundBy: -1)` when no Thinking row appeared (a model with no reasoning). It now fails with a clear message. *Not compiled.* |
 
-## Open: correctness (not fixed)
+## Follow-up: items #9–#20
 
-| # | Sev | Where | Finding | Suggested fix |
-|---|---|---|---|---|
-| 8 | Medium | `packages/server/src/agents.ts` `dropAnsweredFailed` | **Startup drops a kept prompt if the same text was answered earlier.** It matches the *last* user item with equal text that has any assistant reply after it. A kept "continue", "yes", or image-only (empty-text) prompt is dropped at the next start because an older identical prompt was answered. That prompt never reached the agent. | History items have no timestamps, so record the history length (or last item id) when the message is kept, and only look after it. This needs a design choice, so it was not fixed overnight. |
-| 9 | Low | `apple/App/Shared/ChatModel.swift` `create` + `AppModel.selectionChanged` | **Leaving a new-agent chat mid-create pulls the user back.** If the user selects another agent while `agent.create` is in flight, the detached chat still runs `open()` and `onCreated` re-selects the new agent. If the create fails instead, the error and the typed text are lost. | Skip `open()`/`onCreated` when the chat is no longer active. |
-| 10 | Low | `packages/cli/src/main.ts` (~318), `casm wait` | **`casm wait` can point at the wrong kept message.** It uses `findLast(reason === "failed")`, which can name an older kept message when this turn kept none (for example, it failed after a partial answer). | Have the server return the kept ids in `lastTurn`. |
-| 11 | Low | `packages/server/src/server.ts` (~128), peer forwarding | **Forwarding strips unknown parameters.** It forwards the zod-parsed params, so a newer peer's extra parameters are silently removed. | Forward `req.params` once validation passes. |
-| 12 | Low | `packages/server/src/server.ts`, peer forwarding | **Relayed notifications carry the peer's name.** They use `host: peer.name` even when the client addressed the peer by server id. | |
-| 13 | Low | `packages/server/src/server.ts`, peer forwarding | **A client that disconnects during `peers.subscribe` leaks the peer subscription.** `client.remote.set` runs after the close handler. | |
-| 14 | Low | `retryPending` | **Latent: a failed retry could keep the message twice.** If `session.send` threw synchronously, `endTurn → keepUnanswered` would re-add the message, and then the catch would add it again. Neither provider's `send` throws synchronously today. | |
-| 15 | Low | `effectiveModel` | **Can stay stale after a mid-turn model change.** The old Claude session can still send `system/init` with the old model after the field was cleared. | |
-| 16 | Low | `0a48cda`, context window lookup | **May guess wrong for 1M sessions.** The lookup uses the transcript model id, which has no `[1m]` suffix, so a 1M session can show over 100% context. | |
-| 17 | Low | `14ee993` / `04e63bf` | **Two settings are forced on every session.** Claude sessions always get `thinking: {type: "adaptive", display: "summarized"}`, which may break on gateways or models without it. Codex always overrides the user's `model_reasoning_summary`. | |
-| 18 | Low | `packages/cli/src/main.ts` `firstCommand` | **An option's value can be read as the command.** Only `-H`/`--host` values are skipped, so `casm --name peer run …` is routed to the server command. | |
-| 19 | Low | `apple/App/Shared/Markdown.swift` | **Display math is only partly handled.** Multi-line `\[ … \]` isn't parsed. `$$a$$ and $$b$$` on one line becomes one block. | |
-| 20 | Low | `testProjectTapStartsANewAgent` | **The UI test leaks agents.** It creates a new agent on every run and never removes it. | |
+The Mac agent fixed the Apple items:
+
+| # | Commit | Finding |
+|---|---|---|
+| 9 | `2dc33dd` | Leaving a new-agent chat mid-create no longer pulls the user back. |
+| 19 | `a4f29da` | Multi-line `\[ … \]` is display math; `$$a$$ and $$b$$` on one line stays inline. |
+| 20 | `bb381d3` | The project-tap UI test deletes the agent it creates. |
+
+The server and CLI items are fixed below, one commit each, each with a test that fails without it:
+
+| # | Commit | Finding and fix |
+|---|---|---|
+| 10 | `6c3a1ca` | **`casm wait` could name an older kept message.** `agent.wait`'s `lastTurn` now carries `kept`: the ids the turn kept, oldest first. `casm wait` names the first. This is a protocol addition and `spec/protocol.json` is regenerated. CasmKit doesn't decode `lastTurn`, so nothing changes there. |
+| 11 | `b21989f` | **Forwarding stripped unknown params.** A forwarded request now goes to the peer as sent, after local validation. |
+| 12 | `919f90e` | **Relayed notifications carried the peer's name.** They now carry the host the client named, as the spec says. A client that used the server id gets the server id back. `peer.disconnected` does the same. |
+| 13 | `d93dba9` | **A client gone mid-subscribe leaked the peer subscription.** It is now ended. `RunningServer.peers.relayed` counts relayed subscriptions so the test can see the leak. |
+| 14 | `092880f` | **A retry whose send throws kept the message twice.** The original goes back only when the failed turn didn't keep it already. |
+| 15 | `da55d9a` | **`effectiveModel` stayed stale after a mid-turn model change.** Model reports from a session due for reload after the turn are now ignored. |
+| 18 | `e973cc7` | **A flag's value before the command was taken for the command.** For example, `casm -p token projects` (a project named "token") went to the server's token command. The values of all flags that take one are skipped now. |
+
+Not fixed, because each needs a decision:
+
+| # | Sev | Finding | Why it was left |
+|---|---|---|---|
+| 8 | Medium | **`dropAnsweredFailed` can drop a kept prompt that was never delivered.** It happens when an earlier prompt with the same text was answered. | See the design note below. Behaviour unchanged. |
+| 16 | Low | **The context window for 1M Claude sessions.** | Transcripts record `claude-opus-5-5` with no `[1m]`; I checked against real session files on ubuntu. The history path (`usage()` after a restart) can't tell a 1M session from a 200k one by model id alone. The `windows` map is shared per provider and keyed by that id, so 1M and 200k sessions of one model can overwrite each other's window. A fix needs the agent's configured model passed into `usage()`, with the map keyed by it, which changes the provider interface. Live sessions get the window from `result.modelUsage` and are right after the first turn. |
+| 17 | Low | **Forced `thinking: adaptive/summarized` (Claude) and `model_reasoning_summary` (Codex).** | These were deliberate product choices in `14ee993` and `04e63bf`. Making them conditional, for example skipping them when `ANTHROPIC_BASE_URL` points to a local gateway or when the user's `config.toml` sets the key, is a call for Michal. No failure has been seen yet. |
+
+### Design note for Michal: #8, dropping kept prompts at startup
+
+**The problem.** After a server stop, an unanswered prompt is kept as a `failed` pending message. The agent's process can outlive the server and answer it anyway. To avoid a duplicate retry, startup drops a kept message when the agent's history shows that prompt answered. The match is by **text**: the last user item with the same text that has any assistant item after it.
+
+Short or repeated prompts ("continue", "yes", "go on", image-only with empty text) usually have an older answered copy in history. So a prompt that never reached the agent is silently deleted. That is a quiet loss, the worst outcome for the "kept, not lost" feature. The case it guards against, a duplicate visible to the user, is much milder.
+
+**What we can rely on:**
+- casm gives every prompt an item id and passes it to `session.send(text, itemId)`.
+  - **Claude** sends it as the SDK user message `uuid` and writes it to the transcript, and history items use that uuid as their id. A prompt that reached Claude can therefore be found by **exact id**.
+  - **Codex** gets it as `clientUserMessageId`, on steers only. I haven't checked whether the thread history returns it.
+  - **OpenCode** and **pi** ignore it.
+- History items carry no timestamps.
+- At shutdown, `keepUnanswered` is synchronous. There's no time to read history then.
+
+**Options:**
+1. **Store the sent item id on the kept message, and match by id (exact).** Add `sentItemId` to the pending row (a nullable column). At startup, drop the message only if a history item with that id exists and an assistant item follows it.
+   - For Claude this is exact both ways: no false drops, and duplicates are still caught.
+   - Other providers need option 2 or 3 alongside.
+2. **Anchor on history position.** When a turn starts, record the id of the last history item, by reading history async while the turn runs. Store it as `afterItemId` on a kept message, and only match text after the anchor.
+   - Works for every provider.
+   - Costs a history read per turn and adds a race: the turn may end before the read does.
+   - Text matching still can't tell two identical prompts sent after the anchor apart (rare).
+3. **Never auto-drop for providers without stable ids.** Keep the message, with a note such as "the agent may have answered this after the server stopped; check the transcript before retrying".
+   - Nothing is ever lost, but the user may see a message that was in fact delivered.
+4. **Status quo** (text match): duplicates are caught for every provider, at the cost of silent loss on repeated text.
+
+**Recommendation: 1 + 3.**
+- Use exact id matching for Claude, the provider where the outlived-process case was actually seen.
+- Extend it to Codex if a check shows its thread history keeps `clientUserMessageId`.
+- Use option 3 for OpenCode and pi.
+
+It's small: one nullable column, the id threaded through `keepUnanswered` (`l.prompt` / `l.steered` would carry the item id `sendToSession` generates), and a branch in `dropAnsweredFailed`. It replaces a silent loss with, at worst, a visible and cancellable duplicate. Option 2 is the fallback if you'd rather keep automatic dropping for every provider.
 
 **Design note:** `agent.interrupt` also clears kept `failed` messages. A test asserts this, so it is intentional, but it works against "kept, not lost". Worth revisiting.
 

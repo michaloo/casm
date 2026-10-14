@@ -195,6 +195,9 @@ test("serves the web client with a fallback to index.html", async () => {
   mkdirSync(join(web, "assets"));
   writeFileSync(join(web, "index.html"), "<!doctype html>app");
   writeFileSync(join(web, "assets", "a.js"), "x");
+  writeFileSync(join(web, "manifest.webmanifest"), '{"name":"casm"}');
+  writeFileSync(join(web, "sw.js"), "// worker");
+  writeFileSync(join(web, "apple-touch-icon.png"), "icon fixture");
   const s = new Store(join(mkdtempSync(join(tmpdir(), "casm-test-")), "casm.db"));
   const srv = await startServer({ store: s, providers: [], host: "127.0.0.1", port: 0, version: "test", webRoot: web });
   try {
@@ -207,6 +210,12 @@ test("serves the web client with a fallback to index.html", async () => {
     const asset = await fetch(`${base}/assets/a.js`);
     assert.match(asset.headers.get("content-type") ?? "", /javascript/);
     assert.match(asset.headers.get("cache-control") ?? "", /immutable/);
+    for (const [path, mime] of [["manifest.webmanifest", "application/manifest+json"], ["sw.js", "text/javascript"], ["apple-touch-icon.png", "image/png"]]) {
+      const response = await fetch(`${base}/${path}`);
+      assert.equal(response.status, 200);
+      assert.ok(response.headers.get("content-type")?.startsWith(mime));
+      assert.equal(response.headers.get("cache-control"), "no-cache");
+    }
     assert.equal((await fetch(`${base}/missing.js`)).status, 426);
     assert.equal(await (await fetch(`${base}/..%2F..%2Fetc%2Fpasswd`)).text(), "<!doctype html>app");
     assert.equal((await (await fetch(`${base}/health`)).json()).protocol, 1);

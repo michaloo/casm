@@ -416,11 +416,7 @@ for (const scheme of ["light", "dark"] as const)
       });
       await reveal(page.locator(".prose img"));
       const manifest = await page.getAttribute("#app-manifest", "href");
-      expect(manifest).toBe(
-        scheme === "dark"
-          ? "/manifest-dark.webmanifest"
-          : "/manifest.webmanifest",
-      );
+      expect(manifest).toBe("/manifest.webmanifest");
       await send(page, "permission");
       await expect(page.getByText("Permission: Write")).toBeVisible();
       await page.screenshot({
@@ -431,12 +427,11 @@ for (const scheme of ["light", "dark"] as const)
       const manifestResponse = await page.request.get(manifest!);
       const manifestData = await manifestResponse.json();
       expect(manifestData.name).toBe("casm");
-      const expectedTheme = scheme === "dark" ? "dark" : "light";
       expect(manifestData.icons).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            src: `/casm-icon-${expectedTheme}-1024.png`,
-            sizes: "1024x1024",
+            src: "/icon-512.png",
+            sizes: "512x512",
           }),
         ]),
       );

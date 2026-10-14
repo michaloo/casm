@@ -115,6 +115,30 @@ through TLS. Peering forwards commands; it does not copy files or sessions.
 A CLI-only machine without a local server can instead use
 `casm host add worker <ws-url> <token> --default`.
 
+## Install as an app
+
+Open your casm server's web address and install it using your browser:
+
+- **iPhone:** in Safari, tap **Share → Add to Home Screen**. Keep **Open as Web App** enabled if shown, then tap **Add**.
+- **macOS:** in Safari (macOS Sonoma or later), choose **File → Add to Dock**.
+- **Chrome / Edge:** on **HTTPS**, use the install button in the address bar (or the browser's install-app menu).
+
+Safari's Home Screen and Dock apps also work with a plain HTTP server address.
+Chrome/Edge's manifest-based install prompt needs HTTPS; localhost is the local-development exception.
+Use the server address you normally connect to, including its port. The installed
+app uses the casm Apple icon and opens without browser navigation controls.
+
+On HTTPS or localhost, casm caches its public app shell for offline startup.
+Connecting to agents still needs the server. The service worker never caches API
+responses, WebSockets, signed downloads, or URLs with query parameters. A new
+shell is checked on launch after deployment and activates after all old casm
+tabs/app windows close; it does not reload an active chat. Plain remote HTTP works without a
+service worker. Vite development also leaves service workers unregistered.
+
+Apple's [iPhone installation instructions](https://support.apple.com/guide/iphone/iphea86e5236/ios)
+and [Mac web app instructions](https://support.apple.com/104996) describe the OS controls.
+See [PWA implementation decisions](docs/pwa.md) for cache boundaries and checks.
+
 ## CLI essentials
 
 Register an existing directory, then start an agent (choose a provider installed

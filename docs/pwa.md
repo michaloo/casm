@@ -1,0 +1,20 @@
+# Web app installation and offline shell
+
+Decisions for the unattended PWA implementation:
+
+- Use one manifest with `id`, `start_url`, and `scope` all `/`. Switching manifests with the color scheme can confuse installed-app identity. The light launch background is `#fffaf4`; media-qualified HTML theme-color metadata uses the matching dark palette `#0b141a` when supported.
+- Use the light Apple artwork consistently for Home Screen/Dock installation. Apple touch-icon media switching is not reliably supported. The SVG favicon retains its supported light/dark styling.
+- Generate opaque 180, 192, and 512 pixel icons from `brand/casm-icon-light-1024.png`. Fill transparent source corners with the light page color, so iOS never composites them against black. Separate maskable 192/512 icons inset the source to 70%, keeping the colored mark inside the central safe circle. Regenerate with `node packages/web/scripts/generate-icons.mjs` (uses the installed Playwright Chromium for canvas compositing, no external image service).
+- Keep `viewport-fit=cover`, `black-translucent`, and the existing safe-area padding. No changes to the owned composer/bottom layout or settings sheets are needed.
+- Register `/sw.js` only for production builds in secure contexts. HTTPS and loopback HTTP qualify; remote plain HTTP and Vite's dev server do not register. HTTP remains a usable website and Safari Home Screen/Dock app. Chrome/Edge's PWA install promotion requires HTTPS (or localhost).
+- Vite emits the worker after bundling. Its cache name is a SHA-256 digest of the worker template and every precached file, including public icons and the manifest; identical builds retain their version, while app-shell changes generate a new one.
+- Precache only explicitly named public install assets, `index.html`, and Vite-generated JS/CSS/fonts/images. Navigation to `/`, `/h/...`, and `/f/...` uses the network first and falls back to the cached shell only when the network fails. Route responses are never written to cache. The `/f/` fallback is the preview UI, not the underlying file contents.
+- Only exact same-origin shell asset URLs without a query are read from the cache. The worker has no runtime cache writes, API cache, cross-origin cache, background sync, or offline message delivery. It does not change existing localStorage credentials/drafts behavior. WebSockets never go through fetch handling.
+- Do not call `skipWaiting` or force reload. Registration checks for a new build on each page load; new builds wait for older controlled windows to close. Activation removes only older `casm-shell-*` caches and claims clients. The server already serves manifests with `application/manifest+json`, PNGs with `image/png`, JS with a JavaScript MIME type, and revalidates unversioned icons/manifest/worker with `no-cache`. Hashed bundle assets remain immutable.
+- Cache registration failures are nonfatal: online use must work even if browser policy disables offline storage.
+
+## Validation
+
+`pwa-mobile.spec.ts` checks manifest identity, install tags, opaque icon pixels and dimensions, colors, insecure HTTP, secure localhost registration, offline shell startup, and cache exclusions in Chromium and iPhone WebKit. The insecure-origin test maps a non-loopback HTTP hostname to the disposable server, preserving the browser's insecure-origin rules without DNS or production network access. Unit tests exercise the worker's fetch boundaries and cache cleanup; server tests cover MIME/cache headers. Vite development is checked separately using an isolated port.
+
+Headless WebKit verifies web content and service-worker behavior; it cannot click iOS Share/Add to Home Screen or macOS Add to Dock OS menus. Those installation gestures remain a device-level smoke check, using the steps in README. Browser references: [Apple iPhone](https://support.apple.com/guide/iphone/iphea86e5236/ios), [Apple Mac](https://support.apple.com/104996), and [MDN installability](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable).

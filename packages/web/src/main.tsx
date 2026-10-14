@@ -1,3 +1,4 @@
+import "./register-service-worker";
 import { ComposerPickers } from "./composer-pickers";
 import { ProjectMenu } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
@@ -60,30 +61,7 @@ const mac = /Mac|iPhone|iPad/.test(navigator.platform);
 function App() {
   const [token, setToken] = useState(localStorage.getItem("casm.token") ?? "");
   const [entry, setEntry] = useState("");
-  useEffect(() => {
-    const media = matchMedia("(prefers-color-scheme: dark)");
-    const update = () => {
-      document
-        .querySelector("#apple-icon")
-        ?.setAttribute(
-          "href",
-          media.matches
-            ? "/apple-touch-icon-dark.png"
-            : "/apple-touch-icon.png",
-        );
-      document
-        .querySelector("#app-manifest")
-        ?.setAttribute(
-          "href",
-          media.matches
-            ? "/manifest-dark.webmanifest"
-            : "/manifest.webmanifest",
-        );
-    };
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
+
   useEffect(() => {
     // iOS keeps the layout viewport under the keyboard; size the app to what is visible.
     const viewport = window.visualViewport;

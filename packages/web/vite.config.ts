@@ -1,3 +1,4 @@
+import { appShellWorker } from "./pwa-build";
 import { defineConfig, loadEnv } from "vite";
 // Both browser-history routes and a page reload resolve to the React entry point.
 // Signed download links (/dl/...) are same-origin so a[download] names the file;
@@ -7,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const target = casm && new URL(casm.replace(/^ws/, "http")).origin;
   return {
     appType: "spa",
+    plugins: [appShellWorker()],
     server: {
       allowedHosts: ["studio", "localhost", ".localhost", "127.0.0.1", "::1", "100.64.0.1"],
       ...(target ? { proxy: { "/dl": { target } } } : {}),

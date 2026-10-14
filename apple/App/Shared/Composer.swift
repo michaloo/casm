@@ -559,7 +559,7 @@ struct ConfigPickers: View {
             let effective = chat.agent?.effectiveModel
             let model = Self.model(config: config, effective: effective, in: models)
             // m2: no raw ids while the catalog loads.
-            let modelName = catalog == nil ? "…" : (model?.displayName ?? config.model ?? effective ?? "Default model")
+            let modelName = catalog == nil ? "…" : (Self.title(model, id: config.model ?? effective) ?? "Default model")
 
             // Only before the agent exists; an agent keeps its provider.
             let providers = chat.newAgent != nil ? host.info?.providers ?? [] : []
@@ -642,9 +642,16 @@ extension ConfigPickers {
     /// reported running (e.g. Codex's config.toml default), and only before any session the
     /// catalog's default. Nil when that id isn't in the catalog.
     static func model(config: AgentConfig, effective: String?, in models: [ModelInfo]) -> ModelInfo? {
-        if let id = config.model { return models.first { $0.id == id } }
+        if let id = config.model { return models.first { $0.id == id } ?? models.first { named($0, id) } }
         if let id = effective { return models.first { $0.id == id } ?? models.first { named($0, id) } }
         return models.first { $0.isDefault == true }
+    }
+
+    /// The picker's title: the catalog name, marking a 1M-context variant ("claude-opus-5-5[1m]")
+    /// that the catalog only lists under its base model.
+    static func title(_ model: ModelInfo?, id: String?) -> String? {
+        guard let model else { return id }
+        return id?.hasSuffix("[1m]") == true && !model.displayName.contains("1M") ? model.displayName + " · 1M" : model.displayName
     }
 
     /// Claude reports full ids ("claude-opus-5-5", "claude-haiku-4-5-20251001") while its catalog
@@ -652,7 +659,7 @@ extension ConfigPickers {
     private static func named(_ model: ModelInfo, _ id: String) -> Bool {
         guard let name = model.name, model.isDefault != true else { return false }
         let slug = name.lowercased().replacing(/[ .]/, with: "-")
-        let bare = id.replacing(/^claude-/, with: "").replacing(/-\d{8}$/, with: "")
+        let bare = id.replacing(/\[1m\]$/, with: "").replacing(/^claude-/, with: "").replacing(/-\d{8}$/, with: "")
         return slug == bare
     }
 }

@@ -1,5 +1,5 @@
 // Project files: clickable paths in a transcript, the preview dialog and its
-// signed downloads, the project settings Files tab and the /f/ route.
+// signed downloads, and the /f/ route.
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import { testHome } from "./config.ts";
@@ -91,44 +91,6 @@ for (const width of [1440, 375]) {
     await expect(page.getByRole("dialog", { name: "File blob.bin" })).toContainText("Binary file · 4 B");
   });
 
-  test(`project Files tab browses, previews and downloads at ${width}${width === 375 ? " mobile" : ""}`, async ({ page }) => {
-    await login(page, width);
-    if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
-    await page.getByRole("button", { name: "Project options for Test project", exact: true }).click();
-    await page.getByRole("menuitem", { name: /^Files/ }).click();
-    const panel = page.getByRole("dialog", { name: "Test project project settings" });
-    await expect(panel.getByRole("button", { name: "Files", exact: true })).toHaveAttribute("aria-pressed", "true");
-    const list = panel.getByRole("list", { name: /^Files in / });
-    await expect(list).toBeVisible();
-    const names = await list.locator(".file-name").allTextContents();
-    // Folders first, then files; hidden ones are listed and marked.
-    expect(names.indexOf("exports/")).toBeGreaterThanOrEqual(0);
-    expect(names.findIndex((n) => !n.includes("/"))).toBeGreaterThan(names.indexOf("exports/"));
-    await expect(list.locator(".hidden-file").filter({ hasText: ".hidden-config" })).toContainText("hidden");
-    // The server's state directory is listed but never opened.
-    await list.getByRole("button", { name: /^state\// }).click();
-    await expect(panel.getByRole("alert")).toContainText("casm's state directory");
-    await panel.getByRole("navigation", { name: "Folder path" }).getByRole("button").first().click();
-    await list.getByRole("button", { name: /^exports\// }).click();
-    await expect(panel.getByRole("navigation", { name: "Folder path" })).toContainText("exports");
-    await panel.getByRole("list", { name: "Files in exports" }).getByRole("button", { name: /^nested\// }).click();
-    await panel.getByRole("button", { name: /^deep\.txt/ }).click();
-    const preview = page.getByRole("dialog", { name: "File deep.txt" });
-    await expect(preview.locator("pre")).toHaveText("deep\n");
-    const res = await page.request.get((await preview.getByRole("link", { name: "Download" }).getAttribute("href"))!);
-    expect(res.headers()["content-disposition"]).toMatch(/^attachment; filename="deep.txt"/);
-    expect(await res.text()).toBe("deep\n");
-    await fits(page, preview, width);
-    await preview.getByRole("button", { name: "Close file preview" }).click();
-    // Breadcrumbs lead back up.
-    await panel.getByRole("navigation", { name: "Folder path" }).getByRole("button", { name: "exports", exact: true }).click();
-    await expect(panel.getByRole("list", { name: "Files in exports" })).toBeVisible();
-    await panel.getByRole("button", { name: /^\.\. *Parent folder/ }).click();
-    await expect(list.getByRole("button", { name: /^exports\// })).toBeVisible();
-    await fits(page, panel, width);
-    await page.screenshot({ path: `/tmp/casm-files-tab-${width}-${test.info().project.name}.png` });
-  });
-
   test(`the /f/ route previews a pasted path at ${width}${width === 375 ? " mobile" : ""}`, async ({ page }) => {
     await login(page, width, `/f${exportsDir}/notes.md`);
     const dialog = page.getByRole("dialog", { name: "File notes.md" });
@@ -138,14 +100,11 @@ for (const width of [1440, 375]) {
     await expect(page).toHaveURL(/\/$/);
     await page.goto("/f/etc/passwd");
     await expect(page.getByRole("dialog", { name: "File passwd" }).getByRole("alert")).toContainText("not inside a project folder");
-    // A folder previews as a listing.
+    // A folder is not browsed; the preview says so.
     await page.goto(`/f${exportsDir}`);
     const folder = page.locator("dialog.file-preview");
     await expect(folder).toHaveAccessibleName("File exports");
-    await folder.getByRole("button", { name: /^notes\.md/ }).click();
-    await expect(folder.getByRole("heading", { name: "Import notes" })).toBeVisible();
-    await folder.getByRole("button", { name: "Back", exact: true }).click();
-    await expect(folder.getByRole("button", { name: /^notes\.md/ })).toBeVisible();
-    await expect(folder).toHaveAccessibleName("File exports");
+    await expect(folder).toContainText("This is a folder.");
+    await expect(folder.getByRole("list")).toHaveCount(0);
   });
 }

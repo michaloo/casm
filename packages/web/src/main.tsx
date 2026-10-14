@@ -1,6 +1,6 @@
 import "./register-service-worker";
 import { ComposerPickers } from "./composer-pickers";
-import { ProjectMenu } from "./project-settings";
+import { ProjectOptions } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
 import { replaceHistory } from "./state";
@@ -22,7 +22,7 @@ import { FileLinksContext, insideRoot } from "./file-links";
 import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
 import { ProviderIcon } from "./provider-icon";
 import { HostSection } from "./host-section";
-import { HostIdentity, HostMenu, hostStateLabel, type HostState } from "./host-menu";
+import { HostActions, HostIdentity, hostStateLabel, type HostState } from "./host-menu";
 import { schedulesChanged } from "./host-schedules";
 import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
@@ -582,13 +582,13 @@ function App() {
             return (
             <HostSection key={h.id} host={h.id} name={h.name} status={`${hostStateLabel(state)}${working ? ` · ${working} working` : ""}`}
               identity={<HostIdentity name={h.name} state={state} detail={working ? `${working} working` : undefined} />}
-              menu={<HostMenu host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
+              menu={<HostActions host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
                   openAgent={(a) => choose({ host: h.id, project: a.projectId, id: a.id })}
                   openProject={project => {
                     setHosts(list => list.map(item => item.id === h.id ? { ...item, projects: [...item.projects.filter(p => p.id !== project.id), project] } : item));
                     choose({ host: h.id, project: project.id });
                   }}
-                  detail={working ? `${working} working` : undefined} />}>
+                  />}>
               {h.error && <p className="host-error" title={h.error}>{h.error}</p>}
               {!h.error && !h.loading && !h.projects.length && <p className="sidebar-empty">No projects on this host yet.</p>}
               {[...h.projects]
@@ -622,7 +622,7 @@ function App() {
                       {!expanded && agents.length > 0 && <span className="project-count" aria-hidden="true">{agents.length}</span>}
                       <span className="project-new">＋</span>
                     </button>
-                    <ProjectMenu host={h.id} project={p} agentCount={h.agents.filter((a) => a.projectId === p.id && !a.archivedAt).length}
+                    <ProjectOptions host={h.id} project={p} agentCount={h.agents.filter((a) => a.projectId === p.id && !a.archivedAt).length}
                       rpc={rpc.current} online={state === "online" || state === "slow"} newAgent={() => choose({ host: h.id, project: p.id })} />
                     </div>
                     {expanded && !agents.length && <p className="sidebar-empty project-empty">No agents yet</p>}
@@ -987,14 +987,29 @@ function Transcript({
   // near the end, pin the true end on every growth or append; a reader who
   // scrolled away stays put.
   const nearEnd = useRef(true);
+  // Until the true end has been reached once (Virtuoso opens a long history
+  // hundreds of pixels short), "near" means within a screen; after that only
+  // Virtuoso's estimate jitter counts, so a reader moved up by a script, focus
+  // or find-in-page is not pulled back.
+  const reached = useRef(false);
   const scroller = useRef<HTMLElement | null>(null);
+  // scrollTop as of the last scroll event or pin.
+  const lastTop = useRef(0);
+  const away = (el: HTMLElement) => {
+    // A jump up whose scroll event has not arrived yet (scrollTo, focus,
+    // find-in-page): content shrinking clamps to the end and appends never
+    // move scrollTop up, so neither looks like this.
+    if (el.scrollTop < lastTop.current - 2 && el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) nearEnd.current = false;
+    return !nearEnd.current;
+  };
+  const pin = (el: HTMLElement) => { el.scrollTop = el.scrollHeight; lastTop.current = el.scrollTop; };
   const stick = () => {
     const el = scroller.current;
-    if (!following.current || !nearEnd.current || !el) return;
-    el.scrollTop = el.scrollHeight;
+    if (!following.current || !el || away(el)) return;
+    pin(el);
     // Virtuoso may re-apply its estimate in the same frame; settle once more.
     requestAnimationFrame(() => {
-      if (following.current && nearEnd.current && el.scrollHeight - el.scrollTop - el.clientHeight > 0.5) el.scrollTop = el.scrollHeight;
+      if (following.current && !away(el) && el.scrollHeight - el.scrollTop - el.clientHeight > 0.5) pin(el);
     });
   };
   const box = useRef<HTMLDivElement>(null);
@@ -1013,7 +1028,9 @@ function Transcript({
       const el = scroller.current;
       if (!el) return;
       const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
-      nearEnd.current = gap < el.clientHeight;
+      lastTop.current = el.scrollTop;
+      if (gap <= 1) reached.current = true;
+      nearEnd.current = gap < (reached.current ? 80 : el.clientHeight);
       if (gap < 80) stick();
     };
     const el = scroller.current;

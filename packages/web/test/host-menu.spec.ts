@@ -2,7 +2,7 @@ import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
-for (const width of [1440, 375]) test(`host row opens a keyboard menu and edits schedules at ${width}px`, async ({ page }) => {
+for (const width of [1440, 375]) test(`host row opens the host modal and edits schedules at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 812 });
   const updatedTargets: unknown[] = [];
   await page.routeWebSocket("**", (socket) => {
@@ -21,38 +21,44 @@ for (const width of [1440, 375]) test(`host row opens a keyboard menu and edits 
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
-  // The chevron row only folds; the ⋯ button opens the menu.
+  // The chevron row only folds; ⋯ opens the host modal, + a new project.
   const fold = page.getByRole("button", { name: "Toggle Test host host", exact: true });
   await expect(fold.locator(".host-dot.online")).toHaveCount(1);
   await expect(fold).toHaveAttribute("aria-expanded", "true");
   await expect(fold).toHaveAccessibleDescription(/Online/);
   const trigger = page.getByRole("button", { name: "Host options for Test host", exact: true });
-  await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
-  if (width === 375) expect((await trigger.boundingBox())!.width).toBeGreaterThanOrEqual(44);
+  await expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
+  const plus = page.getByRole("button", { name: "New project on Test host", exact: true });
+  await expect(plus).toHaveAttribute("title", "New project");
+  if (width === 375) for (const button of [trigger, plus]) {
+    const box = (await button.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+  }
   await trigger.focus();
   await page.keyboard.press("Enter");
   expect(new URL(page.url()).pathname).toBe("/");
-  const menu = page.getByRole("menu", { name: "Host options for Test host" });
-  await expect(menu).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: /Usage/ })).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: /Schedules/ })).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: /Settings/ })).toBeFocused();
-  await expect(page.getByRole("menuitem", { name: /Settings/ })).toBeEnabled();
+  const panel = page.getByRole("dialog", { name: "Test host host" });
+  await expect(panel).toBeVisible();
+  const tabs = panel.getByRole("navigation");
+  await expect(tabs.getByRole("button")).toHaveText(["Usage", "Schedules", "Instructions"]);
+  await expect(tabs.getByRole("button", { name: "Usage" })).toHaveAttribute("aria-pressed", "true");
+  if (width === 375) {
+    const box = (await panel.boundingBox())!;
+    expect([box.x, box.width, box.height]).toEqual([0, 375, 812]);
+  }
   await page.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
+  await expect(panel).toBeHidden();
   await expect(trigger).toBeFocused();
 
   await trigger.click();
-  await page.getByRole("menuitem", { name: /Schedules/ }).click();
-  const panel = page.getByRole("dialog", { name: "Test host schedules" });
+  await tabs.getByRole("button", { name: "Schedules" }).click();
   await expect(panel).toContainText("No schedules on this host yet");
   await panel.getByRole("button", { name: "New schedule" }).click();
   // Validation is inline, and Escape returns to the list without closing the panel.
   await panel.getByRole("button", { name: "Create schedule" }).click();
-  await expect(panel.getByLabel("Prompt")).toHaveAttribute("aria-invalid", "true");
-  await expect(panel.getByLabel("Prompt")).toBeFocused();
+  await expect(panel.getByLabel("Prompt", { exact: true })).toHaveAttribute("aria-invalid", "true");
+  await expect(panel.getByLabel("Prompt", { exact: true })).toBeFocused();
   await expect(panel).toContainText("Write the prompt to send.");
   await page.keyboard.press("Escape");
   await expect(panel).toContainText("No schedules on this host yet");
@@ -70,7 +76,7 @@ for (const width of [1440, 375]) test(`host row opens a keyboard menu and edits 
   await expect(panel).toContainText("Daily at 09:00");
   await panel.getByRole("radio", { name: "Repeat" }).check();
   await panel.getByLabel("Agent", { exact: true }).selectOption({ label: "Agent 05" });
-  await panel.getByLabel("Prompt").fill("status?");
+  await panel.getByLabel("Prompt", { exact: true }).fill("status?");
   await panel.getByRole("button", { name: "Create schedule" }).click();
   const row = panel.getByRole("listitem").filter({ hasText: "Hourly check" });
   await expect(row).toContainText("Every hour → Agent 05");
@@ -78,16 +84,16 @@ for (const width of [1440, 375]) test(`host row opens a keyboard menu and edits 
   await expect(panel.getByRole("button", { name: "New schedule" })).toBeFocused();
   await row.getByRole("button", { name: "Edit Hourly check" }).click();
   const form = panel.getByRole("form", { name: "Edit Hourly check" });
-  await expect(form.getByLabel("Prompt")).toHaveValue("status?");
+  await expect(form.getByLabel("Prompt", { exact: true })).toHaveValue("status?");
   await form.getByLabel("Unit").selectOption("1");
   await form.getByLabel("Every").fill("90");
-  await form.getByLabel("Prompt").fill("updated status?");
+  await form.getByLabel("Prompt", { exact: true }).fill("updated status?");
   await form.getByRole("button", { name: "Save schedule" }).click();
   await expect(row).toContainText("Every 90 min");
   await expect(row.getByRole("button", { name: "Edit Hourly check" })).toBeFocused();
   expect(updatedTargets[0]).toMatchObject({ type: "agent", whenBusy: "skip" });
   await row.getByRole("button", { name: "Edit Hourly check" }).click();
-  await expect(form.getByLabel("Prompt")).toHaveValue("updated status?");
+  await expect(form.getByLabel("Prompt", { exact: true })).toHaveValue("updated status?");
   await expect(form.getByLabel("If it is busy")).toHaveValue("skip");
   await form.getByRole("button", { name: "Cancel" }).click();
   const toggle = row.getByRole("switch", { name: "Disable Hourly check" });
@@ -105,14 +111,14 @@ for (const width of [1440, 375]) test(`host row opens a keyboard menu and edits 
   await panel.getByRole("button", { name: "New schedule" }).click();
   await panel.getByLabel("Name").fill("New agent check");
   await panel.getByRole("radio", { name: "New agent" }).check();
-  await panel.getByLabel("Prompt").fill("scheduled greeting");
+  await panel.getByLabel("Prompt", { exact: true }).fill("scheduled greeting");
   await panel.getByRole("button", { name: "Create schedule" }).click();
   const fresh = panel.getByRole("listitem").filter({ hasText: "New agent check" });
   await expect(fresh).toContainText("new Claude agent in");
   await fresh.getByRole("button", { name: "Edit New agent check" }).click();
   const freshForm = panel.getByRole("form", { name: "Edit New agent check" });
   await expect(freshForm.getByRole("radio", { name: "New agent" })).toBeChecked();
-  await freshForm.getByLabel("Prompt").fill("updated scheduled greeting");
+  await freshForm.getByLabel("Prompt", { exact: true }).fill("updated scheduled greeting");
   await freshForm.getByRole("button", { name: "Save schedule" }).click();
   await expect.poll(() => updatedTargets.length).toBe(2);
   expect(updatedTargets[1]).toMatchObject({ type: "newAgent", config: { model: "fixture-model" } });
@@ -123,11 +129,12 @@ for (const width of [1440, 375]) test(`host row opens a keyboard menu and edits 
   await expect(page).toHaveURL(/\/a\//);
   if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
   await trigger.click();
-  await page.getByRole("menuitem", { name: /Schedules/ }).click();
+  await tabs.getByRole("button", { name: "Schedules" }).click();
   await fresh.getByRole("button", { name: "Edit New agent check" }).click();
   await freshForm.getByRole("button", { name: "Delete New agent check" }).click();
   await freshForm.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(panel).toContainText("No schedules on this host yet");
-  await panel.getByRole("button", { name: "Back to host menu" }).click();
-  await expect(page.getByRole("menuitem", { name: /Usage/ })).toBeFocused();
+  await panel.getByRole("button", { name: "Close host options" }).click();
+  await expect(panel).toBeHidden();
+  await expect(trigger).toBeFocused();
 });

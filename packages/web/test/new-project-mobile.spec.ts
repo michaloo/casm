@@ -45,8 +45,7 @@ for (const width of [1440, 375]) test(`new project mobile suggestions create and
     await page.getByRole("button", { name: "Agents", exact: true }).click();
     await page.getByRole("button", { name: "Toggle Test host host", exact: true }).click();
   }
-  await page.getByRole("button", { name: `Host options for ${hostName}`, exact: true }).click();
-  await page.getByRole("menuitem", { name: /New project…/ }).click();
+  await page.getByRole("button", { name: `New project on ${hostName}`, exact: true }).click();
   const dialog = page.getByRole("dialog", { name: `New project on ${hostName}`, exact: true });
   const folder = dialog.getByRole("combobox", { name: "Folder", exact: true });
   const create = dialog.getByRole("button", { name: "Create project", exact: true });
@@ -88,8 +87,7 @@ for (const width of [1440, 375]) test(`new project mobile suggestions create and
   await page.reload();
   await expect(page.locator(".chat > header strong")).toHaveText("sample-folder");
   if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
-  await page.getByRole("button", { name: `Host options for ${hostName}`, exact: true }).click();
-  await page.getByRole("menuitem", { name: /New project…/ }).click();
+  await page.getByRole("button", { name: `New project on ${hostName}`, exact: true }).click();
   await folder.fill(`${root}/second-folder`);
   disconnect!();
   await expect(create).toBeDisabled();

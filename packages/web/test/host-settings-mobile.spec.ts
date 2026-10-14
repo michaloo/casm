@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 import { testHome } from "./config.ts";
 
-for (const width of [1440, 375]) test(`host settings mobile-safe editing, memories and prompt at ${width}`, async ({ page }) => {
+for (const width of [1440, 375]) test(`host modal instructions: mobile-safe editing and agent prompt at ${width}`, async ({ page }) => {
   writeFileSync(`${testHome}/host-settings/AGENTS.md`, "# Shared host instructions\n\nUse isolated fixtures.");
   await page.setViewportSize({ width, height: 812 });
   const hostName = width === 375 ? "Settings peer" : "Test host";
@@ -11,7 +11,7 @@ for (const width of [1440, 375]) test(`host settings mobile-safe editing, memori
     const server = socket.connectToServer();
     socket.onMessage((raw) => {
       const request = JSON.parse(String(raw));
-      if (/^(host\.|project.memories|server.(setAgentPrompt|agentPrompt))/.test(request.method)) routed.push(request.host);
+      if (/^(host\.|server.(setAgentPrompt|agentPrompt))/.test(request.method)) routed.push(request.host);
       // Mobile exercises the peer UI against this disposable server; the server
       // unit test separately verifies real peer transport for the same methods.
       if (width === 375 && request.method === "peer.list") {
@@ -29,8 +29,10 @@ for (const width of [1440, 375]) test(`host settings mobile-safe editing, memori
   if (width === 375) await page.getByRole("button", { name: "Toggle Test host host", exact: true }).click();
   const trigger = page.getByRole("button", { name: `Host options for ${hostName}`, exact: true });
   await trigger.click();
-  await page.getByRole("menuitem", { name: /Settings/ }).click();
-  const panel = page.getByRole("dialog", { name: `${hostName} settings` });
+  const panel = page.getByRole("dialog", { name: `${hostName} host` });
+  // Host-wide memories are gone; memories live with each project.
+  await expect(panel.getByRole("button", { name: "Memories", exact: true })).toHaveCount(0);
+  await panel.getByRole("button", { name: "Instructions", exact: true }).click();
   await expect(panel.getByRole("heading", { name: "Shared host instructions" })).toBeVisible();
   await expect(panel.locator("article.settings-card")).toHaveCount(1);
   await expect(panel.locator("article h4")).toContainText("Claude · Codex · OpenCode · Pi");
@@ -56,20 +58,7 @@ for (const width of [1440, 375]) test(`host settings mobile-safe editing, memori
   await panel.getByRole("button", { name: "Save instructions", exact: true }).click();
   await expect(panel.getByRole("heading", { name: "My saved instructions" })).toBeVisible();
   expect(readFileSync(`${testHome}/host-settings/AGENTS.md`, "utf8")).toContain("Keep this draft");
-  await panel.getByRole("button", { name: "Memories", exact: true }).click();
-  // Search loads every project and keeps only the matches.
-  await panel.getByRole("searchbox", { name: "Search memories" }).fill("maintained");
-  await expect(panel.locator("summary").filter({ hasText: "Project workflow" }).first()).toBeVisible();
-  await panel.getByRole("searchbox", { name: "Search memories" }).fill("no such memory");
-  await expect(panel.locator("summary").filter({ hasText: "Project workflow" })).toHaveCount(0);
-  await panel.getByRole("searchbox", { name: "Search memories" }).fill("");
-  const project = panel.locator("details.memory-project").filter({ has: page.locator(".memory-project-name", { hasText: /^Test project$/ }) });
-  await project.locator("summary").first().click();
-  await expect(project.locator("summary").filter({ hasText: "Project workflow" })).toContainText("How this project is maintained");
-  await expect(project.locator("summary .count")).toHaveText("1");
-  await project.locator("summary").filter({ hasText: "Project workflow" }).click();
-  await expect(project.getByRole("heading", { name: "Workflow details" })).toBeVisible();
-  await panel.getByRole("button", { name: "Agent prompt", exact: true }).click();
+  // The casm agent prompt sits under the global AGENTS.md on the same tab.
   const enabled = panel.getByLabel("Enable host agent prompt");
   await expect(enabled).toBeVisible();
   if (!await enabled.isChecked()) { await enabled.click(); await expect(enabled).toBeChecked(); }
@@ -96,7 +85,7 @@ for (const width of [1440, 375]) test(`host settings mobile-safe editing, memori
   expect(routed.length).toBeGreaterThan(5);
   expect(routed.every((host) => host === (width === 375 ? hostName : undefined))).toBe(true);
   await page.screenshot({ path: `/tmp/host-settings-${width}-${test.info().project.name}.png` });
-  await panel.getByRole("button", { name: "Close settings" }).click();
+  await panel.getByRole("button", { name: "Close host options" }).click();
   await expect(panel).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });

@@ -111,35 +111,34 @@ export function MemorySearch({ query, setQuery }: { query: string; setQuery: (q:
 
 const matches = (query: string, ...texts: (string | undefined)[]) => texts.some((t) => t?.toLowerCase().includes(query));
 
-export function ProjectMemories({ host, rpc, project, initiallyOpen = false, query = "" }: { host: string; rpc: Rpc; project: Project; initiallyOpen?: boolean; query?: string }) {
-  const [open, setOpen] = useState(initiallyOpen);
+/** One project's provider memories as a flat list, with search. */
+export function ProjectMemories({ host, rpc, project }: { host: string; rpc: Rpc; project: Project }) {
   const [memories, setMemories] = useState<AgentMemories[]>();
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
-  // A search loads every project so it can match inside them.
-  const load = open || !!q;
   useEffect(() => {
-    if (!load || memories) return;
     let active = true;
     void rpc.call("project.memories", { id: project.id }, host).then((r) => { if (active) setMemories(r.agents); }).catch((e) => { if (active) setError(message(e)); });
     return () => { active = false; };
-  }, [load, memories, host, project.id, rpc]);
+  }, [host, project.id, rpc]);
   const stores = useMemo(() => memories?.map((store) => ({
     ...store, entries: q ? store.entries.filter((e) => matches(q, e.title, e.id, e.description, e.text)) : store.entries,
   })).filter((store) => !q || store.entries.length), [memories, q]);
-  const total = stores?.reduce((n, s) => n + s.entries.length, 0);
-  if (q && (!memories || total === 0) && !error) return null;
-  return <details className="settings-card memory-project" open={open || !!q} onToggle={(e) => { if (!q) setOpen(e.currentTarget.open); }}>
-    <summary><span className="memory-project-name">{project.name}</span>{total !== undefined && <span className="count" aria-label={`${total} memories`}>{total}</span>}</summary>
-    <code className="settings-path">{project.path}</code>
+  const total = memories?.reduce((n, s) => n + s.entries.length, 0) ?? 0;
+  return <>
+    {total > 4 && <MemorySearch query={query} setQuery={setQuery} />}
     {error && <p role="alert" className="error">{error}</p>}
-    {load && !memories && !error && <p role="status">Loading memories…</p>}
+    {!memories && !error && <p role="status">Loading memories…</p>}
     {memories?.length === 0 && <p className="settings-note">No provider memories found for this project.</p>}
+    {q && stores?.length === 0 && <p className="settings-note">No memories match “{query.trim()}”.</p>}
     {stores?.map((store) => <section key={`${store.provider}:${store.location}`} className="memory-store">
-      <h4>{providerNames[store.provider]} · {store.scope} <span className="count">{store.entries.length}</span></h4>
+      <h4>{providerNames[store.provider]} · {store.scope} <span className="count" aria-label={`${store.entries.length} memories`}>{store.entries.length}</span></h4>
       <code className="settings-path">{store.location}</code>
-      {store.entries.map((entry) => <details key={entry.id} className="memory-entry"><summary><span>{entry.title ?? entry.id}</span>{entry.description && <small>{entry.description}</small>}</summary>
-        <div className="settings-prose"><Prose text={entry.text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "")} /></div></details>)}
+      <div className="memory-list">
+        {store.entries.map((entry) => <details key={entry.id} className="memory-entry"><summary><span>{entry.title ?? entry.id}</span>{entry.description && <small>{entry.description}</small>}</summary>
+          <div className="settings-prose"><Prose text={entry.text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "")} /></div></details>)}
+      </div>
     </section>)}
-  </details>;
+  </>;
 }

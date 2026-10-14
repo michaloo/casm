@@ -1,7 +1,11 @@
 # Host settings
 
-The host menu opens a settings dialog, full-screen on phones. Every RPC carries
-its host ID, so peer settings are read and saved on the selected peer.
+The ⋯ button on a host row (Host options) opens the host modal: Usage, Schedules
+and Instructions. The ⋯ on a project row (Project options) opens the project
+modal: AGENTS.md, Memories and Info. Both share one layout (a tab rail on wide
+screens, scrolling tabs and a full-screen sheet on phones) and ask before
+closing with unsaved edits. The + on a host row adds a project. Every RPC
+carries its host ID, so peer settings are read and saved on the selected peer.
 
 ## Global instructions
 
@@ -31,13 +35,12 @@ Discovery follows these provider conventions:
 This view covers global instruction files, not project or custom extra rules.
 Environment overrides are those inherited by the casm server.
 
-## Memories and agent prompt
+## Agent prompt and project memories
 
-Memories reuse `project.memories` for every project on the selected host and load
-when that project's section opens. Provider adapters determine available stores;
-entries and descriptions are read-only. Claude frontmatter descriptions and
-Codex handbook scope descriptions are exposed as subtitles.
-
-The host agent prompt uses `server.agentPrompt` and `server.setAgentPrompt` for
+The Instructions tab also holds the casm agent prompt. It uses `server.agentPrompt` and `server.setAgentPrompt` for
 an example-agent preview, editing, enabling/disabling, and resetting to default.
 The reset action asks for confirmation inside the dialog.
+
+The project modal's Memories tab lists `project.memories` for that project only,
+grouped by provider store. Entries and descriptions are read-only; Claude
+frontmatter descriptions and Codex handbook scope descriptions are subtitles.

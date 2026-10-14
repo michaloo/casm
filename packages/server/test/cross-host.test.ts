@@ -243,7 +243,7 @@ test("create_agent, send, wait, list_agents and get_history on a peer; parent is
   const h = await tool("get_history", { host: "beta", agent: "child", limit: 2 });
   assert.equal(h.text, "(2 earlier entries)\nuser: again\nassistant: echo: again");
   const history = await beta.client.call("agent.history", { id: child.id });
-  const sender = { serverId: alphaId, agentId: parentId, name: (await alpha.client.call("agent.get", { id: parentId })).name };
+  const sender = { serverId: alphaId, agentId: parentId, name: (await alpha.client.call("agent.get", { id: parentId })).name, host: "alpha" };
   assert.deepEqual(history.items.filter((item) => item.kind === "user").map((item) => item.sender), [sender, sender]);
 });
 
@@ -328,7 +328,7 @@ test("CLI sends carry agent provenance across hosts while human sends stay untag
   });
   await beta.client.call("agent.wait", { id: recipient.id });
   const users = (await beta.client.call("agent.history", { id: recipient.id })).items.filter((item) => item.kind === "user");
-  assert.deepEqual(users[0].sender, { serverId: origin.id, agentId: parentId, name: alpha.store.getAgent(parentId)!.name });
+  assert.deepEqual(users[0].sender, { serverId: origin.id, agentId: parentId, name: alpha.store.getAgent(parentId)!.name, host: origin.name });
   assert.equal(users[1].sender, undefined);
 });
 

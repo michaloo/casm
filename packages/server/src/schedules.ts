@@ -158,12 +158,13 @@ export class Scheduler {
   private async fire(x: Schedule, now: Date): Promise<ScheduleRun> {
     const at = now.toISOString();
     const t = x.target;
+    const sender = this.agents.scheduleSender(x.id, x.name);
     if (t.type === "agent") {
       const a = this.store.getAgent(t.agentId);
       if (!a) return { at, outcome: "failed", error: "agent no longer exists" };
       if (t.whenBusy === "skip" && (this.agents.status(a.id) !== "idle" || this.store.listPending(a.id).length > 0))
         return { at, outcome: "skipped", agentId: a.id };
-      const r = this.agents.send(a.id, { text: x.prompt });
+      const r = this.agents.send(a.id, { text: x.prompt, sender });
       return { at, outcome: r.queued ? "queued" : "sent", agentId: a.id };
     }
     const stamp = now.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -173,6 +174,7 @@ export class Scheduler {
       config: t.config,
       name: `${t.name ?? x.name} · ${stamp}`,
       prompt: x.prompt,
+      sender,
     });
     return { at, outcome: "created", agentId: created.id };
   }

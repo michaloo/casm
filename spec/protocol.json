@@ -1431,6 +1431,24 @@
                     },
                     "name": {
                       "type": "string"
+                    },
+                    "host": {
+                      "type": "string"
+                    },
+                    "schedule": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ]
                     }
                   },
                   "required": [
@@ -2584,6 +2602,24 @@
               },
               "name": {
                 "type": "string"
+              },
+              "host": {
+                "type": "string"
+              },
+              "schedule": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ]
               }
             },
             "required": [
@@ -3152,6 +3188,24 @@
                         },
                         "name": {
                           "type": "string"
+                        },
+                        "host": {
+                          "type": "string"
+                        },
+                        "schedule": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ]
                         }
                       },
                       "required": [
@@ -3514,6 +3568,24 @@
                                 },
                                 "name": {
                                   "type": "string"
+                                },
+                                "host": {
+                                  "type": "string"
+                                },
+                                "schedule": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name"
+                                  ]
                                 }
                               },
                               "required": [
@@ -4237,6 +4309,24 @@
               },
               "name": {
                 "type": "string"
+              },
+              "host": {
+                "type": "string"
+              },
+              "schedule": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ]
               }
             },
             "required": [
@@ -4431,6 +4521,24 @@
                         },
                         "name": {
                           "type": "string"
+                        },
+                        "host": {
+                          "type": "string"
+                        },
+                        "schedule": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ]
                         }
                       },
                       "required": [
@@ -4914,6 +5022,24 @@
                     },
                     "name": {
                       "type": "string"
+                    },
+                    "host": {
+                      "type": "string"
+                    },
+                    "schedule": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ]
                     }
                   },
                   "required": [
@@ -5433,6 +5559,24 @@
                             },
                             "name": {
                               "type": "string"
+                            },
+                            "host": {
+                              "type": "string"
+                            },
+                            "schedule": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name"
+                              ]
                             }
                           },
                           "required": [

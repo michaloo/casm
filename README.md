@@ -135,6 +135,21 @@ requests are available through `permissions`, `approve`, `deny`, `questions` and
 `answer`, or in the web client. Use `--json` for scripting and `-H worker` to
 address a peer. `casm --help` lists all commands and wait exit codes.
 
+### Message delivery
+
+Queued messages run in strict FIFO order, one per turn. Interrupt stops the
+current turn, keeps the queue, and continues with the next message. If a provider
+is unavailable, the message stays pending with a reason and **Retry now**. A
+failed head holds the queue until **Retry now** or **Cancel**; a usage-limit
+head waits for its reset time. **Send now** explicitly steers a selected pending
+message into the current turn. Retrying a selected message is also an explicit
+exception to normal FIFO delivery.
+
+`agent.editPending` changes a queued message's text without changing its place,
+images or sender. Clients can pass a UUID `messageId` to `agent.send`: resending
+the same ID after a lost response reconciles the accepted message rather than
+sending it again. The pending ID and delivered user-item ID stay the same.
+
 See [design](docs/design.md) for architecture and scope, and
 [development](docs/development.md) for isolated dev servers, tests and deployment.
 

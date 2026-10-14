@@ -140,7 +140,11 @@ export class AgentManager {
   }
 
   messageSender(id: string): MessageSender {
-    return { serverId: this.context?.serverId ?? this.store.serverId(), agentId: id, name: this.agent(id).name };
+    return { serverId: this.context?.serverId ?? this.store.serverId(), agentId: id, name: this.agent(id).name, host: this.context?.serverName };
+  }
+
+  scheduleSender(id: string, name: string): MessageSender {
+    return { serverId: this.context?.serverId ?? this.store.serverId(), agentId: `schedule:${id}`, name, host: this.context?.serverName, schedule: { id, name } };
   }
 
   private mintMcpToken(agentId: string): string {

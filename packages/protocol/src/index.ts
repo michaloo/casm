@@ -137,7 +137,14 @@ export type Usage = z.infer<typeof Usage>;
 // has the error. It is kept at the front and holds the queue, not resent,
 // until agent.retryPending or agent.cancelPending.
 // Snapshot of the agent that authored a prompt. Absent for human/legacy sends.
-export const MessageSender = z.object({ serverId: z.string(), agentId: z.string(), name: z.string().optional() });
+export const MessageSender = z.object({
+  serverId: z.string(),
+  // Schedule sends use "schedule:<id>" for older clients that require agentId.
+  agentId: z.string(),
+  name: z.string().optional(),
+  host: z.string().optional(),
+  schedule: z.object({ id: z.string(), name: z.string() }).optional(),
+});
 export type MessageSender = z.infer<typeof MessageSender>;
 
 export const PendingMessage = z.object({

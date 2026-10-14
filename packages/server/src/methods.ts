@@ -60,7 +60,14 @@ export function createHandlers(
   const sender = (source: Params<"agent.send">["sender"]) => {
     if (!source) return undefined;
     // Local names come from the store, not a stale or client-supplied label.
-    if (source.serverId === identity.id) return { ...source, name: getAgent(source.agentId).name };
+    if (source.serverId === identity.id) {
+      if (source.schedule) {
+        const schedule = store.getSchedule(source.schedule.id);
+        if (!schedule) throw new RpcError(ErrorCode.NotFound, "sender schedule not found");
+        return agents.scheduleSender(schedule.id, schedule.name);
+      }
+      return { ...source, name: getAgent(source.agentId).name, host: identity.name };
+    }
     return source;
   };
   // Mode ids are a fixed per-agent list, so a wrong one (say Claude's "default"

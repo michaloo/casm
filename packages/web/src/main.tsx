@@ -1,0 +1,869 @@
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type {
+  Agent,
+  Answers,
+  Catalog,
+  Item,
+  ProviderId,
+  QuestionRequest,
+} from "@casm/protocol";
+import { Rpc, chat, chats, event, key, type Host } from "./state";
+import "./style.css";
+const md = (text: string) => (
+  <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+);
+function Row({ item }: { item: Item }) {
+  if (item.kind === "tool")
+    return (
+      <details className="item tool">
+        <summary>
+          {item.name} · {item.status}
+        </summary>
+        <pre>{JSON.stringify(item.input, null, 2)}</pre>
+        <pre>{item.output}</pre>
+      </details>
+    );
+  if (item.kind === "reasoning")
+    return (
+      <details className="item">
+        <summary>Thinking</summary>
+        {md(item.text)}
+      </details>
+    );
+  if (item.kind === "subagent")
+    return (
+      <details className="item">
+        <summary>
+          Subagent · {item.title} · {item.status}
+        </summary>
+        <p>{item.activity}</p>
+        {md(item.summary ?? "")}
+      </details>
+    );
+  if (item.kind === "plan")
+    return (
+      <div className="item">
+        {item.entries.map((e, i) => (
+          <p key={i}>
+            {e.status === "completed" ? "✓" : "○"} {e.text}
+          </p>
+        ))}
+      </div>
+    );
+  return (
+    <article className={`item ${item.kind}`}>
+      <small>
+        {item.kind === "user"
+          ? "You"
+          : item.kind === "assistant"
+            ? "Assistant"
+            : "Notice"}
+      </small>
+      {md(item.text)}
+    </article>
+  );
+}
+function Question({
+  request,
+  answer,
+}: {
+  request: QuestionRequest;
+  answer: (answers?: Answers) => void;
+}) {
+  const [values, set] = useState<Answers>({});
+  return (
+    <form
+      className="card"
+      onSubmit={(e) => {
+        e.preventDefault();
+        answer(values);
+      }}
+    >
+      <strong>{request.title ?? "Question"}</strong>
+      {request.prompts.map((p) => (
+        <label key={p.id}>
+          {p.text}
+          {p.kind === "confirm" ? (
+            <select
+              required
+              value={String(values[p.id] ?? "")}
+              onChange={(e) =>
+                set({ ...values, [p.id]: e.target.value === "true" })
+              }
+            >
+              <option value="">Choose…</option>
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          ) : p.kind === "select" && !p.allowOther ? (
+            <select
+              required
+              multiple={p.multiple}
+              value={
+                p.multiple
+                  ? ((values[p.id] as string[]) ?? [])
+                  : ((values[p.id] as string) ?? "")
+              }
+              onChange={(e) =>
+                set({
+                  ...values,
+                  [p.id]: p.multiple
+                    ? Array.from(e.target.selectedOptions, (o) => o.value)
+                    : e.target.value,
+                })
+              }
+            >
+              {!p.multiple && <option value="">Choose…</option>}
+              {p.options?.map((o) => (
+                <option key={o.label} value={o.label}>
+                  {o.label}
+                  {o.description ? ` — ${o.description}` : ""}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <>
+              <input
+                required
+                type={p.secret ? "password" : "text"}
+                placeholder={p.placeholder}
+                list={`options-${p.id}`}
+                value={String(values[p.id] ?? "")}
+                onChange={(e) => set({ ...values, [p.id]: e.target.value })}
+              />
+              <datalist id={`options-${p.id}`}>
+                {p.options?.map((o) => (
+                  <option key={o.label}>{o.label}</option>
+                ))}
+              </datalist>
+            </>
+          )}
+        </label>
+      ))}
+      <button>Answer</button>
+      <button type="button" onClick={() => answer()}>
+        Dismiss
+      </button>
+    </form>
+  );
+}
+function App() {
+  const [token, setToken] = useState(localStorage.getItem("casm.token") ?? "");
+  const [entry, setEntry] = useState("");
+  const [online, setOnline] = useState(false);
+  const [hosts, setHosts] = useState<Host[]>([]);
+  const hostsRef = useRef(hosts);
+  hostsRef.current = hosts;
+  const [selection, select] = useState<{
+    host: string;
+    project: string;
+    id?: string;
+  }>();
+  const selected = useRef(selection);
+  selected.current = selection;
+  const [, render] = useState(0);
+  const redraw = () => render((x) => x + 1);
+  const [error, setError] = useState("");
+  const [sidebar, showSidebar] = useState(false);
+  const rpc = useRef<Rpc>(null);
+  const [provider, setProvider] = useState<ProviderId>("claude");
+  const [model, setModel] = useState("");
+  const [mode, setMode] = useState("");
+  const [catalog, setCatalog] = useState<Catalog>({ models: [], modes: [] });
+  const [sending, setSending] = useState(false);
+  const run = async (fn: () => Promise<unknown>) => {
+    try {
+      setError("");
+      await fn();
+    } catch (e) {
+      setError(String((e as Error).message));
+    }
+  };
+  async function load(host: string, id: string, reconnect = false) {
+    const c = chat(key(host, id));
+    if (c.loading || (c.loaded && !reconnect)) return;
+    c.loading = true;
+    redraw();
+    try {
+      // Subscribe first; buffer notifications during the history snapshot to avoid losing deltas.
+      const buffered: any[] = [];
+      buffers.set(key(host, id), buffered);
+      const sub = await rpc.current!.call("agent.subscribe", { id }, host);
+      buffered.length = 0;
+      const history = await rpc.current!.call(
+        "agent.history",
+        { id, limit: 100 },
+        host,
+      );
+      const pending = await rpc.current!.call("agent.pending", { id }, host);
+      c.items = history.items;
+      c.start = history.start;
+      c.draft = "";
+      c.reasoning = "";
+      c.permissions = sub.permissions;
+      c.questions = sub.questions;
+      c.pending = pending.messages;
+      sub.turn.forEach((e) => event(c, e));
+      buffered.forEach((e) => event(c, e));
+      c.loaded = true;
+    } finally {
+      buffers.delete(key(host, id));
+      c.loading = false;
+      redraw();
+    }
+  }
+  const buffers = useRef(new Map<string, any[]>()).current;
+  async function refresh() {
+    const r = rpc.current!;
+    const info = await r.call("server.info", {});
+    const peers = await r.call("peer.list", {});
+    const list = [
+      { id: "", name: info.name },
+      ...peers.peers.map((p) => ({ id: p.name, name: p.name })),
+    ];
+    const next = await Promise.all(
+      list.map(async (h) => {
+        try {
+          const [p, a] = await Promise.all([
+            r.call("project.list", {}, h.id),
+            r.call("agent.list", {}, h.id),
+          ]);
+          return { ...h, projects: p.projects, agents: a.agents };
+        } catch (e) {
+          return {
+            ...h,
+            projects: [],
+            agents: [],
+            error: (e as Error).message,
+          };
+        }
+      }),
+    );
+    setHosts(next);
+    const s = selected.current;
+    if (s?.id) await load(s.host, s.id, true);
+  }
+  useEffect(() => {
+    if (!token) return;
+    const r = new Rpc(
+      token,
+      (v) => {
+        setOnline(v);
+        if (!v) for (const c of chats.values()) c.loaded = false;
+      },
+      (n) => {
+        const host = n.host ?? "";
+        const p = n.params;
+        const k = key(host, p?.agentId ?? p?.agent?.id ?? "");
+        if (n.method === "agent.event") {
+          if (buffers.has(k)) buffers.get(k)!.push(p.event);
+          else event(chat(k), p.event);
+          redraw();
+        }
+        if (n.method === "agent.status" || n.method === "agent.changed") {
+          setHosts((hs) =>
+            hs.map((h) =>
+              h.id !== host
+                ? h
+                : {
+                    ...h,
+                    agents:
+                      n.method === "agent.changed"
+                        ? [
+                            ...h.agents.filter((a) => a.id !== p.agent.id),
+                            p.agent,
+                          ]
+                        : h.agents.map((a) =>
+                            a.id === p.agentId ? { ...a, status: p.status } : a,
+                          ),
+                  },
+            ),
+          );
+          const s = selected.current;
+          if (s?.id && s.host === host && (p.agentId ?? p.agent?.id) === s.id)
+            void r
+              .call("agent.pending", { id: s.id }, host)
+              .then((v) => {
+                chat(key(host, s.id!)).pending = v.messages;
+                redraw();
+              })
+              .catch(() => {});
+        }
+        if (
+          n.method === "project.changed" ||
+          n.method === "project.removed" ||
+          n.method === "agent.removed"
+        )
+          void run(refresh);
+        if (n.method === "peer.disconnected") {
+          const s = selected.current;
+          if (s && s.host === p.host && s.id)
+            setTimeout(() => void run(() => load(s.host, s.id!, true)), 1600);
+        }
+      },
+      () => void run(refresh),
+    );
+    rpc.current = r;
+    return () => r.close();
+  }, [token]);
+  const host = hosts.find((h) => h.id === selection?.host);
+  const agent = host?.agents.find((a) => a.id === selection?.id);
+  const project = host?.projects.find((p) => p.id === selection?.project);
+  const ckey = selection
+    ? key(selection.host, selection.id ?? `new:${selection.project}`)
+    : "";
+  const c = chat(ckey);
+  useEffect(() => {
+    if (selection?.id && online)
+      void run(() => load(selection.host, selection.id!));
+    if (agent) {
+      setProvider(agent.provider);
+      setModel(agent.config.model ?? "");
+      setMode(agent.config.mode ?? "");
+    }
+  }, [ckey, online]);
+  useEffect(() => {
+    if (!selection || !online) return;
+    let active = true;
+    setCatalog({ models: [], modes: [] });
+    void rpc
+      .current!.call("provider.catalog", { provider }, selection.host)
+      .then((v) => {
+        if (active) setCatalog(v);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [provider, selection?.host, online]);
+  function choose(s: typeof selection) {
+    select(s);
+    showSidebar(false);
+  }
+  async function send(steer = false) {
+    if (!selection || !c.input.trim() || sending) return;
+    const s = selection;
+    const text = c.input;
+    setSending(true);
+    await run(async () => {
+      let id = s.id;
+      if (!id) {
+        const a = await rpc.current!.call(
+          "agent.create",
+          {
+            projectId: s.project,
+            provider,
+            name: text.trim().slice(0, 70),
+            config: { model, mode },
+          },
+          s.host,
+        );
+        id = a.id;
+        chat(key(s.host, id)).input = text;
+        select({ ...s, id });
+      } else if (
+        agent &&
+        (agent.config.model !== model || agent.config.mode !== mode)
+      )
+        await rpc.current!.call(
+          "agent.update",
+          { id, config: { model, mode } },
+          s.host,
+        );
+      await rpc.current!.call(
+        "agent.send",
+        { id, text, whenBusy: steer ? "steer" : "queue" },
+        s.host,
+      );
+      if (c.input === text) c.input = "";
+      const destination = chat(key(s.host, id));
+      if (destination.input === text) destination.input = "";
+      await load(s.host, id);
+      redraw();
+    });
+    setSending(false);
+  }
+  if (!token)
+    return (
+      <main className="login">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            localStorage.setItem("casm.token", entry.trim());
+            setToken(entry.trim());
+          }}
+        >
+          <h1>casm</h1>
+          <p>Enter a token from this server to connect.</p>
+          <input
+            aria-label="Server token"
+            type="password"
+            required
+            value={entry}
+            onChange={(e) => setEntry(e.target.value)}
+            autoFocus
+          />
+          <button>Connect</button>
+        </form>
+      </main>
+    );
+  return (
+    <div className="app">
+      <aside className={sidebar ? "open" : ""}>
+        <header>
+          <strong>casm</strong>
+          <button className="mobile" onClick={() => showSidebar(false)}>
+            Close
+          </button>
+        </header>
+        <nav aria-label="Agents">
+          {hosts.map((h) => (
+            <section key={h.id}>
+              <h2>
+                <button
+                  onClick={() =>
+                    choose({ host: h.id, project: h.projects[0]?.id ?? "" })
+                  }
+                >
+                  {h.name}
+                </button>
+              </h2>
+              {h.error && <p className="error">{h.error}</p>}
+              {[...h.projects]
+                .sort(
+                  (a, b) =>
+                    a.sort - b.sort ||
+                    a.name.localeCompare(b.name) ||
+                    a.id.localeCompare(b.id),
+                )
+                .map((p) => (
+                  <div key={p.id}>
+                    <button
+                      className={`project ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}
+                      onClick={() => choose({ host: h.id, project: p.id })}
+                    >
+                      {p.name}
+                      <span>＋</span>
+                    </button>
+                    {h.agents
+                      .filter((a) => a.projectId === p.id)
+                      .sort(
+                        (a, b) =>
+                          a.createdAt.localeCompare(b.createdAt) ||
+                          a.id.localeCompare(b.id),
+                      )
+                      .map((a) => (
+                        <button
+                          className={`agent ${selection?.id === a.id && selection.host === h.id ? "selected" : ""}`}
+                          key={a.id}
+                          onClick={() =>
+                            choose({ host: h.id, project: p.id, id: a.id })
+                          }
+                        >
+                          <span className={`dot ${a.status}`} />
+                          <span className="agent-name">{a.name}</span>
+                          <small>
+                            {a.pending?.count
+                              ? `${a.pending.count} queued `
+                              : ""}
+                            {a.subagents?.running
+                              ? `${a.subagents.running} sub `
+                              : ""}
+                            {a.status}
+                          </small>
+                        </button>
+                      ))}
+                  </div>
+                ))}
+            </section>
+          ))}
+        </nav>
+        <footer>
+          <span className={online ? "" : "error"}>
+            {online ? "Connected" : "Offline · reconnecting…"}
+          </span>
+          <button
+            onClick={() => {
+              localStorage.removeItem("casm.token");
+              setToken("");
+            }}
+          >
+            Token
+          </button>
+        </footer>
+      </aside>
+      <main className="chat">
+        <header>
+          <button className="mobile" onClick={() => showSidebar(true)}>
+            Agents
+          </button>
+          <div>
+            <strong>
+              {agent?.name ?? project?.name ?? "Select a project"}
+            </strong>
+            <small>
+              {agent
+                ? `${agent.provider} · ${agent.status}`
+                : project
+                  ? "New agent"
+                  : "Choose a project to start a conversation"}
+            </small>
+          </div>
+          {!online && <span className="error">Offline</span>}
+        </header>
+        {error && (
+          <div role="alert" className="error banner">
+            {error}
+            <button onClick={() => setError("")}>Dismiss</button>
+          </div>
+        )}
+        <div className="transcript">
+          {selection && (
+            <Transcript
+              key={ckey}
+              ckey={ckey}
+              older={() =>
+                run(async () => {
+                  if (!selection.id || c.loading || !c.start) return;
+                  c.loading = true;
+                  try {
+                    const page = await rpc.current!.call(
+                      "agent.history",
+                      { id: selection.id, before: c.start, limit: 100 },
+                      selection.host,
+                    );
+                    c.items = [
+                      ...page.items.filter(
+                        (i) => !c.items.some((x) => x.id === i.id),
+                      ),
+                      ...c.items,
+                    ];
+                    c.start = page.start;
+                    redraw();
+                  } finally {
+                    c.loading = false;
+                  }
+                })
+              }
+            />
+          )}
+        </div>
+        {selection && project && (
+          <>
+            <div className="pending" aria-label="Pending requests">
+              {c.permissions.map((p) => (
+                <div className="card" key={p.id}>
+                  <strong>{p.title ?? `Permission: ${p.toolName}`}</strong>
+                  <pre>{JSON.stringify(p.input, null, 2)}</pre>
+                  {(
+                    [
+                      "allow",
+                      ...(p.canAlwaysAllow ? ["allowAlways"] : []),
+                      "deny",
+                    ] as const
+                  ).map((d) => (
+                    <button
+                      key={d}
+                      disabled={!online}
+                      onClick={() =>
+                        void run(() =>
+                          rpc.current!.call(
+                            "agent.respondPermission",
+                            {
+                              id: selection.id!,
+                              requestId: p.id,
+                              decision: d as "allow" | "allowAlways" | "deny",
+                            },
+                            selection.host,
+                          ),
+                        )
+                      }
+                    >
+                      {d === "allow"
+                        ? "Allow"
+                        : d === "deny"
+                          ? "Deny"
+                          : "Always allow"}
+                    </button>
+                  ))}
+                </div>
+              ))}
+              {c.questions.map((q) => (
+                <Question
+                  key={q.id}
+                  request={q}
+                  answer={(answers) =>
+                    void run(() =>
+                      rpc.current!.call(
+                        "agent.answerQuestion",
+                        { id: selection.id!, requestId: q.id, answers },
+                        selection.host,
+                      ),
+                    )
+                  }
+                />
+              ))}
+              {c.pending.map((p) => (
+                <div className="pending-row" key={p.id}>
+                  <span>
+                    {p.text}
+                    <small>
+                      {p.reason}
+                      {p.note ? ` · ${p.note}` : ""}
+                    </small>
+                  </span>
+                  <button
+                    disabled={!online}
+                    onClick={() =>
+                      void run(async () => {
+                        await rpc.current!.call(
+                          "agent.cancelPending",
+                          { id: selection.id!, messageId: p.id },
+                          selection.host,
+                        );
+                        c.pending = c.pending.filter((x) => x.id !== p.id);
+                        redraw();
+                      })
+                    }
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={!online}
+                    onClick={() =>
+                      void run(() =>
+                        rpc.current!.call(
+                          "agent.steerPending",
+                          { id: selection.id!, messageId: p.id },
+                          selection.host,
+                        ),
+                      )
+                    }
+                  >
+                    Send now
+                  </button>
+                </div>
+              ))}
+            </div>
+            <form
+              className="composer"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void send();
+              }}
+            >
+              <div className="pickers">
+                {!agent && (
+                  <select
+                    aria-label="Provider"
+                    value={provider}
+                    onChange={(e) => {
+                      setProvider(e.target.value as ProviderId);
+                      setModel("");
+                      setMode("");
+                    }}
+                  >
+                    {["claude", "codex", "pi", "opencode"].map((p) => (
+                      <option key={p}>{p}</option>
+                    ))}
+                  </select>
+                )}
+                <select
+                  aria-label="Model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                >
+                  <option value="">Default model</option>
+                  {model && !catalog.models.some((m) => m.id === model) && (
+                    <option>{model}</option>
+                  )}
+                  {catalog.models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name ?? m.id}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Mode"
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value)}
+                >
+                  <option value="">Default mode</option>
+                  {mode && !catalog.modes.some((m) => m.id === mode) && (
+                    <option>{mode}</option>
+                  )}
+                  {catalog.modes.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name ?? m.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <textarea
+                aria-label="Message"
+                placeholder="Message agent…"
+                value={c.input}
+                onChange={(e) => {
+                  c.input = e.target.value;
+                  redraw();
+                }}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" &&
+                    !e.shiftKey &&
+                    !e.nativeEvent.isComposing
+                  ) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+              />
+              <div className="actions">
+                <small>Enter to send · Shift+Enter for newline</small>
+                {agent && agent.status !== "idle" && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={!online}
+                      onClick={() =>
+                        void run(() =>
+                          rpc.current!.call(
+                            "agent.interrupt",
+                            { id: agent.id },
+                            selection.host,
+                          ),
+                        )
+                      }
+                    >
+                      Interrupt
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!online || !c.input.trim() || sending}
+                      onClick={() => void send(true)}
+                    >
+                      Steer
+                    </button>
+                  </>
+                )}
+                <button disabled={!online || !c.input.trim() || sending}>
+                  {agent?.status === "running" ? "Queue" : "Send"}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+function Transcript({
+  ckey,
+  older,
+}: {
+  ckey: string;
+  older: () => Promise<void>;
+}) {
+  const c = chat(ckey);
+  const ref = useRef<VirtuosoHandle>(null);
+  const [bottom, setBottom] = useState(true);
+  const following = useRef(true);
+  const items: Item[] = [
+    ...c.items,
+    ...(c.reasoning
+      ? [
+          {
+            kind: "reasoning" as const,
+            id: "draft-reasoning",
+            text: c.reasoning,
+          },
+        ]
+      : []),
+    ...(c.draft
+      ? [{ kind: "assistant" as const, id: "draft-assistant", text: c.draft }]
+      : []),
+  ];
+  // A pending-strip resize must keep a reader who was at the end at the end.
+  useLayoutEffect(() => {
+    if (following.current)
+      requestAnimationFrame(() =>
+        ref.current?.scrollToIndex({ index: "LAST" }),
+      );
+  }, [c.pending.length, c.permissions.length, c.questions.length]);
+  const first = 100000 + c.start;
+  return (
+    <div
+      style={{ height: "100%", position: "relative" }}
+      onWheelCapture={(e) => {
+        if (e.deltaY < 0) following.current = false;
+      }}
+      onTouchMoveCapture={() => {
+        following.current = false;
+      }}
+      onKeyDownCapture={(e) => {
+        if (["ArrowUp", "PageUp", "Home"].includes(e.key))
+          following.current = false;
+      }}
+      onPointerDownCapture={(e) => {
+        if ((e.target as HTMLElement).hasAttribute("data-virtuoso-scroller"))
+          following.current = false;
+      }}
+    >
+      <Virtuoso
+        ref={ref}
+        data={items}
+        firstItemIndex={first}
+        initialTopMostItemIndex={
+          c.scroll !== undefined
+            ? { index: Math.max(first, c.scroll) }
+            : { index: "LAST" }
+        }
+        computeItemKey={(_, i) => i.id}
+        followOutput={() => (following.current ? "auto" : false)}
+        atBottomStateChange={(v) => {
+          setBottom(v);
+          if (v) following.current = true;
+        }}
+        rangeChanged={(r) => {
+          c.scroll = r.startIndex;
+        }}
+        startReached={() => {
+          if (c.loaded && c.start > 0) void older();
+        }}
+        itemContent={(_, item) => <Row item={item} />}
+        components={{
+          Header: () =>
+            c.start > 0 ? (
+              <button className="older" onClick={() => void older()}>
+                Load older messages
+              </button>
+            ) : (
+              <div className="empty">
+                {c.loading
+                  ? "Loading…"
+                  : !items.length
+                    ? "Start a conversation"
+                    : ""}
+              </div>
+            ),
+        }}
+      />
+      {!bottom && (
+        <button
+          className="latest"
+          onClick={() => {
+            following.current = true;
+            ref.current?.scrollToIndex({ index: "LAST" });
+          }}
+        >
+          Latest ↓
+        </button>
+      )}
+    </div>
+  );
+}
+createRoot(document.getElementById("root")!).render(<App />);

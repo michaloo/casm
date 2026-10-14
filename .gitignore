@@ -4,3 +4,6 @@ node_modules/
 
 # Per-task git worktrees for parallel agents (casm run --cwd .worktrees/<task>)
 .worktrees/
+packages/web/dist/
+packages/web/test-results/
+packages/web/playwright-report/

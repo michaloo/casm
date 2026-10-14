@@ -353,3 +353,44 @@ casm schedule run | enable | disable | rm <schedule>
 - **Missed runs:** a run missed while the server was down happens once when it's back.
 - **Protocol:** `schedule.list/create/update/delete/runNow`, notifications `schedule.changed` /
   `schedule.removed`. Deleting an agent deletes its schedules.
+
+## Web client (v1)
+
+```sh
+npm ci --include=dev
+npm run build -w @casm/web
+```
+
+The casm server serves `packages/web/dist` at `/` on its existing port, including
+SPA fallback. Open `http://<server>:7373` and enter a client token once (create one
+with `casm token create web`). The browser stores it in localStorage and passes it
+as `?token=` on the WebSocket upgrade. Use a trusted network or HTTPS when serving
+outside your machine. `CASM_WEB_ROOT` or the server config's `web` field overrides
+the built directory (`web: false` disables serving).
+
+Hosts and peers share one connection; peer requests use the protocol's `host`
+field. Click a project to draft a new agent; the first message creates it. Enter
+sends, Shift+Enter inserts a newline; running agents offer Queue, Steer and
+Interrupt. Thinking and tool rows expand on demand. Older history loads when you
+scroll up. Pending messages and permission/question requests sit above the pinned
+composer. The app follows the system light/dark setting.
+
+For live development, run from `packages/web`:
+
+```sh
+VITE_CASM_URL=ws://100.68.62.102:7373 npx vite --host 0.0.0.0 --port 5173
+```
+
+Without an override the WebSocket uses the page origin. `?server=ws://host:port`
+overrides `VITE_CASM_URL`, which is useful for an isolated dev server. Client HMR
+needs no server restart. Keep production service management separate.
+
+```sh
+npm run test -w @casm/web
+```
+
+Playwright starts a disposable fake-provider server on loopback port 7495 with
+`CASM_DEV_HOME=/tmp/casm-web-dev CASM_DEV_PORT=7495`; it makes no model calls and
+never uses production agents. Install Chromium once with `npx playwright install
+chromium` if needed. Screenshots are written to `/tmp/casm-web-desktop.png` and
+`/tmp/casm-web-mobile.png`.

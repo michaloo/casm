@@ -10,7 +10,7 @@ export function PendingQueue({ agentKey, messages, children }: {
       const saved = localStorage.getItem(storageKey);
       if (saved !== null) return saved === "true";
     } catch { /* Storage may be disabled. */ }
-    return !matchMedia("(max-width: 650px)").matches;
+    return false;
   });
   const seenFailures = useRef<Set<string> | undefined>(undefined);
   if (!seenFailures.current) {

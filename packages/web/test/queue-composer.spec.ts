@@ -58,6 +58,7 @@ test("a queued message shows at once, Enter queues and Ctrl+Enter steers while b
   expect(new Set(sends.map((s) => s.messageId)).size).toBe(3);
 
   // Cancel hides the row at once; Interrupt is still there.
+  await page.locator(".queue-toggle").click();
   await rows(page).getByRole("button", { name: "Cancel" }).click();
   await expect(rows(page)).toHaveCount(0);
   await page.getByRole("button", { name: "Interrupt", exact: true }).click();
@@ -77,6 +78,7 @@ test("Send now takes the row out at once and delivers it once", async ({ page })
   await type(page, "slow");
   await type(page, "next one");
   await expect(rows(page)).toContainText("Queued");
+  await page.locator(".queue-toggle").click();
   await rows(page).getByRole("button", { name: "Send now" }).dblclick();
   await expect(rows(page)).toHaveCount(0);
   await expect(page.getByText("echo: next one", { exact: true })).toBeVisible();
@@ -91,6 +93,7 @@ test("a queued message is edited in place and keeps its place", async ({ page })
   await type(page, "first");
   await type(page, "secnod");
   await expect(rows(page)).toHaveCount(2);
+  await page.locator(".queue-toggle").click();
   await rows(page).nth(1).getByRole("button", { name: "Edit" }).click();
   await page.getByLabel("Edit queued message").fill("second, fixed");
   await page.getByLabel("Edit queued message").press("Enter");

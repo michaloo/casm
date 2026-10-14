@@ -276,12 +276,7 @@ test("Vite SPA fallback restores a deep-linked agent on an isolated dev server",
 
 for (const scheme of ["light", "dark"] as const)
   for (const device of ["desktop", "mobile"] as const) {
-    test(`visual transcript · ${device} · ${scheme}`, async ({ page, isMobile, browserName }) => {
-      // Mobile WebKit's virtualized reveal remains timing-dependent after tool
-      // collapse: unmounted targets can fall outside the forward scan. Geometry
-      // settling and a reset-to-top attempt did not stabilize a five-repeat run.
-      test.fixme(isMobile && browserName === "webkit" && device === "mobile",
-        "Virtualized transcript reveal is flaky in mobile WebKit; functional mobile coverage remains enabled.");
+    test(`visual transcript · ${device} · ${scheme}`, async ({ page, isMobile }) => {
       const size =
         device === "desktop"
           ? { width: 1440, height: 900 }
@@ -299,7 +294,7 @@ for (const scheme of ["light", "dark"] as const)
         .getByRole("button", { name: /Claude Visual review .*Idle/, exact: true })
         .click();
       const scroller = page.locator("[data-virtuoso-scroller]");
-      await expect(page.locator(".prose img")).toBeVisible();
+      await expect(page.locator(".item").first()).toBeVisible();
       await scroller.hover();
       if (isMobile) await scroller.evaluate((el) => el.scrollTo(0, 0));
       else await page.mouse.wheel(0, -100000);
@@ -310,6 +305,10 @@ for (const scheme of ["light", "dark"] as const)
         path: `/tmp/casm-web-visual-${device}-${scheme}.png`,
       });
       const reveal = async (locator: ReturnType<typeof page.locator>) => {
+        // Collapsing a tall tool can move the next row above the virtual range.
+        // Start each forward scan at the top so an unmounted target cannot be
+        // stranded behind us while we keep scrolling toward the bottom.
+        await scroller.evaluate((el) => el.scrollTo({ top: 0, behavior: "instant" }));
         // Tool expansion/collapse is remeasured asynchronously by Virtuoso.
         // Wait for its scroll geometry to settle before seeking another row.
         let previous = "";
@@ -387,14 +386,11 @@ for (const scheme of ["light", "dark"] as const)
         page.getByText(/Wide tables scroll inside their own container/),
       ).toBeVisible();
       await subagent.click();
-      await scroller.evaluate((el) => {
-        el.scrollTop = el.scrollHeight;
-      });
       const code = page.getByRole("button", {
         name: "Copy typescript code",
         exact: true,
       });
-      await expect(code).toBeVisible();
+      await reveal(code);
       await expect(page.locator(".hljs-keyword").first()).toBeVisible();
       // Force the plain-http clipboard path even on localhost, a browser secure-context exception.
       await page.evaluate(() =>
@@ -417,6 +413,7 @@ for (const scheme of ["light", "dark"] as const)
       await page.screenshot({
         path: `/tmp/casm-web-markdown-${device}-${scheme}.png`,
       });
+      await reveal(page.locator(".prose img"));
       const manifest = await page.getAttribute("#app-manifest", "href");
       expect(manifest).toBe(
         scheme === "dark"

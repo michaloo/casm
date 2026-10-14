@@ -116,6 +116,22 @@ final class ChatModel {
         Task { try? await client.unsubscribe(agentId: id) }
     }
 
+    /// Left on screen for another chat but kept cached (and subscribed). Its next view starts at the
+    /// bottom, so only the newest rows stay in the window; a very long transcript drops its oldest
+    /// loaded pages (they load again on scrolling up).
+    func park(keeping cap: Int = 1000) {
+        if let start = historyStart, items.count > cap {
+            let drop = min(items.count - cap, historyCount)
+            if drop > 0 {
+                setItems(Array(items.dropFirst(drop)))
+                historyStart = start + drop
+                historyCount -= drop
+                expanded.formIntersection(index.keys)
+            }
+        }
+        windowStart = max(0, items.count - Self.window)
+    }
+
     /// Subscribes first so no live event falls between the history read and the subscription,
     /// then merges the newest history page under whatever the in-flight turn already delivered.
     func resync() async {

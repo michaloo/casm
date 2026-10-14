@@ -1,6 +1,6 @@
 import { testHome, testWS } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 async function login(page: any) {
   await page.goto("/");
   await page

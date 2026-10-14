@@ -1,6 +1,6 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 
 test("host usage is the host modal's first tab, with refresh and graceful missing-provider data", async ({ page }) => {
   await page.goto("/");

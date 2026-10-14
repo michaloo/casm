@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 import { testHome, testURL } from "./config.ts";
 
 test("PWA mobile manifest, Apple metadata and opaque install icons", async ({ page, request }) => {

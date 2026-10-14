@@ -1,6 +1,6 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 
 test("compact provider/model rows and remembered collapse preserve routed agent visibility", async ({ page }) => {
   await page.goto("/");

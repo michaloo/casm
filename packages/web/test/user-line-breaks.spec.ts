@@ -1,6 +1,6 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 
 for (const fromAgent of [false, true]) for (const source of ["live", "history"]) {
   test(`${fromAgent ? "interagent report" : "human message"} ${source} preserves payload newlines in rendered text only`, async ({ page }) => {

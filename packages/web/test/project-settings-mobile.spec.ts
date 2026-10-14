@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
 
 for (const width of [1440, 375]) test(`project modal mobile view edit conflict create and memories at ${width}`, async ({ page }) => {

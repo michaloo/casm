@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
 
 test("markdown external links open a new tab while app links stay internal", async ({ page, context }) => {

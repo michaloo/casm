@@ -1,0 +1,54 @@
+// Every test gets its own freshly seeded server (it boots in about 0.3s), so no
+// test can see the agents, queues or history another test or repeat left behind.
+import { spawn } from "node:child_process";
+import { resolve } from "node:path";
+import { test as base, expect } from "@playwright/test";
+import { testHome, testPort, testURL } from "./config.ts";
+
+async function stop(child: ReturnType<typeof spawn>) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise((done) => child.once("exit", done));
+  child.kill("SIGTERM");
+  const killer = setTimeout(() => child.kill("SIGKILL"), 5000);
+  await exited;
+  clearTimeout(killer);
+}
+
+export const test = base.extend<{ server: void }>({
+  baseURL: async ({}, use) => use(testURL),
+  server: [
+    async ({}, use) => {
+      const env = { ...process.env, CASM_WEB_TEST_PORT: String(testPort), CASM_WEB_TEST_HOME: testHome };
+      // The child applies the worker offset itself only if it sees an index.
+      delete env.TEST_PARALLEL_INDEX;
+      env.CASM_WEB_TEST_PORT = String(testPort);
+      env.CASM_WEB_TEST_HOME = testHome;
+      const child = spawn("node", [resolve(import.meta.dirname, "server.ts")], {
+        cwd: resolve(import.meta.dirname, "../../.."),
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let log = "";
+      child.stdout.on("data", (d) => (log += d));
+      child.stderr.on("data", (d) => (log += d));
+      const failed = new Promise<never>((_, reject) =>
+        child.once("exit", (code) => reject(new Error(`test server exited with ${code}\n${log}`))),
+      );
+      failed.catch(() => {});
+      const ready = (async () => {
+        for (let i = 0; i < 400; i++) {
+          try {
+            if ((await fetch(`${testURL}/health`)).ok) return;
+          } catch {}
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        throw new Error(`test server did not become healthy\n${log}`);
+      })();
+      await Promise.race([ready, failed]);
+      await use();
+      await stop(child);
+    },
+    { auto: true },
+  ],
+});
+export { expect };

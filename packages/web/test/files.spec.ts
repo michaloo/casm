@@ -1,7 +1,8 @@
 // Project files: clickable paths in a transcript, the preview dialog and its
 // signed downloads, and the /f/ route.
 import { readFileSync } from "node:fs";
-import { test, expect, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
 
 const exportsDir = `${testHome}/exports`;

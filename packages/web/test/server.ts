@@ -49,13 +49,25 @@ const provider: Provider = {
     { id: "workflow", title: "Project workflow", description: "How this project is maintained", text: "# Workflow details\n\nUse **isolated** tests." },
   ] }),
   usage: async () => null,
-  commands: async () => [],
+  commands: async () => [
+    { name: "review", description: "Review the requested files and explain the findings", argumentHint: "<path>", kind: "command" },
+    { name: "audit", description: "Run a careful project audit with readable descriptions on phones", argumentHint: "[scope]", kind: "skill" },
+    { name: "reload", description: "Provider command sharing a casm name", kind: "command" },
+  ],
   open(o: OpenOptions) {
     const abort = new AbortController();
     const sessionId = o.resumeId ?? `new-${++seq}`;
     o.emit({ type: "sessionId", id: sessionId });
     let timer: ReturnType<typeof setInterval> | undefined;
+    let mcpEnabled = true;
+    let mcpFailed = true;
     return {
+      mcpStatus: async () => [
+        { name: "docs", status: !mcpEnabled ? "disabled" as const : mcpFailed ? "failed" as const : "connected" as const, tools: mcpEnabled && !mcpFailed ? 3 : 0, ...(mcpFailed ? { error: "Connection needs a refresh" } : {}) },
+        { name: "auth", status: "needs-auth" as const, tools: 0 },
+      ],
+      async mcpReconnect() { mcpFailed = false; return "MCP servers reconnected."; },
+      async mcpToggle(_name: string, enabled: boolean) { mcpEnabled = enabled; },
       send(text) {
         void (async () => {
           if (text === "permission")

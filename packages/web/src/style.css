@@ -2112,3 +2112,14 @@ nav .agent-held.failed { color: var(--danger); }
   .settings-content { padding: 12px max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
   .settings-card { padding: 12px; }
 }
+
+.composer { position: relative; }
+.slash-palette { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; z-index: 5; max-height: min(360px, calc(var(--viewport-height, 100dvh) * .45)); overflow: auto; overscroll-behavior: contain; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 4px; }
+.slash-palette button { display: block; width: 100%; min-height: 44px; text-align: left; border: 0; padding: 10px; white-space: normal; overflow-wrap: anywhere; }
+.slash-palette button[aria-selected="true"] { background: var(--selected); }
+.slash-palette button > span:first-child { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.slash-palette small { color: var(--accent); margin-left: auto; font-size: 12px; }
+.slash-palette code { color: var(--muted); font-size: 13px; }
+.slash-description { display: block; color: var(--muted); font-size: 14px; line-height: 1.4; margin-top: 4px; }
+.slash-palette p, .command-notice { font-size: 13px; margin: 8px; overflow-wrap: anywhere; }
+.mcp-panel h3, .mcp-panel p { overflow-wrap: anywhere; }

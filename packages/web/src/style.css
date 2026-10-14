@@ -1174,6 +1174,24 @@ textarea::placeholder {
 .pending-row button:last-child {
   color: var(--accent);
 }
+.pending-row.failed small {
+  color: var(--danger);
+}
+.pending-edit {
+  flex: 1;
+  display: flex;
+  gap: 7px;
+  align-items: flex-end;
+}
+.pending-edit textarea {
+  flex: 1;
+  min-height: 2.6em;
+  font: inherit;
+  resize: vertical;
+}
+.send-hint kbd {
+  font: inherit;
+}
 .card {
   margin: 12px auto;
   padding: 16px;

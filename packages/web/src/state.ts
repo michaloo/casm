@@ -24,6 +24,13 @@ export type Chat = {
   permissions: PermissionRequest[];
   questions: QuestionRequest[];
   pending: PendingMessage[];
+  // Optimistic queue state (see outbox.ts): rows sent but not yet listed by the
+  // server, and rows being sent now or cancelled.
+  outbox?: PendingMessage[];
+  hidden?: Set<string>;
+  // A message whose send failed and was put back in the composer: sending the
+  // same text and images again reuses its id, so the server sends it once.
+  retry?: { id: string; text: string; images: ImageData[] };
   input: string;
   images: ImageData[];
   draftStorageKey?: string;

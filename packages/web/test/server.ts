@@ -24,6 +24,7 @@ const history: Item[] = Array.from({ length: 320 }, (_, i) => ({
   text: `Message ${i}\n\nA focused conversation with enough history to scroll.\n\n${"More context. ".repeat(10)}`,
 }));
 let seq = 0;
+const failedOnce = new Set<string>();
 const histories = new Map<string, Item[]>();
 const provider: Provider = {
   id: "claude",
@@ -79,6 +80,12 @@ const provider: Provider = {
             return;
           }
           if (text === "slow") return;
+          // The provider is unreachable the first time this text is sent.
+          if (text.startsWith("unavailable") && !failedOnce.has(text)) {
+            failedOnce.add(text);
+            o.emit({ type: "turnEnded", outcome: "failed", error: "provider unreachable" });
+            return;
+          }
           const reply: Item = {
             kind: "assistant",
             id: `reply-${++seq}`,

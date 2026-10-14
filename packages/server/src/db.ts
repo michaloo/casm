@@ -351,8 +351,9 @@ export class Store {
     return (rows as Row[]).map(toPending);
   }
 
-  addPending(p: Omit<Pending, "id" | "seq" | "createdAt" | "attempts"> & { attempts?: number; front?: boolean }): Pending {
-    const id = randomUUID();
+  // Keeps `id` when given (a message put back keeps its identity), else makes one.
+  addPending(p: Omit<Pending, "id" | "seq" | "createdAt" | "attempts"> & { id?: string; attempts?: number; front?: boolean }): Pending {
+    const id = p.id ?? randomUUID();
     const edge = this.db
       .prepare(`SELECT ${p.front ? "MIN(seq) - 1" : "MAX(seq) + 1"} AS s FROM pending WHERE agent_id = ?`)
       .get(p.agentId) as Row;
@@ -388,6 +389,15 @@ export class Store {
   // An authoritative healthy account refresh makes limit-deferred work due.
   releaseLimited(agentId: string): number {
     return Number(this.db.prepare("UPDATE pending SET reason = 'queued', not_before = NULL WHERE agent_id = ? AND reason = 'limit'").run(agentId).changes);
+  }
+
+  getPending(id: string): Pending | undefined {
+    const row = this.db.prepare("SELECT * FROM pending WHERE id = ?").get(id) as Row | undefined;
+    return row ? toPending(row) : undefined;
+  }
+
+  editPending(id: string, text: string): boolean {
+    return this.db.prepare("UPDATE pending SET text = ? WHERE id = ?").run(text, id).changes > 0;
   }
 
   removePending(id: string): boolean {

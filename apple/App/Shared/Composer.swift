@@ -590,8 +590,18 @@ extension ConfigPickers {
     /// reported running (e.g. Codex's config.toml default), and only before any session the
     /// catalog's default. Nil when that id isn't in the catalog.
     static func model(config: AgentConfig, effective: String?, in models: [ModelInfo]) -> ModelInfo? {
-        if let id = config.model ?? effective { return models.first { $0.id == id } }
+        if let id = config.model { return models.first { $0.id == id } }
+        if let id = effective { return models.first { $0.id == id } ?? models.first { named($0, id) } }
         return models.first { $0.isDefault == true }
+    }
+
+    /// Claude reports full ids ("claude-opus-5-5", "claude-haiku-4-5-20251001") while its catalog
+    /// lists aliases named after them ("Opus 5.5"): match on the name.
+    private static func named(_ model: ModelInfo, _ id: String) -> Bool {
+        guard let name = model.name, model.isDefault != true else { return false }
+        let slug = name.lowercased().replacing(/[ .]/, with: "-")
+        let bare = id.replacing(/^claude-/, with: "").replacing(/-\d{8}$/, with: "")
+        return slug == bare
     }
 }
 

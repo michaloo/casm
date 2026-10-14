@@ -11,6 +11,14 @@ casm runs and coordinates Claude Code, Codex, pi and OpenCode through their
 native protocols. It manages messages, steering, queues, subagents, permission
 and question requests, schedules, and provider limits.
 
+The providers fill different roles. Claude Code and Codex are the frontier
+subscriptions, with account limits casm tracks. OpenCode is a full coding agent
+with decent built-in behaviors (permissions, questions, child sessions) and
+broad model-provider integrations, including local models. pi is a bare,
+minimal coding agent for advanced users: great for steering, extensible, and
+without a built-in permission system; casm adds none, so pi's tools run without
+asking.
+
 It does not sandbox or containerize agents, import sessions (including Paseo
 sessions), or synchronize sessions/files between machines. Provider permission
 modes remain provider settings, not a casm isolation boundary. Full-text session

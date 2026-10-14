@@ -444,6 +444,9 @@ export class AgentManager {
         attempts,
         front: true,
       });
+      // Prompts steered in that got no answer are kept too.
+      l.prompt = null;
+      this.keepUnanswered(id, l, limit.message);
       this.changed(id);
     } else if (outcome === "failed" && a) {
       // Kept where the user can see, retry or cancel them, instead of vanishing.

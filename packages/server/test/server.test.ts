@@ -459,7 +459,11 @@ test("a turn that hits a usage limit is deferred, blocks further sends and retri
   client.on("agent.event", (n) => n.agentId === a.id && n.event.type === "turnEnded" && ended.push(n.event));
   await client.call("agent.subscribe", { id: a.id });
   await client.call("agent.send", { id: a.id, text: "please hit-limit" });
+  // Steered in before the limit hit, never answered: kept, not dropped.
+  await client.call("agent.send", { id: a.id, text: "slow steer", whenBusy: "steer" });
   await client.call("agent.wait", { id: a.id });
+  const kept = (await client.call("agent.pending", { id: a.id })).messages.map((m) => [m.reason, m.text]);
+  assert.deepEqual(kept, [["limit", "please hit-limit"], ["failed", "slow steer"]]);
 
   const turn = ended.at(-1);
   assert.ok(turn?.type === "turnEnded" && turn.limit?.resetsAt, "turnEnded carries the limit");

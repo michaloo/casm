@@ -97,6 +97,9 @@ final class DebugControl {
             }
             chat?.apply(event)
             log("applied \(event)")
+        case "retry":
+            guard let chat, let failed = chat.pending.first(where: { $0.reason == .failed }) else { return log("no failed pending message") }
+            Task { await chat.retryPending(failed); log("retried \(failed.id); pending now \(chat.pending.count)") }
         case "interrupt":
             Task { await chat?.interrupt(); log("interrupted") }
         case "reload":

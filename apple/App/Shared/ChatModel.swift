@@ -406,6 +406,13 @@ final class ChatModel {
         await refreshPending()
     }
 
+    /// Sends a failed message again; it leaves the pending list (queued again if the agent is busy).
+    func retryPending(_ message: PendingMessage) async {
+        await perform { _ = try await $0.retryPending(agentId: self.agentId, messageId: message.id) }
+        scrollToBottomRequest += 1
+        await refreshPending()
+    }
+
     /// Takes a pending message back into the composer to change it.
     func editPending(_ message: PendingMessage) async {
         guard let host else { return }

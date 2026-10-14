@@ -40,6 +40,7 @@ scripts/casmctl send text="hello"
 scripts/casmctl permission decision=allow        # allow | allowAlways | deny
 scripts/casmctl answer answers='{"q0":"Blue"}'   # omit answers to dismiss
 scripts/casmctl config model=sonnet effort=medium mode=auto
+scripts/casmctl retry                             # retries the first failed pending message
 scripts/casmctl interrupt | reload | restart | state | questions
 scripts/casmctl synthetic                         # 2,000-item transcript; then: bench, scroll to=top
 scripts/casmctl snapshot path=/tmp/casm-shots/x.png

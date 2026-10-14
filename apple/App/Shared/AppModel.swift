@@ -331,6 +331,9 @@ final class HostModel: Identifiable {
             if let i = projects.firstIndex(where: { $0.id == project.id }) { projects[i] = project } else { projects.append(project) }
         case .projectRemoved(let projectID):
             projects.removeAll { $0.id == projectID }
+        case .peerDisconnected:
+            // The app talks to each host directly, not through a server's peers.
+            break
         case .unknown:
             break
         }

@@ -36,10 +36,17 @@ struct PendingStrip: View {
         if !chat.pending.isEmpty {
             VStack(alignment: .trailing, spacing: 6) {
                 ForEach(chat.pending.prefix(limit)) { message in
-                    PendingRow(message: message,
-                               edit: { Task { await chat.editPending(message) } },
-                               sendNow: { Task { await chat.sendPendingNow(message) } },
-                               cancel: { Task { await chat.cancelPending(message) } })
+                    if message.reason == .failed {
+                        FailedPendingRow(message: message,
+                                         retry: { Task { await chat.retryPending(message) } },
+                                         edit: { Task { await chat.editPending(message) } },
+                                         cancel: { Task { await chat.cancelPending(message) } })
+                    } else {
+                        PendingRow(message: message,
+                                   edit: { Task { await chat.editPending(message) } },
+                                   sendNow: { Task { await chat.sendPendingNow(message) } },
+                                   cancel: { Task { await chat.cancelPending(message) } })
+                    }
                 }
                 #if os(iOS)
                 if chat.pending.count > limit {
@@ -92,7 +99,50 @@ struct PendingRow: View {
         switch message.reason {
         case .queued: return nil
         case .limit: return "When the usage limit resets" + (when.map { " · \($0)" } ?? "")
+        case .failed: return message.note
         case .unknown(let raw): return raw
+        }
+    }
+}
+
+/// A prompt whose turn failed before the agent answered: never resent on its own, so it stands
+/// out (red outline, the error) and offers Retry and Cancel; Edit is in the context menu.
+struct FailedPendingRow: View {
+    let message: PendingMessage
+    let retry: () -> Void
+    let edit: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(.red)
+                .padding(.top, 3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message.text.isEmpty ? "Image" : message.text)
+                    .font(.system(size: 14))
+                    .lineLimit(2)
+                Text("Not sent" + (message.note.map { ": \($0)" } ?? ""))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.red.opacity(0.85))
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+            }
+            Spacer(minLength: 8)
+            RoundIconButton(label: "Cancel", systemImage: "xmark", fill: Theme.surface2, tint: .primary, action: cancel)
+            RoundIconButton(label: "Retry", systemImage: "arrow.clockwise", fill: .accentColor, tint: .white, action: retry)
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .background(Color.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.red.opacity(0.4)))
+        .contextMenu {
+            Button("Retry", action: retry)
+            Button("Edit", action: edit)
+            Divider()
+            Button("Cancel Message", role: .destructive, action: cancel)
         }
     }
 }

@@ -22,6 +22,7 @@ export type Chat = {
   pending: PendingMessage[];
   input: string;
   scroll?: number;
+  atBottom?: boolean;
 };
 export type Host = {
   id: string;

@@ -606,6 +606,20 @@ export const methods = {
     z.object({ id: z.string(), messageId: z.string() }),
     z.object({ queued: z.boolean(), deferredUntil: z.string().optional(), pendingId: z.string().optional() }),
   ),
+  // Sends one pending message now, with its images: steered into the running
+  // turn, or as a new turn when the agent is idle. Like agent.send, it waits
+  // (and is queued again) while a usage limit holds the agent back. NotFound
+  // when the message is gone (sent or cancelled meanwhile).
+  "agent.steerPending": method(
+    z.object({ id: z.string(), messageId: z.string() }),
+    z.object({ queued: z.boolean(), deferredUntil: z.string().optional(), pendingId: z.string().optional() }),
+  ),
+  // Removes one pending message and returns its full prompt (to edit it and
+  // send it again). NotFound when it is gone.
+  "agent.takePending": method(
+    z.object({ id: z.string(), messageId: z.string() }),
+    z.object({ text: z.string(), images: z.array(ImageData).optional() }),
+  ),
   // Cancels one pending message, or all of them when `messageId` is omitted.
   "agent.cancelPending": method(z.object({ id: z.string(), messageId: z.string().optional() }), z.object({ cancelled: z.number() })),
   // Interrupts the running turn and drops its pending messages.

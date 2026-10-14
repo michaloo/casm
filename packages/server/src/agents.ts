@@ -295,10 +295,33 @@ export class AgentManager {
     const m = this.store.listPending(id).find((x) => x.id === messageId);
     if (!m) throw new RpcError(1001, "no such pending message");
     if (m.reason !== "failed") throw new RpcError(-32602, `only failed messages can be retried; this one is ${m.reason}`);
+    return this.resend(id, m, "queue");
+  }
+
+  // Sends a pending message right away, its images included: into the running
+  // turn, or as a new turn when the agent is idle.
+  steerPending(id: string, messageId: string) {
+    this.agent(id);
+    const m = this.store.listPending(id).find((x) => x.id === messageId);
+    if (!m) throw new RpcError(1001, "no such pending message (it may have been sent or cancelled already)");
+    return this.resend(id, m, "steer");
+  }
+
+  // Removes a pending message and returns its full prompt, e.g. to edit it.
+  takePending(id: string, messageId: string): Prompt {
+    this.agent(id);
+    const m = this.store.listPending(id).find((x) => x.id === messageId);
+    if (!m || !this.store.removePending(m.id)) throw new RpcError(1001, "no such pending message (it may have been sent or cancelled already)");
+    this.changed(id);
+    return { text: m.text, ...(m.images?.length ? { images: m.images } : {}) };
+  }
+
+  // Takes a pending message out and sends it; if that throws, it is kept again.
+  private resend(id: string, m: ReturnType<Store["listPending"]>[number], whenBusy: "queue" | "steer") {
     this.store.removePending(m.id);
     const before = new Set(this.store.listPending(id).map((x) => x.id));
     try {
-      return this.send(id, { text: m.text, images: m.images });
+      return this.send(id, { text: m.text, images: m.images }, whenBusy);
     } catch (e) {
       // A turn that started and failed has kept it again already.
       const keptAgain = this.store.listPending(id).some((x) => !before.has(x.id) && x.reason === "failed" && x.text === m.text);

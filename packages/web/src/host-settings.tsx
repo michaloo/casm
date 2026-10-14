@@ -110,7 +110,7 @@ function HostPrompt({ host, rpc }: { host: string; rpc: Rpc }) {
             : <button className="danger quiet" disabled={busy} onClick={() => setResetting(true)}>Reset to default</button>)}
         </div>
         <h4 className="settings-subhead">Preview <small>as an example agent sees it</small></h4>
-        {info.rendered ? <div className="settings-prose settings-preview"><Prose text={info.rendered} /></div> : <p className="settings-note">The host agent prompt is disabled.</p>}
+        {info.rendered ? <div className="settings-prose settings-preview"><Prose text={info.rendered} preserveLineBreaks /></div> : <p className="settings-note">The host agent prompt is disabled.</p>}
       </>}
     </div>}
   </section>;

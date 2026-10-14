@@ -194,7 +194,8 @@ export function createHandlers(
       conn.subscriptions.delete(p.id);
       return { ok: true };
     },
-    "agent.send": (p) => agents.send(p.id, { text: p.text, images: p.images, sender: sender(p.sender) }, p.whenBusy, p.whenLimited),
+    "agent.send": (p) =>
+      agents.send(p.id, { text: p.text, images: p.images, sender: sender(p.sender), ...(p.messageId ? { id: p.messageId } : {}) }, p.whenBusy, p.whenLimited),
     "schedule.list": (p) => ({ schedules: schedules().list(p.agentId) }),
     "schedule.create": (p) => schedules().create(p),
     "schedule.update": (p) => schedules().update(p),
@@ -209,6 +210,10 @@ export function createHandlers(
     },
     "agent.retryPending": (p) => agents.retryPending(p.id, p.messageId),
     "agent.steerPending": (p) => agents.steerPending(p.id, p.messageId),
+    "agent.editPending": (p) => {
+      agents.editPending(p.id, p.messageId, p.text);
+      return { ok: true };
+    },
     "agent.cancelPending": (p) => ({ cancelled: agents.cancelPending(p.id, p.messageId) }),
     "pending.list": () => ({ messages: agents.pendingMessages(), blocked: agents.blocked() }),
     "agent.usage": async (p) => ({ usage: await agents.usage(p.id) }),

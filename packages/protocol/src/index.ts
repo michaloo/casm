@@ -576,10 +576,15 @@ export const methods = {
   ),
   "agent.unsubscribe": method(ById, Ok),
   // `queue` (default) runs after the current turn; `steer` injects into it.
+  // `messageId`: a client-chosen UUID for the message, used as its pending id and
+  // its user item id, so the client can show it at once and match it by id.
+  // Sending the same id again (say after a lost response) does not send it twice:
+  // it returns `queued` with the pending id while it waits, else `queued: false`.
   "agent.send": method(
     z.object({
       id: z.string(),
       text: z.string(),
+      messageId: z.string().uuid().optional(),
       sender: MessageSender.optional(),
       images: z.array(ImageData).optional(),
       whenBusy: z.enum(["queue", "steer"]).optional(),
@@ -627,6 +632,9 @@ export const methods = {
     z.object({ id: z.string(), messageId: z.string() }),
     z.object({ queued: z.boolean(), deferredUntil: z.string().optional(), pendingId: z.string().optional() }),
   ),
+  // Replaces the text of a pending message in place (its images, sender and
+  // place in the queue stay). NotFound when it is gone (sent or cancelled meanwhile).
+  "agent.editPending": method(z.object({ id: z.string(), messageId: z.string(), text: z.string() }), Ok),
   // Cancels one pending message, or all of them when `messageId` is omitted.
   "agent.cancelPending": method(z.object({ id: z.string(), messageId: z.string().optional() }), z.object({ cancelled: z.number() })),
   // Interrupts the running turn and drops its pending messages.

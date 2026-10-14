@@ -36,6 +36,11 @@ struct ChatView: View {
                     NewAgentPlaceholder(chat: chat)
                 } else if Exp.list {
                     ListTranscript(chat: chat)
+                } else if chat.historyStart == nil {
+                    // The transcript starts once the first page is in, so it opens at the bottom
+                    // on its first layout. Scrolling a fresh one there as rows arrived left
+                    // SwiftUI's scroll position out of step with the real one (blank rows).
+                    Color.clear.overlay { if chat.loading { ProgressView() } }
                 } else {
                     transcript
                 }
@@ -189,6 +194,9 @@ struct ChatView: View {
                         .padding(.top, item.gap(after: chat.previous(of: item)))
                         .modifier(HoverSelectable(scrolling: scrolling))
                         .modifier(Column(margin: margin))
+                        #if DEBUG && os(macOS)
+                        .modifier(RowProbe(id: item.id))
+                        #endif
                 }
                 Group {
                     if let draft = chat.draft {
@@ -227,15 +235,16 @@ struct ChatView: View {
             Exp.noGeo || geo.contentSize.height - geo.visibleRect.maxY < 80
         } action: { _, near in
             nearBottom = near
-            if near { chat.trimWindow() }
+            // Only while following: trimming rows above someone reading would move their text.
+            if near, pinned { chat.trimWindow() }
         }
-        // The reader scrolled: the offset moved while the content kept its height. Wheel scrolling
-        // reports no scroll phases, so this is what tells us whether to keep following.
+        .onChange(of: pinned) { if pinned, nearBottom { chat.trimWindow() } }
+        // Wheel scrolling reports no scroll phases, so the geometry tells whether to keep following.
         .onScrollGeometryChange(for: ScrollSpot.self) { geo in
             ScrollSpot(offset: geo.contentOffset.y, height: geo.contentSize.height,
                        atBottom: geo.contentSize.height - geo.visibleRect.maxY < 80)
         } action: { old, new in
-            if old.height == new.height, old.offset != new.offset { pinned = new.atBottom }
+            pinned = ScrollSpot.pinned(pinned, from: old, to: new)
         }
         // While pinned, follow the content as it grows (new items, streaming text, tool output).
         // Only content growth: scrolling while the view itself resized (composer growing, chips,
@@ -822,10 +831,39 @@ private struct Column: ViewModifier {
     }
 }
 
-private struct ScrollSpot: Equatable {
+#if DEBUG && os(macOS)
+/// With CASM_PROBE=1, reports where each rendered row sits in the viewport, so `casmctl anchor`
+/// can measure how far the text being read moves.
+private struct RowProbe: ViewModifier {
+    let id: String
+    private static let on = ProcessInfo.processInfo.environment["CASM_PROBE"] != nil
+
+    func body(content: Content) -> some View {
+        if Self.on {
+            content.onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { y in
+                DebugControl.shared.rowMoved(id, to: y)
+            }
+            .onDisappear { DebugControl.shared.rowGone(id) }
+        } else {
+            content
+        }
+    }
+}
+#endif
+
+struct ScrollSpot: Equatable {
     var offset: CGFloat
     var height: CGFloat
     var atBottom: Bool
+
+    /// Whether to follow the bottom after the scroll geometry changed from `old` to `new`. Only the
+    /// reader decides: the offset moved while the content kept its height, or it moved up while
+    /// the content grew (a wheel step during streaming; growth alone never lowers the offset).
+    static func pinned(_ pinned: Bool, from old: ScrollSpot, to new: ScrollSpot) -> Bool {
+        let readerScrolled = old.height == new.height ? old.offset != new.offset
+            : new.height > old.height && new.offset < old.offset
+        return readerScrolled ? new.atBottom : pinned
+    }
 }
 
 extension JSONValue {

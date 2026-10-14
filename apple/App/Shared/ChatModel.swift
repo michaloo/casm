@@ -94,6 +94,16 @@ final class ChatModel {
         }
     }
 
+    /// The window over `new` that keeps the same newest rows in view (anchored to the end) but
+    /// never drops the row that was first: rows inserted above the reader (history merged after a
+    /// turn) would otherwise push it out of the window and move what they're reading.
+    static func windowStart(old: [Item], start: Int, new: [Item]) -> Int {
+        let shown = old.count - start
+        let fromEnd = max(0, new.count - max(shown, window))
+        guard start < old.count, let first = new.firstIndex(where: { $0.id == old[start].id }) else { return fromEnd }
+        return min(fromEnd, first)
+    }
+
     /// Back at the bottom: shrink the window so the view only lays out recent rows again.
     func trimWindow() {
         let start = max(0, items.count - Self.window)
@@ -285,11 +295,9 @@ final class ChatModel {
         if new.contains(where: { if case .user(let id, _, _) = $0 { id != Self.firstMessageID } else { false } }) {
             new.removeAll { $0.id == Self.firstMessageID }
         }
-        // Keep the same newest rows in view: the window is anchored to the end.
-        let shown = items.count - windowStart
         for item in new where index[item.id] == nil { expandIfShell(item) }
+        windowStart = Self.windowStart(old: items, start: windowStart, new: new)
         items = new
-        windowStart = max(0, new.count - max(shown, Self.window))
         index = Dictionary(new.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { _, last in last })
     }
 

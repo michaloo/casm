@@ -276,6 +276,11 @@ Messages waiting for their agent to become available are stored in the server da
 
 - **queued**: sent while the agent was busy; goes after the running turn.
 - **limit**: hit a usage limit; retried after the reset. Holds back the messages behind it.
+- **failed**: its turn failed before the agent answered anything (a session that can't be resumed,
+  a server stop right after the send), so the agent's own history may not have it. Kept with the
+  error in `note`, never resent on its own: `casm retry <agent> <id>` (`agent.retryPending`) or
+  `casm cancel`. At startup, a kept prompt the agent's history shows as answered is dropped.
+  `casm wait` exits 5 when the last turn failed (`agent.wait` returns `lastTurn`).
 
 `casm pending [agent]` lists them, together with agents waiting for a permission or an answer
 (protocol `pending.list` / `agent.pending`, MCP `list_pending`). `casm cancel <agent> <id>` or

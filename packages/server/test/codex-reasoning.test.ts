@@ -6,6 +6,13 @@ import { test } from "node:test";
 import { codexProvider } from "../src/providers/codex.ts";
 import type { ProviderEvent } from "../src/providers/types.ts";
 
+// Polls until `ready` holds; throws after 5 s so a broken session fails instead of hanging.
+async function until(ready: () => boolean) {
+  for (const deadline = Date.now() + 5000; !ready(); await new Promise((r) => setTimeout(r, 20)))
+    if (Date.now() > deadline) throw new Error("timed out waiting");
+}
+
+
 // A fake app-server that logs thread/start and thread/resume params and answers every request.
 function fakeCodex(dir: string) {
   const binary = join(dir, "fake-codex.cjs");
@@ -48,12 +55,12 @@ for (const resumeId of [null, "thread-1"]) {
       else process.env.CASM_CODEX_PATH = oldPath;
       rmSync(dir, { recursive: true, force: true });
     });
-    while (fake.requests().length === 0) await new Promise((r) => setTimeout(r, 20));
+    await until(() => fake.requests().length > 0);
     const [request] = fake.requests();
     assert.equal(request.method, resumeId ? "thread/resume" : "thread/start");
     assert.deepEqual(request.params.config, { model_reasoning_summary: "detailed", mcp_servers: mcpServers });
     // No config.model: the model the thread runs is Codex's own default, reported as the effective model.
-    while (!events.some((e) => e.type === "model")) await new Promise((r) => setTimeout(r, 20));
+    await until(() => events.some((e) => e.type === "model"));
     assert.deepEqual(events.find((e) => e.type === "model"), { type: "model", model: "fake" });
   });
 }

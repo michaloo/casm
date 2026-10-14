@@ -946,6 +946,7 @@ class ClaudeSession implements ProviderSession {
         this.opts.emit({ type: "sessionId", id: m.session_id });
         if (m.model) {
           this.model ??= m.model;
+          this.opts.emit({ type: "model", model: m.model });
           const w = this.windows.get(m.model);
           this.opts.emit({ type: "usage", usage: { model: m.model, ...(w ? { contextWindow: w } : {}) } });
         }

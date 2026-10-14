@@ -483,3 +483,125 @@ test("OpenCode MCP reconnect uses directory-scoped native endpoints and keeps di
     assert.ok(!server.calls.some((s) => s.includes("/off/")));
   } finally { await session.close(); }
 });
+
+test("OpenCode reports the model each assistant message ran on, once per change", async () => {
+  const server = new FakeOpencodeServer();
+  const events: ProviderEvent[] = [];
+  const session = opencodeProvider(server).open({ cwd: "/tmp", config: {}, resumeId: null, emit: (e) => events.push(e), askPermission: async () => ({ decision: "allow" }), askQuestion: async () => null });
+  await new Promise((r) => setImmediate(r));
+  const assistant = (id: string, modelID: string) => server.event("message.updated", { info: { id, sessionID: ids.sessionID, role: "assistant", providerID: "opencode", modelID } });
+  assistant("msg_a1", "big-pickle");
+  assistant("msg_a1", "big-pickle");
+  assistant("msg_a2", "gpt-5-nano");
+  // A child session's model is not the agent's.
+  server.event("message.updated", { info: { id: "child_a", sessionID: "ses_child", role: "assistant", providerID: "x", modelID: "y" } });
+  assert.deepEqual(events.filter((e) => e.type === "model"), [{ type: "model", model: "opencode/big-pickle" }, { type: "model", model: "opencode/gpt-5-nano" }]);
+  await session.close();
+});
+
+test("OpenCode MCP toggle disconnects and connects one server in the agent's directory", async () => {
+  class McpServer extends FakeOpencodeServer {
+    calls: string[] = [];
+    connects = true;
+    override async request<T>(method: string, path: string, cwd?: string): Promise<T> {
+      if (!path.startsWith("/mcp")) return super.request(method, path);
+      assert.equal(cwd, "/tmp/mcp-project");
+      this.calls.push(`${method} ${path}`);
+      if (path === "/mcp") return { docs: { status: "connected" } } as T;
+      return (path.endsWith("/connect") ? this.connects : true) as T;
+    }
+  }
+  const server = new McpServer();
+  const session = opencodeProvider(server).open({ cwd: "/tmp/mcp-project", config: {}, resumeId: null, emit() {}, askPermission: async () => ({ decision: "deny" }), askQuestion: async () => null });
+  try {
+    await session.mcpToggle!("docs", false);
+    await session.mcpToggle!("docs", true);
+    assert.deepEqual(server.calls.filter((c) => c !== "GET /mcp"), ["POST /mcp/docs/disconnect", "POST /mcp/docs/connect"]);
+    await assert.rejects(session.mcpToggle!("nope", true), /Unknown MCP server/);
+    server.connects = false;
+    await assert.rejects(session.mcpToggle!("docs", true), /Could not connect/);
+  } finally { await session.close(); }
+});
+
+test("OpenCode steering: a prompt sent mid-turn joins the running loop and the turn ends once", async () => {
+  const prompts: { messageID: string; text: string }[] = [];
+  class PromptServer extends FakeOpencodeServer {
+    override async request<T>(method: string, path: string, directory?: string, body?: unknown): Promise<T> {
+      if (path.endsWith("/prompt_async")) {
+        const b = body as { messageID: string; parts: { text?: string }[] };
+        prompts.push({ messageID: b.messageID, text: b.parts[0].text ?? "" });
+        return {} as T;
+      }
+      return super.request<T>(method, path);
+    }
+  }
+  const server = new PromptServer();
+  const events: ProviderEvent[] = [];
+  const session = opencodeProvider(server).open({ cwd: "/tmp", config: {}, resumeId: null, emit: (e) => events.push(e), askPermission: async () => ({ decision: "allow" }), askQuestion: async () => null });
+  try {
+    session.send("first", "id-1", undefined, "turn-1");
+    await new Promise((r) => setImmediate(r));
+    server.event("session.status", { sessionID: ids.sessionID, status: { type: "busy" } });
+    session.send("also this", "id-2", undefined, "turn-1");
+    await new Promise((r) => setImmediate(r));
+    // OpenCode stores the second user message; its loop picks it up after the current step.
+    server.event("session.status", { sessionID: ids.sessionID, status: { type: "busy" } });
+    server.event("session.status", { sessionID: ids.sessionID, status: { type: "idle" } });
+    assert.deepEqual(prompts, [{ messageID: "msg_id1", text: "first" }, { messageID: "msg_id2", text: "also this" }]);
+    assert.deepEqual(events.filter((e) => e.type === "turnEnded"), [{ type: "turnEnded", outcome: "completed", error: undefined, turnId: "turn-1" }]);
+  } finally { await session.close(); }
+});
+
+const backgroundTask = (status: "running" | "completed"): OcPart => ({
+  id: "prt_bg", ...ids, type: "tool", tool: "task",
+  state: {
+    status, input: { description: "Scan repo", subagent_type: "general", background: true },
+    metadata: { sessionId: "ses_bg", model: { providerID: "opencode", modelID: "big-pickle" }, ...(status === "completed" ? { background: true } : {}) },
+    output: '<task id="ses_bg" state="running">\n<summary>Background task started</summary>\n<task_result>\nThe task is working in the background.\n</task_result>\n</task>',
+    time: { start: 1000, end: 1500 },
+  },
+});
+const backgroundResult = (state: "completed" | "error", text: string) =>
+  `<task id="ses_bg" state="${state}">\n<summary>Background task ${state}: Scan repo</summary>\n<task_${state === "error" ? "error" : "result"}>\n${text}\n</task_${state === "error" ? "error" : "result"}>\n</task>`;
+
+test("OpenCode background tasks stay running until the parent session reports their end", async () => {
+  // History: the injected synthetic result ends the task at its first position.
+  const history: OcMessage[] = [
+    { info: { id: "msg_u1", sessionID: "ses_1", role: "user" }, parts: [{ id: "p1", sessionID: "ses_1", messageID: "msg_u1", type: "text", text: "go" }] },
+    { info: { id: "msg_a1", sessionID: "ses_1", role: "assistant", parentID: "msg_u1" }, parts: [backgroundTask("completed")] },
+    { info: { id: "msg_u2", sessionID: "ses_1", role: "user" }, parts: [{ id: "p2", sessionID: "ses_1", messageID: "msg_u2", type: "text", text: backgroundResult("completed", "Found 3 files"), synthetic: true }] },
+  ];
+  const usage = { model: "opencode/big-pickle" };
+  assert.deepEqual(normalizeMessages(history.slice(0, 2))[1], { kind: "subagent", id: "prt_bg", title: "Scan repo", agentType: "general", status: "running", usage });
+  assert.deepEqual(normalizeMessages(history), [
+    { kind: "user", id: "msg_u1", text: "go" },
+    { kind: "subagent", id: "prt_bg", title: "Scan repo", agentType: "general", status: "done", summary: "Found 3 files", usage },
+  ]);
+
+  // Live: the tool call completes at once; the synthetic user part ends it.
+  const server = new FakeOpencodeServer();
+  const events: ProviderEvent[] = [];
+  const session = opencodeProvider(server).open({ cwd: "/tmp", config: {}, resumeId: null, emit: (e) => events.push(e), askPermission: async () => ({ decision: "allow" }), askQuestion: async () => null });
+  await new Promise((r) => setImmediate(r));
+  server.event("message.updated", { info: { id: ids.messageID, sessionID: ids.sessionID, role: "assistant" } });
+  server.event("message.part.updated", { part: backgroundTask("running") });
+  server.event("message.part.updated", { part: backgroundTask("completed") });
+  server.event("message.updated", { info: { id: "msg_u2", sessionID: ids.sessionID, role: "user" } });
+  server.event("message.part.updated", { part: { id: "p2", sessionID: ids.sessionID, messageID: "msg_u2", type: "text", text: backgroundResult("error", "boom"), synthetic: true } });
+  // A repeated update of the call doesn't reopen it.
+  server.event("message.part.updated", { part: backgroundTask("completed") });
+  const tasks = events.flatMap((e) => (e.type === "item" && e.item.kind === "subagent" ? [e.item] : []));
+  assert.deepEqual(tasks.map((t) => [t.status, t.summary]), [["running", undefined], ["running", undefined], ["error", "boom"]]);
+  await session.close();
+});
+
+test("a foreground task's summary is its result text, with model and duration", () => {
+  const part: OcPart = {
+    id: "prt_fg", ...ids, type: "tool", tool: "task",
+    state: {
+      status: "completed", input: { description: "Read" }, metadata: { sessionId: "ses_fg", model: { providerID: "p", modelID: "m" } },
+      output: '<task id="ses_fg" state="completed">\n<task_result>\nAll good\n</task_result>\n</task>', time: { start: 10, end: 2010 },
+    },
+  };
+  assert.deepEqual(normalizePart(part), { kind: "subagent", id: "prt_fg", title: "Read", status: "done", summary: "All good", usage: { model: "p/m", durationMs: 2000 } });
+});

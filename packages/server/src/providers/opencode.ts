@@ -31,8 +31,10 @@ type ToolState = {
   output?: string;
   attachments?: OcPart[];
   error?: string;
-  // Running bash tools carry the output so far in metadata.output.
-  metadata?: { output?: unknown; todos?: unknown; sessionId?: string };
+  time?: { start?: number; end?: number };
+  // Running bash tools carry the output so far in metadata.output. Task tools
+  // name the child session, its model, and whether it runs in the background.
+  metadata?: { output?: unknown; todos?: unknown; sessionId?: string; model?: { providerID?: string; modelID?: string }; background?: boolean };
 };
 
 export type OcPart = {
@@ -156,6 +158,21 @@ export function shellTool(item: Extract<Item, { kind: "tool" }>): Item {
   return out;
 }
 
+// The task tool's output, and the synthetic user text that reports a
+// background task's end: <task id="ses_…" state="…">[<summary>…</summary>]
+// <task_result|task_error>text</…></task>.
+const TASK_OUTPUT = /^<task id="([^"]+)" state="(running|completed|error)">\n(?:<summary>[^\n]*<\/summary>\n)?<task_(?:result|error)>\n([\s\S]*)\n<\/task_(?:result|error)>\n<\/task>$/;
+
+export function taskOutput(text: string): { session: string; state: "running" | "completed" | "error"; text: string } | null {
+  const m = TASK_OUTPUT.exec(text.trim());
+  return m ? { session: m[1], state: m[2] as "running" | "completed" | "error", text: m[3] } : null;
+}
+
+// A background task's end, as reported in the parent session.
+export function backgroundEnd(task: Extract<Item, { kind: "subagent" }>, end: { state: string; text: string }): Extract<Item, { kind: "subagent" }> {
+  return { ...task, status: end.state === "error" ? "error" : "done", summary: truncate(end.text) };
+}
+
 // One assistant part as an item, or null when there is nothing to show yet.
 // `turn` is the user message the part answers (assistant info.parentID).
 export function normalizePart(p: OcPart, turn?: string): Item | null {
@@ -172,11 +189,17 @@ export function normalizePart(p: OcPart, turn?: string): Item | null {
   if (p.type === "tool" && p.tool === "task" && p.state) {
     const s = p.state;
     const input = s.input as { description?: string; subagent_type?: string } | undefined;
+    // A background task's tool call completes when it starts; its end is reported later (backgroundEnd).
+    const background = s.status === "completed" && s.metadata?.background === true;
+    const model = s.metadata?.model?.providerID && s.metadata.model.modelID ? `${s.metadata.model.providerID}/${s.metadata.model.modelID}` : undefined;
+    const durationMs = !background && s.time?.start && s.time.end ? s.time.end - s.time.start : undefined;
+    const usage = { ...(model ? { model } : {}), ...(durationMs !== undefined ? { durationMs } : {}) };
     return {
       kind: "subagent", id: p.id, title: input?.description || "Task",
       ...(input?.subagent_type ? { agentType: input.subagent_type } : {}),
-      status: s.status === "completed" ? "done" : s.status === "error" ? "error" : "running",
-      ...(s.status === "completed" ? { summary: truncate(s.output ?? "") } : s.status === "error" ? { summary: truncate(s.error ?? "") } : {}),
+      status: background ? "running" : s.status === "completed" ? "done" : s.status === "error" ? "error" : "running",
+      ...(background ? {} : s.status === "completed" ? { summary: truncate(taskOutput(s.output ?? "")?.text ?? s.output ?? "") } : s.status === "error" ? { summary: truncate(s.error ?? "") } : {}),
+      ...(Object.keys(usage).length ? { usage } : {}),
     };
   }
   if (p.type === "tool" && p.state) {
@@ -211,9 +234,16 @@ export function normalizeMessages(messages: OcMessage[]): Item[] {
     else out[i] = item;
   };
   const shellTurns = new Set<string>();
+  // Background tasks by child session, until their end is reported.
+  const background = new Map<string, Extract<Item, { kind: "subagent" }>>();
   for (const m of messages) {
     if (m.info.role === "user") {
       if (m.parts.some((p) => p.type === "text" && p.synthetic && p.text === SHELL_MARKER)) shellTurns.add(m.info.id);
+      for (const p of m.parts) {
+        const end = p.type === "text" && p.synthetic ? taskOutput(p.text ?? "") : null;
+        const task = end && background.get(end.session);
+        if (task && end.state !== "running") background.delete(end.session), push(backgroundEnd(task, end));
+      }
       const text = m.parts
         .filter((p) => p.type === "text" && !p.synthetic && !p.ignored)
         .map((p) => p.text ?? "")
@@ -228,6 +258,7 @@ export function normalizeMessages(messages: OcMessage[]): Item[] {
     for (const p of m.parts) {
       const item = normalizePart(p, m.info.parentID);
       if (item) push(shell && item.kind === "tool" ? shellTool(item) : item);
+      if (item?.kind === "subagent" && item.status === "running" && p.state?.metadata?.sessionId) background.set(p.state.metadata.sessionId, item);
     }
     if (m.info.error && m.info.error.name !== "MessageAbortedError") push(errorItem(m.info.id, m.info.error));
   }
@@ -578,6 +609,8 @@ class OpencodeSession implements ProviderSession {
   private tasks = new Map<string, Extract<Item, { kind: "subagent" }>>();
   private childTasks = new Map<string, string>();
   private activity = new Map<string, string>();
+  // The last "provider/model" an assistant message ran on.
+  private model: string | undefined;
 
   constructor(opts: OpenOptions, server: OpencodeServer) {
     this.opts = opts;
@@ -603,6 +636,8 @@ class OpencodeSession implements ProviderSession {
       try {
         const messages = await this.server.request<OcMessage[]>("GET", `/session/${id}/message`, this.opts.cwd);
         for (const m of messages) for (const p of m.parts) this.task(p, false);
+        // Background tasks whose end the transcript already reports.
+        for (const item of normalizeMessages(messages)) if (item.kind === "subagent" && item.status !== "running" && this.tasks.has(item.id)) this.tasks.set(item.id, item);
         for (const m of messages) if (m.info.role === "assistant" && m.info.tokens && !this.usageInfos.has(m.info.id)) this.usageInfos.set(m.info.id, m.info);
       } catch {
         // Totals then count from this process on.
@@ -629,6 +664,9 @@ class OpencodeSession implements ProviderSession {
       this.childTasks.set(child, item.id);
       this.server.linkChild(child, part.sessionID);
     }
+    // A late update of a background task's call must not reopen it.
+    const prev = this.tasks.get(item.id);
+    if (prev && prev.status !== "running" && item.status === "running") return true;
     const activity = child ? this.activity.get(child) : undefined;
     const updated = { ...item, ...(activity ? { activity } : {}) };
     this.tasks.set(item.id, updated);
@@ -661,6 +699,11 @@ class OpencodeSession implements ProviderSession {
         const info = p.info as OcMessageInfo;
         this.roles.set(info.id, info.role);
         if (info.role === "user") this.userMessage = info.id;
+        // The model each assistant message ran on: config.model, else the agent's or OpenCode's default.
+        if (info.role === "assistant" && info.providerID && info.modelID) {
+          const model = `${info.providerID}/${info.modelID}`;
+          if (model !== this.model) (this.model = model), this.emit({ type: "model", model });
+        }
         if (info.error && info.error.name !== "MessageAbortedError") {
           this.error = errorText(info.error);
           if (!this.errored.has(info.id)) this.errored.add(info.id), this.emit({ type: "item", item: errorItem(info.id, info.error) });
@@ -680,6 +723,15 @@ class OpencodeSession implements ProviderSession {
         this.partTypes.set(part.id, part.type);
         if (part.type === "compaction") {
           this.emit({ type: "item", item: normalizePart(part)! });
+          return;
+        }
+        const end = part.type === "text" && part.synthetic ? taskOutput(part.text ?? "") : null;
+        const id = end && end.state !== "running" ? this.childTasks.get(end.session) : undefined;
+        const task = id ? this.tasks.get(id) : undefined;
+        if (end && task?.status === "running") {
+          const done = backgroundEnd(task, end);
+          this.tasks.set(task.id, done);
+          this.emit({ type: "item", item: done });
           return;
         }
         if (this.roles.get(part.messageID) !== "assistant") return;
@@ -890,6 +942,17 @@ class OpencodeSession implements ProviderSession {
     const failed = results.flatMap((r, i) => r.status === "rejected" ? [`${names[i]}: ${String(r.reason)}`] : []);
     if (failed.length) throw new Error(failed.join("; "));
     return "Reconnected OpenCode MCP servers. Connections are shared by sessions in this directory.";
+  }
+
+  // disconnect/connect are OpenCode's runtime enable and disable: a disconnected
+  // server reports "disabled" until connected again, and connect overrides
+  // `enabled: false` in its config. Neither is persisted.
+  async mcpToggle(server: string, enabled: boolean) {
+    const servers = await this.mcpStatus();
+    if (!servers.some((s) => s.name === server)) throw new Error(`Unknown MCP server: ${server}`);
+    const path = `/mcp/${encodeURIComponent(server)}/${enabled ? "connect" : "disconnect"}`;
+    const ok = await this.server.request<boolean>("POST", path, this.opts.cwd);
+    if (enabled && !ok) throw new Error(`Could not connect ${server}`);
   }
 
   async interrupt() {

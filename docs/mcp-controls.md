@@ -13,8 +13,8 @@ likewise. Provider commands are inserted as text and use the ordinary send path,
 including commands whose names also exist as casm actions. Descriptions and
 argument hints come from `agent.commands`.
 
-`/mcp` opens status, reconnect and enable/disable controls (Claude; pi for the
-servers casm adds). `McpServer.canToggle: false` marks a server that can't be
+`/mcp` opens status, reconnect and enable/disable controls (Claude, OpenCode;
+pi for the servers casm adds). `McpServer.canToggle: false` marks a server that can't be
 toggled although the provider supports toggling.
 `agent.mcpStatus` returns servers, supported reconnect scope and toggle capability.
 `agent.mcpReconnect` returns `mode: native | reload` and an explanation.
@@ -38,7 +38,11 @@ Provider behavior, verified against installed APIs:
   [Codex app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
 - OpenCode uses directory-scoped `GET /mcp`, then
   `POST /mcp/{name}/disconnect` and `/connect`. Connections are shared by sessions
-  in that directory. Disabled servers are skipped by reconnect all. Its status
+  in that directory. Disabled servers are skipped by reconnect all. Toggle uses
+  the same endpoints: `disconnect` leaves a server `disabled` until `connect`,
+  which also connects a server whose config says `enabled: false`. Neither is
+  persisted, and both apply to every session in that directory
+  (`packages/opencode/src/mcp/index.ts` `connect`/`disconnect`, v1.19.0). Its status
   endpoint does not expose tool counts: `toolsKnown: false` means the numeric
   placeholder must not be displayed as a known count. Checked against the
   installed `opencode serve` OpenAPI `/doc` endpoint on an isolated server.

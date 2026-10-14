@@ -1265,6 +1265,8 @@ details[open] > summary:before {
   font-size: 12px;
   font-weight: 500;
 }
+.composer-picker-prefix { flex: 0 0 auto; color: var(--faint); font-weight: 500; }
+.composer-picker-prefix + .composer-picker-label { color: var(--text); }
 .composer-picker-label { min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-picker-chevron { flex-shrink: 0; color: var(--faint); }
 .composer-picker select { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; font-size: 16px; }
@@ -1966,6 +1968,44 @@ textarea::placeholder {
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
+/* Host Usage tab: one card per provider, side by side when there is room. */
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 14px;
+  margin-top: 8px;
+}
+.usage-card.host-provider-usage {
+  align-content: start;
+  gap: 16px;
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+}
+.usage-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.usage-card-head > strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  font-size: 16px;
+  font-weight: 650;
+}
+.usage-state.ok { background: var(--accent-soft); color: var(--accent); }
+.usage-state.high { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
+.usage-state.full { background: var(--attention-soft); color: var(--attention); }
+.usage-card .usage-window { gap: 6px; }
+.usage-card .usage-window-values { grid-template-columns: auto minmax(0, 1fr); }
+.usage-card .usage-window-values > :last-child { font-size: 15px; }
+.usage-card .usage-meter { height: 8px; border-radius: 4px; }
+.usage-card .usage-reported { padding-top: 10px; border-top: 1px solid var(--line); }
 .host-provider-usage > strong {
   display: flex;
   align-items: center;
@@ -2202,7 +2242,8 @@ nav .row-more:hover, nav .row-more:focus-visible, nav .row-more[aria-expanded="t
 
 .host-settings {
   width: min(960px, calc(100vw - 40px));
-  height: min(900px, 90dvh);
+  /* One height for every tab, so switching tabs never resizes the window. */
+  height: min(720px, 90dvh);
   max-width: none;
   max-height: none;
   margin: auto;

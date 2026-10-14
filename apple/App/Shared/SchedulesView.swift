@@ -88,12 +88,11 @@ struct ScheduleRow: View {
                     Text(schedule.cadence.summary).font(.system(size: 12)).foregroundStyle(Theme.muted)
                 }
                 Text(schedule.prompt).font(.system(size: 13)).lineLimit(2).foregroundStyle(.primary.opacity(0.85))
-                HStack(spacing: 10) {
-                    Label(targetText, systemImage: targetIcon)
-                    if schedule.enabled, let next = ISOTime.parse(schedule.nextRunAt) {
-                        Text("Next \(ISOTime.describe(next))")
-                    }
-                    if let run = schedule.lastRun { lastRun(run) }
+                // One line where it fits; stacked on an iPhone, where squeezing the three into
+                // columns wrapped them mid-word.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) { details }.fixedSize()
+                    VStack(alignment: .leading, spacing: 2) { details }
                 }
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.muted)
@@ -124,6 +123,14 @@ struct ScheduleRow: View {
             Button("Run Now") { Task { await host.runNow(schedule) } }.tint(.accentColor)
             Button("Edit", action: edit)
         }
+    }
+
+    @ViewBuilder private var details: some View {
+        Label(targetText, systemImage: targetIcon)
+        if schedule.enabled, let next = ISOTime.parse(schedule.nextRunAt) {
+            Text("Next \(ISOTime.describe(next))")
+        }
+        if let run = schedule.lastRun { lastRun(run) }
     }
 
     private var targetText: String {

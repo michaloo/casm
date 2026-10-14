@@ -447,3 +447,14 @@ test("a message steered into a running turn is in history where Claude absorbed 
     [["user", "Sleep, then say ORIGINAL"], ["assistant", "Sleeping"], ["user", "Say STEERED instead"], ["assistant", "STEERED"]],
   );
 });
+
+test("a steer with images is stored as content blocks and keeps its text and images in history", () => {
+  const n = new Normalizer();
+  const steer = (prompt: unknown) => n.entry({ type: "attachment", uuid: "q1", attachment: { type: "queued_command", commandMode: "prompt", prompt } } as never);
+  assert.deepEqual(steer([{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }, { type: "text", text: "Look at this" }]), [
+    { kind: "user", id: "q1", text: "Look at this", images: [{ mediaType: "image/png", data: "AAAA" }] },
+  ]);
+  // As Claude Code also stores plain steers from other clients.
+  assert.deepEqual(steer([{ type: "text", text: "Only text" }]), [{ kind: "user", id: "q1", text: "Only text" }]);
+  assert.deepEqual(steer([]), []);
+});

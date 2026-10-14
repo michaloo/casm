@@ -1,3 +1,4 @@
+import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 
@@ -27,7 +28,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 360, height: 780 }
   test(`phone layout fits ${viewport.width}px: sidebar, transcript, pending and permission`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
-    await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+    await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     const agents = page.getByRole("button", { name: "Agents", exact: true });
     expect((await agents.boundingBox())!.height).toBeGreaterThanOrEqual(44);

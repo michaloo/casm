@@ -1,9 +1,10 @@
+import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 async function login(page: Page) {
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await expect(page.getByLabel("Message")).toBeVisible();

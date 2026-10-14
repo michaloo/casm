@@ -1,3 +1,4 @@
+import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
@@ -32,7 +33,7 @@ test("same-server/project nesting preserves selectable rows and excludes unrelat
     });
   });
   await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync("/tmp/casm-web-dev/web-token", "utf8"));
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   for (let i = 0; i < 8; i++) {
     const name = `Agent ${String(i).padStart(2, "0")}`;

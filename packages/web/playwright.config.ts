@@ -1,18 +1,19 @@
 import { defineConfig } from "@playwright/test";
+import { testURL } from "./test/config.ts";
 export default defineConfig({
   testDir: "test",
   testMatch: "*.spec.ts",
   workers: 1,
   use: {
-    baseURL: "http://127.0.0.1:7495",
+    baseURL: testURL,
     headless: true,
     viewport: { width: 1440, height: 900 },
   },
   webServer: {
     command:
-      "CASM_DEV_HOME=/tmp/casm-web-dev CASM_DEV_PORT=7495 node packages/web/test/server.ts",
+      "node packages/web/test/server.ts",
     cwd: "../..",
-    url: "http://127.0.0.1:7495/health",
+    url: `${testURL}/health`,
     reuseExistingServer: false,
   },
   reporter: "list",

@@ -442,6 +442,8 @@ test("the CLI on a server machine reaches peers through its server; hosts.json i
   await assert.rejects(casm(["token", "list"], { CASM_HOST: "beta" }), /not on host "beta" \(from CASM_HOST\)/);
   await assert.rejects(casm(["-Hbeta", "peer", "list"]), /this machine's server only, not on host "beta"/);
   assert.match((await casm(["serve", "--help"], { CASM_HOST: "beta" })).stdout, /serve/);
+  // A flag's value before the command isn't mistaken for it (a project named "token").
+  assert.ok(Array.isArray(JSON.parse((await casm(["-p", "token", "--json", "projects"])).stdout)));
   // `casm peers` lists the names -H takes.
   assert.deepEqual(JSON.parse((await casm(["--json", "peers"])).stdout).map((p: { name: string }) => p.name), ["asleep", "beta"]);
   await assert.rejects(casm(["host", "add", "beta", beta.url, beta.token]), /runs a casm server.*casm peer add beta/s);

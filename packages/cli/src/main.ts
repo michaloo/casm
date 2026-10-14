@@ -103,47 +103,54 @@ server to talk to instead of this machine's (${localFile}).
 Inside a casm agent, CASM_SERVER_ID, CASM_SERVER_NAME and CASM_AGENT_ID are set,
 so "casm run" links the new agent to it as parent (override with --parent, or --parent none).`;
 
-// The first positional decides; flags (and -H's value) may come before it, e.g. "casm --json peer list".
-const firstCommand = process.argv.slice(2).find((a, i, all) => !a.startsWith("-") && !["-H", "--host"].includes(all[i - 1]));
+const options = {
+  host: { type: "string", short: "H" },
+  json: { type: "boolean" },
+  help: { type: "boolean", short: "h" },
+  default: { type: "boolean" },
+  path: { type: "string" },
+  parent: { type: "string" },
+  tag: { type: "string", multiple: true },
+  project: { type: "string", short: "p" },
+  all: { type: "boolean" },
+  provider: { type: "string" },
+  name: { type: "string" },
+  model: { type: "string" },
+  mode: { type: "string" },
+  wait: { type: "boolean", short: "w" },
+  steer: { type: "boolean" },
+  timeout: { type: "string" },
+  n: { type: "string", short: "n" },
+  always: { type: "boolean" },
+  message: { type: "string" },
+  dismiss: { type: "boolean" },
+  group: { type: "string" },
+  refresh: { type: "boolean" },
+  usage: { type: "boolean" },
+  "fail-if-limited": { type: "boolean" },
+  at: { type: "string" },
+  cron: { type: "string" },
+  every: { type: "string" },
+  agent: { type: "string" },
+  "skip-if-busy": { type: "boolean" },
+  "casm-tools": { type: "boolean" },
+  edit: { type: "boolean" },
+  probe: { type: "boolean" },
+} as const;
+
+// The first positional decides; flags (and the values of flags that take one) may
+// come before it, e.g. "casm --json peer list" or "casm -p serve run x".
+const takesValue = (a: string) => {
+  if (a.startsWith("--")) return !a.includes("=") && (a === "--listen" || options[a.slice(2) as keyof typeof options]?.type === "string");
+  return a.length === 2 && Object.values(options).some((o) => "short" in o && o.short === a[1] && o.type === "string");
+};
+const firstCommand = process.argv.slice(2).find((a, i, all) => !a.startsWith("-") && !(i > 0 && takesValue(all[i - 1])));
 const serverSubcommand = ["serve", "token", "peer"].includes(firstCommand ?? "");
 
 const { values: opt, positionals } = parseArgs({
   args: serverSubcommand ? [] : process.argv.slice(2),
   allowPositionals: true,
-  options: {
-    host: { type: "string", short: "H" },
-    json: { type: "boolean" },
-    help: { type: "boolean", short: "h" },
-    default: { type: "boolean" },
-    path: { type: "string" },
-    parent: { type: "string" },
-    tag: { type: "string", multiple: true },
-    project: { type: "string", short: "p" },
-    all: { type: "boolean" },
-    provider: { type: "string" },
-    name: { type: "string" },
-    model: { type: "string" },
-    mode: { type: "string" },
-    wait: { type: "boolean", short: "w" },
-    steer: { type: "boolean" },
-    timeout: { type: "string" },
-    n: { type: "string", short: "n" },
-    always: { type: "boolean" },
-    message: { type: "string" },
-    dismiss: { type: "boolean" },
-    group: { type: "string" },
-    refresh: { type: "boolean" },
-    usage: { type: "boolean" },
-    "fail-if-limited": { type: "boolean" },
-    at: { type: "string" },
-    cron: { type: "string" },
-    every: { type: "string" },
-    agent: { type: "string" },
-    "skip-if-busy": { type: "boolean" },
-    "casm-tools": { type: "boolean" },
-    edit: { type: "boolean" },
-    probe: { type: "boolean" },
-  },
+  options,
 });
 
 const [cmd, ...args] = positionals;

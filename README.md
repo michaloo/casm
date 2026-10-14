@@ -141,7 +141,8 @@ Queued messages run in strict FIFO order, one per turn. Interrupt stops the
 current turn, keeps the queue, and continues with the next message. If a provider
 is unavailable, the message stays pending with a reason and **Retry now**. A
 failed head holds the queue until **Retry now** or **Cancel**; a usage-limit
-head waits for its reset time. **Send now** explicitly steers a selected pending
+head waits for its reset time. Provider-limit gates survive server restarts and
+apply to other agents using the same provider. **Send now** explicitly steers a selected pending
 message into the current turn. Retrying a selected message is also an explicit
 exception to normal FIFO delivery.
 

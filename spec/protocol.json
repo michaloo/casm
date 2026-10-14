@@ -2264,6 +2264,24 @@
                     },
                     "next": {
                       "type": "string"
+                    },
+                    "held": {
+                      "type": "object",
+                      "properties": {
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "failed",
+                            "limit"
+                          ]
+                        },
+                        "note": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "reason"
+                      ]
                     }
                   },
                   "required": [
@@ -2472,6 +2490,24 @@
               },
               "next": {
                 "type": "string"
+              },
+              "held": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "failed",
+                      "limit"
+                    ]
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
               }
             },
             "required": [
@@ -2807,6 +2843,24 @@
               },
               "next": {
                 "type": "string"
+              },
+              "held": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "failed",
+                      "limit"
+                    ]
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
               }
             },
             "required": [
@@ -3058,6 +3112,24 @@
               },
               "next": {
                 "type": "string"
+              },
+              "held": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "failed",
+                      "limit"
+                    ]
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
               }
             },
             "required": [
@@ -6312,6 +6384,24 @@
                 },
                 "next": {
                   "type": "string"
+                },
+                "held": {
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "failed",
+                        "limit"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "reason"
+                  ]
                 }
               },
               "required": [

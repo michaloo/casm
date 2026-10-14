@@ -486,7 +486,9 @@ struct DraftRow: View {
             .foregroundStyle(Theme.muted)
             .padding(.vertical, 4)
         } else {
-            Text(draft.text).opacity(0.85)
+            // Rendered like the finished reply (parsed per delta, not cached), so it doesn't jump
+            // from raw text to markdown when the item lands.
+            MarkdownView(blocks: Markdown.parse(draft.text)).opacity(0.85)
         }
     }
 

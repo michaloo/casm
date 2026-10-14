@@ -35,6 +35,7 @@ methods as the UI and log to `/tmp/casm-app.log`:
 ```sh
 scripts/casmctl select agent=writer
 scripts/casmctl select project=scratch                 # its empty new-agent chat
+scripts/casmctl select schedules=1                     # the first host's schedules
 scripts/casmctl send text="hello"
 scripts/casmctl permission decision=allow        # allow | allowAlways | deny
 scripts/casmctl answer answers='{"q0":"Blue"}'   # omit answers to dismiss

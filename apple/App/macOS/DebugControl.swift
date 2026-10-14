@@ -45,6 +45,10 @@ final class DebugControl {
         guard let app else { return }
         let chat = app.chat
         switch cmd["cmd"] {
+        case "select" where cmd["schedules"] != nil:
+            guard let host = app.hosts.first else { return log("no host") }
+            app.selection = .schedules(host: host.id)
+            log("selected schedules")
         case "select" where cmd["project"] != nil:
             for host in app.hosts {
                 if let project = host.projects.first(where: { $0.name == cmd["project"] || $0.id == cmd["project"] }) {

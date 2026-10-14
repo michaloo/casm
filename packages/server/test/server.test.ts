@@ -24,6 +24,8 @@ class FakeSession implements ProviderSession {
   send(text: string) {
     void (async () => {
       await new Promise((r) => setTimeout(r, 10));
+      // Claude reports its model as usage on system/init, before any answer.
+      if (text.includes("init-usage")) this.opts.emit({ type: "usage", usage: { model: "claude-test" } });
       // The agent process crashes (e.g. a steer that arrives as it dies).
       if (text.includes("die")) return this.opts.emit({ type: "turnEnded", outcome: "failed", error: "agent process exited" });
       // Starts answering, then hangs until interrupted.
@@ -635,6 +637,11 @@ test("a prompt whose turn failed before any answer is kept as a failed pending m
   const [m] = (await client.call("agent.pending", { id: a.id })).messages;
   assert.deepEqual([m.reason, m.text, m.note], ["failed", "no-session please", "No conversation found with session ID: x"]);
   assert.deepEqual((await client.call("agent.get", { id: a.id })).pending, { count: 1 });
+  // Usage reported at startup (Claude's init) isn't an answer.
+  const u = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  await client.call("agent.send", { id: u.id, text: "init-usage, then no-session" });
+  await client.call("agent.wait", { id: u.id });
+  assert.deepEqual((await client.call("agent.pending", { id: u.id })).messages.map((x) => [x.reason, x.text]), [["failed", "init-usage, then no-session"]]);
   // Never resent on its own, and it doesn't hold back later messages.
   server.agents.runDuePending(Date.now() + 86_400_000);
   assert.equal((await client.call("agent.get", { id: a.id })).status, "idle");

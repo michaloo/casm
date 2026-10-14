@@ -149,24 +149,27 @@ final class ChatModel {
         if let start = historyStart, start < page.start, start + historyCount >= page.start {
             older = items.prefix(page.start - start)
         }
-        // Live-only items (local notices, items not yet flushed to the session file) stay right
-        // after the item they followed.
-        var merged = Array(older) + page.items
+        setItems(Self.merge(Array(older) + page.items, fresh: fresh, items: items, historyCount: historyCount))
+        historyStart = page.start - older.count
+        historyCount = older.count + page.items.count
+    }
+
+    /// Live-only items (local notices, the running turn not yet in the session file) stay right
+    /// after the item they followed. One that followed nothing loaded came in live before any
+    /// history (opening a chat mid-turn), so it is newer than the page and goes at the end.
+    static func merge(_ history: [Item], fresh: Set<String>, items: [Item], historyCount: Int) -> [Item] {
+        var merged = history
         var previous: String?
         for (i, item) in items.enumerated() {
             defer { previous = item.id }
             guard i >= historyCount, !fresh.contains(item.id) else { continue }
-            if previous == nil {
-                merged.insert(item, at: 0)
-            } else if let at = merged.firstIndex(where: { $0.id == previous }) {
+            if let previous, let at = merged.firstIndex(where: { $0.id == previous }) {
                 merged.insert(item, at: at + 1)
             } else {
                 merged.append(item)
             }
         }
-        setItems(merged)
-        historyStart = page.start - older.count
-        historyCount = older.count + page.items.count
+        return merged
     }
 
     func loadOlder() async {

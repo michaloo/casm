@@ -43,6 +43,20 @@ final class ComposerLogicTests: XCTestCase {
         XCTAssertNil(ChatModel.agentName(from: " \n "), "no text: the server's default name")
     }
 
+    func testLiveItemsMergeAfterHistory() {
+        let history: [Item] = [.user(id: "u1", text: "old"), .assistant(id: "a1", text: "old reply")]
+        // Opened mid-turn: the replayed turn (prompt not yet in the session file) came first.
+        let live: [Item] = [.user(id: "u2", text: "new"), .reasoning(id: "r2", text: "hmm")]
+        let ids = { (items: [Item]) in items.map(\.id) }
+        XCTAssertEqual(ids(ChatModel.merge(history, fresh: Set(ids(history)), items: live, historyCount: 0)),
+                       ["u1", "a1", "u2", "r2"], "the running turn goes after history, not above it")
+        // A local notice after a history item stays right after it.
+        let withNotice: [Item] = history + [.notice(id: "n", text: "Reloaded"), .user(id: "u2", text: "new")]
+        XCTAssertEqual(ids(ChatModel.merge(history + [.assistant(id: "a2", text: "x")], fresh: ["u1", "a1", "a2"],
+                                           items: withNotice, historyCount: 2)),
+                       ["u1", "a1", "n", "u2", "a2"])
+    }
+
     func testCompletionContexts() {
         XCTAssertEqual(context("/rev")?.kind, .command)
         XCTAssertEqual(context("/rev")?.query, "rev")

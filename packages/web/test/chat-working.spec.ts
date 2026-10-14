@@ -41,6 +41,10 @@ test("bottom working indicator follows selected agent and clears after completio
   await expect(working).toHaveText("Working…");
   await page.getByLabel("Message").fill("complete this turn");
   await page.getByRole("button", { name: "Steer", exact: true }).click();
+  // Switching agents preserves reader position; the new reply can be below
+  // the virtualized viewport even though its turn has completed.
+  const latest = page.getByRole("button", { name: "Latest ↓", exact: true });
+  if (await latest.isVisible()) await latest.click();
   await expect(page.getByText("echo: complete this turn", { exact: true })).toBeVisible();
   await expect(working).toBeEmpty();
   await page.getByRole("button", { name: /Agent 01/ }).click();

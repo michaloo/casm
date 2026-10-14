@@ -5,7 +5,7 @@ import { stripTypeScriptTypes } from "node:module";
 // State-only module, without the browser RPC client's Vite environment.
 const source = readFileSync(new URL("../src/state.ts", import.meta.url), "utf8");
 const output = stripTypeScriptTypes(source.slice(0, source.indexOf("export class Rpc")));
-const { chat, syncPending } = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
+const { chat, syncPending, replaceHistory, event } = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
 
 test("an older history/notification snapshot cannot erase a newer pending queue", async () => {
   const c = chat("pending-race");
@@ -30,4 +30,25 @@ test("pending request ordering is per chat and newer empty snapshots remove deli
   assert.deepEqual(b.pending, [{ id: "b" }]);
   await syncPending(a, async () => ({ messages: [] }));
   assert.deepEqual(a.pending, []);
+});
+
+test("reconnect preserves in-flight sends and reconciles confirmed and queued identities", () => {
+  const c = chat("reconnect-send");
+  const item = { kind: "user", id: "sending", text: "hello" };
+  c.items = [item];
+  c.inFlight = new Map([[item.id, item]]);
+  replaceHistory(c, []);
+  assert.deepEqual(c.items, [item]);
+  const confirmed = { ...item, text: "confirmed" };
+  replaceHistory(c, [confirmed]);
+  assert.deepEqual(c.items, [confirmed]);
+  event(c, { type: "item", item: confirmed });
+  assert.deepEqual(c.items, [confirmed]);
+  c.pending = [{ id: item.id }];
+  replaceHistory(c, []);
+  assert.deepEqual(c.items, []);
+  c.pending = [];
+  c.inFlight.delete(item.id);
+  replaceHistory(c, []);
+  assert.deepEqual(c.items, []);
 });

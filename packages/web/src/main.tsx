@@ -1,3 +1,4 @@
+import { replaceHistory } from "./state";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
@@ -186,7 +187,7 @@ function App() {
         host,
       );
       await refreshPending(host, id);
-      c.items = history.items;
+      replaceHistory(c, history.items);
       c.start = history.start;
       c.draft = "";
       c.reasoning = "";
@@ -435,6 +436,7 @@ function App() {
     const queued = !steer && sendMode(current?.status, visiblePending(target).length) === "queue";
     const row = { id: messageId, agentId, text, ...(images.length ? { imageCount: images.length } : {}), reason: "queued" as const, createdAt: new Date().toISOString() };
     const item: Item = { kind: "user", id: messageId, text, ...(images.length ? { images } : {}) };
+    if (!queued) (target.inFlight ??= new Map()).set(messageId, item);
     if (queued) target.outbox = [...(target.outbox ?? []), row];
     else if (!target.items.some((i) => i.id === messageId)) target.items = [...target.items, item];
     if (target.input === text) target.input = "";
@@ -451,6 +453,7 @@ function App() {
         { id: agentId, text, images, messageId, whenBusy: steer ? "steer" : "queue" },
         s.host,
       );
+      target.inFlight?.delete(messageId);
       if (result.queued) {
         // It waits after all (a steer to a limited agent, a queue we didn't know of).
         target.items = target.items.filter((i) => i !== item);
@@ -464,6 +467,7 @@ function App() {
       target.outbox = target.outbox?.filter((o) => o.id !== messageId);
       await load(s.host, agentId);
     } catch (e) {
+      target.inFlight?.delete(messageId);
       // Back in the composer, unless something new was typed meanwhile; the
       // same message sent again keeps its id, in case this one did arrive.
       target.outbox = target.outbox?.filter((o) => o.id !== messageId);

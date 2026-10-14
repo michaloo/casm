@@ -375,6 +375,15 @@ Interrupt. Thinking and tool rows expand on demand. Older history loads when you
 scroll up. Pending messages and permission/question requests sit above the pinned
 composer. The app follows the system light/dark setting.
 
+Selections have shareable browser-history URLs: `/h/<host-name>/a/<agent-id>`
+for chats and `/h/<host-name>/p/<project-id>/new` for project drafts. Reload and
+Back/Forward restore the view; missing or archived agents show a not-found
+message. Both the server and Vite serve the React entry point for these paths.
+Composer text is saved in localStorage per host and agent (or project for new
+agents), debounced while typing and flushed before reload. A successful send
+clears the sent draft; failed sends retain it. This version stores text only.
+
+
 For live development, run from `packages/web`:
 
 ```sh

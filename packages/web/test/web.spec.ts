@@ -80,7 +80,7 @@ test("streaming and history pagination keep reader position; reconnect and new a
   await expect(page.locator("aside footer")).toContainText("Connected");
   await expect(page.locator("main header strong")).toHaveText("Agent 00");
   await send(page, "stream");
-  await expect(page.getByText(/Streaming line/)).toBeVisible();
+  await expect(page.getByText(/Streaming line/).first()).toBeVisible();
   const scroller = page.locator("[data-virtuoso-scroller]");
   await scroller.hover();
   await page.mouse.wheel(0, -900);
@@ -135,4 +135,138 @@ test("mobile composer and pending stay inside viewport", async ({ page }) => {
   );
   await page.screenshot({ path: "/tmp/casm-web-mobile.png" });
   await page.getByRole("button", { name: "Interrupt", exact: true }).click();
+});
+
+test("URL and per-agent drafts survive reload, switching and Back/Forward", async ({
+  page,
+}) => {
+  await login(page);
+  const first = page.url();
+  expect(new URL(first).pathname).toMatch(/^\/h\/Test%20host\/a\//);
+  await page.getByLabel("Message").fill("Draft for the first agent");
+  // Reload immediately, before the debounce expires; pagehide flushes it.
+  await page.reload();
+  await expect(page.locator("main header strong")).toHaveText("Agent 00");
+  await expect(page.getByLabel("Message")).toHaveValue(
+    "Draft for the first agent",
+  );
+  await page.getByRole("button", { name: /Agent 01/ }).click();
+  const second = page.url();
+  expect(second).not.toBe(first);
+  await expect(page.getByLabel("Message")).toHaveValue("");
+  await page.getByLabel("Message").fill("Draft for another agent");
+  await page.reload();
+  await expect(page.locator("main header strong")).toHaveText("Agent 01");
+  await expect(page.getByLabel("Message")).toHaveValue(
+    "Draft for another agent",
+  );
+  await page.goBack();
+  await expect(page.locator("main header strong")).toHaveText("Agent 00");
+  await expect(page.getByLabel("Message")).toHaveValue(
+    "Draft for the first agent",
+  );
+  await page.goForward();
+  await expect(page.locator("main header strong")).toHaveText("Agent 01");
+  await expect(page.getByLabel("Message")).toHaveValue(
+    "Draft for another agent",
+  );
+  await page.getByLabel("Message").press("Enter");
+  await expect(page.getByLabel("Message")).toHaveValue("");
+  await page.reload();
+  await expect(page.locator("main header strong")).toHaveText("Agent 01");
+  await expect(page.getByLabel("Message")).toHaveValue("");
+});
+
+test("new-agent draft restores its project URL, then clears on first successful send", async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole("button", { name: "Test project" }).click();
+  const draftURL = page.url();
+  expect(new URL(draftURL).pathname).toMatch(/\/p\/[^/]+\/new$/);
+  await page.getByLabel("Message").fill("A saved new agent draft");
+  await page.reload();
+  await expect(page.locator("main header strong")).toHaveText("Test project");
+  await expect(page.getByLabel("Message")).toHaveValue(
+    "A saved new agent draft",
+  );
+  await page.getByLabel("Message").press("Enter");
+  await expect(page.locator("main header strong")).toHaveText(
+    "A saved new agent draft",
+  );
+  await expect(page).toHaveURL(/\/a\/[^/]+$/);
+  await expect(page.getByLabel("Message")).toHaveValue("");
+  await page.reload();
+  await expect(page.locator("main header strong")).toHaveText(
+    "A saved new agent draft",
+  );
+  await expect(page.getByLabel("Message")).toHaveValue("");
+  await page.goto(draftURL);
+  await expect(page.getByLabel("Message")).toHaveValue("");
+});
+
+test("failed sends retain drafts and missing routes show not found", async ({
+  page,
+}) => {
+  await page.routeWebSocket("**/*", (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((raw) => {
+      const request = JSON.parse(String(raw));
+      if (request.method === "agent.send")
+        ws.send(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: request.id,
+            error: { code: 1002, message: "Test send failure" },
+          }),
+        );
+      else server.send(raw);
+    });
+  });
+  await login(page);
+  await page.getByLabel("Message").fill("Keep this after a failed send");
+  await page.getByLabel("Message").press("Enter");
+  await expect(page.getByRole("alert")).toContainText("Test send failure");
+  await page.reload();
+  await expect(page.getByLabel("Message")).toHaveValue(
+    "Keep this after a failed send",
+  );
+  await page.goto("/h/Test%20host/a/does-not-exist");
+  await expect(page.getByRole("alert")).toContainText("Agent not found");
+  await expect(page.getByLabel("Message")).toHaveCount(0);
+  const archivedId = readFileSync("/tmp/casm-web-dev/web-archived-id", "utf8");
+  await page.goto(`/h/Test%20host/a/${archivedId}`);
+  await expect(page.getByRole("alert")).toContainText("Agent not found");
+  await page.goto("/h/missing-host/a/does-not-exist");
+  await expect(page.getByRole("alert")).toContainText("Host not found");
+});
+
+test("Vite SPA fallback restores a deep-linked agent on an isolated dev server", async ({
+  page,
+}) => {
+  const { createServer } = await import("vite");
+  const { resolve } = await import("node:path");
+  const vite = await createServer({
+    root: resolve(import.meta.dirname, ".."),
+    cacheDir: "/tmp/casm-web-dev/vite-cache",
+    server: { host: "127.0.0.1", port: 0 },
+    logLevel: "error",
+  });
+  try {
+    await vite.listen();
+    const address = vite.httpServer!.address() as { port: number };
+    await login(page);
+    const route = new URL(page.url()).pathname;
+    await page.addInitScript(
+      (token) => localStorage.setItem("casm.token", token),
+      readFileSync("/tmp/casm-web-dev/web-token", "utf8"),
+    );
+    const response = await page.goto(
+      `http://127.0.0.1:${address.port}${route}?server=ws://127.0.0.1:7495`,
+    );
+    expect(response!.status()).toBe(200);
+    await expect(page.locator("main header strong")).toHaveText("Agent 00");
+  } finally {
+    await vite.close();
+  }
 });

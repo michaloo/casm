@@ -21,6 +21,7 @@ export type Chat = {
   questions: QuestionRequest[];
   pending: PendingMessage[];
   input: string;
+  draftStorageKey?: string;
   scroll?: number;
   atBottom?: boolean;
 };

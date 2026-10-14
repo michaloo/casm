@@ -126,7 +126,9 @@ mac_install() {
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>5</integer>
-  <key>ProcessType</key><string>Background</string>
+  <!-- Not Background: that clamps the server and every agent, build and tool it
+       starts to the lowest CPU priority and throttled I/O (seconds per exec). -->
+  <key>ProcessType</key><string>Interactive</string>
   <key>StandardOutPath</key><string>$(xml_escape "$log_dir")/casm.log</string>
   <key>StandardErrorPath</key><string>$(xml_escape "$log_dir")/casm.log</string>
 </dict>

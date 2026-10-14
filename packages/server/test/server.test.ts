@@ -1,7 +1,7 @@
 // End-to-end over a real WebSocket, with a scripted fake provider.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, unlinkSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -147,12 +147,15 @@ test("health endpoint needs no auth", async () => {
 });
 
 test("projects are folders with an optional group", async () => {
-  const p = await client.call("project.create", { path: "/tmp/work", group: "Clients", tags: ["client"] });
+  const dir = join(mkdtempSync(join(tmpdir(), "casm-proj-")), "work");
+  mkdirSync(dir);
+  const p = await client.call("project.create", { path: dir, group: "Clients", tags: ["client"] });
   assert.equal(p.name, "work");
   assert.equal(p.group, "Clients");
   await assert.rejects(client.call("project.create", { path: "relative/dir" }));
+  await assert.rejects(client.call("project.create", { path: join(dir, "missing") }), /no such directory/);
   const agent = await client.call("agent.create", { projectId: p.id, provider: "claude" });
-  assert.equal(agent.cwd, "/tmp/work");
+  assert.equal(agent.cwd, dir);
   assert.equal((await client.call("project.update", { id: p.id, group: null })).group, null);
 });
 
@@ -568,4 +571,12 @@ test("AGENTS.md versioned writes reject stale and concurrent saves and remain at
   unlinkSync(path);
   await assert.rejects(save("wrong", first), conflict);
   await save("recreated", null);
+});
+
+test("an agent whose folder disappeared fails loudly instead of dropping the message", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-gone-"));
+  const p = await client.call("project.create", { path: dir });
+  const agent = await client.call("agent.create", { projectId: p.id, provider: "claude" });
+  rmSync(dir, { recursive: true });
+  await assert.rejects(client.call("agent.send", { id: agent.id, text: "hi" }), /folder does not exist/);
 });

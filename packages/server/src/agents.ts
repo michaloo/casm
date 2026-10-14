@@ -1,6 +1,7 @@
 // Live agent state. Everything here is in memory and rebuilt lazily: a session
 // is opened on the first send and the status is derived from it.
 import { randomBytes, randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import type {
   Agent,
   AgentConfig,
@@ -316,6 +317,9 @@ export class AgentManager {
 
   private openSession(a: StoredAgent, l: Live) {
     if (!l.session) {
+      // Providers fail asynchronously (and silently) in a missing cwd; refuse up front.
+      if (!statSync(a.cwd, { throwIfNoEntry: false })?.isDirectory())
+        throw new RpcError(-32602, `the agent's folder does not exist on this host: ${a.cwd}`);
       void this.commands(a.id).catch(() => {});
       const gen = ++l.generation;
       l.session = this.provider(a.provider).open({

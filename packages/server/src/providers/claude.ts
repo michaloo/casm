@@ -130,6 +130,12 @@ export function bashRecord(command: string, stdout: string, stderr: string, exit
 }
 
 // A transcript entry: an SDK message (live) or a JSONL line (history).
+// A base64 image block of a stored user message; very large data is dropped.
+function historyImage(b: Block): ImageData {
+  const src = b.source as { type?: string; media_type?: string; data?: string } | undefined;
+  return { mediaType: String(src?.media_type), data: src?.data && src.data.length <= MAX_HISTORY_IMAGE_B64 ? src.data : undefined };
+}
+
 export type Entry = {
   type: string;
   parent_tool_use_id?: string | null;
@@ -177,11 +183,16 @@ export class Normalizer {
   entry<E extends Entry>(e: E): Item[] {
     if (e.parent_tool_use_id) return [];
     if (e.type === "system") return this.system(e);
-    // A message sent mid-turn (steer) is stored as a queued_command attachment.
+    // A message sent mid-turn (steer) is stored as a queued_command attachment,
+    // its prompt a string or, with images, content blocks.
     if (e.type === "attachment") {
       const a = e.attachment;
-      if (a?.type !== "queued_command" || a.commandMode !== "prompt" || typeof a.prompt !== "string" || !e.uuid) return [];
-      return a.prompt.trim() ? [{ kind: "user", id: e.uuid, text: a.prompt }] : [];
+      if (a?.type !== "queued_command" || a.commandMode !== "prompt" || !e.uuid) return [];
+      if (typeof a.prompt === "string") return a.prompt.trim() ? [{ kind: "user", id: e.uuid, text: a.prompt }] : [];
+      const bs = Array.isArray(a.prompt) ? blocks(a.prompt) : [];
+      const text = bs.flatMap((b) => (b.type === "text" ? [String(b.text)] : [])).join("\n").trim();
+      const images = bs.flatMap((b) => (b.type === "image" && (b.source as { type?: string } | undefined)?.type === "base64" ? [historyImage(b)] : []));
+      return text || images.length ? [{ kind: "user", id: e.uuid, text, ...(images.length ? { images } : {}) }] : [];
     }
     const m = e.message as { role?: string; content?: unknown; model?: string } | undefined;
     if (!m || !e.uuid) return [];
@@ -352,8 +363,8 @@ export class Normalizer {
     for (const b of bs) {
       if (b.type === "text") texts.push(String(b.text));
       else if (b.type === "image") {
-        const src = b.source as { type?: string; media_type?: string; data?: string } | undefined;
-        if (src?.type === "base64") images.push({ mediaType: String(src.media_type), data: src.data && src.data.length <= MAX_HISTORY_IMAGE_B64 ? src.data : undefined });
+        const src = b.source as { type?: string } | undefined;
+        if (src?.type === "base64") images.push(historyImage(b));
         else texts.push("[image]");
       } else if (b.type === "tool_result") out.push(...this.toolResult(b, e.toolUseResult ?? e.tool_use_result));
     }

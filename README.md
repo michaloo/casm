@@ -1,11 +1,16 @@
 # casm
 
 casm is a small, self-hosted agent orchestrator for **Claude Code, Codex, pi and
-OpenCode**. Run a server on each machine and connect them as peers. A scriptable
-CLI and opt-in MCP tools let agents spawn, message and steer other agents, locally
-or across machines. Schedules, persistent message queues and provider limits
-support unattended work. The server serves the primary web client, installable
-as a PWA.
+OpenCode**. Run a server on each machine and connect them as peers. Drive your
+agents from the web client (installable as a PWA), a scriptable CLI, or let
+agents spawn, message and steer other agents through opt-in MCP tools, locally
+or across machines. Persistent queues, schedules and provider-limit handling
+keep unattended work going.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/web-agent-dark.png">
+  <img alt="The casm web client: hosts, projects and agents in the sidebar, an agent's transcript and the composer" src="docs/media/web-agent-light.png">
+</picture>
 
 Which agent for what:
 
@@ -26,6 +31,132 @@ provider permissions. Full-text session search is the separate tool
 [cass](https://github.com/michaloo/cass). Native macOS/iOS clients live on the
 [`apple` branch](https://github.com/michaloo/casm/tree/apple); the former CLI/TUI
 is preserved on `legacy`.
+
+**Documentation:** [getting started](docs/getting-started.md) ·
+[concepts](docs/concepts.md) · [CLI reference](docs/cli.md) ·
+[web client](docs/web-client.md) · [MCP tools](docs/mcp-tools.md) ·
+[protocol](docs/protocol.md) · [troubleshooting](docs/troubleshooting.md) ·
+[all docs](docs/README.md)
+
+## Quick start
+
+Requires **Node.js 24+**, npm, and an installed, logged-in provider. Install
+from a checkout on Linux or macOS; the launcher runs that checkout's TypeScript
+sources:
+
+```sh
+git clone https://github.com/michaloo/casm.git
+cd casm
+npm ci                     # with NODE_ENV unset (or NODE_ENV=development)
+npm run build
+scripts/install.sh --skip-deps
+export PATH="$HOME/.local/bin:$PATH"
+casm serve
+```
+
+The server listens on `127.0.0.1:7373` and keeps its state in `$CASM_HOME`
+(default `~/.casm-ng`). In another terminal, register a folder and start an
+agent; the CLI finds the local server by itself:
+
+```sh
+casm project create ~/code/acme-api --name acme-api
+casm run --project acme-api --provider claude --name reviewer "Summarize src/orders.js"
+casm wait reviewer
+```
+
+![casm project create, run, agents, wait and history](docs/media/cli-quickstart.svg)
+
+For the web client, create a token with `casm token create web`, open
+**http://localhost:7373** and paste it. Treat tokens as passwords.
+
+## Run it as a service
+
+Stop the foreground server, then:
+
+```sh
+casm service install    # systemd user unit on Linux, launchd agent on macOS
+casm service status
+```
+
+`$CASM_HOME/config.json` sets `listen` and `name`. To use casm from another
+device, bind a reachable address on your own trusted network (a VPN such as
+Tailscale) or put it behind an HTTPS proxy; the default loopback address only
+accepts the server machine. See [getting started](docs/getting-started.md#run-it-as-a-service).
+
+## Connect another machine
+
+Install and run casm on the other machine with a reachable address, and create a
+token there with `casm token create studio`. Back here, register it as a peer:
+
+```sh
+casm peer add worker ws://worker:7373 '<token-from-worker>'
+casm peers --probe
+casm -H worker projects
+```
+
+Now `-H worker` runs any command there, the web client shows it as a second
+host, and agents with casm tools can start agents on it. Peering forwards
+commands; it never copies files or sessions. A CLI-only machine can instead use
+`casm host add worker <ws-url> <token> --default`.
+
+![peers, -H and a permission request](docs/media/cli-peers.svg)
+
+## Install as an app
+
+Open your casm server's web address and install it using your browser:
+
+- **iPhone:** in Safari, tap **Share → Add to Home Screen**. Keep **Open as Web App** enabled if shown, then tap **Add**.
+- **macOS:** in Safari (macOS Sonoma or later), choose **File → Add to Dock**.
+- **Chrome / Edge:** on **HTTPS**, use the install button in the address bar (or the browser's install-app menu).
+
+Safari's Home Screen and Dock apps also work with a plain HTTP server address.
+Chrome/Edge's manifest-based install prompt needs HTTPS; localhost is the local-development exception.
+Use the server address you normally connect to, including its port. The installed
+app uses the casm Apple icon and opens without browser navigation controls.
+
+On HTTPS or localhost, casm caches its public app shell for offline startup.
+Connecting to agents still needs the server. The service worker never caches API
+responses, WebSockets, signed downloads, or URLs with query parameters. A new
+shell is checked on launch after deployment and activates after all old casm
+tabs/app windows close; it does not reload an active chat. Plain remote HTTP works without a
+service worker. Vite development also leaves service workers unregistered.
+
+Apple's [iPhone installation instructions](https://support.apple.com/guide/iphone/iphea86e5236/ios)
+and [Mac web app instructions](https://support.apple.com/104996) describe the OS controls.
+See [PWA implementation decisions](docs/pwa.md) for cache boundaries and checks.
+
+See the [web client guide](docs/web-client.md) for the sidebar, chat, queue,
+schedules, settings and file previews.
+
+## CLI essentials
+
+Use an agent's ID, an ID prefix or its exact name in place of `<agent>`:
+
+```sh
+casm send <agent> "Run the relevant tests"       # queued while it's busy
+casm send <agent> "Focus on the parser" --steer  # into the running turn
+casm pending                                     # queued, deferred and failed messages
+casm history <agent>    casm watch <agent>    casm wait <agent>    casm interrupt <agent>
+casm limits             casm usage <agent>
+casm schedule add --at "in 2h" --agent <agent> "Check the results"
+casm run --project acme-api --casm-tools "…"     # an agent that can run agents
+```
+
+Use `--json` for scripting and `-H <peer>` for another host; `casm --help`
+lists everything. The [CLI reference](docs/cli.md) has real examples of every
+command.
+
+![queue, steer and cancel](docs/media/cli-queue-steer.svg)
+
+### Message delivery
+
+Queued messages run in strict FIFO order, one per turn. Interrupt stops the
+current turn, keeps the queue, and continues with the next message. A failed
+message holds the queue until **Retry now** or **Cancel**; a usage-limit message
+waits for its reset time, and the limit also holds that provider's other agents,
+across restarts. **Steer** and **Send now** are the explicit ways to go ahead of
+the queue. Clients can pass a message ID so a resend after a lost response is
+reconciled, not delivered twice. Details: [concepts](docs/concepts.md#messages-and-the-queue).
 
 ## How it compares
 
@@ -58,144 +189,6 @@ listed for one provider is not a promise for every provider.
 - **HAPI:** you want to keep using native agent terminals and control those
   sessions remotely through a central Hub and native mobile apps. See its
   [session workflow][hapi-workflow].
-
-## Quick start
-
-Requires **Node.js 24+**, npm, and an installed/authenticated provider you intend
-to use. Install from a checkout on Linux or macOS; the launcher runs that checkout's
-TypeScript sources. Build the web assets before starting the server:
-
-```sh
-git clone https://github.com/michaloo/casm.git
-cd casm
-npm ci
-npm run build
-scripts/install.sh --skip-deps
-export PATH="$HOME/.local/bin:$PATH"
-casm serve
-```
-
-The default address is `127.0.0.1:7373`. In another terminal, create a browser token:
-
-```sh
-casm token create web
-```
-
-Open **http://localhost:7373** and enter that token in the connection form. The
-local CLI discovers the running server automatically. State lives in
-`$CASM_HOME` (default `~/.casm-ng`). Treat tokens as credentials.
-
-For a background server, stop the foreground process and run:
-
-```sh
-casm service install
-casm service status
-```
-
-This installs a systemd user service on Linux or a launchd agent on macOS.
-`$CASM_HOME/config.json` can set `listen` and `name`; see
-[development and deployment](docs/development.md). To reach the web client from
-another device, use a reachable listen address and your own trusted VPN or HTTPS
-proxy. The default loopback address is only reachable on the server machine.
-
-### Connect another machine
-
-Install and run casm on the other machine with a reachable address. On that
-machine, create a token with `casm token create peer`. On this machine, register
-its URL and the returned token:
-
-```sh
-casm peer add worker ws://worker:7373 '<token-from-worker>'
-casm peers --probe
-casm -H worker projects
-```
-
-`worker` in the URL must resolve to the other machine. Use `wss://` when connecting
-through TLS. Peering forwards commands; it does not copy files or sessions.
-A CLI-only machine without a local server can instead use
-`casm host add worker <ws-url> <token> --default`.
-
-## Install as an app
-
-Open your casm server's web address and install it using your browser:
-
-- **iPhone:** in Safari, tap **Share → Add to Home Screen**. Keep **Open as Web App** enabled if shown, then tap **Add**.
-- **macOS:** in Safari (macOS Sonoma or later), choose **File → Add to Dock**.
-- **Chrome / Edge:** on **HTTPS**, use the install button in the address bar (or the browser's install-app menu).
-
-Safari's Home Screen and Dock apps also work with a plain HTTP server address.
-Chrome/Edge's manifest-based install prompt needs HTTPS; localhost is the local-development exception.
-Use the server address you normally connect to, including its port. The installed
-app uses the casm Apple icon and opens without browser navigation controls.
-
-On HTTPS or localhost, casm caches its public app shell for offline startup.
-Connecting to agents still needs the server. The service worker never caches API
-responses, WebSockets, signed downloads, or URLs with query parameters. A new
-shell is checked on launch after deployment and activates after all old casm
-tabs/app windows close; it does not reload an active chat. Plain remote HTTP works without a
-service worker. Vite development also leaves service workers unregistered.
-
-Apple's [iPhone installation instructions](https://support.apple.com/guide/iphone/iphea86e5236/ios)
-and [Mac web app instructions](https://support.apple.com/104996) describe the OS controls.
-See [PWA implementation decisions](docs/pwa.md) for cache boundaries and checks.
-
-## CLI essentials
-
-Register an existing directory, then start an agent (choose a provider installed
-on that host). `--casm-tools` gives that agent casm's MCP orchestration tools
-(Claude, Codex and pi):
-
-```sh
-casm project create "$PWD" --name demo
-casm run --project demo --provider codex --casm-tools "Review this project"
-casm agents
-```
-
-Use the returned agent ID, an ID prefix or its exact name in place of `<agent>`:
-
-```sh
-casm send <agent> "Run the relevant tests"       # queue while busy
-casm send <agent> "Focus on the parser" --steer  # steer the active turn
-casm pending <agent>
-casm history <agent>
-casm watch <agent>
-casm wait <agent>
-casm interrupt <agent>
-casm limits
-casm usage <agent>
-casm schedule add --at "in 2h" --agent <agent> "Check the results"
-casm schedules
-```
-
-`casm retry <agent> <message-id>` retries a failed or limit-deferred pending
-message. `casm cancel <agent> <message-id>` removes one. Permission and question
-requests are available through `permissions`, `approve`, `deny`, `questions` and
-`answer`, or in the web client. Use `--json` for scripting and `-H worker` to
-address a peer. `casm --help` lists all commands and wait exit codes.
-
-Files inside project folders are readable, not writable: `casm cat <path>`
-prints a text file and `casm get <path> [-o out]` downloads one, also from a
-peer with `-H`. The web client previews paths that agents mention (or
-`/f/<absolute path>`) and browses a project's files from its settings.
-
-### Message delivery
-
-Queued messages run in strict FIFO order, one per turn. Interrupt stops the
-current turn, keeps the queue, and continues with the next message. If a provider
-is unavailable, the message stays pending with a reason and **Retry now**. A
-failed head holds the queue until **Retry now** or **Cancel**; a usage-limit
-head waits for its reset time. Provider-limit gates survive server restarts and
-apply to other agents using the same provider. **Send now** explicitly steers a selected pending
-message into the current turn. Retrying a selected message is also an explicit
-exception to normal FIFO delivery.
-
-`agent.editPending` changes a queued message's text without changing its place,
-images or sender. Clients can pass a UUID `messageId` to `agent.send`: resending
-the same ID after a lost response reconciles the accepted message rather than
-sending it again. The pending ID and delivered user-item ID stay the same.
-
-See [design](docs/design.md) for architecture and scope, and
-[development](docs/development.md) for isolated dev servers, tests and deployment.
 
 [paseo]: https://github.com/getpaseo/paseo/blob/a1da1b8f2/README.md
 [paseo-hub]: https://github.com/getpaseo/hub/blob/28f6c78/README.md

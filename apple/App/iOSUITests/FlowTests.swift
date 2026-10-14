@@ -223,6 +223,54 @@ final class FlowTests: XCTestCase {
         shot("ios-18-schedules")
     }
 
+    /// Long replies (wide tables, math and code blocks, URLs, error notices) must not make the
+    /// transcript wider than the screen. Uses ios-scratch (ask it for such a reply first),
+    /// s46-think and haiku-think on the dev server; each is scrolled up to its first message.
+    func testLongTranscriptFitsTheScreen() throws {
+        let agents = [("ios-scratch", "Reply with just: ready", "ios-19-ios-scratch"),
+                      ("s46-think", "ultrathink: how many anagrams", "ios-20-s46-think"),
+                      ("haiku-think", "ultrathink: how many anagrams", "ios-21-haiku-think")]
+        for (agent, firstMessage, name) in agents {
+            XCTAssertTrue(element("ios-scratch").waitForExistence(timeout: 15), "sidebar loaded")
+            for _ in 0..<4 where !element(agent).isHittable { app.swipeUp() }
+            element(agent).tap()
+            XCTAssertTrue(app.textFields["Message"].waitForExistence(timeout: 10))
+            sleep(3)
+            shot(name)
+            assertFitsScreen(agent)
+            // Older rows too; any of them may be the wide one.
+            let first = element(firstMessage)
+            for page in 1...40 where !(first.exists && first.isHittable) {
+                app.scrollViews["transcript"].swipeDown()
+                sleep(1)
+                shot("\(name)-up\(page)")
+                assertFitsScreen("\(agent) up \(page)")
+            }
+            app.navigationBars.buttons.firstMatch.tap()
+            sleep(1)
+        }
+    }
+
+    /// The composer and the visible transcript text lie within the window's width. Code blocks
+    /// scroll sideways inside themselves, so text in a nested scroll view only has to start on screen.
+    func assertFitsScreen(_ context: String, tolerance: CGFloat = 2) {
+        let screen = app.windows.firstMatch.frame
+        let field = app.textFields["Message"].frame
+        XCTAssertTrue(field.minX >= screen.minX - tolerance && field.maxX <= screen.maxX + tolerance,
+                      "\(context): Message field \(field) off screen \(screen)")
+        // One snapshot of the tree: querying each text's frame separately takes minutes.
+        guard let tree = try? app.scrollViews["transcript"].snapshot() else { return XCTFail("\(context): no transcript") }
+        func check(_ node: XCUIElementSnapshot, nested: Bool) {
+            let f = node.frame
+            if node.elementType == .staticText, !f.isEmpty, f.minY < screen.maxY, f.maxY > screen.minY {
+                XCTAssertTrue(f.minX >= screen.minX - tolerance && (nested || f.maxX <= screen.maxX + tolerance),
+                              "\(context): text \(f) off screen \(screen): \(node.label.prefix(80))")
+            }
+            for child in node.children { check(child, nested: nested || child.elementType == .scrollView) }
+        }
+        for child in tree.children { check(child, nested: child.elementType == .scrollView) }
+    }
+
     static func sampleImage() -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 120, height: 80)).image { ctx in
             UIColor.systemTeal.setFill()

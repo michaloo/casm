@@ -2,7 +2,6 @@
 // client tokens and peer servers. Transcripts live in each provider's own store.
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { homedir } from "node:os";
 import type { Agent, AgentConfig, AgentParent, ImageData, Project, ProviderId, Schedule } from "@casm/protocol";
 
 export type StoredAgent = Omit<Agent, "status" | "deferred" | "pending">;
@@ -102,7 +101,6 @@ CREATE TABLE IF NOT EXISTS pending (
   attempts INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
-DROP TABLE IF EXISTS deferred;
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -166,33 +164,11 @@ export class Store {
 
   constructor(file: string) {
     this.db = new DatabaseSync(file);
-    // node:sqlite enables foreign keys by default; the migration must run without them.
-    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = OFF;");
-    this.migrate();
-    this.db.exec("PRAGMA foreign_keys = ON;");
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+    // A fresh database gets the current schema; an existing one gets the
+    // columns added since (databases older than 800edae are not supported).
     this.db.exec(SCHEMA);
-    this.migrateScheduledPending();
     this.addColumn("agents", "effective_model", "TEXT");
-  }
-
-  // Projects used to nest (parent_id, optional path); now they are flat folders
-  // with a group label. Rebuilt with foreign keys off so agents are kept.
-  private migrate() {
-    const cols = (this.db.prepare("PRAGMA table_info(projects)").all() as Row[]).map((c) => c.name);
-    if (!cols.length || cols.includes("group_name")) return;
-    this.db.exec(`
-      BEGIN;
-      CREATE TABLE projects_new (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, group_name TEXT,
-        tags TEXT NOT NULL DEFAULT '[]', sort REAL NOT NULL DEFAULT 0, archived_at TEXT, created_at TEXT NOT NULL
-      );
-      INSERT INTO projects_new (id, name, path, group_name, tags, sort, archived_at, created_at)
-        SELECT p.id, p.name, COALESCE(p.path, parent.path, '${homedir().replaceAll("'", "''")}'), parent.name, p.tags, p.sort, p.archived_at, p.created_at
-        FROM projects p LEFT JOIN projects parent ON parent.id = p.parent_id;
-      DROP TABLE projects;
-      ALTER TABLE projects_new RENAME TO projects;
-      COMMIT;
-    `);
   }
 
   // Columns added after release; CREATE TABLE IF NOT EXISTS leaves older tables as they were.
@@ -355,25 +331,6 @@ export class Store {
 
   deleteSchedule(id: string): boolean {
     return this.db.prepare("DELETE FROM schedules WHERE id = ?").run(id).changes > 0;
-  }
-
-  // Time-based sends used to be "scheduled" pending messages; they are one-off schedules now.
-  migrateScheduledPending() {
-    const rows = this.db.prepare("SELECT * FROM pending WHERE reason = 'scheduled'").all() as Row[];
-    for (const r of rows) {
-      this.saveSchedule({
-        id: randomUUID(),
-        name: "Send later",
-        enabled: true,
-        cadence: { type: "once", at: (r.not_before as string) ?? now() },
-        target: { type: "agent", agentId: r.agent_id as string },
-        prompt: r.text as string,
-        nextRunAt: (r.not_before as string) ?? now(),
-        lastRun: null,
-        createdAt: r.created_at as string,
-      });
-      this.db.prepare("DELETE FROM pending WHERE id = ?").run(r.id as string);
-    }
   }
 
   // --- pending messages, in send order (seq) per agent

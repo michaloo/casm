@@ -746,7 +746,7 @@ function App() {
     );
   return (
     <div className="app">
-      {launcher && <Launcher hosts={hosts} models={rowModels} online={online} choose={chooseAgent} action={setLauncherAction} close={() => setLauncher(false)} />}
+      {launcher && <Launcher hosts={hosts} models={rowModels} online={online} current={selection?.host} choose={chooseAgent} action={setLauncherAction} close={() => setLauncher(false)} />}
       {launcherAction && <LauncherDestination target={launcherAction} rpc={rpc.current} online={online} choose={chooseAgent} close={() => setLauncherAction(undefined)}
         created={(host, project) => {
           setHosts(list => list.map(item => item.id === host ? { ...item, projects: [...item.projects.filter(p => p.id !== project.id), project] } : item));

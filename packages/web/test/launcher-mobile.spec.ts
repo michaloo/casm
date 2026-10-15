@@ -57,6 +57,19 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("option").first()).toContainText(/Agent 01|Agent 03/);
   expect(await dialog.getByRole("option").count()).toBeLessThan(30);
+  // The empty state is a short start page: host actions appear once, for the current host.
+  // Compact single-line rows: 38px with a mouse, 44px on touch.
+  const row = (await dialog.getByRole("option").first().boundingBox())!;
+  expect(Math.round(row.height)).toBe(info.project.use.hasTouch || width === 375 ? 44 : 38);
+  await input.press("Shift+Tab");
+  await expect(dialog.getByRole("option", { selected: true })).toContainText("New project");
+  const options = await dialog.getByRole("option").allTextContents();
+  expect(options.filter(text => text.startsWith("New project"))).toEqual(["New projectTest host"]);
+  expect(options.filter(text => text.startsWith("Schedules"))).toEqual(["SchedulesTest host"]);
+  expect(options.some(text => /^(Project options|Host usage|Host instructions)/.test(text))).toBe(false);
+  await input.press("Tab");
+  await expect(dialog.getByRole("option", { selected: true })).toContainText(/Agent 01|Agent 03/);
+  await expect(dialog.getByRole("button", { name: "Close launcher" })).toBeVisible({ visible: width === 375 });
   await page.waitForTimeout(250);
   const before = calls.length;
   await input.fill("ndle599");
@@ -65,12 +78,12 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await expect(dialog.locator("mark").first()).toBeVisible();
   expect(calls.length).toBe(before);
   await input.fill("does not exist zzz");
-  await expect(dialog.getByText("No matches.", { exact: false })).toBeVisible();
+  await expect(dialog.getByText("No matches for", { exact: false })).toBeVisible();
   await input.fill("");
   await input.press("Tab");
-  await expect(dialog.getByRole("option", { selected: true })).toContainText(/New agent in|Open project options/);
+  await expect(dialog.getByRole("option", { selected: true })).toContainText("Test project");
   await input.press("Tab");
-  await expect(dialog.getByRole("option", { selected: true })).toContainText(/Host options|New project on/);
+  await expect(dialog.getByRole("option", { selected: true })).toContainText(/New project|Schedules/);
   await input.fill("Agent 02 Test host");
   await expect(dialog.getByRole("option", { selected: true })).toContainText("Agent 02");
   await input.press("Enter");
@@ -91,24 +104,31 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await expect(page).toHaveURL(/\/p\/[^/]+\/new/);
   await expect(page.locator("main header strong")).toHaveText("Test project");
   await page.keyboard.press("Control+k");
-  await input.fill("Open project options Test project Test host"); await input.press("Enter");
+  await input.fill("Project options Test project Test host");
+  await expect(dialog.getByRole("option", { selected: true })).toContainText("Project options");
+  await input.press("Enter");
   const project = page.getByRole("dialog", { name: "Test project project", exact: true });
   await expect(project).toBeVisible(); await project.getByRole("button", { name: "Info", exact: true }).click();
   await expect(project.getByRole("button", { name: "New agent", exact: true })).toBeVisible();
   await project.getByRole("button", { name: "Close project options" }).click();
-  await page.keyboard.press("Control+k"); await input.fill("Host options Instructions Remote lab"); await input.press("Enter");
+  // Ctrl/Cmd+Enter on a project opens its options as well.
+  await page.keyboard.press("Control+k"); await input.fill("Test project");
+  await expect(dialog.getByRole("option", { selected: true })).toContainText("Test project");
+  await input.press("Control+Enter"); await expect(project).toBeVisible();
+  await project.getByRole("button", { name: "Close project options" }).click();
+  await page.keyboard.press("Control+k"); await input.fill("Host instructions Remote lab"); await input.press("Enter");
   const host = page.getByRole("dialog", { name: "Remote lab host" });
   await expect(host).toBeVisible(); await expect(host.getByRole("button", { name: "Instructions", exact: true })).toHaveAttribute("aria-pressed", "true");
   await host.getByRole("button", { name: "Close host options" }).click();
   await page.evaluate(() => window.addEventListener("casm:open-schedules", event => { (window as any).__scheduleHost = (event as CustomEvent).detail.host; }));
-  await page.keyboard.press("Control+k"); await input.fill("Schedules on Remote lab"); await input.press("Enter");
+  await page.keyboard.press("Control+k"); await input.fill("Schedules Remote lab"); await input.press("Enter");
   await expect(dialog).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__scheduleHost)).toBe("Remote lab");
   const schedules = page.getByRole("dialog", { name: "Remote lab host" });
   await expect(schedules).toBeVisible();
   await expect(schedules.getByRole("button", { name: "Schedules", exact: true })).toHaveAttribute("aria-pressed", "true");
   await schedules.getByRole("button", { name: "Close host options" }).click();
-  await page.keyboard.press("Control+k"); await input.fill("New project on Remote lab"); await input.press("Enter");
+  await page.keyboard.press("Control+k"); await input.fill("New project Remote lab"); await input.press("Enter");
   const newProject = page.getByRole("dialog", { name: "New project on Remote lab" });
   await expect(newProject).toBeVisible();
   await newProject.getByRole("button", { name: "Close new project" }).click();
@@ -122,7 +142,7 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await page.locator("aside > header").getByRole("button", { name: "Open launcher" }).click();
   const bounds = (await dialog.boundingBox())!;
   expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-  if (width === 375) { expect(bounds.width).toBe(375); expect(bounds.height).toBe(812); }
+  if (width === 375) { expect(Math.round(bounds.width)).toBe(375); expect(Math.round(bounds.height)).toBe(812); }
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
     await dialog.screenshot({ path: info.outputPath(`launcher-${width}-${colorScheme}.png`) });

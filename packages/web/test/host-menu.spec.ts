@@ -142,7 +142,7 @@ for (const width of [1440, 375]) test(`host row opens the host modal and edits s
   await panel.getByRole("button", { name: "Close host options" }).click();
   await expect(panel).toBeHidden();
   await expect(trigger).toBeFocused();
-  // The launcher's "Schedules on <host>" opens the host modal on its Schedules tab.
+  // The launcher's "Schedules" action opens the host modal on its Schedules tab.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("casm:open-schedules", { detail: { host: "" } })));
   await expect(panel).toBeVisible();
   await expect(tabs.getByRole("button", { name: "Schedules" })).toHaveAttribute("aria-pressed", "true");

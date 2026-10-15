@@ -4,6 +4,8 @@
 
 - [Getting started](getting-started.md): install, first agent, web client,
   service, a second machine.
+- [Network](network.md): set up the network first, so servers, peers and
+  phones reach each other securely (VPNs, tunnels, HTTPS).
 - [Concepts](concepts.md): hosts and peers, projects, agents, subagents, the
   queue, permissions, schedules, limits, provenance, files, agents running
   agents, the agent prompt.

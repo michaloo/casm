@@ -12,6 +12,9 @@ the web client, a background service and a second machine.
   [OpenCode](https://opencode.ai) (`opencode`) or
   [pi](https://github.com/earendil-works/pi) (`pi`). casm offers only the
   ones it finds on `PATH`.
+- To use casm from other machines or a phone: a private network between them
+  (a VPN, a tunnel or your LAN), and HTTPS if you want notifications. See
+  [network](network.md); set it up first.
 
 ## Install
 
@@ -109,7 +112,8 @@ On Linux, a user service stops when you log out unless lingering is enabled:
 - `agentPrompt`: `false` turns off the [agent prompt](concepts.md#the-agent-prompt).
 
 casm has no TLS or relay of its own: use your own trusted network or an HTTPS
-proxy, and treat every token as a password.
+proxy, and treat every token as a password. [Network](network.md) compares the
+options and has HTTPS recipes.
 
 ## Add a second machine
 

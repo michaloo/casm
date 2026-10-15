@@ -1056,7 +1056,7 @@ function App() {
               />
             </PendingQueue>
             <form
-              className={`composer${dropping ? " dropping" : ""}`}
+              className={`composer chat-column${dropping ? " dropping" : ""}`}
               onSubmit={(e) => {
                 e.preventDefault();
                 void send();
@@ -1278,7 +1278,14 @@ function Transcript({
     // Watch the rendered rows themselves: Virtuoso follows by its estimate,
     // then rows measure taller (or grow: Thinking, tool output, a streamed
     // reply) without another scroll. The box covers a shrinking viewport.
-    const observer = (resized.current = new ResizeObserver(() => stick()));
+    // A classic scrollbar narrows the rows; the bottom area leaves out the same
+    // width so the composer lines up with them (overlay scrollbars measure 0).
+    const chatEl = box.current.closest<HTMLElement>(".chat");
+    const gutter = () => {
+      const el = scroller.current;
+      chatEl?.style.setProperty("--chat-scrollbar", `${el ? el.offsetWidth - el.clientWidth : 0}px`);
+    };
+    const observer = (resized.current = new ResizeObserver(() => { gutter(); stick(); }));
     observer.observe(box.current);
     // Virtuoso's own follow lands on its estimate, a little short of the end.
     // Where the last scroll left the reader: appends never scroll, so they
@@ -1301,7 +1308,10 @@ function Transcript({
     const mutated = new MutationObserver(() => stick());
     if (el) mutated.observe(el, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style"] });
     const wrapper = box.current;
-    return () => { observer.disconnect(); mutated.disconnect(); wrapper.removeEventListener("scroll", settle, { capture: true }); };
+    return () => {
+      observer.disconnect(); mutated.disconnect(); wrapper.removeEventListener("scroll", settle, { capture: true });
+      chatEl?.style.removeProperty("--chat-scrollbar");
+    };
   }, []);
   useEffect(() => {
     // Virtuoso may swap its list element (empty → rows); observing twice is a no-op.

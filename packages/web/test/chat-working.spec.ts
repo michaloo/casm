@@ -22,7 +22,7 @@ test("bottom working indicator follows selected agent and clears after completio
   const working = page.locator(".chat-working");
   await expect(working).toBeEmpty();
   await send(page, "slow");
-  await expect(working).toHaveText("Working…");
+  await expect(working).toHaveText("Working");
   await expect(working.locator(".activity-spinner")).toBeVisible();
   const indicatorBox = (await working.boundingBox())!;
   const composerBox = (await page.locator(".composer").boundingBox())!;
@@ -34,12 +34,12 @@ test("bottom working indicator follows selected agent and clears after completio
   await expect(page.getByLabel("Message")).toHaveValue("");
   await page.getByLabel("Message").fill("agent one draft");
   await page.getByRole("button", { name: /Agent 00/ }).click();
-  await expect(working).toHaveText("Working…");
+  await expect(working).toHaveText("Working");
   await expect(page.getByLabel("Message")).toHaveValue("agent zero draft");
   await page.getByRole("button", { name: "Interrupt", exact: true }).click();
   await expect(working).toBeEmpty();
   await send(page, "slow");
-  await expect(working).toHaveText("Working…");
+  await expect(working).toHaveText("Working");
   await page.getByLabel("Message").fill("complete this turn");
   await page.getByRole("button", { name: "Steer", exact: true }).click();
   // Switching agents preserves reader position; the new reply can be below
@@ -85,7 +85,7 @@ for (const width of [1440, 375]) {
     const composer = (await page.locator(".composer").boundingBox())!;
     const working = page.locator(".chat-working");
     notify("running");
-    await expect(working).toHaveText("Working…");
+    await expect(working).toHaveText("Working");
     expect(Math.abs(await scroller.evaluate((element) => element.scrollTop) - before)).toBeLessThan(2);
     expect(await page.locator(".composer").boundingBox()).toEqual(composer);
     expect(composer.y + composer.height).toBeLessThanOrEqual(812);
@@ -101,9 +101,50 @@ for (const width of [1440, 375]) {
     expect(Math.abs(await scroller.evaluate((element) => element.scrollTop) - before)).toBeLessThan(2);
     expect(await page.locator(".composer").boundingBox()).toEqual(composer);
     notify("running");
-    await expect(working).toHaveText("Working…");
+    await expect(working).toHaveText("Working");
     notify("waiting");
     await expect(working).toBeEmpty();
     notify("idle");
   });
 }
+
+for (const width of [1440, 375]) {
+  test(`transcript rows, the pill row and the composer share one column at width ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 812 });
+    await login(page);
+    const edges = (selector: string) => page.locator(selector).last().evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      return [Math.round(box.left * 2) / 2, Math.round(box.right * 2) / 2];
+    });
+    const composer = await edges(".composer");
+    expect(await edges(".item")).toEqual(composer);
+    expect(await edges(".user .message-content")).toEqual(composer);
+    // Idle with nothing queued, the pill row takes no room: the transcript
+    // ends where the composer's margin begins, with no band over it.
+    const scroller = (await page.locator("[data-virtuoso-scroller]").boundingBox())!;
+    const status = (await page.locator(".composer-status").boundingBox())!;
+    expect(status.height).toBe(0);
+    expect(Math.abs(scroller.y + scroller.height - status.y)).toBeLessThan(1);
+    await page.getByLabel("Message").fill("slow");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const pill = page.locator(".working-pill");
+    await expect(pill).toHaveText("Working");
+    await expect(pill.locator(".activity-spinner")).toBeVisible();
+    expect(await edges(".pending-queue")).toEqual(composer);
+    const pillBox = (await pill.boundingBox())!;
+    expect(Math.abs(pillBox.x - composer[0])).toBeLessThan(1);
+    expect(pillBox.y + pillBox.height).toBeLessThanOrEqual((await page.locator(".composer").boundingBox())!.y);
+    expect(pillBox.height).toBe(width < 600 ? 32 : 28);
+    // The transcript still ends where the bottom area begins.
+    const running = (await page.locator("[data-virtuoso-scroller]").boundingBox())!;
+    expect(Math.abs(running.y + running.height - (await page.locator(".pending-queue").boundingBox())!.y)).toBeLessThan(1);
+  });
+}
+
+test("the working spinner holds still with reduced motion", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await login(page);
+  await page.getByLabel("Message").fill("slow");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.locator(".working-pill .activity-spinner")).toHaveCSS("animation-name", "none");
+});

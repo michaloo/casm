@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { ImagePreviewContext, type ImageSelection } from "./image-preview";
 import { Launcher, LauncherDestination, SearchGlyph, type LauncherAction } from "./launcher";
 import { rememberAgent } from "./launcher-search";
@@ -488,6 +489,8 @@ function App() {
   // A project's new-agent screen: a welcome with the composer near the center.
   const starting = !!(selection && !selection.id && project && host);
   const [dropping, setDropping] = useState(false);
+  // The transparent pill row over the transcript's end (Working, queue, Latest).
+  const [pillRow, setPillRow] = useState<HTMLDivElement | null>(null);
   const [attaching, setAttaching] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
   // Adds images (picked, pasted or dropped) to a draft, downscaled; problems show in the banner.
@@ -943,6 +946,8 @@ function App() {
             <Transcript
               key={ckey}
               ckey={ckey}
+              pillRow={pillRow}
+              pills={(online && agent?.status === "running") || rows.length > 0}
               older={() =>
                 run(async () => {
                   if (!selection.id || c.loading || !c.start) return;
@@ -970,6 +975,7 @@ function App() {
             </CasmAgentsContext.Provider>
             </FileLinksContext.Provider></ImagePreviewContext.Provider>
           )}
+          <div ref={setPillRow} className="pill-row chat-column" />
         </div>
         {selection && project && (
           <>
@@ -1028,7 +1034,7 @@ function App() {
                 />{q.at && <EntryTime start={Date.parse(q.at)} />}</div>
               ))}
             </div>
-            <PendingQueue key={key(selection.host, selection.id ?? "new")} agentKey={key(selection.host, selection.id ?? "new")} messages={rows}
+            <PendingQueue key={key(selection.host, selection.id ?? "new")} agentKey={key(selection.host, selection.id ?? "new")} messages={rows} row={pillRow}
               status={<ChatWorking running={online && agent?.status === "running"} />}>
               <PendingRows
                 rows={rows}
@@ -1192,6 +1198,8 @@ type TranscriptContext = {
   loading: boolean;
   empty: boolean;
   older: () => Promise<void>;
+  // Working or queue pills float over the end: leave room for them.
+  pills: boolean;
 };
 function TranscriptHeader({ context }: { context?: TranscriptContext }) {
   if (!context) return null;
@@ -1205,7 +1213,10 @@ function TranscriptHeader({ context }: { context?: TranscriptContext }) {
     </div>
   ) : null;
 }
-const transcriptComponents = { Header: TranscriptHeader };
+// Room at the end so the last line scrolls clear of the pill row over it.
+const TranscriptEnd = ({ context }: { context?: TranscriptContext }) =>
+  context?.pills ? <div className="transcript-end" aria-hidden="true" /> : null;
+const transcriptComponents = { Header: TranscriptHeader, Footer: TranscriptEnd };
 function Entry({ item, time, expansion }: { item: Item; time?: ToolTime; expansion: Record<string, boolean> }) {
   const when = entryTimes(item, time);
   return <div className="entry">
@@ -1216,9 +1227,13 @@ function Entry({ item, time, expansion }: { item: Item; time?: ToolTime; expansi
 function Transcript({
   ckey,
   older,
+  pillRow,
+  pills,
 }: {
   ckey: string;
   older: () => Promise<void>;
+  pillRow: HTMLElement | null;
+  pills: boolean;
 }) {
   const c = chat(ckey);
 
@@ -1242,11 +1257,12 @@ function Transcript({
   ];
   // A pending-strip resize must keep a reader who was at the end at the end.
   useLayoutEffect(() => {
+    // Checked again in the frame: a scroll-up in between wins.
     if (following.current)
-      requestAnimationFrame(() =>
-        ref.current?.scrollToIndex({ index: "LAST" }),
-      );
-  }, [visiblePending(c).length, c.permissions.length, c.questions.length]);
+      requestAnimationFrame(() => {
+        if (following.current) ref.current?.scrollToIndex({ index: "LAST" });
+      });
+  }, [visiblePending(c).length, c.permissions.length, c.questions.length, pills]);
   // Virtuoso lands short of the end when items measure taller than estimated
   // (opening a long history, a reply that wraps, a shrinking composer), and
   // its followOutput only follows from the exact bottom. While following and
@@ -1382,12 +1398,14 @@ function Transcript({
           loading: c.loading,
           empty: !items.length,
           older,
+          pills,
         }}
         components={transcriptComponents}
       />
       {/* Only after the reader scrolled up, never while following lags a growing end. */}
-      {!bottom && !following.current && (
+      {!bottom && !following.current && pillRow && createPortal(
         <button
+          type="button"
           className="latest"
           onClick={() => {
             following.current = true;
@@ -1397,8 +1415,9 @@ function Transcript({
             setBottom(true);
           }}
         >
-          Latest ↓
-        </button>
+          <span className="latest-pill">Latest ↓</span>
+        </button>,
+        pillRow,
       )}
     </div>
   );

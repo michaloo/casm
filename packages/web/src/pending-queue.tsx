@@ -1,8 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { PendingMessage } from "@casm/protocol";
 
-export function PendingQueue({ agentKey, messages, children, status }: {
+export function PendingQueue({ agentKey, messages, children, status, row }: {
   agentKey: string; messages: PendingMessage[]; children: ReactNode; status?: ReactNode;
+  // Where the status pills go: the transparent row over the transcript's end.
+  row: HTMLElement | null;
 }) {
   const storageKey = `casm.queue.expanded:${agentKey}`;
   const [expanded, setExpanded] = useState(() => {
@@ -53,7 +56,7 @@ export function PendingQueue({ agentKey, messages, children, status }: {
   return <section className="pending-queue chat-column" aria-label={messages.length ? "Queue" : undefined}>
     <div ref={list} className="queue-list" id={listId} hidden={!expanded || !messages.length} onScroll={measure}
       data-fade-top={fade.top || undefined} data-fade-bottom={fade.bottom || undefined}>{children}</div>
-    <div className="composer-status">
+    {row && createPortal(<div className="composer-status">
       {status}
       {messages.length > 0 && <button type="button" className="queue-toggle" aria-expanded={expanded} aria-controls={listId}
         title={[`${messages.length} queued`, hints].filter(Boolean).join(" · ")}
@@ -65,6 +68,6 @@ export function PendingQueue({ agentKey, messages, children, status }: {
           {failed.length > 0 && <span className="failed"> · {failed.length} failed</span>}
         </span>}</span>
       </button>}
-    </div>
+    </div>, row)}
   </section>;
 }

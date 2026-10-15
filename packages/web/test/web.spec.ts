@@ -278,6 +278,8 @@ test("Vite SPA fallback restores a deep-linked agent on an isolated dev server",
 for (const scheme of ["light", "dark"] as const)
   for (const device of ["desktop", "mobile"] as const) {
     test(`visual transcript · ${device} · ${scheme}`, async ({ page, isMobile }) => {
+      // Each reveal scans a long virtual list; WebKit under load needs room.
+      test.setTimeout(120_000);
       const size =
         device === "desktop"
           ? { width: 1440, height: 900 }
@@ -327,28 +329,38 @@ for (const scheme of ["light", "dark"] as const)
           previous = current;
           return settled;
         }).toBe(true);
+        // One page-side step per poll: evaluateAll never waits for an element,
+        // whereas isVisible() followed by evaluate() deadlocks when Virtuoso
+        // unmounts the row in between (evaluate then waits for it to return).
         await expect
           .poll(
             async () => {
-              if (await locator.isVisible()) {
-                return locator.evaluate((el) => {
-                  const box = el.getBoundingClientRect();
-                  const container = el.closest("[data-virtuoso-scroller]");
-                  if (!container) return false;
-                  const root = container.getBoundingClientRect();
-                  const visible = Math.min(box.bottom, root.bottom) - Math.max(box.top, root.top);
-                  if (visible >= Math.min(box.height, root.height) - 1) return true;
-                  // Scroll only the transcript: scrollIntoView can also move outer
-                  // ancestors while Virtuoso remeasures a collapsed tool in WebKit.
-                  container.scrollBy({ top: box.top - root.top - Math.max(0, (root.height - box.height) / 2), behavior: "instant" });
-                  return false;
-                });
-              }
-              // Unmounted virtual rows cannot be located until they enter the range.
-              await scroller.evaluate((el) => el.scrollBy({ top: el.clientHeight * 0.35, behavior: "instant" }));
-              return false;
+              const step = await locator.evaluateAll((els) => {
+                const el = els[0];
+                if (!el) return "missing";
+                const box = el.getBoundingClientRect();
+                const container = el.closest("[data-virtuoso-scroller]");
+                if (!container || !box.width || !box.height) return "missing";
+                const root = container.getBoundingClientRect();
+                const visible = Math.min(box.bottom, root.bottom) - Math.max(box.top, root.top);
+                if (visible >= Math.min(box.height, root.height) - 1) return "ready";
+                // Scroll only the transcript: scrollIntoView can also move outer
+                // ancestors while Virtuoso remeasures a collapsed tool in WebKit.
+                container.scrollBy({ top: box.top - root.top - Math.max(0, (root.height - box.height) / 2), behavior: "instant" });
+                return "moved";
+              });
+              if (step === "missing")
+                // Unmounted virtual rows cannot be located until they enter the range.
+                // Wrap to the top after the bottom so a row that was briefly absent
+                // (a re-rendered label, a remeasure) is not stranded behind us.
+                await scroller.evaluate((el) =>
+                  el.scrollTop + el.clientHeight >= el.scrollHeight - 1
+                    ? el.scrollTo({ top: 0, behavior: "instant" })
+                    : el.scrollBy({ top: el.clientHeight * 0.5, behavior: "instant" }),
+                );
+              return step === "ready";
             },
-            { timeout: 10000, intervals: [100, 150, 250] },
+            { timeout: 30000, intervals: [100, 150, 250] },
           )
           .toBe(true);
       };

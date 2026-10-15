@@ -1389,6 +1389,14 @@ function Transcript({
             : { index: "LAST" }
         }
         computeItemKey={(_, i) => i.id}
+        // Rows above the viewport mount at an estimated height, then Virtuoso
+        // corrects the scroll once they measure. Measuring in the same frame
+        // and keeping a wide band of rows rendered (re-rendered only once
+        // used up) keeps that correction from mounting more rows before
+        // paint, which would show a frame shifted by their misestimate.
+        skipAnimationFrameInResizeObserver
+        overscan={{ main: 1200, reverse: 1200 }}
+        defaultItemHeight={120}
         followOutput={() => (following.current ? "auto" : false)}
         totalListHeightChanged={stick}
         scrollerRef={(el) => { scroller.current = el as HTMLElement | null; }}

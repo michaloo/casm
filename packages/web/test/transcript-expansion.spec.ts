@@ -9,32 +9,36 @@ test("an expanded tool row stays open after leaving and re-entering the virtual 
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: "Agents", exact: true }).click();
-  await page.getByRole("button", { name: /Claude Visual review .*Idle/ }).click();
+  // Long enough that the row leaves even Virtuoso's overscan band.
+  const row = page.getByRole("button", { name: /Long mixed/ }).first();
+  await row.scrollIntoViewIfNeeded();
+  await row.click();
   const scroller = page.locator("[data-virtuoso-scroller]");
   await expect(page.locator(".item").first()).toBeVisible();
-  const diff = page.locator(".tool summary").filter({ hasText: "theme.css" });
+  const tool = page.locator(".tool summary").filter({ hasText: "grep round-43" });
   await expect
     .poll(async () => {
-      if (await diff.isVisible()) return true;
+      if (await tool.isVisible()) return true;
       await scroller.evaluate((el) => el.scrollBy({ top: -el.clientHeight * 0.5, behavior: "instant" }));
       return false;
     })
     .toBe(true);
   // Simulate the toggle event being lost to an unmount: React never sees it.
-  await diff.evaluate((summary) => {
+  await tool.evaluate((summary) => {
     summary.parentElement!.addEventListener("toggle", (e) => e.stopImmediatePropagation(), true);
   });
-  await diff.click();
-  await expect(diff.locator("xpath=..")).toHaveAttribute("open", "");
+  await tool.click();
+  await expect(tool.locator("xpath=..")).toHaveAttribute("open", "");
   await scroller.evaluate((el) => el.scrollTo({ top: 0, behavior: "instant" }));
-  await expect(diff).toHaveCount(0);
+  await expect(tool).toHaveCount(0);
+  await scroller.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: "instant" }));
   await expect
     .poll(async () => {
-      if (await diff.count()) return true;
-      await scroller.evaluate((el) => el.scrollBy({ top: el.clientHeight * 0.35, behavior: "instant" }));
+      if (await tool.count()) return true;
+      await scroller.evaluate((el) => el.scrollBy({ top: -el.clientHeight * 0.5, behavior: "instant" }));
       return false;
     })
     .toBe(true);
-  await expect(diff.locator("xpath=..")).toHaveAttribute("open", "");
-  await expect(page.locator(".code-block.diff")).toHaveCount(1);
+  await expect(tool.locator("xpath=..")).toHaveAttribute("open", "");
+  await expect(page.locator(".tool-body").filter({ hasText: "check passed for round 43" })).toHaveCount(1);
 });

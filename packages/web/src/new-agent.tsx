@@ -42,7 +42,7 @@ export function NewAgentStarters({ agents, fill, open, mac }: {
       <span><kbd>Enter</kbd> send</span>
       <span><kbd>Shift</kbd><kbd>Enter</kbd> newline</span>
       <span><kbd>/</kbd> commands</span>
-      <span><kbd>{mac ? "⌘" : "Ctrl"}</kbd><kbd>O</kbd> launcher</span>
+      <span><kbd>{mac ? "⌘" : "Ctrl"}</kbd><kbd>K</kbd> launcher</span>
     </p>
   </div>;
 }

@@ -41,7 +41,7 @@ for (const width of [1440, 375]) test(`new-agent screen welcomes, starts and set
   if (width === 1440) {
     await expect(keys).toContainText("Enter send");
     await expect(keys).toContainText("/ commands");
-    await expect(keys).toContainText(/(⌘|Ctrl)O launcher/);
+    await expect(keys).toContainText(/(⌘|Ctrl)K launcher/);
   } else await expect(keys).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
 

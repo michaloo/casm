@@ -1,7 +1,7 @@
 # Host settings
 
 The ⋯ button on a host row (Host options) opens the host modal: Usage, Schedules
-and Instructions; **Schedules on <host>** in the launcher opens it on Schedules.
+and Instructions; **Schedules** in the launcher opens it on Schedules.
 The ⋯ on a project
 row (Project options) opens the project modal: AGENTS.md, Memories and Info,
 with **New agent** in its header. They share one layout (a tab rail on wide

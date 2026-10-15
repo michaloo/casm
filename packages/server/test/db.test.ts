@@ -126,3 +126,23 @@ test("a database at 800edae's schema opens, keeps its data and ends up like a fr
   new Store(fresh).close();
   assert.deepEqual(shape(file), shape(fresh));
 });
+
+test("configs from casm's former MCP tools lose casmTools; the rest stays", () => {
+  const file = tempDb();
+  const store = new Store(file);
+  store.db.exec(`
+    INSERT INTO projects (id, name, path, created_at) VALUES ('p', 'Work', '/work', 't');
+    INSERT INTO agents (id, project_id, name, provider, cwd, config, created_at, updated_at)
+      VALUES ('x', 'p', 'lead', 'claude', '/work', '{"model":"haiku","casmTools":true}', 't', 't'),
+             ('y', 'p', 'plain', 'claude', '/work', '{"casmTools":false}', 't', 't');
+    INSERT INTO schedules (id, name, cadence, target, prompt, created_at)
+      VALUES ('s', 'daily', '{"type":"every","minutes":5}', '{"type":"newAgent","projectId":"p","provider":"claude","config":{"mode":"plan","casmTools":true}}', 'go', 't');
+  `);
+  store.close();
+
+  const reopened = new Store(file);
+  assert.deepEqual(reopened.getAgent("x")!.config, { model: "haiku" });
+  assert.deepEqual(reopened.getAgent("y")!.config, {});
+  assert.deepEqual(reopened.getSchedule("s")!.target, { type: "newAgent", projectId: "p", provider: "claude", config: { mode: "plan" } });
+  reopened.close();
+});

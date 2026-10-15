@@ -1,6 +1,6 @@
 // Live agent state. Everything here is in memory and rebuilt lazily: a session
 // is opened on the first send and the status is derived from it.
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import type {
   Agent,
@@ -26,12 +26,11 @@ import type {
 } from "@casm/protocol";
 import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from "./providers/types.ts";
-import { CASM_TOOL_NAMES, casmMcpEntry } from "./mcp.ts";
 import { AgentPrompt, type PromptVars } from "./agent-prompt.ts";
 import { limitFromText, mergeWindows, retryAt, transientRateLimit, type LimitHit } from "./limits.ts";
 
 // What sessions are told about the server that runs them.
-export type SessionContext = { serverId: string; serverName: string; mcpUrl: string | null };
+export type SessionContext = { serverId: string; serverName: string };
 
 export class RpcError extends Error {
   readonly code: number;
@@ -103,9 +102,6 @@ export class AgentManager {
   // Latest account limits per provider, as sessions or queries reported them.
   private limitsSeen = new Map<ProviderId, ProviderLimits>();
   private limitsQueried = new Set<ProviderId>();
-  // Per-agent MCP bearer tokens, minted when a session opens. Memory only.
-  private mcpTokens = new Map<string, string>();
-  private mcpTokenOf = new Map<string, string>();
   private context: SessionContext | null = null;
   // Set by shutdown: late events from closing sessions must not touch the closed store.
   private stopped = false;
@@ -152,11 +148,6 @@ export class AgentManager {
     this.context = ctx;
   }
 
-  // The agent a casm MCP token was minted for.
-  agentForMcpToken(token: string): string | undefined {
-    return this.mcpTokens.get(token);
-  }
-
   messageSender(id: string): MessageSender {
     return { serverId: this.context?.serverId ?? this.store.serverId(), agentId: id, name: this.agent(id).name, host: this.context?.serverName };
   }
@@ -165,35 +156,20 @@ export class AgentManager {
     return { serverId: this.context?.serverId ?? this.store.serverId(), agentId: `schedule:${id}`, name, host: this.context?.serverName, schedule: { id, name } };
   }
 
-  private mintMcpToken(agentId: string): string {
-    const old = this.mcpTokenOf.get(agentId);
-    if (old) this.mcpTokens.delete(old);
-    const token = "casm_agent_" + randomBytes(24).toString("base64url");
-    this.mcpTokens.set(token, agentId);
-    this.mcpTokenOf.set(agentId, token);
-    return token;
-  }
-
   // The stored config plus what the server adds to every session: CASM_* env
-  // vars (so `casm run` from inside links the child), with casmTools the casm
-  // MCP server, and the host's agent prompt ahead of the agent's own.
+  // vars (so `casm run` and `casm send` from inside link and attribute to it)
+  // and the host's agent prompt ahead of the agent's own.
   private sessionConfig(a: StoredAgent): AgentConfig {
     const ctx = this.context;
     if (!ctx) return a.config;
     const env = { ...a.config.env, CASM_SERVER_ID: ctx.serverId, CASM_SERVER_NAME: ctx.serverName, CASM_AGENT_ID: a.id, CASM_AGENT_NAME: a.name };
-    let mcpServers = a.config.mcpServers;
-    let casmTools = false;
-    if (a.config.casmTools && ctx.mcpUrl) {
-      const entry = casmMcpEntry(a.provider, ctx.mcpUrl, this.mintMcpToken(a.id));
-      if (entry) (mcpServers = { ...mcpServers, casm: entry }), (casmTools = true);
-    }
-    const hostPrompt = this.agentPrompt.render(this.promptVars(a, casmTools));
+    const hostPrompt = this.agentPrompt.render(this.promptVars(a));
     const systemPrompt = [hostPrompt, a.config.systemPrompt].filter(Boolean).join("\n\n") || undefined;
-    return { ...a.config, env, mcpServers, systemPrompt };
+    return { ...a.config, env, systemPrompt };
   }
 
   // What the agent prompt's placeholders stand for, for this agent.
-  promptVars(a: Pick<StoredAgent, "id" | "name" | "projectId" | "cwd" | "provider">, casmTools: boolean): PromptVars {
+  promptVars(a: Pick<StoredAgent, "id" | "name" | "projectId" | "cwd" | "provider">): PromptVars {
     return {
       host: this.context?.serverName ?? "",
       agentId: a.id,
@@ -201,13 +177,7 @@ export class AgentManager {
       project: this.store.getProject(a.projectId)?.name ?? a.projectId,
       cwd: a.cwd,
       provider: a.provider,
-      casmTools: casmTools ? CASM_TOOL_NAMES : null,
     };
-  }
-
-  // Whether this agent's sessions get casm's MCP tools.
-  hasCasmTools(a: StoredAgent): boolean {
-    return !!(a.config.casmTools && this.context?.mcpUrl && casmMcpEntry(a.provider, "", ""));
   }
 
   providerIds(): ProviderId[] {
@@ -849,8 +819,6 @@ export class AgentManager {
   async remove(id: string) {
     await this.reload(id).catch(() => {});
     this.live.delete(id);
-    const token = this.mcpTokenOf.get(id);
-    if (token) (this.mcpTokens.delete(token), this.mcpTokenOf.delete(id));
   }
 
   subscribeState(id: string) {

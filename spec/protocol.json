@@ -616,9 +616,6 @@
                               "additionalProperties": {
                                 "type": "string"
                               }
-                            },
-                            "casmTools": {
-                              "type": "boolean"
                             }
                           }
                         },
@@ -838,9 +835,6 @@
                         "additionalProperties": {
                           "type": "string"
                         }
-                      },
-                      "casmTools": {
-                        "type": "boolean"
                       }
                     }
                   },
@@ -1011,9 +1005,6 @@
                         "additionalProperties": {
                           "type": "string"
                         }
-                      },
-                      "casmTools": {
-                        "type": "boolean"
                       }
                     }
                   },
@@ -1230,9 +1221,6 @@
                         "additionalProperties": {
                           "type": "string"
                         }
-                      },
-                      "casmTools": {
-                        "type": "boolean"
                       }
                     }
                   },
@@ -1401,9 +1389,6 @@
                         "additionalProperties": {
                           "type": "string"
                         }
-                      },
-                      "casmTools": {
-                        "type": "boolean"
                       }
                     }
                   },
@@ -2425,9 +2410,6 @@
                       "additionalProperties": {
                         "type": "string"
                       }
-                    },
-                    "casmTools": {
-                      "type": "boolean"
                     }
                   }
                 },
@@ -2651,9 +2633,6 @@
                 "additionalProperties": {
                   "type": "string"
                 }
-              },
-              "casmTools": {
-                "type": "boolean"
               }
             }
           },
@@ -2857,9 +2836,6 @@
                 "additionalProperties": {
                   "type": "string"
                 }
-              },
-              "casmTools": {
-                "type": "boolean"
               }
             }
           },
@@ -3004,9 +2980,6 @@
                 "additionalProperties": {
                   "type": "string"
                 }
-              },
-              "casmTools": {
-                "type": "boolean"
               }
             }
           },
@@ -3198,9 +3171,6 @@
                 "additionalProperties": {
                   "type": "string"
                 }
-              },
-              "casmTools": {
-                "type": "boolean"
               }
             }
           },
@@ -3273,9 +3243,6 @@
                 "additionalProperties": {
                   "type": "string"
                 }
-              },
-              "casmTools": {
-                "type": "boolean"
               }
             }
           },
@@ -6705,9 +6672,6 @@
                   "additionalProperties": {
                     "type": "string"
                   }
-                },
-                "casmTools": {
-                  "type": "boolean"
                 }
               }
             },
@@ -7142,9 +7106,6 @@
                           "additionalProperties": {
                             "type": "string"
                           }
-                        },
-                        "casmTools": {
-                          "type": "boolean"
                         }
                       }
                     },

@@ -182,6 +182,9 @@ export class Store {
     this.db.exec(SCHEMA);
     this.addColumn("agents", "effective_model", "TEXT");
     this.addColumn("pending", "sender", "TEXT");
+    // casm's own MCP tools (config.casmTools) are gone; agents use the casm CLI.
+    this.db.exec(`UPDATE agents SET config = json_remove(config, '$.casmTools') WHERE json_type(config, '$.casmTools') IS NOT NULL;
+      UPDATE schedules SET target = json_remove(target, '$.config.casmTools') WHERE json_type(target, '$.config.casmTools') IS NOT NULL`);
   }
 
   // Columns added after release; CREATE TABLE IF NOT EXISTS leaves older tables as they were.

@@ -368,13 +368,9 @@ class FakeOpencodeServer extends OpencodeServer {
   releases = 0;
   override async acquire() { return () => { this.releases++; }; }
   override async contextWindows() { return new Map<string, number>(); }
-  sessionPermission: { permission: string; action: string }[] = [];
   created: unknown[] = [];
-  patched: unknown[] = [];
   override async request<T>(method: string, path: string, _directory?: string, body?: unknown): Promise<T> {
     if (path === "/session") return this.created.push(body), { id: ids.sessionID } as T;
-    if (path === `/session/${ids.sessionID}` && method === "GET") return { id: ids.sessionID, permission: this.sessionPermission } as T;
-    if (path === `/session/${ids.sessionID}` && method === "PATCH") return this.patched.push(body), {} as T;
     if (path === `/session/${ids.sessionID}/message`) return this.parentMessages as T;
     if (path === "/session/ses_child/message") return this.childMessages as T;
     if (path === "/session/ses_child") return { parentID: this.parentID } as T;
@@ -613,7 +609,7 @@ test("a foreground task's summary is its result text, with model and duration", 
   assert.deepEqual(normalizePart(part), { kind: "subagent", id: "prt_fg", title: "Read", status: "done", summary: "All good", usage: { model: "p/m", durationMs: 2000 } });
 });
 
-test("OpenCode sessions get casm's per-agent state and a casm_* rule matching casmTools", async () => {
+test("OpenCode sessions get casm's per-agent state", async () => {
   const { mkdtempSync, readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
   const { tmpdir } = await import("node:os");
@@ -625,27 +621,20 @@ test("OpenCode sessions get casm's per-agent state and a casm_* rule matching ca
 
   let session = open({ env: { CASM_AGENT_ID: "a1", FOO: "bar" } }, null);
   await settle();
-  assert.deepEqual(server.created, [{ permission: [{ permission: "casm_*", pattern: "*", action: "deny" }] }]);
+  assert.deepEqual(server.created, [{}]);
   assert.deepEqual(JSON.parse(readFileSync(join(server.stateDir, `${ids.sessionID}.json`), "utf8")), { env: { CASM_AGENT_ID: "a1", FOO: "bar" } });
   await session.close();
 
-  // Resumed with casmTools: the session's last casm_* rule says deny, so allow is added once.
-  server.sessionPermission = [{ permission: "casm_*", action: "deny" }];
-  const casm = { url: "http://127.0.0.1:7373/mcp", headers: { Authorization: "Bearer casm_agent_x" } };
-  session = open({ mcpServers: { casm } }, ids.sessionID);
+  // A resumed session keeps its id and gets its state rewritten.
+  session = open({ env: { CASM_AGENT_ID: "a1" } }, ids.sessionID);
   await settle();
-  assert.deepEqual(server.patched, [{ permission: [{ permission: "casm_*", pattern: "*", action: "allow" }] }]);
-  assert.deepEqual(JSON.parse(readFileSync(join(server.stateDir, `${ids.sessionID}.json`), "utf8")).casm, { url: casm.url, token: "casm_agent_x" });
-  await session.close();
-  server.sessionPermission.push({ permission: "casm_*", action: "allow" });
-  session = open({ mcpServers: { casm } }, ids.sessionID);
-  await settle();
-  assert.equal(server.patched.length, 1);
+  assert.equal(server.created.length, 1);
+  assert.deepEqual(JSON.parse(readFileSync(join(server.stateDir, `${ids.sessionID}.json`), "utf8")), { env: { CASM_AGENT_ID: "a1" } });
   await session.close();
 });
 
 test("the serve env loads casm's plugin next to an inherited OPENCODE_CONFIG_CONTENT", async () => {
-  const { serveEnv, casmEndpoint } = await import("../src/providers/opencode.ts");
+  const { serveEnv } = await import("../src/providers/opencode.ts");
   const env = serveEnv({ PATH: "/bin", OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: "a/b", plugin: ["other"] }) }, "/state");
   const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT);
   assert.equal(config.model, "a/b");
@@ -653,8 +642,6 @@ test("the serve env loads casm's plugin next to an inherited OPENCODE_CONFIG_CON
   assert.match(config.plugin[1], /^file:\/\/.*\/opencode-plugin\.ts$/);
   assert.equal(env.CASM_OPENCODE_STATE, "/state");
   assert.deepEqual(JSON.parse(serveEnv({}, "/s").OPENCODE_CONFIG_CONTENT).plugin.length, 1);
-  assert.equal(casmEndpoint({ url: "u" }), undefined);
-  assert.equal(casmEndpoint(undefined), undefined);
 });
 
 test("OpenCode message ids match OpenCode's ascending format and order", async () => {

@@ -571,12 +571,13 @@ test("running subagents, background ones included, are counted from the live ses
 
 test("the host agent prompt goes ahead of the agent's own system prompt, per agent, until disabled", async () => {
   const p = await client.call("project.create", { name: "Prompted", path: "/tmp" });
-  const a = await client.call("agent.create", { projectId: p.id, provider: "claude", name: "helper", config: { systemPrompt: "Be brief.", casmTools: true }, prompt: "hi" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude", name: "helper", config: { systemPrompt: "Be brief." }, prompt: "hi" });
   await client.call("agent.wait", { id: a.id });
   const sys = fake.opened.at(-1)!.config.systemPrompt!;
   assert.ok(sys.startsWith("You are running as an agent inside casm, an agent orchestrator, on host testhost."), sys);
   assert.match(sys, new RegExp(`agent "helper" \\(id ${a.id}, claude\\) in project Prompted, working in /tmp\\.`));
-  assert.match(sys, /casm MCP tools .*list_hosts, .*answer_question\./);
+  assert.match(sys, /`casm run --project <project>/);
+  assert.doesNotMatch(sys, /MCP/);
   assert.ok(sys.endsWith("\n\nBe brief."));
 
   // Read and edited over the protocol; the next session gets it.
@@ -586,9 +587,11 @@ test("the host agent prompt goes ahead of the agent's own system prompt, per age
   assert.equal(info.path, join(home, "agent-prompt.md"));
   const example = await client.call("server.agentPrompt", {});
   assert.match(example.rendered!, /agent "example"/);
-  const saved = await client.call("server.setAgentPrompt", { content: "casm agent {{agentName}} ({{provider}})" });
+  assert.deepEqual(example.placeholders, ["host", "agentId", "agentName", "project", "cwd", "provider"]);
+  // A prompt saved while casm had MCP tools still renders: {{casmTools}} and its line go away.
+  const saved = await client.call("server.setAgentPrompt", { content: "casm agent {{agentName}} ({{provider}})\n{{casmTools}}" });
   assert.equal(saved.custom, true);
-  assert.equal(readFileSync(join(home, "agent-prompt.md"), "utf8"), "casm agent {{agentName}} ({{provider}})\n");
+  assert.equal(readFileSync(join(home, "agent-prompt.md"), "utf8"), "casm agent {{agentName}} ({{provider}})\n{{casmTools}}\n");
   await client.call("agent.reload", { id: a.id });
   await client.call("agent.send", { id: a.id, text: "again" });
   await client.call("agent.wait", { id: a.id });

@@ -11,9 +11,9 @@ import { toolImages } from "./tool-images.ts";
 // message. Retries (session.status retry, retry parts), compaction parts and
 // message errors become notices. "/name args" for a known command (GET
 // /command, which also lists skills) runs through POST /session/:id/command.
-// The agent's env and casm's tools reach its sessions through casm's plugin
-// (opencode-plugin.ts); config.mcpServers other than casm's are not applied,
-// since OpenCode's MCP servers belong to the whole server.
+// The agent's env reaches its sessions through casm's plugin
+// (opencode-plugin.ts); config.mcpServers are not applied, since OpenCode's
+// MCP servers belong to the whole server.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -21,7 +21,6 @@ import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { CASM_TOOLS } from "../mcp.ts";
 import type { Answers, Catalog, Command, ImageData, Item, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
 import type { OpenOptions, Provider, ProviderEvent, ProviderSession } from "./types.ts";
 
@@ -435,7 +434,7 @@ export function parseCatalog(providers: OcProviders, agents: OcAgent[], configMo
 // --- shared server
 
 // What casm's plugin (opencode-plugin.ts) reads for one session.
-export type SessionState = { env?: Record<string, string>; casm?: { url: string; token: string } };
+export type SessionState = { env?: Record<string, string> };
 
 const PLUGIN = pathToFileURL(join(import.meta.dirname, "opencode-plugin.ts")).href;
 
@@ -449,16 +448,6 @@ export function serveEnv(base: Record<string, string>, stateDir: string): Record
   }
   const plugin = [...(Array.isArray(config.plugin) ? config.plugin : []), PLUGIN];
   return { ...base, OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...config, plugin }), CASM_OPENCODE_STATE: stateDir };
-}
-
-// The session permission rule that shows or hides casm's plugin tools.
-export const casmToolsRule = (enabled: boolean) => [{ permission: "casm_*", pattern: "*", action: enabled ? "allow" : "deny" }];
-
-// casm's MCP entry (mcp.ts casmMcpEntry) as the plugin's endpoint and token.
-export function casmEndpoint(entry: unknown): SessionState["casm"] {
-  const e = entry as { url?: unknown; headers?: { Authorization?: unknown } } | undefined;
-  const token = typeof e?.headers?.Authorization === "string" ? /^Bearer (.+)$/.exec(e.headers.Authorization)?.[1] : undefined;
-  return typeof e?.url === "string" && token ? { url: e.url, token } : undefined;
 }
 
 function freePort(): Promise<number> {
@@ -529,7 +518,6 @@ export class OpencodeServer {
     const port = await freePort();
     const bin = process.env.CASM_OPENCODE_PATH ?? "opencode";
     const stateDir = (this.stateDir = mkdtempSync(join(tmpdir(), "casm-opencode-")));
-    writeFileSync(join(stateDir, "tools.json"), JSON.stringify(CASM_TOOLS));
     const proc = spawn(bin, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
       env: serveEnv(providerEnv(), stateDir),
       stdio: ["ignore", "pipe", "pipe"],
@@ -716,17 +704,8 @@ class OpencodeSession implements ProviderSession {
     }
     // Warm the context window lookup so usage events aren't delayed.
     void this.server.contextWindows();
-    const casm = casmEndpoint(this.opts.config.mcpServers?.casm);
-    const permission = casmToolsRule(!!casm);
-    const id =
-      this.opts.resumeId ?? (await this.server.request<{ id: string }>("POST", "/session", this.opts.cwd, { permission })).id;
-    // A resumed session's rules merge and the last matching one wins: add it when it changes.
-    if (this.opts.resumeId) {
-      const info = await this.server.request<{ permission?: { permission: string; action: string }[] }>("GET", `/session/${id}`, this.opts.cwd);
-      if (info.permission?.findLast((r) => r.permission === "casm_*")?.action !== permission[0].action)
-        await this.server.request("PATCH", `/session/${id}`, this.opts.cwd, { permission });
-    }
-    this.server.writeState(id, { env: this.opts.config.env, ...(casm ? { casm } : {}) });
+    const id = this.opts.resumeId ?? (await this.server.request<{ id: string }>("POST", "/session", this.opts.cwd, {})).id;
+    this.server.writeState(id, { env: this.opts.config.env });
     this.nativeId = id;
     this.unlisten = this.server.listen(id, { onEvent: (e) => this.handle(e), onClosed: (err) => this.finish(err) });
     this.opts.emit({ type: "sessionId", id });

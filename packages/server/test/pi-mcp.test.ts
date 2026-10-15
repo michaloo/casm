@@ -12,7 +12,7 @@ import type { ProviderEvent } from "../src/providers/types.ts";
 // What pi 1.1.0's /mcp prints in RPC mode (captured from the real binary).
 const STATUS = `dead: failed (codemode)
     fetch failed
-casm: connected, 11 tools (direct)
+notes: connected, 11 tools (direct)
 files: needs sign-in, run /mcp login files (codemode)
 docs: disabled (direct)
 slow: starting (codemode)
@@ -21,9 +21,9 @@ config error: "bad" in /home/u/.pi/agent/mcp.json: sse is not supported
 overridden: "x" registered by /ext.ts is overridden by "x" in /home/u/.pi/agent/mcp.json`;
 
 test("pi /mcp status text: states, tool counts, errors and which servers casm can toggle", () => {
-  assert.deepEqual(parseMcpStatus(STATUS, new Set(["casm", "docs"])), [
+  assert.deepEqual(parseMcpStatus(STATUS, new Set(["notes", "docs"])), [
     { name: "dead", status: "failed", tools: 0, toolsKnown: false, canToggle: false, error: "fetch failed" },
-    { name: "casm", status: "connected", tools: 11 },
+    { name: "notes", status: "connected", tools: 11 },
     { name: "files", status: "needs-auth", tools: 0, toolsKnown: false, canToggle: false },
     { name: "docs", status: "disabled", tools: 0, toolsKnown: false },
     { name: "slow", status: "pending", tools: 0, toolsKnown: false, canToggle: false },
@@ -31,7 +31,7 @@ test("pi /mcp status text: states, tool counts, errors and which servers casm ca
   ]);
 });
 
-// A pi RPC stand-in: logs argv, the casm MCP env and every command, and runs
+// A pi RPC stand-in: logs argv, the MCP servers casm passes and every command, and runs
 // /mcp, /mcp reconnect and /casm-mcp the way pi 1.1.0 does (notify, then the
 // handled response). Each status also has a stray notify from elsewhere.
 async function fakePi(dir: string, builtinMcp = true) {
@@ -42,7 +42,7 @@ const fs = require('node:fs');
 const write = m => process.stdout.write(JSON.stringify(m) + '\\n');
 const log = m => fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(m) + '\\n');
 log({ argv: process.argv.slice(2), servers: process.env.CASM_PI_MCP_SERVERS ?? null });
-const state = { casm: 'connected, 11 tools', docs: 'connected, 2 tools', files: 'failed' };
+const state = { notes: 'connected, 11 tools', docs: 'connected, 2 tools', files: 'failed' };
 let n = 0;
 const notify = (message, notifyType = 'info') => write({ type: 'extension_ui_request', id: 'n' + ++n, method: 'notify', message, notifyType });
 require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
@@ -71,7 +71,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   return { bin, log: async () => (await readFile(log, "utf8")).trim().split("\n").map((l) => JSON.parse(l)) };
 }
 
-test("pi agents get casm tools and config.mcpServers; native MCP status, reconnect and toggle", async (t) => {
+test("pi agents get config.mcpServers; native MCP status, reconnect and toggle", async (t) => {
   const home = await mkdtemp(join(tmpdir(), "casm-pi-mcp-"));
   const pi = await fakePi(home);
   const previous = process.env.CASM_PI_PATH;
@@ -86,36 +86,26 @@ test("pi agents get casm tools and config.mcpServers; native MCP status, reconne
   });
   const project = await client.call("project.create", { name: "test", path: home });
   const docs = { type: "http", url: "http://127.0.0.1:9/docs" };
-  const agent = await client.call("agent.create", { projectId: project.id, provider: "pi", name: "pi MCP", config: { casmTools: true, mcpServers: { docs } } });
+  const notes = { command: "notes-mcp" };
+  const agent = await client.call("agent.create", { projectId: project.id, provider: "pi", name: "pi MCP", config: { mcpServers: { notes, docs } } });
 
   const status = await client.call("agent.mcpStatus", { id: agent.id });
   assert.deepEqual(status, {
     reconnect: "server", canToggle: true,
     servers: [
-      { name: "casm", status: "connected", tools: 11 },
+      { name: "notes", status: "connected", tools: 11 },
       { name: "docs", status: "connected", tools: 2 },
       { name: "files", status: "failed", tools: 0, toolsKnown: false, canToggle: false, error: "connection refused" },
     ],
   });
 
-  // The session gets casm's server (with an agent token) and config.mcpServers through the extension.
+  // The session gets config.mcpServers through the extension.
   // Catalog and command queries run their own short-lived `--no-session` processes.
   const sessions = async () => (await pi.log()).filter((l) => l.argv && !l.argv.includes("--no-session"));
   const [start] = await sessions();
   assert.match(start.argv[start.argv.indexOf("-e") + 1], /providers\/pi-extension\.ts$/);
-  const servers = JSON.parse(start.servers);
-  assert.deepEqual(servers.docs, docs);
-  assert.equal(servers.casm.url, `http://127.0.0.1:${server.port}/mcp`);
-  assert.equal(servers.casm.exposure, "direct");
-  const tools = await fetch(servers.casm.url, {
-    method: "POST", headers: { "content-type": "application/json", ...servers.casm.headers },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-  }).then((r) => r.json());
-  assert.ok(tools.result.tools.some((x: { name: string }) => x.name === "create_agent"), "the token authenticates as this agent");
-  assert.deepEqual((await client.call("agent.get", { id: agent.id })).config, { casmTools: true, mcpServers: { docs } });
-
-  // The host prompt's {{casmTools}} line applies to pi now.
-  assert.match((await client.call("server.agentPrompt", { agentId: agent.id })).rendered ?? "", /casm MCP tools \(server "casm"/);
+  assert.deepEqual(JSON.parse(start.servers), { notes, docs });
+  assert.deepEqual((await client.call("agent.get", { id: agent.id })).config, { mcpServers: { notes, docs } });
 
   assert.deepEqual(await client.call("agent.mcpReconnect", { id: agent.id, server: "docs" }), { mode: "native", message: 'Reconnected to MCP server "docs" (connected).' });
   await assert.rejects(client.call("agent.mcpReconnect", { id: agent.id, server: "nope" }), /No MCP server named "nope"/);
@@ -128,7 +118,7 @@ test("pi agents get casm tools and config.mcpServers; native MCP status, reconne
   const prompts = (await pi.log()).filter((l) => l.command === "prompt").map((l) => l.message);
   assert.deepEqual(prompts, [
     "/mcp", "/mcp reconnect docs", "/mcp reconnect nope",
-    "/mcp", "/mcp reconnect casm", "/mcp reconnect docs", "/mcp reconnect files",
+    "/mcp", "/mcp reconnect notes", "/mcp reconnect docs", "/mcp reconnect files",
     "/casm-mcp disable docs", "/mcp",
   ]);
   assert.equal((await sessions()).length, 1, "one session, no reloads");

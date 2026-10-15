@@ -1,5 +1,6 @@
-// Cross-host agents: peers, the casm MCP endpoint and parent links, with two
-// in-process servers ("alpha" and "beta") and a scripted fake provider.
+// Cross-host agents: peers, the casm CLI run from an agent's shell and parent
+// links, with two in-process servers ("alpha" and "beta") and a scripted fake
+// provider.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -88,10 +89,9 @@ let alpha: Host;
 let beta: Host;
 let blackhole: TcpServer;
 const held: Socket[] = [];
-// The parent agent on alpha and its MCP credentials.
+// The parent agent on alpha, whose shell the CLI runs in (agentCli).
 let parentId: string;
-let mcpUrl: string;
-let mcpAuth: string;
+let parentEnv: Record<string, string>;
 
 before(async () => {
   alpha = await host("alpha", 500);
@@ -112,26 +112,24 @@ after(async () => {
   }
 });
 
-let rpcId = 0;
-async function mcp(method: string, params?: unknown, auth = mcpAuth) {
-  const res = await fetch(mcpUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: auth },
-    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
-  });
-  return { status: res.status, body: res.status === 200 ? await res.json() : null };
-}
+const cliPath = join(import.meta.dirname, "../../cli/src/main.ts");
 
-async function tool(name: string, args: Record<string, unknown> = {}) {
-  const { body } = await mcp("tools/call", { name, arguments: args });
-  const r = body.result as { content: { text: string }[]; isError?: boolean };
-  const text = r.content[0].text;
-  let data: unknown = text;
+// The casm CLI as the parent agent runs it: talking to alpha, with the CASM_*
+// env alpha put into its session. Resolves on any exit code.
+async function agentCli(...args: string[]) {
   try {
-    data = JSON.parse(text);
-  } catch {}
-  return { isError: !!r.isError, text, data: data as any };
+    const { stdout, stderr } = await promisify(execFile)(process.execPath, [cliPath, ...args], { env: { ...process.env, CASM_URL: alpha.url, CASM_TOKEN: alpha.token, ...parentEnv } });
+    return { code: 0, stdout, stderr };
+  } catch (e) {
+    const x = e as { code: number; stdout: string; stderr: string };
+    return { code: x.code, stdout: x.stdout, stderr: x.stderr };
+  }
 }
+const agentJson = async (...args: string[]) => {
+  const r = await agentCli("--json", ...args);
+  assert.ok(r.code === 0 || r.code === 3, r.stderr);
+  return JSON.parse(r.stdout);
+};
 
 test("peer add verifies the peer and peer.list hides its token", async () => {
   const info = await verifyPeer(beta.url, beta.token);
@@ -151,151 +149,99 @@ test("peer add verifies the peer and peer.list hides its token", async () => {
   assert.equal(probed.peers[0].latencyMs, undefined);
 });
 
-test("casmTools puts the casm MCP server and CASM_* env into the session", async () => {
+test("sessions get CASM_* env, and no MCP server of casm's", async () => {
   const p = await alpha.client.call("project.create", { name: "AlphaProj", path: "/tmp" });
-  const plain = await alpha.client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "hi" });
-  await alpha.client.call("agent.wait", { id: plain.id });
-  const plainOpts = opened.at(-1)!;
-  assert.equal(plainOpts.config.mcpServers, undefined);
-  assert.equal(plainOpts.config.env?.CASM_AGENT_ID, plain.id);
-
-  const a = await alpha.client.call("agent.create", { projectId: p.id, provider: "claude", config: { casmTools: true }, prompt: "hi" });
+  const a = await alpha.client.call("agent.create", { projectId: p.id, provider: "claude", name: "lead", prompt: "hi" });
   await alpha.client.call("agent.wait", { id: a.id });
   const o = opened.at(-1)!;
-  const entry = o.config.mcpServers!.casm as { type: string; url: string; headers: { Authorization: string } };
-  assert.equal(entry.type, "http");
-  assert.equal(entry.url, `http://127.0.0.1:${alpha.server.port}/mcp`);
+  assert.equal(o.config.mcpServers, undefined);
+  const env = o.config.env!;
   assert.deepEqual(
-    { id: o.config.env!.CASM_SERVER_ID, name: o.config.env!.CASM_SERVER_NAME, agent: o.config.env!.CASM_AGENT_ID },
-    { id: (await alpha.client.call("server.info", {})).id, name: "alpha", agent: a.id },
+    { id: env.CASM_SERVER_ID, name: env.CASM_SERVER_NAME, agent: env.CASM_AGENT_ID, agentName: env.CASM_AGENT_NAME },
+    { id: (await alpha.client.call("server.info", {})).id, name: "alpha", agent: a.id, agentName: "lead" },
   );
   // Only the session sees these; the stored config is unchanged.
-  assert.deepEqual((await alpha.client.call("agent.get", { id: a.id })).config, { casmTools: true });
+  assert.deepEqual((await alpha.client.call("agent.get", { id: a.id })).config, {});
+  // casm serves no MCP endpoint.
+  assert.equal((await fetch(`http://127.0.0.1:${alpha.server.port}/mcp`, { method: "POST" })).status, 426);
   parentId = a.id;
-  mcpUrl = entry.url;
-  mcpAuth = entry.headers.Authorization;
+  parentEnv = { CASM_SERVER_ID: env.CASM_SERVER_ID, CASM_SERVER_NAME: env.CASM_SERVER_NAME, CASM_AGENT_ID: env.CASM_AGENT_ID, CASM_AGENT_NAME: env.CASM_AGENT_NAME };
 });
 
-test("MCP rejects missing and bad agent tokens", async () => {
-  assert.equal((await mcp("tools/list", {}, "")).status, 401);
-  assert.equal((await mcp("tools/list", {}, "Bearer casm_agent_nope")).status, 401);
-  // A client token is not an agent token.
-  assert.equal((await mcp("tools/list", {}, `Bearer ${alpha.token}`)).status, 401);
+test("from an agent's shell: peers, projects and agents, local and remote", async () => {
+  const peers = await agentJson("peers", "--probe");
+  assert.deepEqual(peers.map((p: { name: string; reachable: boolean }) => [p.name, p.reachable]), [["asleep", false], ["beta", true]]);
+  assert.deepEqual((await agentJson("-H", "beta", "info")).providers, ["claude"]);
+  assert.deepEqual((await agentJson("projects")).map((p: { name: string }) => p.name), ["AlphaProj"]);
+  assert.deepEqual((await agentJson("-H", "beta", "projects")).map((p: { name: string }) => p.name), ["BetaProj"]);
 });
 
-test("MCP initialize, notifications and tools/list", async () => {
-  const init = await mcp("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } });
-  assert.equal(init.body.result.protocolVersion, "2025-06-18");
-  assert.ok(init.body.result.capabilities.tools);
-  const note = await fetch(mcpUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: mcpAuth },
-    body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
-  });
-  assert.equal(note.status, 202);
-  assert.equal((await fetch(mcpUrl, { headers: { authorization: mcpAuth } })).status, 405);
-  const { body } = await mcp("tools/list");
-  const names = body.result.tools.map((t: { name: string }) => t.name).sort();
-  assert.deepEqual(names, [
-    "answer_permission",
-    "answer_question",
-    "create_agent",
-    "get_history",
-    "get_limits",
-    "get_usage",
-    "list_agents",
-    "list_hosts",
-    "list_pending",
-    "list_projects",
-    "send",
-    "wait",
-  ]);
-  const create = body.result.tools.find((t: { name: string }) => t.name === "create_agent");
-  assert.deepEqual(create.inputSchema.required.sort(), ["project", "provider"]);
-});
-
-test("list_hosts and list_projects, local and remote", async () => {
-  const hosts = await tool("list_hosts");
-  assert.deepEqual(
-    hosts.data.map((h: { name: string; reachable: boolean }) => [h.name, h.reachable]),
-    [["alpha", true], ["asleep", false], ["beta", true]],
-  );
-  assert.deepEqual((await tool("list_projects")).data.map((p: { name: string }) => p.name), ["AlphaProj"]);
-  assert.deepEqual((await tool("list_projects", { host: "beta" })).data.map((p: { name: string }) => p.name), ["BetaProj"]);
-});
-
-test("create_agent, send, wait, list_agents and get_history on a peer; parent is the calling agent", async () => {
+test("from an agent's shell: run, wait, send, agents and history on a peer; parent and sender are the agent", async () => {
   const alphaId = (await alpha.client.call("server.info", {})).id;
-  const created = await tool("create_agent", { host: "beta", project: "BetaProj", provider: "claude", prompt: "remote hello", name: "child", env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:8080" } });
-  assert.equal(created.isError, false, created.text);
-  assert.equal(created.data.host, "beta");
-  const child = await beta.client.call("agent.get", { id: created.data.id });
+  const created = await agentJson("-H", "beta", "run", "--project", "BetaProj", "--name", "child", "--env", "ANTHROPIC_BASE_URL=http://127.0.0.1:8080", "remote hello");
+  const child = await beta.client.call("agent.get", { id: created.id });
   assert.deepEqual(child.parent, { serverId: alphaId, agentId: parentId, host: "alpha" });
   assert.deepEqual(child.config.env, { ANTHROPIC_BASE_URL: "http://127.0.0.1:8080" });
 
-  const w = await tool("wait", { host: "beta", agent: "child", timeout_s: 5 });
-  assert.deepEqual(w.data, { status: "idle", timedOut: false, lastReply: "echo: remote hello", lastTurn: { outcome: "completed" } });
-  assert.deepEqual((await tool("send", { host: "beta", agent: created.data.id.slice(0, 8), text: "again" })).data, { queued: false });
-  assert.equal((await tool("wait", { host: "beta", agent: "child" })).data.lastReply, "echo: again");
+  const w = await agentCli("-H", "beta", "wait", "child", "--timeout", "5");
+  assert.equal(w.code, 0, w.stderr);
+  assert.equal(w.stdout.trim(), "echo: remote hello");
+  assert.equal((await agentCli("-H", "beta", "send", created.id.slice(0, 8), "again")).code, 0);
+  assert.equal((await agentCli("-H", "beta", "wait", "child")).stdout.trim(), "echo: again");
 
-  const listed = await tool("list_agents", { host: "beta", project: "BetaProj" });
-  assert.equal(listed.data[0].name, "child");
-  assert.equal(listed.data[0].parent.agentId, parentId);
-  const h = await tool("get_history", { host: "beta", agent: "child", limit: 2 });
-  assert.equal(h.text, "(2 earlier entries)\nuser: again\nassistant: echo: again");
+  const listed = await agentJson("-H", "beta", "agents", "--project", "BetaProj");
+  assert.equal(listed.find((a: { name: string }) => a.name === "child").parent.agentId, parentId);
+  const h = await agentCli("-H", "beta", "history", "child", "-n", "2");
+  assert.equal(h.stdout.trim(), "(2 earlier items)\n\nfrom lead · alpha\n> again\n\necho: again");
   const history = await beta.client.call("agent.history", { id: child.id });
-  const sender = { serverId: alphaId, agentId: parentId, name: (await alpha.client.call("agent.get", { id: parentId })).name, host: "alpha" };
+  const sender = { serverId: alphaId, agentId: parentId, name: "lead", host: "alpha" };
   assert.deepEqual(history.items.filter((item) => item.kind === "user").map((item) => item.sender), [sender, sender]);
 });
 
-test("create_agent takes a folder inside the project, resolved on the peer", async () => {
+test("from an agent's shell: run --cwd takes a folder inside the project, resolved on the peer", async () => {
   // BetaProj is /tmp on beta.
   const sub = mkdtempSync("/tmp/casm-sub-");
-  const created = await tool("create_agent", { host: "beta", project: "BetaProj", provider: "claude", cwd: basename(sub) });
-  assert.equal(created.isError, false, created.text);
-  assert.equal((await beta.client.call("agent.get", { id: created.data.id })).cwd, sub);
-  const outside = await tool("create_agent", { host: "beta", project: "BetaProj", provider: "claude", cwd: "../etc" });
-  assert.equal(outside.isError, true);
-  assert.match(outside.text, /must be inside the project folder/);
+  const created = await agentJson("-H", "beta", "run", "--project", "BetaProj", "--cwd", basename(sub), "hi");
+  assert.equal((await beta.client.call("agent.get", { id: created.id })).cwd, sub);
+  const outside = await agentCli("-H", "beta", "run", "--project", "BetaProj", "--cwd", "../etc", "hi");
+  assert.equal(outside.code, 1);
+  assert.match(outside.stderr, /must be inside the project folder/);
   rmSync(sub, { recursive: true });
 });
 
-test("create_agent locally also sets the parent", async () => {
-  const created = await tool("create_agent", { project: "AlphaProj", provider: "claude", prompt: "local" });
-  const child = await alpha.client.call("agent.get", { id: created.data.id });
-  assert.equal(child.parent?.agentId, parentId);
-  assert.equal((await tool("wait", { agent: created.data.id })).data.lastReply, "echo: local");
+test("from an agent's shell: run locally also sets the parent", async () => {
+  const r = await agentCli("run", "--project", "AlphaProj", "--wait", "local");
+  assert.equal(r.stdout.trim(), "echo: local");
+  const { agents } = await alpha.client.call("agent.list", {});
+  assert.equal(agents.find((a) => a.id !== parentId && a.parent)?.parent?.agentId, parentId);
 });
 
-test("answer_permission and answer_question unblock a remote child", async () => {
-  const c = await tool("create_agent", { host: "beta", project: "BetaProj", provider: "claude", prompt: "please ask" });
-  const w = await tool("wait", { host: "beta", agent: c.data.id });
-  assert.equal(w.data.status, "waiting");
-  assert.equal(w.data.permissions[0].id, "perm-1");
-  await tool("answer_permission", { host: "beta", agent: c.data.id, request_id: "perm-1", decision: "allow" });
-  assert.equal((await tool("wait", { host: "beta", agent: c.data.id })).data.lastReply, "permission: allow");
+test("from an agent's shell: approve and answer unblock a remote child", async () => {
+  const c = await agentJson("-H", "beta", "run", "--project", "BetaProj", "please ask");
+  const w = await agentCli("-H", "beta", "wait", c.id);
+  assert.equal(w.code, 3);
+  assert.match(w.stderr, /waiting for you/);
+  assert.equal((await agentJson("-H", "beta", "permissions", c.id))[0].id, "perm-1");
+  assert.equal((await agentCli("-H", "beta", "approve", c.id, "perm-1")).code, 0);
+  assert.equal((await agentCli("-H", "beta", "wait", c.id)).stdout.trim(), "permission: allow");
 
-  await tool("send", { host: "beta", agent: c.data.id, text: "a question" });
-  const q = await tool("wait", { host: "beta", agent: c.data.id });
-  assert.equal(q.data.questions[0].id, "q-1");
-  await tool("answer_question", { host: "beta", agent: c.data.id, request_id: "q-1", answers: { color: "teal" } });
-  assert.equal((await tool("wait", { host: "beta", agent: c.data.id })).data.lastReply, 'answer: {"color":"teal"}');
+  await agentCli("-H", "beta", "send", c.id, "a question");
+  assert.equal((await agentCli("-H", "beta", "wait", c.id)).code, 3);
+  assert.equal((await agentJson("-H", "beta", "questions", c.id))[0].id, "q-1");
+  assert.equal((await agentCli("-H", "beta", "answer", c.id, "q-1", "color=teal")).code, 0);
+  assert.equal((await agentCli("-H", "beta", "wait", c.id)).stdout.trim(), 'answer: {"color":"teal"}');
 });
 
-test("errors come back as tool errors; an unreachable host fails fast", async () => {
-  const unknownAgent = await tool("send", { host: "beta", agent: "nobody", text: "x" });
-  assert.equal(unknownAgent.isError, true);
-  assert.match(unknownAgent.text, /no agent "nobody" on beta/);
-  const unknownHost = await tool("list_agents", { host: "mars" });
-  assert.match(unknownHost.text, /unknown host "mars" \(known: alpha, asleep, beta\)/);
-  const bad = await tool("create_agent", { project: "AlphaProj" });
-  assert.match(bad.text, /invalid arguments/);
-
+test("from an agent's shell: errors name the agent and host; an unreachable host fails fast", async () => {
+  const unknownAgent = await agentCli("-H", "beta", "send", "nobody", "x");
+  assert.equal(unknownAgent.code, 1);
+  assert.match(unknownAgent.stderr, /no agent "nobody"/);
+  assert.match((await agentCli("-H", "mars", "agents")).stderr, /unknown host "mars": not a peer of alpha/);
   const t0 = Date.now();
-  const asleep = await tool("list_agents", { host: "asleep" });
-  assert.equal(asleep.isError, true);
-  assert.match(asleep.text, /host "asleep" is unreachable/);
-  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+  const asleep = await agentCli("-H", "asleep", "agents");
+  assert.equal(asleep.code, 1);
+  assert.match(asleep.stderr, /host "asleep" is unreachable/);
+  assert.ok(Date.now() - t0 < 3000, `took ${Date.now() - t0} ms`);
 });
 
 test("casm run links the child from CASM_* env or --parent", async () => {
@@ -343,7 +289,7 @@ test("CLI sends carry agent provenance across hosts while human sends stay untag
 });
 
 // Clients (the CLI on a server machine) reach peers through their own server:
-// a request with `host` is forwarded over the same peer connections as the MCP tools.
+// a request with `host` is forwarded over the server's peer connections.
 test("requests with a host are forwarded to that peer", async () => {
   const viaBeta = await CasmClient.connect(alpha.url, alpha.token, { host: "beta" });
   const viaSelf = await CasmClient.connect(alpha.url, alpha.token, { host: "alpha" });

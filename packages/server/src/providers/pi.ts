@@ -8,11 +8,11 @@ import { toolImages } from "./tool-images.ts";
 // (extension_ui_request): `confirm` goes through askPermission; `select`,
 // `input` and `editor` become questions.
 //
-// MCP: casm passes the agent's MCP servers (its own casm server and
-// config.mcpServers) through pi-extension.ts, which registers them for the
-// session only. pi's RPC protocol has no MCP commands, so status and reconnect
-// run its built-in /mcp command and read what it reports through notify, and
-// /casm-mcp enables or disables the servers casm added.
+// MCP: casm passes the agent's config.mcpServers through pi-extension.ts,
+// which registers them for the session only. pi's RPC protocol has no MCP
+// commands, so status and reconnect run its built-in /mcp command and read what
+// it reports through notify, and /casm-mcp enables or disables the servers casm
+// added.
 //
 // pi has no built-in todo tool. Todo lists written by extensions are mapped to
 // Item.plan when they use the shape of pi's example extensions: a tool result

@@ -33,9 +33,6 @@ export const AgentConfig = z.object({
   systemPrompt: z.string().optional(),
   mcpServers: z.record(z.string(), z.unknown()).optional(),
   env: z.record(z.string(), z.string()).optional(),
-  // Give the agent casm's own MCP tools (list hosts and agents, create and
-  // drive agents here or on peer servers). Children it creates get it as parent.
-  casmTools: z.boolean().optional(),
 });
 export type AgentConfig = z.infer<typeof AgentConfig>;
 

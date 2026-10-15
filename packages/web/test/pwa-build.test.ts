@@ -32,6 +32,10 @@ test("shell version tracks asset and manifest changes, excluding unrelated publi
     assert.notEqual(second, first);
     writeFileSync(join(root, "manifest.webmanifest"), '{"name":"new name"}');
     assert.notEqual(build(), second);
+    writeFileSync(join(root, "icon-192.png"), "old icon");
+    const iconVersion = build();
+    writeFileSync(join(root, "icon-192.png"), "full-bleed icon");
+    assert.notEqual(build(), iconVersion);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

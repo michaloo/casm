@@ -12,7 +12,7 @@ import { AgentActivity } from "./agent-activity-view";
 import { modelLabels } from "./model-label";
 import { agentRecentKey, rankEntries, readRecent, type SearchEntry, type LauncherGroup } from "./launcher-search";
 
-export type LauncherAction = { kind: "project" | "new-project" | "host"; host: Host; project?: Project; section?: "usage" | "instructions" };
+export type LauncherAction = { kind: "project" | "new-project" | "host"; host: Host; project?: Project; section?: "usage" | "agents-md" | "system-prompt" };
 type Icon = "folder" | "plus" | "schedules" | "usage" | "instructions" | "options";
 type Entry = SearchEntry & {
   host: Host; icon?: Icon; parts: string[]; agent?: Agent; project?: Project; status?: string;
@@ -102,8 +102,8 @@ export function Launcher({ hosts, models, online, current, choose, action, close
       const empty = host === home;
       result.push({ id: `new-project:${host.id}`, group: "Actions", title: "New project", parts: hostParts, subtitle: host.name, icon: "plus", host, empty, action: { kind: "new-project", host } });
       result.push({ id: `schedules:${host.id}`, group: "Actions", title: "Schedules", parts: hostParts, subtitle: host.name, icon: "schedules", host, empty, schedules: true });
-      for (const section of ["usage", "instructions"] as const) result.push({ id: `${section}:${host.id}`, group: "Actions",
-        title: `Host ${section}`, parts: hostParts, subtitle: host.name, icon: section, host, action: { kind: "host", host, section } });
+      for (const [section, title, icon] of [["usage", "Host usage", "usage"], ["agents-md", "Host AGENTS.md", "instructions"], ["system-prompt", "System Prompt", "instructions"]] as const)
+        result.push({ id: `${section}:${host.id}`, group: "Actions", title, parts: hostParts, subtitle: host.name, icon, host, action: { kind: "host", host, section } });
     }
     return result;
   }, [hosts, models, current, recent]);

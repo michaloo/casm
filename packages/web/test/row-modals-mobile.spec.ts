@@ -20,21 +20,23 @@ for (const width of [1440, 375]) test(`host and project modals open from ⋯ at 
   if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
   const nav = page.getByRole("navigation", { name: "Agents" });
 
-  // Host: ⋯ opens the modal straight on Usage; tabs are Usage · Schedules · Instructions.
+  // Host: ⋯ opens the modal straight on Usage; tabs are Usage · Schedules · AGENTS.md · System Prompt · Notifications.
   const hostOptions = nav.getByRole("button", { name: "Host options for Test host", exact: true });
   await hostOptions.click();
   await expect(page.getByRole("menu")).toHaveCount(0);
   const host = page.getByRole("dialog", { name: "Test host host" });
   await expect(host).toBeVisible();
   const hostTabs = host.getByRole("navigation").getByRole("button");
-  await expect(hostTabs).toHaveText(["Usage", "Schedules", "Instructions", "Notifications"]);
+  await expect(hostTabs).toHaveText(["Usage", "Schedules", "AGENTS.md", "System Prompt", "Notifications"]);
   await expect(host.getByRole("region", { name: "Usage" })).toBeVisible();
   await sheetFits(host, width);
   await hostTabs.filter({ hasText: "Schedules" }).click();
   await expect(host.getByRole("region", { name: "Schedules" }).getByRole("button", { name: "New schedule" })).toBeVisible();
-  await hostTabs.filter({ hasText: "Instructions" }).click();
-  await expect(host.getByRole("heading", { name: "Global agent instructions" })).toBeVisible();
-  await expect(host.getByRole("heading", { name: "Agent prompt", exact: true })).toBeVisible();
+  await hostTabs.filter({ hasText: "AGENTS.md" }).click();
+  await expect(host.getByRole("heading", { name: "Global AGENTS.md" })).toBeVisible();
+  await expect(host.getByRole("heading", { name: "System Prompt", exact: true })).toBeHidden();
+  await hostTabs.filter({ hasText: "System Prompt" }).click();
+  await expect(host.getByRole("heading", { name: "System Prompt", exact: true })).toBeVisible();
   await expect(host.getByRole("button", { name: "Memories", exact: true })).toHaveCount(0);
   if (width === 375) for (const tab of await hostTabs.all()) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await sheetFits(host, width);

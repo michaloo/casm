@@ -1,7 +1,7 @@
 # Host settings
 
-The ⋯ button on a host row (Host options) opens the host modal: Usage, Schedules
-and Instructions; **Schedules** in the launcher opens it on Schedules.
+The ⋯ button on a host row (Host options) opens the host modal: Usage, Schedules,
+AGENTS.md, System Prompt and Notifications; **Schedules** in the launcher opens it on Schedules.
 The ⋯ on a project
 row (Project options) opens the project modal: AGENTS.md and Memories, with
 the project's path (Copy), host and group under its title and **New agent** in
@@ -38,9 +38,9 @@ Discovery follows these provider conventions:
 This view covers global instruction files, not project or custom extra rules.
 Environment overrides are those inherited by the casm server.
 
-## Agent prompt and project memories
+## System Prompt and project memories
 
-The Instructions tab also holds the casm agent prompt. It uses `server.agentPrompt` and `server.setAgentPrompt` for
+The System Prompt tab holds casm's agent prompt (`casm agent-prompt` on the CLI). It uses `server.agentPrompt` and `server.setAgentPrompt` for
 an example-agent preview, editing, enabling/disabling, and resetting to default.
 The reset action asks for confirmation inside the dialog.
 

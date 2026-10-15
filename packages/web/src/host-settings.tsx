@@ -4,11 +4,12 @@ import type { Agent, AgentPromptInfo, HostAgentsMdFile, Project } from "@casm/pr
 import { HostSchedules } from "./host-schedules";
 import { HostIdentity, type HostState } from "./host-menu";
 import { HostUsage } from "./host-usage";
+import { HostNotifications } from "./host-notifications";
 import type { Rpc } from "./state";
 import { providerNames } from "./provider-icon";
 import { Prose } from "./transcript";
 
-export type HostSection = "usage" | "schedules" | "instructions";
+export type HostSection = "usage" | "schedules" | "instructions" | "notifications";
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
 
 export function HostSettings({ host, name, state, rpc, online, agents, projects, openAgent, initialSection = "usage", close }: {
@@ -18,7 +19,7 @@ export function HostSettings({ host, name, state, rpc, online, agents, projects,
   const [section, setSection] = useState<HostSection>(initialSection);
   return <SettingsDialog label={`${name} host`} closeLabel="Close host options"
     title={<span className="settings-title-host"><HostIdentity name={name} state={state} /></span>}
-    sections={[["usage", "Usage"], ["schedules", "Schedules"], ["instructions", "Instructions"]] as const} section={section} setSection={setSection} close={close}>
+    sections={[["usage", "Usage"], ["schedules", "Schedules"], ["instructions", "Instructions"], ["notifications", "Notifications"]] as const} section={section} setSection={setSection} close={close}>
     {!online || !rpc ? <p role="status">Host offline. Reconnect to load its usage, schedules and instructions.</p> : <>
       {section === "usage" && <section aria-label="Usage"><h3>Usage</h3>
         <p className="settings-lede">Subscription limit windows per provider, and when they reset.</p>
@@ -30,6 +31,11 @@ export function HostSettings({ host, name, state, rpc, online, agents, projects,
         <Instructions host={host} rpc={rpc} />
         <HostPrompt host={host} rpc={rpc} />
       </div>
+      {/* A browser subscribes on the host serving this page; a peer's agents notify the peer's own devices. */}
+      {section === "notifications" && (host
+        ? <section aria-label="Notifications"><h3>Notifications</h3>
+          <p className="settings-lede">Agents on {name} notify the devices subscribed on {name}: open {name}'s own web client and enable notifications there.</p></section>
+        : <HostNotifications rpc={rpc} name={name} />)}
     </>}
     {/* About this browser's page, so only on the host that serves it. */}
     {!host && !window.isSecureContext && <p className="settings-note http-note">Served over HTTP: cold offline start and notifications need HTTPS (everything else works).</p>}

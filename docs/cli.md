@@ -480,6 +480,33 @@ output become part of the agent's history. It exits 1 if the command fails.
 `casm mcp` lists the agent's MCP servers with their status and tool counts;
 see [MCP controls](mcp-controls.md).
 
+## Notifications
+
+```text
+casm notify <message> [--title t] [--url path] [--device name]
+```
+
+Notifies the user: a Web Push notification to every device subscribed on the
+host (enabled in the web client's host options, see
+[notifications](web-client.md#notifications)), or only the one whose label or
+id is `--device`, and a toast in every open web client. Run from an agent, it
+is titled `<agent> · <project>` (with the schedule's name when a schedule
+started the turn) and a click opens the agent; `--title` and `--url` (a path on
+the web client, like `/h/<host>/a/<agent>`) override that. Agents run it when
+you ask to be told about something; the default agent prompt says so.
+
+```console
+$ casm notify "Deploy finished: 3 services healthy"
+delivered to 2 of 2 devices
+$ casm notify "Only the phone" --device iphone
+delivered to 1 of 1 device
+```
+
+At most 10 notifications a minute per agent; beyond that it fails with "too
+many notifications" and when to try again. With no devices subscribed it still
+shows in open web clients and says so. An expired subscription is removed and
+reported. `-H <peer>` notifies the peer's devices.
+
 ## The agent prompt
 
 ```text

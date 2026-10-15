@@ -127,6 +127,11 @@ Apple's [iPhone installation instructions](https://support.apple.com/guide/iphon
 and [Mac web app instructions](https://support.apple.com/104996) describe the OS controls.
 See [PWA implementation decisions](docs/pwa.md) for cache boundaries and checks.
 
+**Notifications:** ask an agent to tell you when something is done and it
+runs `casm notify "<message>"`; enable them per device in **Host options →
+Notifications** (HTTPS needed; on iPhone, add casm to the Home Screen first).
+See [notifications](docs/web-client.md#notifications).
+
 See the [web client guide](docs/web-client.md) for the sidebar, chat, queue,
 schedules, settings and file previews.
 
@@ -141,6 +146,7 @@ casm pending                                     # queued, deferred and failed m
 casm history <agent>    casm watch <agent>    casm wait <agent>    casm interrupt <agent>
 casm limits             casm usage <agent>
 casm schedule add --at "in 2h" --agent <agent> "Check the results"
+casm notify "Deploy finished"                    # push to your devices and open web clients
 ```
 
 Use `--json` for scripting and `-H <peer>` for another host; `casm --help`

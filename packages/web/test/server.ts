@@ -1,5 +1,5 @@
 // Disposable real casm server with a deterministic provider. No production state or model calls.
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Store } from "../../server/src/db.ts";
 import { startServer } from "../../server/src/server.ts";
@@ -12,6 +12,7 @@ import { visualItems } from "./visual-fixture.ts";
 import { testHome as home, testPort } from "./config.ts";
 mkdirSync(home, { recursive: true });
 rmSync(`${home}/web-test.db`, { force: true });
+rmSync(`${home}/push-sent.jsonl`, { force: true });
 // Global settings must never reach the account running this fixture.
 const settings = `${home}/host-settings`;
 rmSync(settings, { recursive: true, force: true });
@@ -220,6 +221,11 @@ const server = await startServer({
   // Inside the project folder: the Files tab lists it but never opens it.
   home: `${home}/state`,
   webRoot: resolve("packages/web/dist"),
+  // No real push service: deliveries are recorded; an endpoint containing "gone" has expired.
+  pushSend: async (req) => {
+    appendFileSync(`${home}/push-sent.jsonl`, JSON.stringify({ endpoint: req.endpoint }) + "\n");
+    return { status: req.endpoint.includes("gone") ? 410 : 201, headers: new Headers(), body: "" };
+  },
 });
 const sockets = new Set<import("node:stream").Duplex>();
 server.http.on("upgrade", (_request, socket) => {

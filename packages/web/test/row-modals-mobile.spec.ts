@@ -27,7 +27,7 @@ for (const width of [1440, 375]) test(`host and project modals open from ⋯ at 
   const host = page.getByRole("dialog", { name: "Test host host" });
   await expect(host).toBeVisible();
   const hostTabs = host.getByRole("navigation").getByRole("button");
-  await expect(hostTabs).toHaveText(["Usage", "Schedules", "Instructions"]);
+  await expect(hostTabs).toHaveText(["Usage", "Schedules", "Instructions", "Notifications"]);
   await expect(host.getByRole("region", { name: "Usage" })).toBeVisible();
   await sheetFits(host, width);
   await hostTabs.filter({ hasText: "Schedules" }).click();

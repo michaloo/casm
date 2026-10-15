@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { usageLabel, resetLabel } from "../src/usage-label.ts";
+import { usageLabel, resetLabel, elapsedPercent } from "../src/usage-label.ts";
 
 test("usage shows provider status alongside percentages including zero", () => {
   assert.equal(usageLabel({ id: "week", usedPercent: 99.6, status: "exhausted" }), "100% used · exhausted");
@@ -17,4 +17,13 @@ test("reset time is relative, readable and safe for expired/invalid dates", () =
 test("missing percentage preserves status and unavailable values are explicit", () => {
   assert.equal(usageLabel({ id: "week", status: "warning" }), "warning");
   assert.equal(usageLabel({ id: "week" }), "Usage unknown");
+});
+
+test("elapsed share of a window comes from its length and reset", () => {
+  const now = Date.parse("2026-10-15T12:00:00Z");
+  assert.equal(elapsedPercent({ id: "five_hour", windowMinutes: 300, resetsAt: "2026-10-15T14:00:00Z" }, now), 60);
+  assert.equal(elapsedPercent({ id: "w", windowMinutes: 300, resetsAt: "2026-10-15T11:00:00Z" }, now), 100);
+  assert.equal(elapsedPercent({ id: "w", windowMinutes: 300, resetsAt: "2026-10-15T20:00:00Z" }, now), 0);
+  assert.equal(elapsedPercent({ id: "w", resetsAt: "2026-10-15T14:00:00Z" }, now), undefined);
+  assert.equal(elapsedPercent({ id: "w", windowMinutes: 300 }, now), undefined);
 });

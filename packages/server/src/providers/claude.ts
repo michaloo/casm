@@ -785,11 +785,18 @@ const LIMIT_LABELS: Record<string, string> = {
   overage: "extra usage",
 };
 
+// How long each rolling window lasts; clients use it to show how far into the window we are.
+function windowMinutes(id: string): { windowMinutes?: number } {
+  if (id === "five_hour") return { windowMinutes: 300 };
+  if (id.startsWith("seven_day")) return { windowMinutes: 7 * 24 * 60 };
+  return {};
+}
+
 // Live utilization is a fraction; the account-query response uses percentages.
 export function rateLimitWindow(info: SDKRateLimitInfo) {
   const id = info.rateLimitType ?? "usage";
   return {
-    id, label: LIMIT_LABELS[id] ?? id.replace(/_/g, "-"),
+    id, label: LIMIT_LABELS[id] ?? id.replace(/_/g, "-"), ...windowMinutes(id),
     usedPercent: info.utilization != null ? info.utilization * 100 : undefined,
     resetsAt: info.resetsAt != null ? new Date(info.resetsAt * 1000).toISOString() : undefined,
     status: info.status === "rejected" ? "exhausted" as const : info.status === "allowed_warning" ? "warning" as const : "ok" as const,
@@ -1260,7 +1267,7 @@ export async function queryLimits(fetch: () => Promise<unknown>): Promise<Awaite
     const windows = Object.entries(parsed.data.rate_limits).flatMap(([key, w]) => {
       if (!w || ("is_enabled" in w && !w.is_enabled)) return [];
       const id = key === "extra_usage" ? "overage" : key;
-      return [{ id, label: LIMIT_LABELS[id] ?? id.replace(/_/g, " "),
+      return [{ id, label: LIMIT_LABELS[id] ?? id.replace(/_/g, " "), ...windowMinutes(id),
         usedPercent: w.utilization ?? undefined,
         resetsAt: "resets_at" in w ? w.resets_at ?? undefined : undefined,
         ...(w.utilization == null ? {} : { status: w.utilization >= 100 ? "exhausted" as const : w.utilization >= 80 ? "warning" as const : "ok" as const }),

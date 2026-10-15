@@ -15,3 +15,11 @@ export function resetLabel(reset: string, now = Date.now()): string {
   if (hours < 24) return `in ${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`;
   return `in ${Math.floor(hours / 24)}d${hours % 24 ? ` ${hours % 24}h` : ""}`;
 }
+
+// How far the current time is into the window (0-100), when its length and reset are known.
+export function elapsedPercent(w: LimitWindow, now = Date.now()): number | undefined {
+  if (!w.windowMinutes || !w.resetsAt) return undefined;
+  const end = Date.parse(w.resetsAt), length = w.windowMinutes * 60_000;
+  if (!Number.isFinite(end)) return undefined;
+  return Math.min(100, Math.max(0, (1 - (end - now) / length) * 100));
+}

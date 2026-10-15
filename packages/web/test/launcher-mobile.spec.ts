@@ -61,7 +61,13 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   // Compact single-line rows: 38px with a mouse, 44px on touch.
   const row = (await dialog.getByRole("option").first().boundingBox())!;
   expect(Math.round(row.height)).toBe(info.project.use.hasTouch || width === 375 ? 44 : 38);
+  // A pointer resting over the list must not take the selection when keys scroll it.
+  const third = (await dialog.getByRole("option").nth(2).boundingBox())!;
+  await page.mouse.move(third.x + 40, third.y + third.height / 2, { steps: 3 });
+  await expect(dialog.getByRole("option").nth(2)).toHaveAttribute("aria-selected", "true");
   await input.press("Shift+Tab");
+  await expect(dialog.getByRole("option", { selected: true })).toContainText("New project");
+  await page.waitForTimeout(150);
   await expect(dialog.getByRole("option", { selected: true })).toContainText("New project");
   const options = await dialog.getByRole("option").allTextContents();
   expect(options.filter(text => text.startsWith("New project"))).toEqual(["New projectTest host"]);
@@ -69,6 +75,8 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   expect(options.some(text => /^(Project options|Host usage|Host AGENTS\.md|System Prompt)/.test(text))).toBe(false);
   await input.press("Tab");
   await expect(dialog.getByRole("option", { selected: true })).toContainText(/Agent 01|Agent 03/);
+  await page.waitForTimeout(150);
+  await expect(dialog.getByRole("option").first()).toHaveAttribute("aria-selected", "true");
   await expect(dialog.getByRole("button", { name: "Close launcher" })).toBeVisible({ visible: width === 375 });
   await page.waitForTimeout(250);
   const before = calls.length;

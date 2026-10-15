@@ -41,7 +41,8 @@ import { Question } from "./question";
 import { ChatWorking } from "./chat-working";
 import { newMessageId, sendMode, visiblePending } from "./outbox";
 import { PendingRows } from "./pending-strip";
-import { ChevronGlyph } from "./row-menu";
+import { AttachGlyph, ChevronGlyph } from "./row-menu";
+import { MAX_IMAGES, imageFiles, prepareImage } from "./attach";
 import { NewAgentStarters, NewAgentWelcome } from "./new-agent";
 import "./fonts/fonts.css";
 import "./style.css";
@@ -470,6 +471,29 @@ function App() {
   }
   // A project's new-agent screen: a welcome with the composer near the center.
   const starting = !!(selection && !selection.id && project && host);
+  const [dropping, setDropping] = useState(false);
+  const [attaching, setAttaching] = useState(0);
+  const fileInput = useRef<HTMLInputElement>(null);
+  // Adds images (picked, pasted or dropped) to a draft, downscaled; problems show in the banner.
+  async function attachImages(files: File[], target = c) {
+    if (!files.length) return;
+    if (!online) { setError("Offline: attach images after reconnecting."); return; }
+    const room = MAX_IMAGES - target.images.length;
+    const problems: string[] = [];
+    if (files.length > room) problems.push(`A message holds at most ${MAX_IMAGES} images; ${files.length - Math.max(room, 0)} not attached.`);
+    setAttaching((n) => n + 1);
+    try {
+      for (const file of files.slice(0, Math.max(room, 0))) {
+        try {
+          const image = await prepareImage(file);
+          target.images = [...target.images, image];
+          saveDraft(target);
+          redraw();
+        } catch (e) { problems.push((e as Error).message); }
+      }
+    } finally { setAttaching((n) => n - 1); }
+    if (problems.length) setError(problems.join(" "));
+  }
   const rows = visiblePending(c);
   const busy = !!agent && agent.status !== "idle";
   const primary = sendMode(agent?.status, rows.length);
@@ -589,7 +613,7 @@ function App() {
   // the transcript, or in the queue. The server's copy replaces it by id.
   async function send(steer = false) {
     // Offline the draft stays in the composer (and on this device) instead.
-    if (!online || !selection || (!c.input.trim() && !c.images.length) || creating || commandBusy) return;
+    if (!online || !selection || (!c.input.trim() && !c.images.length) || creating || commandBusy || attaching > 0) return;
     if (slash.sendAction()) return;
     const s = selection;
     const text = c.input;
@@ -1015,10 +1039,25 @@ function App() {
               />
             </PendingQueue>
             <form
-              className="composer"
+              className={`composer${dropping ? " dropping" : ""}`}
               onSubmit={(e) => {
                 e.preventDefault();
                 void send();
+              }}
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = online ? "copy" : "none";
+                setDropping(true);
+              }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false); }}
+              onDrop={(e) => {
+                setDropping(false);
+                const files = imageFiles(e.dataTransfer);
+                if (!e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                if (!files.length) { setError("Only images can be attached."); return; }
+                void attachImages(files);
               }}
             >
               {slash.palette}
@@ -1043,7 +1082,7 @@ function App() {
                   redraw();
                 }}
                 onPaste={(e) => {
-                  const files = Array.from(e.clipboardData.items).filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((file): file is File => file !== null);
+                  const files = imageFiles(e.clipboardData);
                   if (!files.length) return;
                   e.preventDefault();
                   const target = c;
@@ -1051,17 +1090,10 @@ function App() {
                   if (text) {
                     const { selectionStart, selectionEnd } = e.currentTarget;
                     target.input = target.input.slice(0, selectionStart) + text + target.input.slice(selectionEnd);
-                  }
-                  void Promise.all(files.map((file) => new Promise<{ mediaType: string; data: string }>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve({ mediaType: file.type, data: String(reader.result).split(",")[1] });
-                    reader.onerror = () => reject(new Error("Could not read pasted image"));
-                    reader.readAsDataURL(file);
-                  }))).then((images) => {
-                    target.images = [...target.images, ...images];
                     saveDraft(target);
                     redraw();
-                  }).catch((error) => setError(String(error)));
+                  }
+                  void attachImages(files, target);
                 }}
                 onKeyDown={(e) => {
                   if (slash.onKeyDown(e)) return;
@@ -1079,8 +1111,14 @@ function App() {
                 }}
               />
               <div className="actions">
+                <button type="button" className="attach" aria-label="Attach images" disabled={!online || attaching > 0} aria-busy={attaching > 0}
+                  title={online ? "Attach images (you can also paste or drop them)" : offlineNote} onClick={() => fileInput.current?.click()}>
+                  <AttachGlyph />
+                </button>
+                <input ref={fileInput} type="file" accept="image/*" multiple hidden aria-hidden="true" tabIndex={-1}
+                  onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void attachImages(files); }} />
                 <small className="send-hint">
-                  {!online ? "Offline · your draft is kept on this device and can be sent after reconnecting" : busy
+                  {attaching > 0 ? "Preparing image…" : !online ? "Offline · your draft is kept on this device and can be sent after reconnecting" : busy
                     ? <>Enter to queue · <kbd>{mac ? "⌘" : "Ctrl"}+Enter</kbd> to steer · Shift+Enter for newline</>
                     : primary === "queue"
                       ? "Enter to queue after the waiting messages · Shift+Enter for newline"
@@ -1108,7 +1146,7 @@ function App() {
                     <button
                       type="button"
                       className="steer"
-                      disabled={!online || (!c.input.trim() && !c.images.length) || creating}
+                      disabled={!online || (!c.input.trim() && !c.images.length) || creating || attaching > 0}
                       title={online ? `Send into the running turn (${mac ? "⌘" : "Ctrl"}+Enter)` : offlineNote}
                       onClick={() => void send(true)}
                     >
@@ -1119,7 +1157,7 @@ function App() {
                 <button
                   className={primary === "queue" ? "queue" : "send"}
                   title={!online ? offlineNote : primary === "queue" ? "Send after the running turn and the waiting messages (Enter)" : "Send (Enter)"}
-                  disabled={!online || (!c.input.trim() && !c.images.length) || creating}
+                  disabled={!online || (!c.input.trim() && !c.images.length) || creating || attaching > 0}
                 >
                   {primary === "queue" ? "Queue" : "Send"}
                 </button>

@@ -49,6 +49,8 @@ for (const width of [1440, 375]) test(`composer picker mobile snapshots and choi
   const face = (name: string) => pickers.locator(".composer-picker").filter({ has: page.getByRole("combobox", { name, exact: true }) }).locator(".composer-picker-label");
   async function snapshot(name: string) {
     await page.evaluate(() => document.fonts.ready);
+    // The new-agent screen eases the composer in; measure it at rest.
+    await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
     for (const pill of await pickers.locator(".composer-picker").all()) {
       const box = (await pill.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);

@@ -58,7 +58,7 @@ test("offline mobile: losing the server shows the banner and makes the view read
   const agents = page.getByRole("button", { name: "Agents", exact: true });
   if (await agents.isVisible()) await agents.click();
   await expect(page.getByRole("button", { name: "New project on Test host" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Test project ＋", exact: true })).toBeDisabled();
+  await expect(page.locator("nav .project-row").getByText("＋")).toHaveCount(0);
   if (await page.getByRole("button", { name: "Close", exact: true }).isVisible()) await page.getByRole("button", { name: "Close", exact: true }).click();
   // The transcript stays readable and drafts can still be written.
   await expect(page.locator(".item").first()).toBeVisible();

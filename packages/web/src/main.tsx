@@ -26,6 +26,9 @@ import { Rpc, chat, chats, event, key, syncPending, timing, type Host } from "./
 import { filePathFromRoute, resolveView, viewPath, type Selection } from "./navigation";
 import { FilePreview } from "./files";
 import { FileLinksContext, insideRoot } from "./file-links";
+import { CasmAgentsContext } from "./casm-tool";
+import { findAgent } from "./casm-command";
+import "./casm-tool.css";
 import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
 import { ProviderIcon } from "./provider-icon";
 import { HostSection } from "./host-section";
@@ -453,6 +456,12 @@ function App() {
     roots: projectRoots.split("\n"),
     open: (path: string) => setPreview({ host: host.id, path }),
   } : null, [host?.id, projectRoots]);
+  // casm CLI calls in the transcript name agents on this host, or on -H <peer>.
+  const casmAgents = useCallback((ref: string, peer?: string) => {
+    const h = peer ? hosts.find((x) => x.name === peer) : host;
+    const a = h && findAgent(h.agents, ref);
+    return h && a ? { name: a.name, href: viewPath({ host: h.id, project: a.projectId, id: a.id }, hosts), open: () => chooseAgent({ host: h.id, project: a.projectId, id: a.id }) } : null;
+  }, [hosts, host, chooseAgent]);
   const previewRootsKey = hosts.find((h) => h.id === preview?.host)?.projects.map((p) => p.path).join("\n") ?? "";
   const previewRoots = useMemo(() => previewRootsKey ? previewRootsKey.split("\n") : [], [previewRootsKey]);
   const agent = host?.agents.find((a) => a.id === selection?.id);
@@ -924,6 +933,7 @@ function App() {
             </div>
           ) : starting ? <NewAgentWelcome project={project} host={host!.name} /> : selection && (
             <ImagePreviewContext.Provider value={setImagePreview}><FileLinksContext.Provider value={fileLinks}>
+            <CasmAgentsContext.Provider value={casmAgents}>
             <Transcript
               key={ckey}
               ckey={ckey}
@@ -951,6 +961,7 @@ function App() {
                 })
               }
             />
+            </CasmAgentsContext.Provider>
             </FileLinksContext.Provider></ImagePreviewContext.Provider>
           )}
         </div>

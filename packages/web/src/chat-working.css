@@ -1,12 +1,21 @@
 .chat-working {
-  flex: 0 0 24px;
-  min-height: 24px;
-  display: flex;
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+/* A quiet pill beside the queue pill, the same size. */
+.working-pill {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  width: min(calc(100% - 48px), 70ch);
-  margin: 0 auto;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+@media (max-width: 650px) {
+  .working-pill { height: 32px; border-radius: 16px; font-size: 13px; }
 }

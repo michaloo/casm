@@ -50,7 +50,7 @@ export function PendingQueue({ agentKey, messages, children, status }: {
     for (const child of el.children) observer.observe(child);
     return () => observer.disconnect();
   }, [expanded, messages]);
-  return <section className="pending-queue" aria-label={messages.length ? "Queue" : undefined}>
+  return <section className="pending-queue chat-column" aria-label={messages.length ? "Queue" : undefined}>
     <div ref={list} className="queue-list" id={listId} hidden={!expanded || !messages.length} onScroll={measure}
       data-fade-top={fade.top || undefined} data-fade-bottom={fade.bottom || undefined}>{children}</div>
     <div className="composer-status">

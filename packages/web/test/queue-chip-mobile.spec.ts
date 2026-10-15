@@ -50,7 +50,7 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
       } else await expect(chip).toHaveCount(0);
       for (const status of ["idle", "running"]) {
         notify(status);
-        if (status === "running") await expect(working).toHaveText("Working…");
+        if (status === "running") await expect(working).toHaveText("Working");
         else await expect(working).toBeEmpty();
         const box = (await composer.boundingBox())!;
         const queueBox = (await queue.boundingBox())!;

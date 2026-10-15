@@ -579,6 +579,10 @@ footer > span:not(.error):before {
   margin-right: 7px;
 }
 .chat {
+  /* One column for transcript rows, the status row and the composer: the
+     same measure (70ch of the 15px transcript text) and the same gutters. */
+  --chat-measure: 630px;
+  --chat-gutters: 48px;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -609,10 +613,9 @@ footer > span:not(.error):before {
   overscroll-behavior: contain;
 }
 .item {
-  /* Keep this font metric shared: ch also determines every row's alignment. */
-  width: min(100%, calc(70ch + 48px));
+  width: min(calc(100% - var(--chat-gutters)), var(--chat-measure));
   margin: 0 auto;
-  padding: 17px 24px;
+  padding: 17px 0;
   overflow-wrap: anywhere;
   font-size: 15px;
   line-height: 1.68;
@@ -1244,8 +1247,8 @@ details[open] > summary:before {
 }
 .composer {
   flex-shrink: 0;
-  width: min(calc(100% - 48px), calc(70ch + 24px));
-  margin: 10px auto 18px;
+  margin-top: 8px;
+  margin-bottom: 18px;
   border: 1px solid var(--line);
   border-radius: 18px;
   padding: 12px;
@@ -1450,7 +1453,7 @@ textarea::placeholder {
 .card {
   margin: 12px auto;
   padding: 16px;
-  width: min(calc(100% - 48px), calc(70ch + 24px));
+  width: min(calc(100% - var(--chat-gutters)), var(--chat-measure));
   border: 1px solid color-mix(in srgb, var(--attention-bright) 35%, var(--line));
   border-radius: 14px;
   background:
@@ -1794,7 +1797,7 @@ textarea::placeholder {
     min-height: 0;
   }
   .item {
-    padding: 14px 16px;
+    padding: 14px 0;
     font-size: 16px;
     line-height: 1.6;
   }
@@ -1852,10 +1855,11 @@ textarea::placeholder {
     padding: 9px;
     gap: 8px;
   }
+  .chat { --chat-gutters: calc(24px + env(safe-area-inset-left) + env(safe-area-inset-right)); }
   .composer {
-    width: calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right));
     /* Exactly one bottom inset: the composer sits just above the home indicator. */
-    margin: 6px auto max(8px, env(safe-area-inset-bottom));
+    margin-top: 6px;
+    margin-bottom: max(8px, env(safe-area-inset-bottom));
     padding: 8px 10px;
     border-radius: 14px;
   }
@@ -2129,13 +2133,19 @@ button.danger:hover {
   background: var(--accent-hover);
 }
 
+/* Outside the scroller the column also leaves out the transcript's scrollbar
+   (--chat-scrollbar, measured), so both share one centre line and width. */
+.chat-column {
+  --chat-column: min(calc(100% - var(--chat-scrollbar, 0px) - var(--chat-gutters)), var(--chat-measure));
+  width: var(--chat-column);
+  margin-left: calc((100% - var(--chat-scrollbar, 0px) - var(--chat-column)) / 2);
+  margin-right: auto;
+}
 /* The chat's bottom area, in the composer's column: an optional queue panel,
    then one status line (Working… and the queue pill), then the composer.
    Everything takes layout space; the transcript above shrinks for it. */
 .pending-queue {
   flex-shrink: 0;
-  width: min(calc(100% - 48px), calc(70ch + 24px));
-  margin: 0 auto;
 }
 .queue-list {
   max-height: min(340px, 40dvh);
@@ -2169,9 +2179,10 @@ button.pending-more:hover { background: none; text-decoration: underline; }
 .queue-list .pending-actions .pending-primary:hover { background: var(--accent-soft); color: var(--accent); }
 .queue-list .pending-edit { align-items: flex-end; }
 .queue-list .pending-edit textarea { min-height: 3.2em; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); }
-.composer-status { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 4px 0; }
-.composer-status .chat-working { width: auto; flex: 0 0 auto; margin: 0; white-space: nowrap; font-size: 12.5px; }
-.composer-status .chat-working:empty { display: none; }
+/* One compact row of pills (Working, N queued) on the column's left edge;
+   with neither it takes no room at all. */
+.composer-status { display: flex; align-items: center; gap: 6px; min-height: 28px; padding-top: 8px; }
+.composer-status:not(:has(.working-pill, .queue-toggle)) { min-height: 0; padding: 0; }
 /* A small pill matching the composer pickers; the button around it is the
    (taller, on phones) tap target. */
 .queue-toggle {
@@ -2215,7 +2226,6 @@ button.pending-more:hover { background: none; text-decoration: underline; }
 .queue-hints .waiting { color: var(--warning); }
 .queue-hints .failed { color: var(--attention); }
 @media (max-width: 650px) {
-  .pending-queue { width: calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
   .queue-list { max-height: min(360px, 45dvh); }
   /* Text across the row; status and actions share the line below it. */
   .queue-list .pending-row:not(:has(.pending-edit)) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; padding: 12px; font-size: 15px; }
@@ -2226,12 +2236,11 @@ button.pending-more:hover { background: none; text-decoration: underline; }
   button.pending-more { font-size: 14px; min-height: 32px; }
   .pending-actions { justify-content: flex-end; gap: 2px; }
   .queue-list .pending-actions button { height: 40px; min-width: 44px; padding: 0 12px; font-size: 14px; }
-  .composer-status { gap: 8px; padding-inline: 2px; }
-  .composer-status .chat-working { font-size: 13px; gap: 5px; }
   /* 44px to tap, 32px to look at. */
   .queue-toggle { height: 44px; min-height: 44px; font-size: 13px; }
   .queue-pill { height: 32px; border-radius: 16px; }
   .composer-status { min-height: 44px; padding-top: 0; margin-bottom: -6px; }
+  .composer-status:not(:has(.working-pill, .queue-toggle)) { margin-bottom: 0; }
   .card button { min-height: 44px; min-width: 44px; }
 }
 

@@ -146,3 +146,18 @@ test("configs from casm's former MCP tools lose casmTools; the rest stays", () =
   assert.deepEqual(reopened.getSchedule("s")!.target, { type: "newAgent", projectId: "p", provider: "claude", config: { mode: "plan" } });
   reopened.close();
 });
+
+test("tokens record when they were last used, at most once a minute", () => {
+  const store = new Store(":memory:");
+  const token = store.createToken("phone");
+  store.createToken("old-laptop");
+  assert.deepEqual(store.listTokens().map((t) => [t.name, t.lastUsedAt]), [["old-laptop", null], ["phone", null]]);
+  assert.equal(store.checkToken(token), "phone");
+  const first = store.listTokens().find((t) => t.name === "phone")!.lastUsedAt;
+  assert.ok(first && !Number.isNaN(Date.parse(first)));
+  assert.equal(store.checkToken(token), "phone");
+  assert.equal(store.listTokens().find((t) => t.name === "phone")!.lastUsedAt, first, "no rewrite within a minute");
+  assert.equal(store.checkToken("casm_wrong"), undefined);
+  assert.equal(store.listTokens().find((t) => t.name === "old-laptop")!.lastUsedAt, null);
+  store.close();
+});

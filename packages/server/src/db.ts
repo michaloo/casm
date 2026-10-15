@@ -182,6 +182,7 @@ export class Store {
     this.db.exec(SCHEMA);
     this.addColumn("agents", "effective_model", "TEXT");
     this.addColumn("pending", "sender", "TEXT");
+    this.addColumn("tokens", "last_used_at", "TEXT");
     // casm's own MCP tools (config.casmTools) are gone; agents use the casm CLI.
     this.db.exec(`UPDATE agents SET config = json_remove(config, '$.casmTools') WHERE json_type(config, '$.casmTools') IS NOT NULL;
       UPDATE schedules SET target = json_remove(target, '$.config.casmTools') WHERE json_type(target, '$.config.casmTools') IS NOT NULL`);
@@ -455,10 +456,11 @@ export class Store {
     return token;
   }
 
-  listTokens(): { name: string; createdAt: string }[] {
-    return (this.db.prepare("SELECT name, created_at FROM tokens ORDER BY name").all() as Row[]).map((r) => ({
+  listTokens(): { name: string; createdAt: string; lastUsedAt: string | null }[] {
+    return (this.db.prepare("SELECT name, created_at, last_used_at FROM tokens ORDER BY name").all() as Row[]).map((r) => ({
       name: r.name as string,
       createdAt: r.created_at as string,
+      lastUsedAt: (r.last_used_at as string | null) ?? null,
     }));
   }
 
@@ -467,9 +469,13 @@ export class Store {
   }
 
   // Returns the token's name when valid.
+  // Records when it was last used (at most once a minute, so frequent connects don't write each time).
   checkToken(token: string): string | undefined {
-    const r = this.db.prepare("SELECT name FROM tokens WHERE hash = ?").get(hashToken(token)) as Row | undefined;
-    return r?.name as string | undefined;
+    const r = this.db.prepare("SELECT name, last_used_at FROM tokens WHERE hash = ?").get(hashToken(token)) as Row | undefined;
+    if (!r) return undefined;
+    const last = r.last_used_at ? Date.parse(r.last_used_at as string) : 0;
+    if (Date.now() - last > 60_000) this.db.prepare("UPDATE tokens SET last_used_at = ? WHERE name = ?").run(now(), r.name as string);
+    return r.name as string;
   }
 
   // --- peers

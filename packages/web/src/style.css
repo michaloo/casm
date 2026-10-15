@@ -2662,3 +2662,21 @@ nav .row-add:disabled { opacity: 0.35; }
 }
 .push-devices li > div { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .push-devices li small { flex-basis: 100%; color: var(--muted); overflow-wrap: anywhere; }
+
+/* File and inline images share the existing preview shell. */
+.image-attachments img[role=button] { cursor: zoom-in; }
+.image-attachments img[role=button]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.file-preview-body.has-image { display: flex; padding: 0; min-height: 0; overflow: hidden; }
+.image-viewer { display: flex; flex-direction: column; width: 100%; min-height: 0; }
+.image-viewer-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; flex-shrink: 0; }
+.image-viewer-controls button { min-height: 44px; }
+.image-viewer-controls button[aria-pressed=true] { background: var(--raised); }
+.image-viewer-controls small { color: var(--muted); }
+.image-surface { position: relative; display: flex; align-items: center; justify-content: center; flex: 1; min-height: 0; overflow: hidden; touch-action: none; cursor: zoom-in; }
+.image-surface[data-zoom=actual] { cursor: grab; }
+.image-surface[data-zoom=actual]:active { cursor: grabbing; }
+.image-surface .file-image { max-width: 100%; max-height: 100%; flex-shrink: 0; margin: 0; object-fit: contain; user-select: none; }
+.image-position { align-self: center; white-space: nowrap; }
+
+.image-navigation { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.image-navigation button { min-width: 44px; min-height: 44px; }

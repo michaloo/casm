@@ -32,3 +32,11 @@ test("tool disclosure renders inline images and preserves text-only fallback", a
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("image placeholders are removable without losing captions or unavailable-source text", async () => {
+  const { withoutImagePlaceholders, imageSource } = await import("../src/image-preview.ts");
+  assert.equal(withoutImagePlaceholders("caption\n[image]\n[Image: source: /home/me/.claude/projects/a.png]\nafter"), "caption\nafter");
+  assert.equal(withoutImagePlaceholders("An [image] description"), "An [image] description");
+  assert.equal(imageSource({ mediaType: "image/svg+xml", data: "YWJj" }), undefined);
+  assert.equal(imageSource({ mediaType: "image/png", data: "" }), undefined);
+});

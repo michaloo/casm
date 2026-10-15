@@ -1,3 +1,4 @@
+import { ImagePreviewContext, type ImageSelection } from "./image-preview";
 import { Launcher, LauncherDestination, SearchGlyph, type LauncherAction } from "./launcher";
 import { rememberAgent } from "./launcher-search";
 import "./register-service-worker";
@@ -157,6 +158,7 @@ function App() {
     if (selection?.id) rememberAgent(localStorage, selection.host, selection.id);
   }, [selection?.host, selection?.id]);
   // The open file preview: from a file link (host of the open chat) or the /f/ route.
+  const [imagePreview, setImagePreview] = useState<ImageSelection>();
   const [preview, setPreview] = useState<{ host: string; path: string; route?: boolean }>();
   const routeFile = filePathFromRoute(path);
   useEffect(() => {
@@ -751,6 +753,7 @@ function App() {
           choose({ host, project: project.id });
         }} />}
 
+      {imagePreview && <FilePreview images={imagePreview.images} index={imagePreview.index} roots={[]} close={() => setImagePreview(undefined)} />}
       {preview && rpc.current && online && <FilePreview key={`${preview.host}\n${preview.path}`} rpc={rpc.current} host={preview.host} path={preview.path}
         roots={previewRoots} close={closePreview} />}
       {mcp && rpc.current && <McpPanel {...mcp} rpc={rpc.current} close={() => { setMcp(undefined); document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus(); }} />}
@@ -894,7 +897,7 @@ function App() {
               <p>This conversation was not saved on this device. It loads when the connection is back.</p>
             </div>
           ) : starting ? <NewAgentWelcome project={project} host={host!.name} /> : selection && (
-            <FileLinksContext.Provider value={fileLinks}>
+            <ImagePreviewContext.Provider value={setImagePreview}><FileLinksContext.Provider value={fileLinks}>
             <Transcript
               key={ckey}
               ckey={ckey}
@@ -922,7 +925,7 @@ function App() {
                 })
               }
             />
-            </FileLinksContext.Provider>
+            </FileLinksContext.Provider></ImagePreviewContext.Provider>
           )}
         </div>
         {selection && project && (

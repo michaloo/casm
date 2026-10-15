@@ -1,3 +1,4 @@
+import { ImagePreviewContext, imageSource, withoutImagePlaceholders } from "./image-preview";
 import {
   isValidElement,
   memo,
@@ -233,7 +234,8 @@ function ToolRow({
     ? Math.max(0, ((time.end ?? Date.now()) - time.start) / 1000)
     : undefined;
   const summary = shortInput(item.input);
-  const output = item.output ?? "";
+  const [imageRendered, setImageRendered] = useState(false);
+  const output = imageRendered ? withoutImagePlaceholders(item.output ?? "") : item.output ?? "";
   const diff = /^(diff --git|@@|--- )/m.test(output);
   return (
     <div className="item tool">
@@ -292,7 +294,7 @@ function ToolRow({
                   : "No output"}
               </p>
             ) : null}
-            {item.images?.length ? <Images images={item.images} /> : null}
+            {item.images?.length ? <Images images={item.images} name={item.name} rendered={() => setImageRendered(true)} /> : null}
           </div>
         )}
       </details>
@@ -410,12 +412,23 @@ export function Row({
   );
 }
 
-// Inline only: never turn provider filesystem paths into browser URLs.
-export function Images({ images, remove }: { images: ImageData[]; remove?: (index: number) => void }) {
+// Provider paths never become browser URLs; only validated inline image data does.
+export function Images({ images, remove, name = "message", rendered }: { images: ImageData[]; remove?: (index: number) => void; name?: string; rendered?: () => void }) {
+  const open = useContext(ImagePreviewContext);
+  const [failed, setFailed] = useState<Set<number>>(() => new Set());
+  const sources = images.map(imageSource);
+  const show = (index: number) => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const valid = sources.flatMap((src, i) => src && !failed.has(i) ? [{ src, name: `${name.replace(/[^a-z0-9_-]/gi, "-")}-${stamp}-${i + 1}.${images[i].mediaType.split("/")[1].toLowerCase()}` }] : []);
+    open?.({ images: valid, index: sources.slice(0, index).filter((src, i) => src && !failed.has(i)).length });
+  };
   return <div className="image-attachments">
     {images.map((image, index) => <div key={index}>
-      {image.data && /^image\/(png|jpeg|gif|webp|avif)$/i.test(image.mediaType) && /^[A-Za-z0-9+/]*={0,2}$/.test(image.data)
-        ? <img src={`data:${image.mediaType};base64,${image.data}`} alt={`Attached image ${index + 1}`} />
+      {sources[index] && !failed.has(index)
+        ? <img src={sources[index]} alt={`Attached image ${index + 1}`} tabIndex={open && !remove ? 0 : undefined}
+            role={open && !remove ? "button" : undefined} aria-label={open && !remove ? `Open image ${index + 1}` : undefined}
+            onClick={() => { if (!remove) show(index); }} onKeyDown={event => { if (!remove && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); show(index); } }}
+            onLoad={rendered} onError={() => setFailed(previous => new Set([...previous, index]))} />
         : <small>Attached image {index + 1} · preview unavailable</small>}
       {remove && <button type="button" aria-label={`Remove image ${index + 1}`} onClick={() => remove(index)}>Remove</button>}
     </div>)}

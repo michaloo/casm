@@ -47,7 +47,10 @@ for (const width of [1440, 375]) test(`mobile shared file preview: inline images
   await expect.poll(() => rendered.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1600);
   const bounds = (await surface.boundingBox())!, fitted = (await rendered.boundingBox())!;
   expect(fitted.width).toBeLessThanOrEqual(bounds.width + 1); expect(fitted.height).toBeLessThanOrEqual(bounds.height + 1);
-  await page.screenshot({ path: `/tmp/casm-image-preview-${width}-${test.info().project.name}.png` });
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme }); await page.waitForTimeout(300);
+    await page.screenshot({ path: test.info().outputPath(`image-preview-${width}-${colorScheme}.png`) });
+  }
   await surface.click();
   await expect(surface).toHaveAttribute("data-zoom", "actual");
   expect(Math.round((await rendered.boundingBox())!.width)).toBe(1600);

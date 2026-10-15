@@ -1,7 +1,17 @@
-import { useRef, useState, type PointerEvent } from "react";
+import { useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { ChevronGlyph } from "./row-menu";
+
+/** Previous/next arrows for a gallery, shown inside the canvas's control pill. */
+export function ImageSteps({ index, count, step }: { index: number; count: number; step: (delta: number) => void }) {
+  return <>
+    <button type="button" aria-label="Previous image" disabled={index === 0} onClick={() => step(-1)}><ChevronGlyph className="image-step-back" /></button>
+    <span className="image-position" role="status">{index + 1} / {count}</span>
+    <button type="button" aria-label="Next image" disabled={index === count - 1} onClick={() => step(1)}><ChevronGlyph className="image-step-next" /></button>
+  </>;
+}
 
 /** Shared image surface for files and inline images. Scale 1 means fit; 1:1 uses natural pixels. */
-export function ImageCanvas({ src, name, close }: { src: string; name: string; close: () => void }) {
+export function ImageCanvas({ src, name, close, children }: { src: string; name: string; close: () => void; children?: ReactNode }) {
   const surface = useRef<HTMLDivElement>(null);
   const image = useRef<HTMLImageElement>(null);
   const [scale, setScale] = useState(1);
@@ -47,16 +57,19 @@ export function ImageCanvas({ src, name, close }: { src: string; name: string; c
     else if (!g.moved && !g.pinch) zoom();
   };
   return <div className="image-viewer">
-    <div className="image-viewer-controls">
-      <button type="button" aria-pressed={scale === 1} onClick={() => { setScale(1); setPan({ x: 0, y: 0 }); }}>Fit</button>
-      <button type="button" aria-pressed={scale !== 1} onClick={() => { setScale(naturalScale()); setPan({ x: 0, y: 0 }); }}>1:1</button>
-      <small>Click to zoom · drag to pan</small>
-    </div>
-    <div ref={surface} className="image-surface" data-zoom={scale > 1 ? "actual" : "fit"} tabIndex={0} role="button" aria-label="Zoom image"
+    <div ref={surface} className="image-surface" data-zoom={scale > 1 ? "actual" : "fit"} tabIndex={0} role="button" aria-label="Zoom image" title="Click to zoom · drag to pan"
       onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); zoom(); } }}
       onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
       {error ? <p role="alert">Image could not be loaded. Try Download.</p> : <img ref={image} className="file-image" src={src} alt={name} draggable={false}
         onError={() => setError(true)} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }} />}
     </div>
+    {!error && <div className="image-controls">
+      <div className="image-zoom" role="group" aria-label="Zoom">
+        <button type="button" aria-pressed={scale === 1} onClick={() => { setScale(1); setPan({ x: 0, y: 0 }); }}>Fit</button>
+        <button type="button" aria-pressed={scale !== 1} onClick={() => { setScale(naturalScale()); setPan({ x: 0, y: 0 }); }}>1:1</button>
+      </div>
+      {children && <span className="image-controls-rule" aria-hidden="true" />}
+      {children}
+    </div>}
   </div>;
 }

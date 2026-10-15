@@ -1,5 +1,5 @@
 import type { PreviewImage } from "./image-preview";
-import { ImageCanvas } from "./image-canvas";
+import { ImageCanvas, ImageSteps } from "./image-canvas";
 // Shared read-only preview for project files and in-memory transcript images.
 // File paths keep Download and Copy path; inline images use named downloads. Downloads use short-lived signed links from the server
 // the page is connected to, so they work for peers' files and on iPhone Safari.
@@ -134,17 +134,14 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
           const blob = clipboardPng(source);
           void navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(() => setCopied("Image copied ✓"), err => setError(message(err)));
         }}>{copied || "Copy image"}</button>}
-        {images && images.length > 1 && <div className="image-navigation">
-          <button type="button" aria-label="Previous image" disabled={index === 0} onClick={() => navigate(-1)}>←</button>
-          <span className="image-position" role="status">{index + 1} / {images.length}</span>
-          <button type="button" aria-label="Next image" disabled={index === images.length - 1} onClick={() => navigate(1)}>→</button>
-        </div>}
       </div>
     </div>
     <div className={`settings-content file-preview-body${source ? " has-image" : ""}`}>
       {error && <p role="alert" className="error">{error}</p>}
       {!memory && !file && !error && <p role="status">Loading…</p>}
-      {source && <ImageCanvas key={`${index}:${path || name}`} src={source} name={name} close={() => dialog.current?.close()} />}
+      {source && <ImageCanvas key={`${index}:${path || name}`} src={source} name={name} close={() => dialog.current?.close()}>
+        {images && images.length > 1 && <ImageSteps index={index} count={images.length} step={navigate} />}
+      </ImageCanvas>}
       {!source && file && <FileLinksContext.Provider value={links}>
         <FileBody file={file} />
       </FileLinksContext.Provider>}

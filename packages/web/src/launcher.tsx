@@ -2,7 +2,7 @@ import { openSchedules } from "./open-schedules";
 import { HostSettings } from "./host-settings";
 import { ProjectSettings } from "./project-settings";
 import { NewProject } from "./new-project";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import type { Agent, ModelInfo, Project } from "@casm/protocol";
 import { chats, key, type Host } from "./state";
@@ -156,6 +156,17 @@ export function Launcher({ hosts, models, online, current, choose, action, close
     else if (target.top + target.height > element.scrollTop + element.clientHeight) element.scrollTop = target.top + target.height - element.clientHeight + 6;
     setScrollTop(element.scrollTop);
   }, [selected, query, results.length, listHeight, rowHeight]);
+  // Only a mouse that actually moves selects a row: scrolling under a resting
+  // pointer fires pointermove at the same spot (WebKit) and must not steal the keyboard's row.
+  const pointer = useRef<{ x: number; y: number }>(undefined);
+  const hover = (event: ReactPointerEvent) => {
+    if (event.pointerType !== "mouse") return;
+    const last = pointer.current;
+    pointer.current = { x: event.clientX, y: event.clientY };
+    const row = (event.target as Element).closest?.("[role=option]");
+    const index = row ? Number(row.id.replace("launcher-option-", "")) : NaN;
+    if (last && (last.x !== event.clientX || last.y !== event.clientY) && Number.isInteger(index) && index !== selected) setActive(index);
+  };
   const open = (entry: Entry, alternate = false) => {
     const target = alternate ? entry.alternate : entry.selection ?? entry.action;
     if (!target && !entry.schedules) return;
@@ -166,7 +177,7 @@ export function Launcher({ hosts, models, online, current, choose, action, close
   };
   const current_ = results[selected]?.entry;
   const hint = current_?.agent ? "New agent in project" : current_?.group === "Projects" ? "Project options" : "";
-  return createPortal(<dialog ref={dialog} className="launcher" aria-label="Global launcher"
+  return createPortal(<dialog ref={dialog} className="launcher" aria-label="Global launcher" onPointerMove={hover}
     onCancel={event => { event.preventDefault(); close(); }}
     onClick={event => { if (event.target === event.currentTarget) { const box = event.currentTarget.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) close(); } }}>
     <div className="launcher-search"><SearchGlyph />
@@ -193,7 +204,7 @@ export function Launcher({ hosts, models, online, current, choose, action, close
       {rows.length ? <div style={{ height: totalHeight, position: "relative" }}>
         {positioned.filter(item => ("index" in item.row && item.row.index === selected) || (item.top + item.height >= scrollTop - 160 && item.top <= scrollTop + listHeight + 160)).map(({ row, top, height }) => <div key={"heading" in row ? row.heading : row.result.entry.id} style={{ position: "absolute", top, height, left: 0, right: 0 }}>
         {"heading" in row ? <div className="launcher-group" role="presentation">{row.heading}</div> : <LauncherRow entry={row.result.entry} positions={row.result.positions}
-          index={row.index} selected={row.index === selected} many={many} online={online} open={open} hover={() => setActive(row.index)} />}</div>)}
+          index={row.index} selected={row.index === selected} many={many} online={online} open={open} />}</div>)}
       </div> : <p className="launcher-empty">No matches for “{query.trim()}”</p>}
     </div>
     <footer aria-hidden="true">
@@ -206,9 +217,9 @@ export function Launcher({ hosts, models, online, current, choose, action, close
 }
 const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-function LauncherRow({ entry, positions, index, selected, many, online, open, hover }: {
+function LauncherRow({ entry, positions, index, selected, many, online, open }: {
   entry: Entry; positions: number[]; index: number; selected: boolean; many: boolean; online: boolean;
-  open: (entry: Entry) => void; hover: () => void;
+  open: (entry: Entry) => void;
 }) {
   const hits = new Set(positions);
   const agent = entry.agent;
@@ -219,7 +230,7 @@ function LauncherRow({ entry, positions, index, selected, many, online, open, ho
   const host = agent ? parts[2] : entry.group === "Projects" ? parts[1] : undefined;
   const counts = agent ? [agent.pending?.count ? `${agent.pending.count} queued` : "", agent.subagents?.running ? `${agent.subagents.running} sub` : ""].filter(Boolean).join(" · ") : "";
   return <button type="button" role="option" tabIndex={-1} id={`launcher-option-${index}`} aria-selected={selected} className="launcher-result"
-    onClick={() => open(entry)} onPointerMove={selected ? undefined : hover}>
+    onClick={() => open(entry)}>
     <span className="launcher-icon">{agent ? <ProviderIcon provider={agent.provider} /> : <LauncherGlyph icon={entry.icon!} />}</span>
     <span className="launcher-title"><Highlight text={entry.title} positions={hits} /></span>
     <span className="launcher-detail">{shown.filter(part => part.text).map((part, at) => <span key={at}>

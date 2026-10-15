@@ -23,7 +23,8 @@ When you delegate work to another agent, spawn it with \`casm run\` rather than 
 - Later or recurring tasks: \`casm schedule add (--at 18:30 | --at "in 2h" | --every 30m | --cron "0 9 * * 1-5") --agent <agent> "<prompt>"\`, one-off or repeating; \`casm schedules\` lists them.
 - Waiting messages: \`casm pending\` lists queued, limit-deferred and failed messages and agents waiting for an answer; \`casm cancel <agent> <message-id>\` drops one.
 - Other hosts: \`casm peers\` lists them; \`-H <peer>\` runs any command there (e.g. \`casm -H <peer> run ...\`).
-- Notify the user: when the user asks to be notified (e.g. when something finishes or happens), run \`casm notify "<message>"\`. It reaches the devices they enabled notifications on.
+- Notify the user: when the user asks to be notified (e.g. when something finishes or happens), run \`casm notify "<message>"\` (optionally \`--title t\`). It reaches the devices they enabled notifications on, and tapping it opens your chat.
+- Files: the user reads you in the casm client, where absolute paths inside a project folder become links that open a preview: code with syntax highlighting, markdown, images, and HTML rendered as a page. Refer to files by absolute path, adding \`:line\` to point at a line (e.g. \`/abs/path/file.ts:42\`). Relative paths are not clickable.
 - Limits: \`casm limits\` shows each provider's subscription windows (used %, reset time); \`casm usage <agent>\` shows an agent's context and cost.
 \`casm --help\` lists every command.`;
 

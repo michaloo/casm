@@ -66,6 +66,12 @@ test("a schedule firing at a limited agent leaves a pending message with its sen
     assert.deepEqual(mine.sender?.schedule, { id: s.id, name: "digest" });
     assert.deepEqual(delivered, ["trip the limit"]);
 
+    // Renaming or rewording (the web form resends the same cadence) keeps the next run.
+    const due = (await client.call("schedule.list", {})).schedules[0].nextRunAt;
+    assert.equal((await client.call("schedule.update", { id: s.id, name: "renamed" })).nextRunAt, due);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal((await client.call("schedule.update", { id: s.id, prompt: "daily digest", cadence: { type: "every", minutes: 10 } })).nextRunAt, due);
+
     // Edit changes the prompt and the cadence; disable clears the next run and enable restores it.
     const edited = await client.call("schedule.update", { id: s.id, prompt: "weekly digest", cadence: { type: "every", minutes: 60 } });
     assert.equal(edited.prompt, "weekly digest");

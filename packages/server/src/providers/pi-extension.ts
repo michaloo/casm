@@ -1,12 +1,11 @@
 // A pi extension casm loads into its pi sessions (`pi -e <this file>`; pi
-// compiles it itself). It registers the MCP servers casm gives the agent, its
-// own casm server with the agent's bearer token and config.mcpServers, for
-// this session only: they are never written to pi's mcp.json. pi's RPC mode has
+// compiles it itself). It registers the agent's config.mcpServers for this
+// session only: they are never written to pi's mcp.json. pi's RPC mode has
 // no MCP commands, so /casm-mcp enables or disables one of them.
 //
 // The servers arrive as JSON in CASM_PI_MCP_SERVERS, which is removed from the
-// environment so the agent's own commands don't inherit the token. /reload
-// re-runs this file; the servers are kept on globalThis for that.
+// environment so the agent's own commands don't inherit their credentials.
+// /reload re-runs this file; the servers are kept on globalThis for that.
 
 type McpConfig = Record<string, unknown> & { enabled?: boolean };
 type Ui = { notify(message: string, type?: "info" | "warning" | "error"): void };

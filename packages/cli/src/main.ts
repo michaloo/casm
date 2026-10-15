@@ -82,7 +82,7 @@ files (read-only, inside project folders on the host):
 agents:
   agents [--project p] [--all] [--usage]
   run --project p [--cwd dir] [--provider claude] [--name n] [--model m] [--mode m]
-      [--parent serverId/agentId] [--casm-tools] [--env K=V]... [--wait] <prompt>
+      [--parent serverId/agentId] [--env K=V]... [--wait] <prompt>
                                      --cwd: a folder inside the project (relative to it, or absolute),
                                      e.g. a worktree: --cwd .worktrees/<task>
                                      --env: the agent's environment, e.g. a provider's base URL
@@ -160,7 +160,6 @@ const options = {
   every: { type: "string" },
   agent: { type: "string" },
   "skip-if-busy": { type: "boolean" },
-  "casm-tools": { type: "boolean" },
   env: { type: "string", multiple: true },
   edit: { type: "boolean" },
   probe: { type: "boolean" },
@@ -440,7 +439,7 @@ async function run(c: CasmClient) {
         return out(info, () => {
           if (!info.enabled) console.error(`the agent prompt is disabled (casm agent-prompt --enable)`);
           else {
-            console.error(`${info.custom ? info.path : "built-in default"}, filled in for ${agentId ? "this agent" : "an example agent with casm tools"}:\n`);
+            console.error(`${info.custom ? info.path : "built-in default"}, filled in for ${agentId ? "this agent" : "an example agent"}:\n`);
             console.log(info.rendered);
           }
         });
@@ -594,7 +593,7 @@ async function run(c: CasmClient) {
         cwd: opt.cwd,
         provider: (opt.provider ?? "claude") as ProviderId,
         name: opt.name,
-        config: { model: opt.model, mode: opt.mode, casmTools: opt["casm-tools"], env: envOption() },
+        config: { model: opt.model, mode: opt.mode, env: envOption() },
         parent: runParent(),
         sender: messageSender(),
         prompt,

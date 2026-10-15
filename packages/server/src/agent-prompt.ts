@@ -7,23 +7,22 @@ import { join } from "node:path";
 
 export const AGENT_PROMPT_FILE = "agent-prompt.md";
 
-// Filled in per agent. {{casmTools}} is a line naming casm's MCP tools when the
-// agent has them, else nothing.
-export const PLACEHOLDERS = ["host", "agentId", "agentName", "project", "cwd", "provider", "casmTools"] as const;
-export type PromptVars = Record<Exclude<(typeof PLACEHOLDERS)[number], "casmTools">, string> & { casmTools: string[] | null };
+// Filled in per agent.
+export const PLACEHOLDERS = ["host", "agentId", "agentName", "project", "cwd", "provider"] as const;
+export type PromptVars = Record<(typeof PLACEHOLDERS)[number], string>;
 
 export const DEFAULT_AGENT_PROMPT = `You are running as an agent inside casm, an agent orchestrator, on host {{host}}.
 You are agent "{{agentName}}" (id {{agentId}}, {{provider}}) in project {{project}}, working in {{cwd}}.
-casm provides the \`casm\` CLI for working with other agents, schedules and limits. <agent> takes an id, id prefix or name.
+To work with other agents, run the \`casm\` CLI from your shell: it is how you spawn, message and steer them, here or on other hosts. <agent> takes an id, id prefix or name.
 
-- Spawn an agent: \`casm run --project <project> [--cwd <subfolder>] [--provider claude|codex|pi|opencode] [--model m] "<prompt>"\`. You are linked as its parent automatically.
-- Message an agent: \`casm send <agent> "<text>"\`. While it is busy the message is queued and goes when it is idle; \`--steer\` puts it into the running turn instead.
+- Spawn an agent: \`casm run --project <project> [--cwd <subfolder>] [--provider claude|codex|pi|opencode] [--model m] [--name n] "<prompt>"\`. You become its parent automatically; \`casm projects\` lists projects.
+- Message an agent: \`casm send <agent> "<text>"\`. While it is busy the message is queued and goes when it is idle; \`--steer\` puts it into the running turn instead. Your messages show you as the sender.
 - Follow up: \`casm wait <agent>\` waits for its reply, \`casm history <agent>\` reads its transcript, \`casm agents\` lists agents and their status.
+- Unblock an agent: \`casm permissions <agent>\` and \`casm approve|deny <agent> <request>\`; \`casm questions <agent>\` and \`casm answer <agent> <request> <prompt>=<value>\`.
 - Later or recurring tasks: \`casm schedule add (--at 18:30 | --at "in 2h" | --every 30m | --cron "0 9 * * 1-5") --agent <agent> "<prompt>"\`, one-off or repeating; \`casm schedules\` lists them.
 - Waiting messages: \`casm pending\` lists queued, limit-deferred and failed messages and agents waiting for an answer; \`casm cancel <agent> <message-id>\` drops one.
-- Other hosts: \`casm peers\` lists them; \`-H <peer>\` runs any command there.
+- Other hosts: \`casm peers\` lists them; \`-H <peer>\` runs any command there (e.g. \`casm -H <peer> run ...\`).
 - Limits: \`casm limits\` shows each provider's subscription windows (used %, reset time); \`casm usage <agent>\` shows an agent's context and cost.
-{{casmTools}}
 \`casm --help\` lists every command.`;
 
 export type AgentPromptState = {
@@ -89,10 +88,8 @@ export class AgentPrompt {
 }
 
 export function fill(template: string, vars: PromptVars): string {
-  const tools = vars.casmTools?.length
-    ? `- casm MCP tools (server "casm"; most take an optional host to act on a peer): ${vars.casmTools.join(", ")}.`
-    : "";
-  const values: Record<string, string> = { ...vars, casmTools: tools };
+  // {{casmTools}} (casm's former MCP tools line) is left in older custom prompts: it fills in empty.
+  const values: Record<string, string> = { ...vars, casmTools: "" };
   return template
     .split("\n")
     // A line that only held an empty placeholder goes away.

@@ -23,7 +23,6 @@ import { AgentManager, RpcError, type Notify } from "./agents.ts";
 import { Store } from "./db.ts";
 import { createHandlers, type Conn } from "./methods.ts";
 import { Scheduler } from "./schedules.ts";
-import { createMcp } from "./mcp.ts";
 import { PeerPool } from "./peers.ts";
 import { Files } from "./files.ts";
 import { AgentPrompt } from "./agent-prompt.ts";
@@ -81,7 +80,6 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   scheduler = new Scheduler(opts.store, agents, notify, (p) =>
     (handlers["agent.create"] as (p: Params<"agent.create">, c: Conn) => Promise<Agent>)(p, { subscriptions: new Set() }),
   );
-  const mcp = createMcp({ identity, agents, handlers, peers });
 
   const http = createServer((req, res) => {
     // Unauthenticated, so clients can check compatibility before connecting.
@@ -89,13 +87,6 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({ ...identity, protocol: PROTOCOL_VERSION }),
       );
-      return;
-    }
-    if (req.url === "/mcp" || req.url?.startsWith("/mcp?")) {
-      mcp(req, res).catch((e) => {
-        log(`mcp request failed: ${e instanceof Error ? e.stack : e}`);
-        if (!res.headersSent) res.writeHead(500).end();
-      });
       return;
     }
     // Signed, short-lived links stand in for a token here (see files.ts).
@@ -220,11 +211,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const addr = http.address();
   const port = typeof addr === "object" && addr ? addr.port : opts.port;
   log(`listening on ws://${opts.host}:${port}`);
-  // Agents run on this machine, so they reach the MCP endpoint over loopback
-  // unless the server is bound to one specific address.
+  // The URL for clients on this machine: loopback unless bound to one address.
   const wildcard = ["", "0.0.0.0", "::", "[::]"].includes(opts.host);
-  const mcpHost = wildcard ? "127.0.0.1" : opts.host.includes(":") ? `[${opts.host}]` : opts.host;
-  agents.setContext({ serverId: identity.id, serverName: identity.name, mcpUrl: `http://${mcpHost}:${port}/mcp` });
+  const localHost = wildcard ? "127.0.0.1" : opts.host.includes(":") ? `[${opts.host}]` : opts.host;
+  agents.setContext({ serverId: identity.id, serverName: identity.name });
   // Messages queued and runs missed while the server was down go out now, not on the first timer tick.
   agents.runDuePending();
   void scheduler.tick();
@@ -233,7 +223,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   return {
     http,
     port,
-    url: `ws://${mcpHost}:${port}`,
+    url: `ws://${localHost}:${port}`,
     agents,
     scheduler,
     peers,

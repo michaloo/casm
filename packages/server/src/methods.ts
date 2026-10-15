@@ -11,7 +11,6 @@ import { hostAgentsMd, setHostAgentsMd } from "./host-details.ts";
 import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts";
 import type { PeerPool } from "./peers.ts";
 import { DEFAULT_AGENT_PROMPT, PLACEHOLDERS, type AgentPromptState } from "./agent-prompt.ts";
-import { CASM_TOOL_NAMES } from "./mcp.ts";
 
 export type Conn = { subscriptions: Set<string> };
 
@@ -88,15 +87,12 @@ export function createHandlers(
     return agent;
   };
 
-  // For one agent, or an example one (with casm's MCP tools, to show them).
+  // For one agent, or an example one.
   const agentPromptInfo = (state: AgentPromptState, agentId?: string): Result<"server.agentPrompt"> => {
     const vars = agentId
-      ? (() => {
-          const a = getAgent(agentId);
-          return agents.promptVars(a, agents.hasCasmTools(a));
-        })()
+      ? agents.promptVars(getAgent(agentId))
       : { host: identity.name, agentId: "0b5e7c1d-1a2b-4c3d-8e9f-example00001", agentName: "example", project: "example-project",
-          cwd: "/path/to/example-project", provider: "claude", casmTools: CASM_TOOL_NAMES };
+          cwd: "/path/to/example-project", provider: "claude" };
     const { enabled, content, custom, path } = state;
     return { enabled, content, custom, path, default: DEFAULT_AGENT_PROMPT, placeholders: [...PLACEHOLDERS], rendered: agents.agentPrompt.render(vars, state) };
   };

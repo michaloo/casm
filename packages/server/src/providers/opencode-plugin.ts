@@ -4,18 +4,14 @@
 // per-agent settings belong to one session, so casm writes them per session to
 // <CASM_OPENCODE_STATE>/<sessionID>.json (see opencode.ts SessionState):
 //
-// - "shell.env" adds the agent's env (config.env and casm's CASM_* variables)
-//   to its bash tool calls and user shell commands.
-// - casm's MCP tools become plugin tools named casm_<tool>, which call casm's
-//   MCP endpoint with the agent's own token. Sessions see them only when the
-//   agent has casmTools: casm sets a session permission rule for casm_*.
+// "shell.env" adds the agent's env (config.env and casm's CASM_* variables,
+// so the `casm` CLI links and attributes to the agent) to its bash tool calls
+// and user shell commands.
 //
 // A subagent's child session uses the state of the session that started it.
 // OpenCode loads every export of a plugin file as a plugin: export nothing else.
 
-type State = { env?: Record<string, string>; casm?: { url: string; token: string } };
-type Tool = { name: string; description: string; inputSchema: { properties?: Record<string, unknown>; required?: string[] } };
-type Context = { sessionID: string; directory: string };
+type State = { env?: Record<string, string> };
 
 export default async function casmOpencodePlugin(input: { serverUrl: URL; directory: string }) {
   // Taken out of the env so agents' commands don't inherit it; OpenCode loads
@@ -41,36 +37,7 @@ export default async function casmOpencodePlugin(input: { serverUrl: URL; direct
     return null;
   }
 
-  const tools: Record<string, unknown> = {};
-  for (const t of ((await read("tools.json").catch(() => [])) as Tool[])) {
-    const props = t.inputSchema.properties ?? {};
-    const required = new Set(t.inputSchema.required ?? []);
-    tools[`casm_${t.name}`] = {
-      description: t.description,
-      // Plain JSON Schema args make every one required, so optional ones also take null.
-      args: Object.fromEntries(Object.entries(props).map(([k, s]) => [k, required.has(k) ? s : { anyOf: [s, { type: "null" }] }])),
-      async execute(args: Record<string, unknown>, ctx: Context) {
-        const casm = (await state(ctx.sessionID, ctx.directory))?.casm;
-        if (!casm) throw new Error("casm tools are not enabled for this agent");
-        const res = await fetch(casm.url, {
-          method: "POST",
-          headers: { "content-type": "application/json", authorization: `Bearer ${casm.token}` },
-          body: JSON.stringify({
-            jsonrpc: "2.0", id: 1, method: "tools/call",
-            params: { name: t.name, arguments: Object.fromEntries(Object.entries(args).filter(([, v]) => v !== null)) },
-          }),
-        });
-        const reply = (await res.json().catch(() => null)) as { result?: { content?: { text?: string }[]; isError?: boolean }; error?: { message?: string } } | null;
-        if (!res.ok || !reply?.result) throw new Error(reply?.error?.message ?? `casm MCP: HTTP ${res.status}`);
-        const text = (reply.result.content ?? []).map((c) => c.text ?? "").join("\n");
-        if (reply.result.isError) throw new Error(text);
-        return text;
-      },
-    };
-  }
-
   return {
-    tool: tools,
     async "shell.env"(hook: { cwd: string; sessionID?: string }, output: { env: Record<string, string> }) {
       const env = (await state(hook.sessionID, hook.cwd))?.env;
       if (env) Object.assign(output.env, env);

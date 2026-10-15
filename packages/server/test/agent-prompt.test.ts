@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentPrompt, DEFAULT_AGENT_PROMPT, fill, type PromptVars } from "../src/agent-prompt.ts";
 
-const vars: PromptVars = { host: "box", agentId: "a1", agentName: "Fixer", project: "web", cwd: "/w", provider: "codex", casmTools: null };
+const vars: PromptVars = { host: "box", agentId: "a1", agentName: "Fixer", project: "web", cwd: "/w", provider: "codex" };
 
-test("placeholders are filled per agent; the casm tools line only when it has them", () => {
+test("placeholders are filled per agent; the CLI is how agents work with agents", () => {
   const plain = fill(DEFAULT_AGENT_PROMPT, vars);
   assert.match(plain, /on host box\./);
   assert.match(plain, /agent "Fixer" \(id a1, codex\) in project web, working in \/w\./);
@@ -18,8 +18,10 @@ test("placeholders are filled per agent; the casm tools line only when it has th
   assert.match(send, /queued.*--steer/);
   assert.doesNotMatch(send, /--at/);
   assert.match(plain.split("\n").find((l) => l.includes("casm schedule add"))!, /--at 18:30.*--at "in 2h".*--every.*--cron/);
-  const tools = fill(DEFAULT_AGENT_PROMPT, { ...vars, casmTools: ["list_agents", "send"] });
-  assert.match(tools, /casm MCP tools .*: list_agents, send\./);
+  assert.match(plain, /`casm` CLI .*spawn, message and steer/);
+  for (const cmd of ["casm run", "casm wait", "casm approve", "casm answer", "-H <peer>"]) assert.ok(plain.includes(cmd), cmd);
+  // Custom prompts written for casm's former MCP tools still render: {{casmTools}} fills in empty.
+  assert.equal(fill("Hi {{agentName}}.\n{{casmTools}}\nBye.", vars), "Hi Fixer.\nBye.");
   // Unknown placeholders stay as written.
   assert.equal(fill("{{agentId}} {{nope}}", vars), "a1 {{nope}}");
 });

@@ -5,6 +5,7 @@ import { ComposerPickers } from "./composer-pickers";
 import { ProjectOptions } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
+import { NotificationToasts } from "./notification-toasts";
 import { replaceHistory } from "./state";
 import { offlineCache } from "./offline-idb";
 import { reconcile, type OfflineCache } from "./offline-cache";
@@ -14,6 +15,7 @@ import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { Row, Images } from "./transcript";
 import type {
+  UserNotification,
   Agent,
   Catalog,
   Item,
@@ -180,6 +182,7 @@ function App() {
   const [, render] = useState(0);
   const redraw = () => render((x) => x + 1);
   const [error, setError] = useState("");
+  const [toasts, setToasts] = useState<UserNotification[]>([]);
   const [mcp, setMcp] = useState<{ host: string; id: string; name: string }>();
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandNotice, setCommandNotice] = useState("");
@@ -379,6 +382,9 @@ function App() {
           if (s?.id && s.host === host && (p.agentId ?? p.agent?.id) === s.id)
             void refreshPending(host, s.id, r).catch(() => {});
         }
+        // casm notify on this server; shown from when it arrives (clocks differ).
+        if (n.method === "notification" && !n.host)
+          setToasts((ts) => [...ts.slice(-2), { ...p, at: new Date().toISOString() }]);
         if (n.method === "schedule.changed" || n.method === "schedule.removed")
           schedulesChanged(host);
         if (
@@ -538,6 +544,35 @@ function App() {
       }
     }
   }, [hosts, online]);
+  // A same-origin path from a notification (toast or the service worker's click).
+  function openPath(url: string) {
+    const next = new URL(url, location.origin);
+    if (next.origin !== location.origin) return;
+    if (next.pathname !== location.pathname) {
+      history.pushState(null, "", next.pathname + location.search);
+      setPath(next.pathname);
+    }
+    showSidebar(false);
+  }
+  const openPathRef = useRef(openPath);
+  openPathRef.current = openPath;
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    const message = (e: MessageEvent) => {
+      if (e.data?.type === "casm:navigate" && typeof e.data.url === "string") openPathRef.current(e.data.url);
+    };
+    // Opening the app counts as seeing what the badge counted.
+    const seen = () => {
+      if (document.visibilityState === "visible") void (navigator as { clearAppBadge?: () => Promise<void> }).clearAppBadge?.().catch(() => {});
+    };
+    seen();
+    sw?.addEventListener("message", message);
+    document.addEventListener("visibilitychange", seen);
+    return () => {
+      sw?.removeEventListener("message", message);
+      document.removeEventListener("visibilitychange", seen);
+    };
+  }, []);
   function choose(s: typeof selection) {
     if (s) {
       const next = viewPath(s, hostsRef.current);
@@ -722,6 +757,7 @@ function App() {
           choose({ host, project: project.id });
         }} />}
 
+      <NotificationToasts toasts={toasts} open={openPath} dismiss={(id) => setToasts((ts) => ts.filter((t) => t.id !== id))} />
       {preview && rpc.current && online && <FilePreview key={`${preview.host}\n${preview.path}`} rpc={rpc.current} host={preview.host} path={preview.path}
         roots={previewRoots} close={closePreview} />}
       {mcp && rpc.current && <McpPanel {...mcp} rpc={rpc.current} close={() => { setMcp(undefined); document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus(); }} />}

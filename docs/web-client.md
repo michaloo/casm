@@ -71,7 +71,7 @@ other agents created are nested under their parent, also across hosts.
 ![an agent that split its work across agents on two hosts](media/web-orchestration.png)
 
 - **Host options** (⋯ next to a host) opens the host's window: Usage,
-  Schedules and Instructions.
+  Schedules, Instructions and Notifications.
 - **New project** (+ next to a host) registers a folder on that host.
 - **Project options** (⋯ next to a project) opens the project's window:
   AGENTS.md, Memories and Info, with **New agent** in its header.
@@ -159,6 +159,38 @@ Details: [host settings](host-settings.md).
 
 **Project options** does the same for one project: its `AGENTS.md`, its
 providers' memories (read-only), and its path, group and agent count.
+
+## Notifications
+
+Agents notify you when you ask them to ("tell me when the deploy is done"):
+they run [`casm notify`](cli.md#notifications), and every device you enabled
+gets a system notification, whether casm is open or not. Open casm windows
+show it as a toast too. Clicking either opens the agent.
+
+**Host options → Notifications** on the host serving the page:
+
+- **Enable notifications** asks the browser for permission (it must come from
+  a tap or click) and subscribes this device. The status says why it can't
+  when it can't: plain HTTP (notifications need HTTPS or localhost), blocked
+  in the browser or system settings, or an iPhone tab not on the Home Screen.
+- **Send test notification** sends one to this device; **Turn off on this
+  device** unsubscribes it.
+- **Devices** lists every device subscribed on the host (with **Test** and
+  **Remove**). A notification goes to all of them; `casm notify --device
+  <name>` picks one.
+
+On an **iPhone or iPad**, add casm to the Home Screen first (Safari, **Share →
+Add to Home Screen**), open it from there, then enable notifications in its
+host options. On a **Mac**, Safari tabs and **File → Add to Dock** apps both
+can; enable them in the app you want them in. Chrome, Edge and Firefox work in
+a tab. All of them need HTTPS, e.g. `tailscale serve` in front of casm.
+
+Web Push is a standard: the browser gives casm an endpoint at its push service
+(Apple, Google, Mozilla or Microsoft) and casm posts the notification there,
+encrypted for that device. Unread notifications count on the app's icon badge
+where the system supports it; opening casm clears it. A peer's agents notify
+the devices subscribed on that peer, so enable notifications on each host's
+own web client if you use several.
 
 ## New project
 

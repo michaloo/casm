@@ -66,11 +66,12 @@ Errors use the standard codes plus casm's own:
 | MCP | `agent.mcpStatus`, `agent.mcpReconnect`, `agent.mcpToggle` |
 | Host-wide | `pending.list`, `provider.limits`, `provider.catalog`, `schedule.list`, `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.runNow` |
 | Files | `fs.read`, `fs.search`, `fs.downloadLink` |
+| Notifications | `push.list`, `push.subscribe`, `push.unsubscribe`, `push.test`, `push.notify` |
 
 Notifications: `agent.event` (for subscribed agents), `agent.status`,
 `agent.changed`, `agent.removed`, `project.changed`, `project.removed`,
 `schedule.changed`, `schedule.removed`, `provider.limits`,
-`peer.disconnected`.
+`peer.disconnected`, `notification` (a `push.notify`, to every client).
 
 ## Transcripts and live events
 
@@ -161,3 +162,23 @@ host.
 `fs.downloadLink` returns a short-lived signed URL, `GET /dl/<token>`, valid
 for about five minutes, that needs no client token. `fs.read` returns text
 previews up to 1 MiB. Paths must resolve inside a registered project folder.
+
+## Notifications (Web Push)
+
+`push.notify {message, title?, url?, device?, sender?}` notifies the user: the
+server sends a Web Push message to each subscribed device (or the one whose
+label or id is `device`) and a `notification` to every connected client. A
+`sender` that is an agent on this server titles it `<agent> · <project>` and
+sets `url` to `/h/<host>/a/<agent>`. Senders get 10 a minute (error 1002
+beyond). The result reports `delivered`, `devices` and per-device `failed`
+reasons.
+
+A browser subscribes with its service worker: `push.list` returns the VAPID
+`publicKey` for `PushManager.subscribe({userVisibleOnly: true,
+applicationServerKey})`, and `push.subscribe` registers the subscription's
+endpoint and keys with a `label`. Endpoints and keys never leave the server;
+`push.list {endpoint}` marks the caller's own device `current`. The server
+encrypts payloads per RFC 8291 (aes128gcm), signs requests with VAPID
+(RFC 8292; the key pair is `$CASM_HOME/push-vapid.json`), removes a
+subscription its push service answers 404 or 410 for, and pauses one that
+answers 429. The payload is `{title, body, tag, url}` JSON.

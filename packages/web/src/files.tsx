@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import type { FileContent } from "@casm/protocol";
 import { serverURL, type Rpc } from "./state";
 import { CodeBlock, Prose, copy } from "./transcript";
-import { FileLinksContext } from "./file-links";
+import { FileLinksContext, splitLine } from "./file-links";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const LANGUAGES: Record<string, string> = {
@@ -69,7 +69,7 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
   const [index, setIndex] = useState(initialIndex);
   const memory = images?.[index];
   const [trail, setTrail] = useState([initial]);
-  const path = trail[trail.length - 1];
+  const { path, line } = splitLine(trail[trail.length - 1]);
   const [file, setFile] = useState<FileContent>();
   const [error, setError] = useState("");
   const [download, setDownload] = useState<Link>();
@@ -143,13 +143,36 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
         {images && images.length > 1 && <ImageSteps index={index} count={images.length} step={navigate} />}
       </ImageCanvas>}
       {!source && file && <FileLinksContext.Provider value={links}>
-        <FileBody file={file} />
+        <FileBody file={file} line={line} />
       </FileLinksContext.Provider>}
     </div>
   </dialog>, document.body);
 }
 
-function FileBody({ file }: { file: FileContent }) {
+// Scripts run so that self-contained pages (charts, reports) work, but the
+// sandbox has no allow-same-origin: the page gets an opaque origin and can't
+// touch casm's storage, token, cookies or API. It can still make outbound
+// network requests like any web page; popups, forms, top navigation and
+// downloads stay blocked.
+const HTML_SANDBOX = "allow-scripts";
+const RELATIVE_ASSET = /\b(?:src|href)\s*=\s*["']?(?!(?:[a-z][a-z0-9+.-]*:|\/\/|#|data:|mailto:))[^"'\s>]+/i;
+
+function HtmlView({ html, line }: { html: string; line?: number }) {
+  const [view, setView] = useState<"rendered" | "source">("rendered");
+  const doc = useMemo(() => /<head[\s>]/i.test(html) ? html : `<meta charset="utf-8">${html}`, [html]);
+  const assets = RELATIVE_ASSET.test(html);
+  return <>
+    <div className="file-view-toggle" role="group" aria-label="HTML view">
+      {(["rendered", "source"] as const).map(v => <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>{v === "rendered" ? "Rendered" : "Source"}</button>)}
+    </div>
+    {view === "rendered" ? <>
+      <iframe className="file-html-frame" title="Rendered HTML" sandbox={HTML_SANDBOX} referrerPolicy="no-referrer" srcDoc={doc} />
+      {assets && <p className="file-note muted">This page refers to files next to it (images, styles, scripts). Only the HTML file itself is shown, so those won't load.</p>}
+    </> : <CodeBlock text={html} language="html" line={line} />}
+  </>;
+}
+
+function FileBody({ file, line }: { file: FileContent; line?: number }) {
   const ext = extension(file.path);
   if (file.type === "dir") return <p className="file-note">This is a folder. Open a file inside it from the transcript to preview or download it.</p>;
   if (file.type !== "file") return <p>This is not a regular file, so there is nothing to preview.</p>;
@@ -159,10 +182,11 @@ function FileBody({ file }: { file: FileContent }) {
   if (file.content === null)
     return <p className="file-note">{file.binary ? "Binary file" : "No preview"} · {formatSize(file.size)} · {file.mime}. Use Download to open it on this device.</p>;
   if (!file.content) return <p className="file-note">This file is empty.</p>;
+  if ((ext === "html" || ext === "htm") && !file.truncated) return <HtmlView html={file.content} line={line} />;
   if (file.mime === "text/markdown") return <>{truncated}<Prose text={file.content} /></>;
   let text = file.content;
   if (ext === "json" && !file.truncated) {
     try { text = JSON.stringify(JSON.parse(text), null, 2); } catch {}
   }
-  return <>{truncated}<CodeBlock text={text} language={LANGUAGES[ext] ?? "text"} /></>;
+  return <>{truncated}<CodeBlock text={text} language={LANGUAGES[ext] ?? "text"} line={line} /></>;
 }

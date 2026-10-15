@@ -108,6 +108,9 @@ export function createHandlers(
       if (!agents.agentPrompt.home) throw new RpcError(ErrorCode.Conflict, "this server keeps no state directory for an agent prompt");
       return agentPromptInfo(agents.agentPrompt.set(p));
     },
+    // Answered by the transport (server.ts), which owns the connection's auth state.
+    auth: () => ({ ok: true }),
+
     "server.info": () => ({ ...identity, protocol: PROTOCOL_VERSION, providers: agents.providerIds() }),
 
     "fs.search": async (p) => {

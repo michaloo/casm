@@ -178,16 +178,92 @@ test("rejects bad tokens", async () => {
   await assert.rejects(CasmClient.connect(`ws://127.0.0.1:${server.port}`, "nope"), /unauthorized/);
 });
 
-test("browsers can pass the token in the URL", async () => {
+// A raw socket with no Authorization header, as a browser opens it. `next()`
+// resolves with the next message, or with the close code once it closes.
+async function bareSocket(url: string) {
   const { default: WebSocket } = await import("ws");
-  const open = (url: string) =>
-    new Promise<number>((resolve) => {
-      const ws = new WebSocket(url);
-      ws.once("open", () => (ws.close(), resolve(101)));
-      ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
-    });
-  assert.equal(await open(`ws://127.0.0.1:${server.port}/?token=${encodeURIComponent(token)}`), 101);
-  assert.equal(await open(`ws://127.0.0.1:${server.port}/?token=nope`), 401);
+  const ws = new WebSocket(url);
+  const inbox: unknown[] = [];
+  const waiting: ((v: unknown) => void)[] = [];
+  const push = (v: unknown) => (waiting.length ? waiting.shift()!(v) : inbox.push(v));
+  ws.on("message", (d) => push(JSON.parse(d.toString())));
+  ws.once("close", (code) => push({ closed: code }));
+  const status = await new Promise<number>((resolve) => {
+    ws.once("open", () => resolve(101));
+    ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
+  });
+  return {
+    ws,
+    status,
+    send: (method: string, params: object = {}, id = 1) => ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params })),
+    next: () => (inbox.length ? Promise.resolve(inbox.shift()) : new Promise((r) => waiting.push(r))),
+  };
+}
+
+test("browsers authenticate with an auth message first", async () => {
+  const s = await bareSocket(`ws://127.0.0.1:${server.port}/`);
+  assert.equal(s.status, 101);
+  s.send("auth", { token });
+  assert.deepEqual(await s.next(), { jsonrpc: "2.0", id: 1, result: { ok: true } });
+  s.send("server.info", {}, 2);
+  assert.equal(((await s.next()) as { result: { name: string } }).result.name, "testhost");
+  s.ws.close();
+});
+
+test("before auth nothing else runs, and a wrong token closes the socket", async () => {
+  const early = await bareSocket(`ws://127.0.0.1:${server.port}/`);
+  early.send("agent.list");
+  assert.equal(((await early.next()) as { error: { code: number } }).error.code, 1006);
+  assert.deepEqual(await early.next(), { closed: 4401 });
+
+  const wrong = await bareSocket(`ws://127.0.0.1:${server.port}/`);
+  wrong.send("auth", { token: "nope" });
+  assert.match(((await wrong.next()) as { error: { message: string } }).error.message, /unauthorized/);
+  assert.deepEqual(await wrong.next(), { closed: 4401 });
+});
+
+test("a token in the URL still works for now (deprecated)", async () => {
+  const s = await bareSocket(`ws://127.0.0.1:${server.port}/?token=${encodeURIComponent(token)}`);
+  assert.equal(s.status, 101);
+  s.send("server.info");
+  assert.equal(((await s.next()) as { result: { name: string } }).result.name, "testhost");
+  s.ws.close();
+  assert.equal((await bareSocket(`ws://127.0.0.1:${server.port}/?token=nope`)).status, 401);
+});
+
+test("unauthenticated sockets time out, and revoking a token closes its sockets", async () => {
+  const h = mkdtempSync(join(tmpdir(), "casm-auth-"));
+  const st = new Store(join(h, "casm.db"));
+  const logs: string[] = [];
+  const srv = await startServer({ store: st, providers: [provider], host: "127.0.0.1", port: 0, version: "test", home: h, authTimeoutMs: 50, revokeCheckMs: 20, log: (m) => logs.push(m) });
+  try {
+    const idle = await bareSocket(`ws://127.0.0.1:${srv.port}/`);
+    assert.deepEqual(await idle.next(), { closed: 4401 });
+
+    const t = st.createToken("phone");
+    const keep = st.createToken("laptop");
+    const viaHeader = await CasmClient.connect(`ws://127.0.0.1:${srv.port}`, t);
+    const closed = new Promise<void>((r) => viaHeader.onClose(r));
+    const viaAuth = await bareSocket(`ws://127.0.0.1:${srv.port}/`);
+    viaAuth.send("auth", { token: t });
+    await viaAuth.next();
+    const other = await CasmClient.connect(`ws://127.0.0.1:${srv.port}`, keep);
+    (await bareSocket(`ws://127.0.0.1:${srv.port}/?token=${keep}`)).ws.close();
+    assert.ok(logs.some((l) => l.startsWith("client laptop sent its token in the URL") && !l.includes(keep)));
+    // Past the auth timeout: an authenticated socket stays.
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(viaHeader.isOpen, true);
+
+    st.revokeToken("phone");
+    await closed;
+    assert.deepEqual(await viaAuth.next(), { closed: 4401 });
+    assert.equal(other.isOpen, true);
+    assert.ok(logs.includes("closing phone: token revoked"));
+    other.close();
+  } finally {
+    await srv.close();
+    st.close();
+  }
 });
 
 test("serves the web client with a fallback to index.html", async () => {

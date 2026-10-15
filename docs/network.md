@@ -59,7 +59,7 @@ Everything is on one port, HTTP and WebSocket together:
 
 | What | Auth | Notes |
 |---|---|---|
-| WebSocket upgrade (JSON-RPC 2.0), any path | client token | `Authorization: Bearer <token>` (CLI, peers) or `?token=<token>` in the URL (browsers can't set headers on a WebSocket). A bad token gets `401`. |
+| WebSocket upgrade (JSON-RPC 2.0), any path | client token | `Authorization: Bearer <token>` (CLI, peers), or an `auth` request as the first message (browsers, which can't set headers on a WebSocket); never in the URL. A bad header gets `401`; a socket with no valid `auth` within 10 seconds is closed. |
 | `GET /`, `/h/…`, `/f/…`, `/assets/…`, `/sw.js`, manifest, icons | none | The web client's static files. `/f/…` is the preview page, not file contents. |
 | `GET /dl/<signed link>/<name>` | signed link | File downloads, valid about five minutes; no token in the URL. |
 | `GET /health` | none | Server name, id and protocol version. |
@@ -71,7 +71,8 @@ Everything is on one port, HTTP and WebSocket together:
   when the address doesn't exist yet, for example a VPN interface still coming
   up at boot.
 - **Tokens:** `casm token create <name>` on the server, `casm token list`,
-  `casm token revoke <name>` (stops working at once). One token per device or
+  `casm token revoke <name>` (stops working at once, and its open connections
+  close within about 30 seconds). One token per device or
   peer makes revoking one cheap. Treat each one as a password: it lets the
   holder run agents as your user on that machine.
 - **Outbound:** the provider CLIs reach their own APIs; casm itself only
@@ -101,7 +102,7 @@ Everything is on one port, HTTP and WebSocket together:
 - **Never expose port 7373 directly to the public internet** (port forward,
   `0.0.0.0` on a public IP, an open tunnel). A token is the only thing between
   the internet and a shell on your machine, the static files and `/health`
-  answer anyone, and a browser sends the token in the URL.
+  answer anyone.
 
 **Should**
 
@@ -419,9 +420,12 @@ device and per peer, and add the peers.
 - **Notifications say "Unavailable over plain HTTP"** or the button is
   missing: the origin isn't a secure context. Check the certificate is trusted
   without a warning, and on iPhone that casm was opened from the Home Screen.
-- **Tokens in logs.** Browsers send the token as `?token=` on the WebSocket
-  URL. If your proxy writes access logs, drop or redact query strings for
-  that host, and revoke any token that leaked.
+- **Tokens in logs.** casm keeps tokens out of URLs: the CLI and peers send
+  `Authorization: Bearer` (proxies such as Caddy redact it from their logs),
+  and the web client sends the token inside the WebSocket, after it opens.
+  Web clients from before this change sent it as `?token=` on the WebSocket
+  URL; the server logs "sent its token in the URL" when one connects. Reload
+  that tab, and revoke any token your proxy's older access logs recorded.
 - **A public name resolves to a private address, but not at home.** Some
   routers block DNS answers with private addresses (DNS rebinding
   protection). Allow the domain in the router's DNS settings, or use another

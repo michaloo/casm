@@ -1,7 +1,9 @@
 // WebSocket + JSON-RPC 2.0 transport. Clients authenticate with
-// `Authorization: Bearer <token>` on the upgrade request, or `?token=<token>`
-// in the URL (browsers can't set headers on a WebSocket). Other GET requests
-// serve the web client's static files from `webRoot`.
+// `Authorization: Bearer <token>` on the upgrade request, or, since browsers
+// can't set headers on a WebSocket, with an `auth` request as the first
+// message. Never in the URL, where proxies, logs and history keep it
+// (`?token=` still works for now, with a deprecation line in the log). Other
+// GET requests serve the web client's static files from `webRoot`.
 import { createServer, type Server } from "node:http";
 import { serveStatic } from "./static.ts";
 import { hostname } from "node:os";
@@ -48,7 +50,16 @@ export type ServerOptions = {
   webRoot?: string;
   // Delivers Web Push requests (tests replace the real HTTP POST).
   pushSend?: PushSend;
+  // How long a connection may stay unauthenticated, and how often open
+  // connections are checked for revoked tokens (tests use short ones).
+  authTimeoutMs?: number;
+  revokeCheckMs?: number;
 };
+
+const AUTH_TIMEOUT_MS = 10_000;
+const REVOKE_CHECK_MS = 30_000;
+// WebSocket close code for a missing, wrong or revoked token.
+const CLOSE_UNAUTHORIZED = 4401;
 
 export type RunningServer = {
   http: Server;
@@ -64,7 +75,8 @@ export type RunningServer = {
 
 // `remote`: subscriptions forwarded to peers, keyed "<peer>\n<agentId>", with
 // the host the client named (relayed notifications carry it back).
-type Client = Conn & { ws: WebSocket; name: string; remote: Map<string, { ref: string; stop: () => void }> };
+// `token` is set once authenticated, and checked again for revocation.
+type Client = Conn & { ws: WebSocket; token?: string; remote: Map<string, { ref: string; stop: () => void }> };
 
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? (() => {});
@@ -103,24 +115,64 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
   http.on("upgrade", (req, socket, head) => {
     const auth = req.headers.authorization ?? "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : new URL(req.url ?? "/", "http://x").searchParams.get("token");
+    const query = new URL(req.url ?? "/", "http://x").searchParams.get("token");
+    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : query;
+    // A token given on the upgrade must be right; none at all waits for `auth`.
     const name = token ? opts.store.checkToken(token) : undefined;
-    if (!name) {
+    if (token && !name) {
       socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       return;
     }
+    if (name && token === query) log(`client ${name} sent its token in the URL (?token=), which is deprecated: update the client`);
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const client: Client = { ws, name, subscriptions: new Set(), remote: new Map() };
-      clients.add(client);
-      log(`client connected: ${name}`);
+      const client: Client = { ws, subscriptions: new Set(), remote: new Map() };
+      const timer = name ? undefined : setTimeout(() => ws.close(CLOSE_UNAUTHORIZED, "authenticate first"), opts.authTimeoutMs ?? AUTH_TIMEOUT_MS);
+      if (name) admit(client, name, token!);
       ws.on("close", () => {
-        clients.delete(client);
+        clearTimeout(timer);
+        if (!clients.delete(client)) return;
         for (const r of client.remote.values()) r.stop();
-        log(`client disconnected: ${name}`);
+        log(`client disconnected: ${client.name}`);
       });
-      ws.on("message", (data) => void handle(client, data.toString()));
+      ws.on("message", (data) => {
+        const raw = data.toString();
+        if (client.token) return void handle(client, raw);
+        // Before `auth` succeeds nothing else runs: a wrong first message closes the socket.
+        let req: Partial<RpcRequest> | undefined;
+        try {
+          req = JSON.parse(raw);
+        } catch {}
+        const id = req?.id ?? null;
+        const given = req?.method === "auth" && typeof (req.params as { token?: unknown })?.token === "string" ? (req.params as { token: string }).token : undefined;
+        const who = given ? opts.store.checkToken(given) : undefined;
+        if (!who) {
+          reply(client, { jsonrpc: "2.0", id, error: { code: ErrorCode.Unauthorized, message: given ? "unauthorized (check the token)" : "authenticate first: send auth" } });
+          ws.close(CLOSE_UNAUTHORIZED, "unauthorized");
+          return;
+        }
+        clearTimeout(timer);
+        admit(client, who, given!);
+        if (id !== null) reply(client, { jsonrpc: "2.0", id, result: { ok: true } });
+      });
     });
   });
+
+  function admit(client: Client, name: string, token: string) {
+    client.name = name;
+    client.token = token;
+    clients.add(client);
+    log(`client connected: ${name}`);
+  }
+
+  // `casm token revoke` runs in another process, so look for revoked tokens now and then.
+  const revokeCheck = setInterval(() => {
+    for (const c of clients)
+      if (c.token && !opts.store.hasToken(c.token)) {
+        log(`closing ${c.name}: token revoked`);
+        c.ws.close(CLOSE_UNAUTHORIZED, "token revoked");
+      }
+  }, opts.revokeCheckMs ?? REVOKE_CHECK_MS);
+  revokeCheck.unref();
 
   async function handle(client: Client, raw: string) {
     let req: RpcRequest;
@@ -234,10 +286,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     peers,
     push,
     async close() {
+      clearInterval(revokeCheck);
       scheduler?.stop();
       await agents.shutdown();
       peers.close();
-      for (const c of clients) c.ws.close();
+      for (const ws of wss.clients) ws.close();
       wss.close();
       await new Promise<void>((r) => http.close(() => r()));
     },

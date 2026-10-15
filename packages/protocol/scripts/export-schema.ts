@@ -18,7 +18,7 @@ const schema = (s: z.ZodType, io: "input" | "output") => allowExtra(z.toJSONSche
 
 const spec = {
   protocol: PROTOCOL_VERSION,
-  transport: "JSON-RPC 2.0 over WebSocket; Authorization: Bearer <token> on the upgrade request; GET /health is unauthenticated; a request's optional top-level \"host\" (a peer name or server id) forwards it to that peer, and notifications relayed from the peer carry the same \"host\"",
+  transport: "JSON-RPC 2.0 over WebSocket; authenticate with Authorization: Bearer <token> on the upgrade request, or (browsers) with an auth request as the first message, within 10 s; never put the token in the URL; GET /health is unauthenticated; a request's optional top-level \"host\" (a peer name or server id) forwards it to that peer, and notifications relayed from the peer carry the same \"host\"",
   errors: ErrorCode,
   methods: Object.fromEntries(
     Object.entries(methods).map(([name, m]) => [name, { params: schema(m.params, "input"), result: schema(m.result, "output") }]),

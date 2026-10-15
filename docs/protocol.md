@@ -16,7 +16,7 @@ language: a dashboard, a bot, an editor integration.
 
 ```text
 ws://<host>:7373/                        Authorization: Bearer <token>
-ws://<host>:7373/?token=<token>          for browsers, which can't set headers
+ws://<host>:7373/  then {"method":"auth","params":{"token":"<token>"}}   browsers
 GET /health                              unauthenticated
 ```
 
@@ -30,7 +30,18 @@ $ curl -s http://127.0.0.1:7373/health
 {"id":"78486051-526d-4303-8180-098146be5f3f","name":"studio","version":"0.0.1","protocol":1}
 ```
 
-A wrong token fails the WebSocket upgrade with HTTP 401.
+A wrong token in the header fails the WebSocket upgrade with HTTP 401.
+
+Browsers can't set headers on a WebSocket, so they connect without one and
+send `auth` with the token as the first request, within 10 seconds. Until it
+succeeds any other method gets error `1006` (Unauthorized), and then, like a
+wrong token or no `auth` in time, the server closes the socket with code
+`4401`. The token never goes in the URL: reverse proxies, server logs and
+browser history keep URLs. (`?token=<token>` still works for one more release
+and logs a deprecation line; don't use it.)
+
+Revoking a token (`casm token revoke <name>`) closes its open connections
+within about 30 seconds, also with `4401`.
 
 ## Requests, results, notifications
 
@@ -113,7 +124,7 @@ sends a message and prints the reply as it arrives:
 
 ```js
 // client.mjs: CASM_TOKEN=… node client.mjs
-const ws = new WebSocket(`ws://127.0.0.1:7373/?token=${process.env.CASM_TOKEN}`);
+const ws = new WebSocket("ws://127.0.0.1:7373/");
 let nextId = 1;
 const waiting = new Map();
 const call = (method, params = {}, host) =>
@@ -137,6 +148,7 @@ ws.onmessage = ({ data }) => {
   }
 };
 ws.onopen = async () => {
+  await call("auth", { token: process.env.CASM_TOKEN });
   const info = await call("server.info");
   console.log(info.name, "protocol", info.protocol, "providers", info.providers.join(", "));
   const { agents } = await call("agent.list");

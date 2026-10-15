@@ -507,6 +507,12 @@ function method<P extends z.ZodType, R extends z.ZodType>(params: P, result: R) 
 }
 
 export const methods = {
+  // A connection opened without an Authorization header (browsers can't set
+  // one) sends this first, within 10 seconds. Until it succeeds every other
+  // method fails with Unauthorized and the socket is closed; a wrong token too.
+  // On a connection that is already authenticated it does nothing.
+  auth: method(z.object({ token: z.string() }), Ok),
+
   // Standard global provider instructions, grouped by resolved target. Writes
   // accept only paths discovered here and always require a version precondition.
   "host.agentsMd": method(Empty, z.object({ files: z.array(HostAgentsMdFile) })),
@@ -863,6 +869,8 @@ export const ErrorCode = {
   Limited: 1004,
   // A forwarded request's peer could not be reached or did not answer.
   Unreachable: 1005,
+  // A missing, wrong or revoked token; the server then closes the socket (code 4401).
+  Unauthorized: 1006,
 } as const;
 
 export type RpcRequest = { jsonrpc: "2.0"; id: number | string; method: string; params?: unknown; host?: string };

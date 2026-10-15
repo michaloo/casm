@@ -150,6 +150,8 @@ export function serverURL(): URL {
 export const timing = { heartbeat: 20_000, probe: 10_000, resume: 5_000, connect: 10_000, retry: 1_500 };
 export class Rpc {
   socket?: WebSocket;
+  // The socket once its `auth` succeeded; nothing else is sent before.
+  authed?: WebSocket;
   next = 0;
   stopped = false;
   timer?: ReturnType<typeof setTimeout>;
@@ -189,20 +191,27 @@ export class Rpc {
     }, timing.heartbeat);
   }
   get open() {
-    return this.socket?.readyState === WebSocket.OPEN;
+    return this.socket === this.authed && this.socket?.readyState === WebSocket.OPEN;
   }
   connect() {
     clearTimeout(this.timer);
     const url = serverURL();
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.searchParams.set("token", this.token);
+    // The token goes in the first message, never the URL (proxies and logs keep URLs).
     const s = (this.socket = new WebSocket(url));
     const opening = setTimeout(() => this.drop(s), timing.connect);
     s.onopen = () => {
-      clearTimeout(opening);
-      this.lastSeen = Date.now();
-      this.status(true);
-      this.ready();
+      this.call("auth", { token: this.token }, "", timing.connect).then(
+        () => {
+          if (s !== this.socket) return;
+          clearTimeout(opening);
+          this.authed = s;
+          this.lastSeen = Date.now();
+          this.status(true);
+          this.ready();
+        },
+        () => this.drop(s),
+      );
     };
     s.onmessage = (m) => {
       this.lastSeen = Date.now();
@@ -274,7 +283,7 @@ export class Rpc {
     host = "",
     timeout = 30000,
   ): Promise<Result<M>> {
-    if (this.socket?.readyState !== WebSocket.OPEN)
+    if (this.socket?.readyState !== WebSocket.OPEN || (method !== "auth" && this.socket !== this.authed))
       return Promise.reject(new Error("Offline"));
     const id = ++this.next;
     return new Promise((resolve, reject) => {

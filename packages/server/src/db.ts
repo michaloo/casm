@@ -502,6 +502,11 @@ export class Store {
     return r.name as string;
   }
 
+  // Still valid (not revoked), without recording a use.
+  hasToken(token: string): boolean {
+    return this.db.prepare("SELECT 1 FROM tokens WHERE hash = ?").get(hashToken(token)) !== undefined;
+  }
+
   // --- peers
 
   setPeer(p: { name: string; url: string; token: string; serverId: string | null }) {

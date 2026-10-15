@@ -215,11 +215,12 @@ images, with **Download** and **Copy path**. `/f/<absolute path>` opens a
 preview directly. Files are read-only through casm.
 
 Images attached to messages or tool output open in that same preview (click or
-press Enter). Images fit by default; click or pinch to zoom, use **1:1** for
-natural pixels, and drag to pan. **← / →** or the arrow buttons move between
-images in the same message or tool row. On mobile, swipe down while fitted to
-close. **Download** saves inline images with a tool/message name and timestamp;
-**Copy image** appears where the browser supports image clipboard writes.
+press Enter). Images fit by default; click or pinch to zoom to natural pixels
+and drag to pan. A floating control under the image switches **Fit / 1:1** and,
+for several images in the same message or tool row, steps between them (or use
+**← / →**). On mobile, swipe down while fitted to close. **Download** saves
+inline images with a tool/message name and timestamp; **Copy image** appears
+where the browser supports image clipboard writes.
 
 ![previewing files an agent mentioned](media/web-file-preview.gif)
 

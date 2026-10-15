@@ -127,7 +127,12 @@ export async function serverCommand(argv: string[]) {
     else console.log(store.createToken(arg));
   } else if (cmd === "token" && sub === "list") {
     if (values.json) console.log(JSON.stringify(store.listTokens(), null, 2));
-    else for (const t of store.listTokens()) console.log(`${t.name}\t${t.createdAt}`);
+    else {
+      const tokens = store.listTokens();
+      if (!tokens.length) console.error("no tokens (create one with: casm token create <name>)");
+      else console.log(["NAME", "CREATED", "LAST USED"].join("\t"));
+      for (const t of tokens) console.log(`${t.name}\t${t.createdAt}\t${t.lastUsedAt ?? "never"}`);
+    }
   } else if (cmd === "token" && sub === "revoke" && arg) {
     if (!store.revokeToken(arg)) (console.error(`no token named ${arg}`), (process.exitCode = 1));
   } else if (cmd === "peer" && sub === "add" && arg && rest.length === 2) {

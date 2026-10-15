@@ -20,16 +20,18 @@ for (const width of [1440, 375]) test(`host and project modals open from ⋯ at 
   if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
   const nav = page.getByRole("navigation", { name: "Agents" });
 
-  // Host: ⋯ opens the modal straight on Usage; tabs are Usage · Instructions (schedules have their own modal).
+  // Host: ⋯ opens the modal straight on Usage; tabs are Usage · Schedules · Instructions.
   const hostOptions = nav.getByRole("button", { name: "Host options for Test host", exact: true });
   await hostOptions.click();
   await expect(page.getByRole("menu")).toHaveCount(0);
   const host = page.getByRole("dialog", { name: "Test host host" });
   await expect(host).toBeVisible();
   const hostTabs = host.getByRole("navigation").getByRole("button");
-  await expect(hostTabs).toHaveText(["Usage", "Instructions"]);
+  await expect(hostTabs).toHaveText(["Usage", "Schedules", "Instructions"]);
   await expect(host.getByRole("region", { name: "Usage" })).toBeVisible();
   await sheetFits(host, width);
+  await hostTabs.filter({ hasText: "Schedules" }).click();
+  await expect(host.getByRole("region", { name: "Schedules" }).getByRole("button", { name: "New schedule" })).toBeVisible();
   await hostTabs.filter({ hasText: "Instructions" }).click();
   await expect(host.getByRole("heading", { name: "Global agent instructions" })).toBeVisible();
   await expect(host.getByRole("heading", { name: "Agent prompt", exact: true })).toBeVisible();

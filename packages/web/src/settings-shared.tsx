@@ -6,7 +6,7 @@ import { providerNames } from "./provider-icon";
 import { Prose } from "./transcript";
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
 
-/** The settings dialog shared by host, project and schedule modals: sticky header, section nav (with two or more sections), and a guard for unsaved edits. */
+/** The settings dialog shared by host and project settings: sticky header, section nav, and a guard for unsaved edits. */
 export function SettingsDialog<S extends string>({ label, title, closeLabel, sections, section, setSection, close, actions, children }: {
   label: string; title: ReactNode; closeLabel: string; sections: readonly (readonly [S, string])[]; section: S; setSection: (s: S) => void;
   close: () => void; actions?: ReactNode; children: ReactNode;
@@ -16,7 +16,7 @@ export function SettingsDialog<S extends string>({ label, title, closeLabel, sec
   useEffect(() => { dialog.current?.showModal(); }, []);
   const dirty = () => !!dialog.current?.querySelector("[data-dirty=true]");
   const request = () => { if (dirty()) setConfirming(true); else dialog.current?.close(); };
-  return createPortal(<dialog ref={dialog} className={`host-settings settings-dialog${sections.length < 2 ? " settings-single" : ""}`} aria-label={label} onClose={close}
+  return createPortal(<dialog ref={dialog} className="host-settings settings-dialog" aria-label={label} onClose={close}
     onCancel={(e) => { if (dirty()) { e.preventDefault(); setConfirming(true); } }}>
     <header>
       <h2>{title}</h2>
@@ -31,9 +31,9 @@ export function SettingsDialog<S extends string>({ label, title, closeLabel, sec
         dialog.current?.querySelector<HTMLElement>("[data-dirty=true] textarea")?.focus();
       }}>Keep editing</button>
     </div>}
-    {sections.length > 1 && <nav aria-label={`${label} sections`}>
+    <nav aria-label={`${label} sections`}>
       {sections.map(([id, name]) => <button type="button" key={id} aria-pressed={section === id} onClick={() => setSection(id)}>{name}</button>)}
-    </nav>}
+    </nav>
     <div className="settings-content">{children}</div>
   </dialog>, document.body);
 }

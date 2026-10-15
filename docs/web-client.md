@@ -28,16 +28,16 @@ itself.
 ## The sidebar
 
 Hosts, then their projects, then agents. Hosts are section headers (server
-icon, status dot, name in small caps); projects are indented rows below them.
+icon with a status dot, the name in small caps; hover for its status and how
+many agents are working); projects are indented rows below them.
 Each agent shows its provider icon,
 model and status: idle (○), working, waiting for you, queued messages. Agents
 other agents created are nested under their parent, also across hosts.
 
 ![an agent that split its work across agents on two hosts](media/web-orchestration.png)
 
-- **Host options** (⋯ next to a host) opens the host's window: Usage and
-  Instructions.
-- **Schedules** (the clock next to a host) opens the host's schedules.
+- **Host options** (⋯ next to a host) opens the host's window: Usage,
+  Schedules and Instructions.
 - **New project** (+ next to a host) registers a folder on that host.
 - **Project options** (⋯ next to a project) opens the project's window:
   AGENTS.md, Memories and Info, with **New agent** in its header.

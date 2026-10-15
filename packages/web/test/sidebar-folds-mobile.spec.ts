@@ -86,9 +86,13 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
   expect(second.y - (first.y + first.height)).toBeGreaterThanOrEqual(16);
   await host.click();
 
-  // The host row keeps + New project, and gains Schedules beside ⋯.
+  // The host row is icon · name · chevron · + · ⋯: the name in full, no status text or clock.
   await expect(nav.getByRole("button", { name: "New project on Test host", exact: true })).toBeVisible();
-  await expect(nav.getByRole("button", { name: "Schedules on Test host", exact: true })).toBeVisible();
+  await expect(nav.getByRole("button", { name: /^Schedules on / })).toHaveCount(0);
+  await expect(host.locator("small")).toHaveCount(0);
+  const name = host.locator(".host-name");
+  expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect(styles.hostChevron.x - (styles.hostNameBox.x + styles.hostNameBox.width)).toBeLessThan(16);
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await nav.getByRole("button", { name: "Test project", exact: false }).first().hover();

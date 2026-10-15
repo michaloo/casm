@@ -718,7 +718,7 @@ function App() {
             const working = h.agents.filter((a) => a.status !== "idle" && !a.archivedAt).length;
             return (
             <HostSection key={h.id} host={h.id} name={h.name} status={`${hostStateLabel(state)}${working ? ` · ${working} working` : ""}`}
-              identity={<HostIdentity name={h.name} state={state} detail={working ? `${working} working` : undefined} quiet />}
+              identity={<HostIdentity name={h.name} state={state} bare />}
               menu={<HostActions host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
                   openAgent={(a) => choose({ host: h.id, project: a.projectId, id: a.id })}
                   openProject={project => {

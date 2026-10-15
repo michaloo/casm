@@ -78,7 +78,10 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await expect(page.locator("main header strong")).toHaveText("Agent 02");
   expect(page.url()).not.toBe(initial);
   await page.goBack(); await expect(page.locator("main header strong")).toHaveText("Agent 00");
-  await page.locator(".chat > header").getByRole("button", { name: "Open launcher" }).click();
+  // Desktop has one launcher button, in the sidebar; narrow screens get a copy in the chat header
+  const headerTrigger = page.locator(".chat > header").getByRole("button", { name: "Open launcher" });
+  if (page.viewportSize()!.width <= 650) await headerTrigger.click();
+  else { await expect(headerTrigger).toBeHidden(); await page.locator("aside > header").getByRole("button", { name: "Open launcher" }).click(); }
   await input.fill("Agent 0 Test host");
   const first = await input.getAttribute("aria-activedescendant");
   await input.press("ArrowDown"); expect(await input.getAttribute("aria-activedescendant")).not.toBe(first);

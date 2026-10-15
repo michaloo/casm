@@ -2615,6 +2615,8 @@ nav .row-add:disabled { opacity: 0.35; }
 /* Global launcher: the result list alone scrolls, including under an iOS keyboard. */
 .launcher-trigger { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: 0 0 auto; padding: 0; border-radius: 10px; }
 .chat > header > .launcher-trigger { margin-left: auto; }
+/* Desktop opens the launcher from the sidebar; the chat header copy is for narrow screens */
+@media (min-width: 651px) { .chat > header > .launcher-trigger { display: none; } }
 .launcher { padding: 0; width: min(680px, calc(100vw - 32px)); height: min(580px, calc(100dvh - 80px)); max-width: none; max-height: none; margin: auto; border: 1px solid var(--line); border-radius: 18px; color: var(--text); background: var(--overlay); box-shadow: var(--shadow-pop); overflow: hidden; }
 .launcher[open] { display: flex; flex-direction: column; }
 .launcher::backdrop { background: rgb(0 0 0 / .24); }

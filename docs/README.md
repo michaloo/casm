@@ -5,13 +5,13 @@
 - [Getting started](getting-started.md): install, first agent, web client,
   service, a second machine.
 - [Concepts](concepts.md): hosts and peers, projects, agents, subagents, the
-  queue, permissions, schedules, limits, provenance, files, MCP, the agent prompt.
+  queue, permissions, schedules, limits, provenance, files, agents running
+  agents, the agent prompt.
 
 **Using casm**
 
 - [CLI reference](cli.md), with real examples.
 - [Web client](web-client.md), including installing it as an app.
-- [MCP tools for agents](mcp-tools.md): let agents run agents.
 - [Troubleshooting](troubleshooting.md).
 
 **Reference**

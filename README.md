@@ -2,9 +2,9 @@
 
 casm is a small, self-hosted agent orchestrator for **Claude Code, Codex, pi and
 OpenCode**. Run a server on each machine and connect them as peers. Drive your
-agents from the web client (installable as a PWA), a scriptable CLI, or let
-agents spawn, message and steer other agents through opt-in MCP tools, locally
-or across machines. Persistent queues, schedules and provider-limit handling
+agents from the web client (installable as a PWA) or a scriptable CLI, which
+agents also use to spawn, message and steer other agents, locally or across
+machines. Persistent queues, schedules and provider-limit handling
 keep unattended work going.
 
 <picture>
@@ -34,8 +34,7 @@ is preserved on `legacy`.
 
 **Documentation:** [getting started](docs/getting-started.md) ·
 [concepts](docs/concepts.md) · [CLI reference](docs/cli.md) ·
-[web client](docs/web-client.md) · [MCP tools](docs/mcp-tools.md) ·
-[protocol](docs/protocol.md) · [troubleshooting](docs/troubleshooting.md) ·
+[web client](docs/web-client.md) · [protocol](docs/protocol.md) · [troubleshooting](docs/troubleshooting.md) ·
 [all docs](docs/README.md)
 
 ## Quick start
@@ -95,7 +94,7 @@ casm -H worker projects
 ```
 
 Now `-H worker` runs any command there, the web client shows it as a second
-host, and agents with casm tools can start agents on it. Peering forwards
+host, and agents can start agents on it with `casm -H worker run`. Peering forwards
 commands; it never copies files or sessions. A CLI-only machine can instead use
 `casm host add worker <ws-url> <token> --default`.
 
@@ -142,7 +141,6 @@ casm pending                                     # queued, deferred and failed m
 casm history <agent>    casm watch <agent>    casm wait <agent>    casm interrupt <agent>
 casm limits             casm usage <agent>
 casm schedule add --at "in 2h" --agent <agent> "Check the results"
-casm run --project acme-api --casm-tools "…"     # an agent that can run agents
 ```
 
 Use `--json` for scripting and `-H <peer>` for another host; `casm --help`
@@ -172,11 +170,11 @@ listed for one provider is not a promise for every provider.
 | Area | casm | [Paseo][paseo] | [HAPI (`tiann/hapi`)][hapi] |
 | --- | --- | --- | --- |
 | Architecture | Independent server per machine; authenticated WebSocket RPC; provider-native history. | Local daemon manages agents; desktop can start it. Optional Hub dispatches automation to daemons. [Core][paseo], [Hub][paseo-hub] | CLI wrappers connect to a central Hub; optional Runners launch sessions remotely. [Architecture][hapi-install] |
-| Clients | CLI, MCP tools, web/PWA. | Desktop, iOS, Android, web, CLI and TypeScript SDK. [Clients][paseo] | Terminal CLI, native iOS/Android, web/PWA and Telegram Mini App. [Clients][hapi] |
-| Multi-machine | Servers forward requests to named peers; CLI `-H`, web host selection and MCP share those peers. | Clients connect to multiple daemons; remote CLI and Hub support multiple machines. [Core][paseo], [Hub][paseo-hub] | Multiple working machines connect to one Hub; Runners enable remote session creation. [Installation][hapi-install] |
+| Clients | CLI, web/PWA. | Desktop, iOS, Android, web, CLI and TypeScript SDK. [Clients][paseo] | Terminal CLI, native iOS/Android, web/PWA and Telegram Mini App. [Clients][hapi] |
+| Multi-machine | Servers forward requests to named peers; CLI `-H` (also from agents) and web host selection share those peers. | Clients connect to multiple daemons; remote CLI and Hub support multiple machines. [Core][paseo], [Hub][paseo-hub] | Multiple working machines connect to one Hub; Runners enable remote session creation. [Installation][hapi-install] |
 | Relay / cloud dependency | Direct connections; no casm relay or cloud account. Supply your own network access. | Direct TCP/VPN or optional encrypted relay; relay can be self-hosted. [Connections][paseo], [relay][paseo-relay] | Hub can be self-hosted with relay disabled; network relay and mobile push services are optional. [Deployment options][hapi-install] |
 | Providers | Claude Code and Codex (frontier subscriptions), OpenCode (full agent, broad provider integrations), pi (minimal, steerable). | Those four plus Copilot, Antigravity and Muse Code; extensible through plugins. [Providers][paseo] | Those four plus Cursor Agent, Grok Build, Kimi, Copilot, Antigravity and DeepSeek Harness. [Supported agents][hapi-agents] |
-| Agent-to-agent orchestration | CLI and opt-in MCP spawn/manage agents, preserve parent links and support Queue/Steer across peers. | CLI and opt-in MCP manage agents/workspaces across providers; remote CLI reaches other hosts. [Orchestration][paseo-orchestration] | CLI/MCP peer discovery, inspection and messaging, including resuming peers when needed. [Peer tools][hapi-cli] |
+| Agent-to-agent orchestration | Every agent gets the CLI with its own identity to spawn/manage agents, preserving parent links and sender, with Queue/Steer across peers. | CLI and opt-in MCP manage agents/workspaces across providers; remote CLI reaches other hosts. [Orchestration][paseo-orchestration] | CLI/MCP peer discovery, inspection and messaging, including resuming peers when needed. [Peer tools][hapi-cli] |
 | Schedules | Cron, interval and one-time jobs; target an existing agent or create one. | Cron schedules create agents; heartbeats prompt existing agents. Hub adds event-triggered automation. [Schedules][paseo-schedules], [Hub][paseo-hub] | No built-in scheduler documented in the reviewed [CLI][hapi-cli] and [Hub][hapi-hub] guides. |
 | Limits / usage | Provider-dependent subscription windows, context usage and cost; limit-aware deferral and retry. | Usage-source plugins expose account/session windows, balances and availability. [Usage API][paseo-usage] | Provider-dependent context usage; cross-provider quota gauges are discussed in [upstream #846][hapi-usage]. Comprehensive quota/retry support was not verified. |
 | Licensing / self-hosting | Self-hosted; no license declared in this checkout. | Self-hosted core and optional Hub, Apache-2.0. [Core license][paseo-license], [Hub license][paseo-hub-license] | Self-hosted, AGPL-3.0. [License][hapi-license] |
@@ -185,7 +183,7 @@ listed for one provider is not a promise for every provider.
 **When to use which:**
 
 - **casm:** you want a small orchestrator with independent peer servers, explicit
-  queues and steering, and CLI/MCP workflows for agents coordinating other agents.
+  queues and steering, and CLI workflows for agents coordinating other agents.
 - **Paseo:** you want a broader desktop/mobile workspace with editors, terminals,
   diffs, worktrees and voice alongside orchestration and optional Hub automation.
   See its [workspace overview][paseo] and [Hub][paseo-hub].

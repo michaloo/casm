@@ -28,7 +28,7 @@ below are relative to the source roots in the table; casm paths to
 | User shell commands | ✓ | ✓ | ✓ | ✓ |
 | Slash commands and skills | ✓ | ✓ | ✓ | ✓ |
 | MCP status / reconnect / toggle | ✓ / ✓ / ✓ | ✓ / all only / **gap** | ✓ / ✓ / ✓ | ✓ / ✓ / **partial** |
-| Per-agent MCP + casm tools | ✓ | ✓ | **partial** | ✓ |
+| Per-agent MCP servers | ✓ | ✓ | **partial** | ✓ |
 | Model catalog | ✓ | ✓ | ✓ | ✓ |
 | Effective model | ✓ | ✓ | ✓ | ✓ |
 | Account limits | ✓ | ✓ | ✗ | ✗ |
@@ -41,7 +41,7 @@ OpenCode was also verified end to end on an isolated dev server with
 OpenCode's free `opencode/big-pickle` model (no API key) and the local
 `llama.cpp/qwen3.6-35b` through the llama.cpp router: streaming and thinking,
 bash, steering, interrupt, a permission approval, a question, the plan agent,
-the effective model, casm tools and a subagent's env. See [OpenCode
+the effective model and a subagent's env. See [OpenCode
 authentication](#opencode-authentication) for the model options.
 
 ## Per feature
@@ -173,10 +173,12 @@ No provider's MCP sign-in is wired up yet (Codex `mcpServer/oauth/login`, pi
 `/mcp login`, OpenCode `/mcp/:name/auth`); casm's protocol has no MCP login
 action.
 
-### Per-agent MCP servers and casm tools
+### Per-agent MCP servers
 
-`agents.ts` `sessionConfig` adds casm's own MCP server (with an agent token)
-to `config.mcpServers` when `casmTools` is set (`mcp.ts` `casmMcpEntry`).
+`config.mcpServers` reaches each session in the provider's own format. casm
+adds no MCP server of its own: agents run the `casm` CLI, and `agents.ts`
+`sessionConfig` puts `CASM_*` into every session's env so it links and
+attributes to the agent.
 
 - Claude ✓ `Options.mcpServers`; Codex ✓ `config.mcp_servers` on thread start
   and resume; pi ✓ `registerMcpServer` in casm's extension, for the session only.
@@ -185,11 +187,8 @@ to `config.mcpServers` when `casmTools` is set (`mcp.ts` `casmMcpEntry`).
   (`opencode-plugin.ts`, through `OPENCODE_CONFIG_CONTENT`) and writes each
   session's state to a private directory: its `shell.env` hook gives bash and
   user shell commands the agent's env (`config.env` and `CASM_*`, so `casm run`
-  from inside links the parent; subagents use their parent's), and casm's MCP
-  tools become `casm_*` plugin tools calling casm with the agent's token. A
-  session permission rule (`casm_*` allow or deny) shows them only to agents
-  with `casmTools`. Other `config.mcpServers` entries are not applied; use
-  OpenCode's own config.
+  from inside links the parent; subagents use their parent's).
+  `config.mcpServers` is not applied; use OpenCode's own config.
 
 ### Model catalog and effective model
 
@@ -222,7 +221,7 @@ model's `limit.context`; pi `get_session_stats`.
 - Claude **partial**: `config.env` with `ANTHROPIC_BASE_URL` (and a token/model)
   points a session at an Anthropic-compatible endpoint, e.g. the llama.cpp
   router: `casm run --env ANTHROPIC_BASE_URL=http://127.0.0.1:8080 --model <id>`
-  (also `env` in the MCP `create_agent` tool). The catalog, limits and
+  (also `casm run --env` from inside an agent). The catalog, limits and
   context-window lookups still use the host env, and the web client has no env
   field.
 - Codex **gap**: `thread/start` takes `modelProvider` and

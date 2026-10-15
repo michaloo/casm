@@ -161,9 +161,3 @@ host.
 `fs.downloadLink` returns a short-lived signed URL, `GET /dl/<token>`, valid
 for about five minutes, that needs no client token. `fs.read` returns text
 previews up to 1 MiB. Paths must resolve inside a registered project folder.
-
-## The MCP endpoint
-
-`POST /mcp` is casm's MCP server for agents (Streamable HTTP, plain JSON
-responses). It only accepts per-agent tokens that casm puts in an agent's
-config; client tokens don't work there. See [MCP tools](mcp-tools.md).

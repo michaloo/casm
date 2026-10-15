@@ -140,11 +140,11 @@ const apiReview: Item[] = [
 
 const leadHistory: Item[] = [
   { kind: "user", id: "ld-1", text: "Ship the checkout total fix end to end: API, storefront and a release note. Split the work across agents and report back." },
-  { kind: "tool", id: "ld-2", name: "mcp__casm__list_hosts", input: {}, status: "done", output: "[{\"name\":\"studio\",\"reachable\":true,\"providers\":[\"claude\",\"codex\",\"pi\",\"opencode\"]},{\"name\":\"buildbox\",\"reachable\":true,\"providers\":[\"claude\",\"codex\",\"opencode\"]}]" },
-  { kind: "tool", id: "ld-3", name: "mcp__casm__create_agent", input: { project: "acme-api", provider: "codex", name: "tests: orders", prompt: "Add property tests for orderTotal" }, status: "done", output: "{\"host\":\"studio\",\"name\":\"tests: orders\",\"status\":\"running\"}" },
-  { kind: "tool", id: "ld-4", name: "mcp__casm__create_agent", input: { host: "buildbox", project: "web-shop", provider: "claude", name: "storefront build", prompt: "Build and smoke-test the storefront" }, status: "done", output: "{\"host\":\"buildbox\",\"name\":\"storefront build\",\"status\":\"running\"}" },
+  { kind: "tool", id: "ld-2", name: "Bash", input: { command: "casm peers --probe", description: "List the hosts casm can run agents on" }, status: "done", output: "buildbox\tws://buildbox:7373  reachable 14 ms" },
+  { kind: "tool", id: "ld-3", name: "Bash", input: { command: "casm run --project acme-api --provider codex --name \"tests: orders\" \"Add property tests for orderTotal\"", description: "Start a Codex agent for the API tests" }, status: "done", output: "5d0c9a3e-7b1f-4c2a-9e8d-2f6b1a4c7e90" },
+  { kind: "tool", id: "ld-4", name: "Bash", input: { command: "casm -H buildbox run --project web-shop --name \"storefront build\" \"Build and smoke-test the storefront\"", description: "Start a Claude agent on buildbox for the storefront" }, status: "done", output: "a81f3c62-0e4d-4b7a-8c15-93d2e6f0b4a1" },
   { kind: "subagent", id: "ld-sub", title: "Draft the release note", agentType: "general-purpose", status: "done", summary: "Release note drafted in CHANGELOG.md (3 lines).", usage: { totalTokens: 18400, toolUses: 4, durationMs: 21000 } },
-  { kind: "tool", id: "ld-5", name: "mcp__casm__wait", input: { agent: "tests: orders" }, status: "done", output: "{\"status\":\"idle\",\"lastReply\":\"Added a property test over 1000 random carts; all 3 tests pass.\"}" },
+  { kind: "tool", id: "ld-5", name: "Bash", input: { command: "casm wait \"tests: orders\"", description: "Wait for the API tests agent" }, status: "done", output: "Added a property test over 1000 random carts; all 3 tests pass." },
   { kind: "assistant", id: "ld-6", text: "Status:\n\n| Part | Agent | Host | State |\n| --- | --- | --- | --- |\n| API tests | tests: orders | studio | done, 3 passing |\n| Storefront | storefront build | buildbox | done, smoke test green |\n| Release note | subagent | studio | drafted |\n\nReady to tag **0.3.1**." },
 ];
 

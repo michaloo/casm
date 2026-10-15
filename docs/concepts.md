@@ -1,8 +1,8 @@
 # Concepts
 
 casm is a small server that runs coding agents (Claude Code, Codex, OpenCode and
-pi) on one machine, and lets clients and other agents drive them: the CLI, the
-web client, casm's MCP tools, or your own program speaking the
+pi) on one machine, and lets clients and other agents drive them: the CLI
+(also from inside an agent), the web client, or your own program speaking the
 [protocol](protocol.md). This page explains the moving parts. The
 [CLI reference](cli.md) shows each of them in use.
 
@@ -16,7 +16,7 @@ web client, casm's MCP tools, or your own program speaking the
 - [Limits and usage](#limits-and-usage)
 - [Provenance: who sent a message](#provenance-who-sent-a-message)
 - [Files](#files)
-- [MCP: casm tools for agents](#mcp-casm-tools-for-agents)
+- [Agents running agents](#agents-running-agents)
 - [The agent prompt](#the-agent-prompt)
 - [What casm deliberately does not do](#what-casm-deliberately-does-not-do)
 
@@ -37,14 +37,14 @@ agents: claude, codex, pi, opencode
 A **peer** is another host this server can call. You register it once with a
 URL and a token created on the peer; from then on any request can carry a
 `host` and the server forwards it there, one hop. The CLI's `-H worker`, the
-web client's host sections and the MCP tools' `host` argument all use the same
-peer list.
+web client's host sections and agents running `casm -H worker …` all use the
+same peer list.
 
 ```text
           ┌──────────── studio (casm serve) ────────────┐
 CLI ──────┤  projects · agents · queues · schedules     ├──── peer: worker (casm serve)
 web ──────┤  Claude SDK · Codex app-server · pi · OpenCode│         its own projects and agents
-MCP ──────┘                                              └──── peer: buildbox …
+agents ───┘                                              └──── peer: buildbox …
 ```
 
 Forwarding is coordination, not migration: an agent started with
@@ -102,7 +102,7 @@ Two different things, both shown nested under their parent:
   the parent's transcript; `casm subagents` lists them and
   `casm history <agent> --subagent <id>` reads one's own transcript.
 - **Child agents** are full casm agents that another agent created through casm
-  (`casm run` from inside an agent, or the MCP `create_agent` tool). casm records
+  (`casm run` from inside an agent). casm records
   a **parent link** `{serverId, agentId, host}`, also across peers, so a
   child on `worker` still points at its parent on `studio`. Inside an agent,
   `CASM_SERVER_ID` and `CASM_AGENT_ID` are set, so a plain `casm run` links the
@@ -155,7 +155,7 @@ of sending it twice.
 
 When a provider asks before running a tool, the agent turns `waiting` and the
 request is available to every client: the web client's banner, `casm permissions`
-/ `approve` / `deny`, the MCP `answer_permission` tool. Questions (Claude's
+/ `approve` / `deny` (also from a parent agent's shell). Questions (Claude's
 AskUserQuestion, Codex user input, OpenCode questions, pi dialogs) work the
 same way with `casm questions` / `answer`. Provider permission modes
 (`--mode`) decide how much is asked; they are provider settings, not a casm
@@ -205,8 +205,8 @@ ctx 30k/200k (15%)  $0.06  claude-haiku-4-5-20251001
 
 Every prompt can carry a **sender**: the agent (and host) that sent it, or the
 schedule that fired it. Messages without one are from a person. The CLI stamps
-it automatically inside an agent, MCP stamps it from the calling agent's
-token, and transcripts show it:
+it automatically inside an agent (from its `CASM_*` environment), and
+transcripts show it:
 
 ```console
 $ casm -H worker history helper
@@ -234,15 +234,25 @@ Downloads use short-lived signed links (`GET /dl/<token>`, about five minutes),
 so no client token appears in a URL. A peer's file streams through the server
 you're connected to.
 
-## MCP: casm tools for agents
+## Agents running agents
 
-`casm run --casm-tools` (or `casmTools` in the agent's config) gives an agent
-casm's own MCP server, so it can list hosts and limits, start agents here or on
-peers, message them, wait for them and answer their requests. Each agent gets
-its own token, so every call knows its caller: children get it as their parent
-and messages carry it as sender. The [MCP tools reference](mcp-tools.md) lists
-the tools; [MCP controls](mcp-controls.md) covers inspecting and reconnecting
-an agent's *own* MCP servers (`casm mcp`, `/mcp` in the web client).
+Agents coordinate through the same `casm` CLI you use, run from their shell;
+casm has no MCP tools of its own. Every agent session gets `CASM_SERVER_ID`,
+`CASM_SERVER_NAME`, `CASM_AGENT_ID` and `CASM_AGENT_NAME` in its environment,
+so `casm run` makes the agent the new agent's parent and `casm send` carries
+it as the sender, here or on a peer with `-H`. The
+[agent prompt](#the-agent-prompt) tells every agent how. A lead agent's shell
+might run:
+
+```console
+$ casm peers --probe
+$ casm -H worker run --project acme-api --provider claude --model haiku --name helper "Say hello from worker."
+$ casm -H worker wait helper
+$ casm -H worker history helper
+```
+
+[MCP controls](mcp-controls.md) covers inspecting and reconnecting an agent's
+*own* MCP servers (`casm mcp`, `/mcp` in the web client).
 
 ## The agent prompt
 
@@ -261,7 +271,7 @@ casm provides the `casm` CLI for working with other agents, schedules and limits
 
 `casm agent-prompt --edit` saves a custom `agent-prompt.md` in `$CASM_HOME`
 (placeholders: `{{host}}`, `{{agentId}}`, `{{agentName}}`, `{{project}}`,
-`{{cwd}}`, `{{provider}}`, `{{casmTools}}`); `--reset` goes back to the default;
+`{{cwd}}`, `{{provider}}`); `--reset` goes back to the default;
 `--disable` turns it off. Changes apply to the next session an agent opens.
 
 ## What casm deliberately does not do

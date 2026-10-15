@@ -59,14 +59,13 @@ Provider behavior, verified against installed APIs:
   one (`builtin:mcp`): with `--no-mcp` or an extension that replaces `/mcp`,
   status explains the limitation and reconnect reloads the session.
   [pi MCP documentation](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/mcp.md).
-- pi's per-agent MCP servers (casm's own with `casmTools`, and
-  `config.mcpServers` in pi's `mcp.json` entry format) are registered by casm's
+- pi's per-agent MCP servers (`config.mcpServers` in pi's `mcp.json` entry
+  format) are registered by casm's
   extension `packages/server/src/providers/pi-extension.ts`, loaded with `pi -e`,
   through `pi.registerMcpServer`: they apply to that session only and are never
-  written to pi's `mcp.json`. The casm server uses `direct` exposure, so its
-  tools are declared to the model as `mcp__casm__<tool>`. The JSON reaches the
-  extension in `CASM_PI_MCP_SERVERS`, which it removes from pi's environment so
-  the agent's shell commands don't inherit the token. A server in `mcp.json`
+  written to pi's `mcp.json`. The JSON reaches the extension in
+  `CASM_PI_MCP_SERVERS`, which it removes from pi's environment so the agent's
+  shell commands don't inherit any credentials in it. A server in `mcp.json`
   with the same name takes precedence, as in pi itself.
 - Enable/disable on pi applies to those casm-added servers (`/casm-mcp
   enable|disable <server>`, session only). pi's own `/mcp` toggles save to

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # A disposable two-host casm lab for recording the CLI casts in docs/media:
 # servers "studio" (port 7481) and "worker" (7482) peered with each other,
-# a demo project "acme-api" on both, and a `casm` wrapper bound to studio.
+# a demo project "acme-api" on both, and a `casm` wrapper bound to studio
+# (agents in the lab get the same wrapper, bound to their own server).
 # Agents in it are real (they make model calls); use cheap models.
 #
 #   scripts/docs-media/lab.sh up      start (fresh state under $LAB, default /var/tmp/casm-lab)
@@ -66,15 +67,21 @@ up() {
   project
   cat > "$lab/bin/casm" <<EOF
 #!/usr/bin/env bash
-for v in \$(env | grep -o '^CASM_[A-Z_]*'); do unset "\$v"; done
-export CASM_HOME="$lab/\${LAB_HOST:-studio}"
+# A lab agent keeps its CASM_* env (its server's CASM_HOME, its identity);
+# anything else, including an agent of a casm outside the lab, starts clean.
+case "\${CASM_HOME:-}" in
+  "$lab"/*) ;;
+  *) for v in \$(env | grep -o '^CASM_[A-Z_]*'); do unset "\$v"; done
+     export CASM_HOME="$lab/\${LAB_HOST:-studio}" ;;
+esac
 exec node "$repo/packages/cli/src/main.ts" "\$@"
 EOF
   chmod +x "$lab/bin/casm"
   local port=7481
   for h in studio worker; do
     mkdir -p "$lab/$h"
-    ( clean_env; export CASM_HOME="$lab/$h"
+    # Agents' `casm` is this checkout's CLI, through the wrapper.
+    ( clean_env; export CASM_HOME="$lab/$h" PATH="$lab/bin:$PATH"
       nohup node "$repo/packages/cli/src/main.ts" serve --listen "127.0.0.1:$port" --name "$h" > "$lab/$h.log" 2>&1 &
       echo $! > "$lab/$h.pid" )
     port=$((port + 1))

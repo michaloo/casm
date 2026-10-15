@@ -1,8 +1,10 @@
 # Host settings
 
-The ⋯ button on a host row (Host options) opens the host modal: Usage, Schedules
-and Instructions. The ⋯ on a project row (Project options) opens the project
-modal: AGENTS.md, Memories and Info. Both share one layout (a tab rail on wide
+The ⋯ button on a host row (Host options) opens the host modal: Usage and
+Instructions. The clock on a host row (or **Schedules on <host>** in the
+launcher) opens that host's schedules in their own modal. The ⋯ on a project
+row (Project options) opens the project modal: AGENTS.md, Memories and Info,
+with **New agent** in its header. They share one layout (a tab rail on wide
 screens, scrolling tabs and a full-screen sheet on phones) and ask before
 closing with unsaved edits. The + on a host row adds a project. Every RPC
 carries its host ID, so peer settings are read and saved on the selected peer.

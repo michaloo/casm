@@ -4,6 +4,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PendingMessage } from "@casm/protocol";
 import { pendingLabel, queueHeld } from "./outbox";
+import { offlineNote } from "./connection";
 
 export type PendingActions = {
   sendNow: (p: PendingMessage) => void;
@@ -55,7 +56,7 @@ export function PendingRows({ rows, unconfirmed, online, labels, actions }: {
                   }}
                 />
                 <button type="button" onClick={() => setEditing(null)}>Discard</button>
-                <button disabled={!online}>Save</button>
+                <button disabled={!online} title={online ? undefined : offlineNote}>Save</button>
               </form>
             ) : (
               <>
@@ -70,12 +71,13 @@ export function PendingRows({ rows, unconfirmed, online, labels, actions }: {
                   </small>
                 </div>
                 <div className="pending-actions">
-                  <button type="button" disabled={!online || local} onClick={() => actions.cancel(p)}>Cancel</button>
-                  <button type="button" disabled={!online || local} onClick={() => setEditing({ id: p.id, text: p.text })}>Edit</button>
+                  <button type="button" disabled={!online || local} title={online ? undefined : offlineNote} onClick={() => actions.cancel(p)}>Cancel</button>
+                  <button type="button" disabled={!online || local} title={online ? undefined : offlineNote} onClick={() => setEditing({ id: p.id, text: p.text })}>Edit</button>
                   <button
                     type="button"
                     className="pending-primary"
                     disabled={!online || local}
+                    title={online ? undefined : offlineNote}
                     onClick={() => (action === "retry" ? actions.retry(p) : actions.sendNow(p))}
                   >
                     {action === "retry" ? "Retry now" : "Send now"}

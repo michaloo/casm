@@ -4,6 +4,9 @@ import { ProjectOptions } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
 import { replaceHistory } from "./state";
+import { offlineCache } from "./offline-idb";
+import { reconcile, type OfflineCache } from "./offline-cache";
+import { ConnectionBanner, offlineNote } from "./connection";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
@@ -15,7 +18,7 @@ import type {
   ModelInfo,
   ProviderId,
 } from "@casm/protocol";
-import { Rpc, chat, chats, event, key, syncPending, type Host } from "./state";
+import { Rpc, chat, chats, event, key, syncPending, timing, type Host } from "./state";
 import { filePathFromRoute, resolveView, viewPath, type Selection } from "./navigation";
 import { FilePreview } from "./files";
 import { FileLinksContext, insideRoot } from "./file-links";
@@ -96,7 +99,29 @@ function App() {
       document.removeEventListener("visibilitychange", hidden);
     };
   }, []);
+  // online: the socket is open. fresh: everything shown has been fetched
+  // over it since it opened. checking: a probe after a long silence runs.
   const [online, setOnline] = useState(false);
+  const [fresh, setFresh] = useState(false);
+  const freshRef = useRef(fresh);
+  freshRef.current = fresh;
+  const [checking, setChecking] = useState(false);
+  const everOnline = useRef(false);
+  // When what is shown while not fresh was last known current.
+  const [savedAt, setSavedAt] = useState<number>();
+  const [networkOffline, setNetworkOffline] = useState(!navigator.onLine);
+  const cache = useRef<OfflineCache>(undefined);
+  const [cacheReady, setCacheReady] = useState(false);
+  const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>()).current;
+  // Saves a freshly loaded transcript to the offline copy, debounced.
+  function persistChat(k: string, delay = 2000) {
+    clearTimeout(saveTimers.get(k));
+    saveTimers.set(k, setTimeout(() => {
+      saveTimers.delete(k);
+      const c = chats.get(k);
+      if (c?.loaded) void cache.current?.saveChat(k, c).catch(() => {});
+    }, delay));
+  }
   const [hosts, setHosts] = useState<Host[]>([]);
   const hostsRef = useRef(hosts);
   hostsRef.current = hosts;
@@ -178,7 +203,10 @@ function App() {
     }
   };
   async function refreshPending(host: string, id: string, r = rpc.current!) {
-    if (await syncPending(chat(key(host, id)), () => r.call("agent.pending", { id }, host))) redraw();
+    if (await syncPending(chat(key(host, id)), () => r.call("agent.pending", { id }, host))) {
+      if (chat(key(host, id)).loaded) persistChat(key(host, id));
+      redraw();
+    }
   }
   async function load(host: string, id: string, reconnect = false) {
     const c = chat(key(host, id));
@@ -199,8 +227,10 @@ function App() {
         host,
       );
       await refreshPending(host, id);
-      replaceHistory(c, history.items);
-      c.start = history.start;
+      const merged = reconcile(c.items, c.start, history.items, history.start);
+      replaceHistory(c, merged.items);
+      c.start = merged.start;
+      c.cachedAt = undefined;
       c.draft = "";
       c.reasoning = "";
       c.permissions = sub.permissions;
@@ -208,6 +238,7 @@ function App() {
       sub.turn.forEach((e) => event(c, e, true));
       buffered.forEach((e) => event(c, e));
       c.loaded = true;
+      persistChat(key(host, id), 0);
     } finally {
       buffers.delete(key(host, id));
       c.loading = false;
@@ -260,15 +291,38 @@ function App() {
       }),
     );
     const s = selected.current;
-    if (s?.id) await load(s.host, s.id, true);
+    try {
+      if (s?.id) await load(s.host, s.id, true);
+    } finally {
+      // A chat whose peer is down reports its own error; the rest is current.
+      if (rpc.current === r && r.open) setFresh(true);
+    }
   }
   useEffect(() => {
     if (!token) return;
+    let active = true;
+    // The saved copy renders at once; the connection then replaces it.
+    void offlineCache().then(async (c) => {
+      await c.open(token);
+      const saved = await c.sidebar();
+      if (!active) return;
+      cache.current = c;
+      setCacheReady(true);
+      if (saved && !hostsRef.current.length) {
+        setHosts(saved.hosts);
+        setSavedAt((at) => at ?? saved.savedAt);
+      }
+    }).catch(() => {});
     const r = new Rpc(
       token,
       (v) => {
+        if (v) everOnline.current = true;
         setOnline(v);
-        if (!v) for (const c of chats.values()) c.loaded = false;
+        if (!v) {
+          for (const c of chats.values()) c.loaded = false;
+          if (freshRef.current) setSavedAt(r.lastSeen || Date.now());
+          setFresh(false);
+        }
       },
       (n) => {
         const host = n.host ?? "";
@@ -276,7 +330,10 @@ function App() {
         const k = key(host, p?.agentId ?? p?.agent?.id ?? "");
         if (n.method === "agent.event") {
           if (buffers.has(k)) buffers.get(k)!.push(p.event);
-          else event(chat(k), p.event);
+          else {
+            event(chat(k), p.event);
+            if (chat(k).loaded) persistChat(k);
+          }
           redraw();
         }
         if (n.method === "agent.status" || n.method === "agent.changed") {
@@ -320,10 +377,46 @@ function App() {
         }
       },
       () => void run(refresh),
+      setChecking,
     );
     rpc.current = r;
-    return () => r.close();
+    return () => {
+      active = false;
+      r.close();
+    };
   }, [token]);
+  useEffect(() => {
+    // A sleeping laptop or a phone app in the background may come back with a
+    // socket that looks open but is dead: confirm it on every way back.
+    const check = () => rpc.current?.check(timing.resume);
+    const visible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    const network = () => {
+      setNetworkOffline(!navigator.onLine);
+      check();
+    };
+    const connection = (navigator as { connection?: EventTarget }).connection;
+    document.addEventListener("visibilitychange", visible);
+    window.addEventListener("focus", check);
+    window.addEventListener("pageshow", check);
+    window.addEventListener("online", network);
+    window.addEventListener("offline", network);
+    connection?.addEventListener("change", check);
+    return () => {
+      document.removeEventListener("visibilitychange", visible);
+      window.removeEventListener("focus", check);
+      window.removeEventListener("pageshow", check);
+      window.removeEventListener("online", network);
+      window.removeEventListener("offline", network);
+      connection?.removeEventListener("change", check);
+    };
+  }, []);
+  useEffect(() => {
+    if (!fresh || !cache.current) return;
+    const timer = setTimeout(() => void cache.current?.saveSidebar(hostsRef.current).catch(() => {}), 1000);
+    return () => clearTimeout(timer);
+  }, [hosts, fresh, cacheReady]);
   const host = hosts.find((h) => h.id === selection?.host);
   const projectRoots = host?.projects.map((p) => p.path).join("\n") ?? "";
   const fileLinks = useMemo(() => host && projectRoots ? {
@@ -362,6 +455,24 @@ function App() {
       host.name,
       selection.id ? `agent:${selection.id}` : `project:${selection.project}`,
     );
+  useEffect(() => {
+    // The saved copy of this transcript, until (or instead of) a fresh load.
+    if (!selection?.id || !cacheReady || c.cacheRead) return;
+    const target = c;
+    void cache.current!.chat(ckey).then((saved) => {
+      target.cacheRead = true;
+      if (saved && !target.loaded && !target.items.length) {
+        target.items = saved.items;
+        target.start = saved.start;
+        target.pending = saved.pending;
+        target.cachedAt = saved.savedAt;
+      }
+      redraw();
+    }, () => {
+      target.cacheRead = true;
+      redraw();
+    });
+  }, [ckey, cacheReady]);
   useEffect(() => {
     // Not run(): opening a chat must not clear an error just reported (say a
     // failed first send to an agent created a moment ago).
@@ -423,7 +534,8 @@ function App() {
   // Clears the composer at once and shows the message where it will land: in
   // the transcript, or in the queue. The server's copy replaces it by id.
   async function send(steer = false) {
-    if (!selection || (!c.input.trim() && !c.images.length) || creating || commandBusy) return;
+    // Offline the draft stays in the composer (and on this device) instead.
+    if (!online || !selection || (!c.input.trim() && !c.images.length) || creating || commandBusy) return;
     if (slash.sendAction()) return;
     const s = selection;
     const text = c.input;
@@ -636,7 +748,8 @@ function App() {
                     </button>
                     <button
                       className={`project ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}
-                      title={`${p.name} · start a new agent`}
+                      title={online ? `${p.name} · start a new agent` : offlineNote}
+                      disabled={!online}
                       onClick={() => choose({ host: h.id, project: p.id })}
                     >
                       <span className="project-name">{p.name}</span>
@@ -671,11 +784,13 @@ function App() {
         </nav>
         <footer>
           <span className={online ? "" : "error"}>
-            {online ? "Connected" : "Offline · reconnecting…"}
+            {online ? fresh ? "Connected" : "Syncing…" : "Offline · reconnecting…"}
           </span>
           <button
+            title="Change the token; clears the copy saved on this device"
             onClick={() => {
               localStorage.removeItem("casm.token");
+              void cache.current?.clear();
               setToken("");
             }}
           >
@@ -703,6 +818,8 @@ function App() {
           </div>
           {!online && <span className="error">Offline</span>}
         </header>
+        <ConnectionBanner online={online} fresh={fresh} checking={checking} networkOffline={networkOffline}
+          connected={everOnline.current} savedAt={c.cachedAt ?? savedAt} />
         {error && (
           <div role="alert" className="error banner">
             {error}
@@ -718,7 +835,12 @@ function App() {
           {!hosts.length && path !== "/" && (
             <div className="empty">Loading view…</div>
           )}
-          {selection && (
+          {selection?.id && !online && !c.items.length && c.cacheRead ? (
+            <div className="empty offline-missing">
+              <strong>Not available offline</strong>
+              <p>This conversation was not saved on this device. It loads when the connection is back.</p>
+            </div>
+          ) : selection && (
             <FileLinksContext.Provider value={fileLinks}>
             <Transcript
               key={ckey}
@@ -767,6 +889,7 @@ function App() {
                     <button
                       key={d}
                       disabled={!online}
+                      title={online ? undefined : offlineNote}
                       onClick={() =>
                         void run(() =>
                           rpc.current!.call(
@@ -794,6 +917,7 @@ function App() {
                 <Question
                   key={q.id}
                   request={q}
+                  disabled={!online}
                   answer={(answers) =>
                     void run(() =>
                       rpc.current!.call(
@@ -899,7 +1023,7 @@ function App() {
               />
               <div className="actions">
                 <small className="send-hint">
-                  {busy
+                  {!online ? "Offline · your draft is kept on this device and can be sent after reconnecting" : busy
                     ? <>Enter to queue · <kbd>{mac ? "⌘" : "Ctrl"}+Enter</kbd> to steer · Shift+Enter for newline</>
                     : primary === "queue"
                       ? "Enter to queue after the waiting messages · Shift+Enter for newline"
@@ -911,6 +1035,7 @@ function App() {
                       type="button"
                       className="interrupt"
                       disabled={!online}
+                      title={online ? undefined : offlineNote}
                       onClick={() =>
                         void run(() =>
                           rpc.current!.call(
@@ -926,8 +1051,8 @@ function App() {
                     <button
                       type="button"
                       className="steer"
-                      title={`Send into the running turn (${mac ? "⌘" : "Ctrl"}+Enter)`}
                       disabled={!online || (!c.input.trim() && !c.images.length) || creating}
+                      title={online ? `Send into the running turn (${mac ? "⌘" : "Ctrl"}+Enter)` : offlineNote}
                       onClick={() => void send(true)}
                     >
                       Steer
@@ -936,7 +1061,7 @@ function App() {
                 )}
                 <button
                   className={primary === "queue" ? "queue" : "send"}
-                  title={primary === "queue" ? "Send after the running turn and the waiting messages (Enter)" : "Send (Enter)"}
+                  title={!online ? offlineNote : primary === "queue" ? "Send after the running turn and the waiting messages (Enter)" : "Send (Enter)"}
                   disabled={!online || (!c.input.trim() && !c.images.length) || creating}
                 >
                   {primary === "queue" ? "Queue" : "Send"}

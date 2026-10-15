@@ -4,6 +4,7 @@ import type { Agent, Project } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { HostSettings } from "./host-settings";
 import { MoreGlyph, PlusGlyph } from "./row-menu";
+import { offlineNote } from "./connection";
 
 export type HostState = "online" | "slow" | "offline" | "connecting";
 const stateLabels: Record<HostState, string> = { online: "Online", slow: "Slow", offline: "Offline", connecting: "Connecting" };
@@ -41,7 +42,7 @@ export function HostActions({ host, name, state, rpc, agents, projects, openAgen
   const online = state === "online" || state === "slow";
   return <>
     <button ref={plus} type="button" className="row-more row-add" disabled={!online} aria-haspopup="dialog" aria-expanded={newProject}
-      aria-label={`New project on ${name}`} title="New project" onClick={() => setNewProject(true)}>
+      aria-label={`New project on ${name}`} title={online ? "New project" : offlineNote} onClick={() => setNewProject(true)}>
       <PlusGlyph />
     </button>
     <button ref={options} type="button" className="row-more" data-host-menu-trigger aria-haspopup="dialog" aria-expanded={settings}

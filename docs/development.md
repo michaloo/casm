@@ -133,3 +133,14 @@ own port and home for the entire test run, for example:
 ```sh
 CASM_WEB_TEST_PORT=7496 CASM_WEB_TEST_HOME=/tmp/casm-web-rel npm test -w @casm/web
 ```
+
+### PWA install icons
+
+Run `scripts/pwa-icons` (ImageMagick 7 and Node) to regenerate the 192/512
+manifest icons from `brand/casm-icon-light-1024.png`, using the matching SVG
+as a glyph mask. It preserves the glyph colours and scale, replacing the rounded gradient tile with opaque `#fffaf4`
+edge to edge; macOS supplies its own mask. Maskable icons retain their existing
+safe-zone padding. When changing install icons, bump their `?v=` URLs in
+`packages/web/public/manifest.webmanifest` so installed apps fetch the new
+artwork. The build hashes the manifest and all icon bytes into the service
+worker cache version, so no separate worker counter needs updating.

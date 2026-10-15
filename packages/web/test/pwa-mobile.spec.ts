@@ -27,9 +27,19 @@ test("PWA mobile manifest, Apple metadata and opaque install icons", async ({ pa
       const ctx = canvas.getContext("2d")!; ctx.drawImage(image, 0, 0);
       const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
       let opaque = true; for (let i = 3; i < pixels.length; i += 4) if (pixels[i] !== 255) opaque = false;
-      return { sizes: `${canvas.width}x${canvas.height}`, opaque };
+      const pixel = (x: number, y: number) => Array.from(ctx.getImageData(x, y, 1, 1).data);
+      const w = canvas.width - 1, h = canvas.height - 1;
+      const corners = [[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => pixel(x, y));
+      const edges = [[w / 2, 0], [0, h / 2], [w, h / 2], [w / 2, h]].map(([x, y]) => pixel(x, y));
+      return { sizes: `${canvas.width}x${canvas.height}`, opaque, corners, edges };
     }, icon.src);
-    expect(result).toEqual({ sizes: icon.sizes, opaque: true });
+    expect(result).toMatchObject({ sizes: icon.sizes, opaque: true });
+    if (icon.purpose === "any") {
+      // Check edges too: the old rounded gradient tile already had cream corners.
+      expect(result.corners).toEqual(Array(4).fill([255, 250, 244, 255]));
+      expect(result.edges).toEqual(Array(4).fill([255, 250, 244, 255]));
+      expect(icon.src).toMatch(/\?v=2$/);
+    }
     const image = await request.get(icon.src);
     expect(image.headers()["content-type"]).toBe("image/png");
     expect(image.headers()["cache-control"]).toBe("no-cache");

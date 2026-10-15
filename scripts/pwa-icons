@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Regenerate full-bleed manifest icons. Requires ImageMagick 7 and Node.
+# The OS supplies the installation mask: never bake a rounded tile into "any" icons.
+set -euo pipefail
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+icon_tmp="$(mktemp -d)"
+trap 'rm -rf -- "$icon_tmp"' EXIT
+node --input-type=module - "$repo_root" "$icon_tmp" <<'JS'
+import { readFileSync, writeFileSync } from "node:fs";
+const [root, tmp] = process.argv.slice(2);
+const source = readFileSync(`${root}/brand/casm-icon-light.svg`, "utf8");
+const tile = /<rect width="1024" height="1024" rx="228" fill="url\(#bgl\)"\/>/;
+if (!tile.test(source)) throw new Error("Brand tile changed: review the full-bleed icon conversion");
+// Use SVG only as a shape mask: ImageMagick's SVG renderer does not reproduce
+// every gradient. Keep the exact colours from the canonical 1024px raster.
+writeFileSync(`${tmp}/glyph-mask.svg`, source.replace(tile, '<rect width="1024" height="1024" fill="#000"/>')
+  .replace('fill="url(#lnl)"', 'fill="#fff"').replace('fill="#0FB5AE"', 'fill="#fff"'));
+JS
+magick "$icon_tmp/glyph-mask.svg" -alpha off -colorspace gray "$icon_tmp/mask.png"
+magick "$repo_root/brand/casm-icon-light-1024.png" "$icon_tmp/mask.png" \
+  -compose CopyOpacity -composite -background '#fffaf4' -alpha remove -alpha off "$icon_tmp/full-bleed.png"
+for size in 192 512; do
+  magick "$icon_tmp/full-bleed.png" -resize "${size}x${size}" \
+    -alpha remove -alpha off -strip -define png:exclude-chunks=date,time \
+    "PNG24:$repo_root/packages/web/public/icon-${size}.png"
+done
+# Maskable icons deliberately keep their existing safe-zone padding.

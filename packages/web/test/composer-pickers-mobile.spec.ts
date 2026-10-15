@@ -53,7 +53,8 @@ for (const width of [1440, 375]) test(`composer picker mobile snapshots and choi
     await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
     for (const pill of await pickers.locator(".composer-picker").all()) {
       const box = (await pill.boundingBox())!;
-      expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
+      // The row scrolls sideways: pills may run past its edge, never the row past the screen.
+      expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.height).toBe(width === 375 ? 44 : 32);
       // The chevron is a 12px SVG centered on the pill and on its label, like the sidebar's.
       const chevron = pill.locator(".composer-picker-chevron");
@@ -65,6 +66,8 @@ for (const width of [1440, 375]) test(`composer picker mobile snapshots and choi
       expect(Math.abs(mark.y + mark.height / 2 - (label.y + label.height / 2))).toBeLessThanOrEqual(1.5);
       expect(mark.x + mark.width).toBeLessThanOrEqual(box.x + box.width - 6);
     }
+    const rowBox = (await pickers.boundingBox())!;
+    expect(rowBox.x + rowBox.width).toBeLessThanOrEqual(width);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     await page.locator(".composer").screenshot({ path: info.outputPath(`${name}-${width}.png`) });
   }

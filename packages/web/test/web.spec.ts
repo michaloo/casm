@@ -450,7 +450,7 @@ for (const scheme of ["light", "dark"] as const)
       expect(manifestData.icons).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            src: "/icon-512.png",
+            src: expect.stringMatching(/^\/icon-512\.png(\?v=\d+)?$/),
             sizes: "512x512",
           }),
         ]),

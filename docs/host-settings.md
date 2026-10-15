@@ -1,8 +1,8 @@
 # Host settings
 
-The ⋯ button on a host row (Host options) opens the host modal: Usage and
-Instructions. The clock on a host row (or **Schedules on <host>** in the
-launcher) opens that host's schedules in their own modal. The ⋯ on a project
+The ⋯ button on a host row (Host options) opens the host modal: Usage, Schedules
+and Instructions; **Schedules on <host>** in the launcher opens it on Schedules.
+The ⋯ on a project
 row (Project options) opens the project modal: AGENTS.md, Memories and Info,
 with **New agent** in its header. They share one layout (a tab rail on wide
 screens, scrolling tabs and a full-screen sheet on phones) and ask before

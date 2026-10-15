@@ -1,7 +1,7 @@
 import { useId, useState, type ReactNode } from "react";
 import { ChevronGlyph } from "./row-menu";
 
-/** A foldable host, drawn as a section header: identity then chevron fold it; `menu` sits at the end of the row. */
+/** A foldable host, drawn as a section header: icon, name and chevron fold it; status lives in its tooltip and description; `menu` sits at the end of the row. */
 export function HostSection({ host, name, identity, status, menu, children }: {
   host: string; name: string; identity: ReactNode; status: string; menu: ReactNode; children: ReactNode;
 }) {
@@ -13,7 +13,7 @@ export function HostSection({ host, name, identity, status, menu, children }: {
   return <section className="host">
     <h2 className="host-heading">
       <button type="button" className="host-collapse" aria-label={`Toggle ${name} host`} aria-description={status}
-        aria-expanded={!collapsed} aria-controls={id} title={`${collapsed ? "Expand" : "Collapse"} ${name} · ${status}`}
+        aria-expanded={!collapsed} aria-controls={id} title={`${name} · ${status}`}
         onClick={() => {
           const next = !collapsed;
           setCollapsed(next);

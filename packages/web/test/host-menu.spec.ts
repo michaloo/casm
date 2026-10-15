@@ -2,7 +2,7 @@ import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 
-for (const width of [1440, 375]) test(`host row opens the host modal, and its clock the schedules modal, at ${width}px`, async ({ page }) => {
+for (const width of [1440, 375]) test(`host row opens the host modal and edits schedules at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 812 });
   const updatedTargets: unknown[] = [];
   await page.routeWebSocket("**", (socket) => {
@@ -21,7 +21,7 @@ for (const width of [1440, 375]) test(`host row opens the host modal, and its cl
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
-  // The header only folds; ⋯ opens the host modal, + a new project, the clock its schedules.
+  // The header only folds; ⋯ opens the host modal, + a new project. Status stays off the row, in its tooltip.
   const fold = page.getByRole("button", { name: "Toggle Test host host", exact: true });
   await expect(fold.locator(".host-dot.online")).toHaveCount(1);
   await expect(fold).toHaveAttribute("aria-expanded", "true");
@@ -30,9 +30,10 @@ for (const width of [1440, 375]) test(`host row opens the host modal, and its cl
   await expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
   const plus = page.getByRole("button", { name: "New project on Test host", exact: true });
   await expect(plus).toHaveAttribute("title", "New project");
-  const clock = page.getByRole("button", { name: "Schedules on Test host", exact: true });
-  await expect(clock).toHaveAttribute("aria-haspopup", "dialog");
-  if (width === 375) for (const button of [trigger, plus, clock]) {
+  await expect(fold).toHaveAttribute("title", "Test host · Online");
+  await expect(fold.locator("small")).toHaveCount(0);
+  await expect(page.locator("nav .host-heading").first().getByRole("button")).toHaveCount(3);
+  if (width === 375) for (const button of [trigger, plus]) {
     const box = (await button.boundingBox())!;
     expect(box.width).toBeGreaterThanOrEqual(44);
     expect(box.height).toBeGreaterThanOrEqual(44);
@@ -43,7 +44,7 @@ for (const width of [1440, 375]) test(`host row opens the host modal, and its cl
   const host = page.getByRole("dialog", { name: "Test host host" });
   await expect(host).toBeVisible();
   const tabs = host.getByRole("navigation");
-  await expect(tabs.getByRole("button")).toHaveText(["Usage", "Instructions"]);
+  await expect(tabs.getByRole("button")).toHaveText(["Usage", "Schedules", "Instructions"]);
   await expect(tabs.getByRole("button", { name: "Usage" })).toHaveAttribute("aria-pressed", "true");
   if (width === 375) {
     const box = (await host.boundingBox())!;
@@ -53,16 +54,10 @@ for (const width of [1440, 375]) test(`host row opens the host modal, and its cl
   await expect(host).toBeHidden();
   await expect(trigger).toBeFocused();
 
-  // Schedules have their own modal: the same shell, with no section rail.
-  await clock.click();
-  const panel = page.getByRole("dialog", { name: "Schedules on Test host" });
-  await expect(panel).toBeVisible();
-  await expect(panel.getByRole("navigation")).toHaveCount(0);
-  await expect(panel.locator("header h2")).toContainText("Test host");
-  if (width === 375) {
-    const box = (await panel.boundingBox())!;
-    expect([box.x, box.width, box.height]).toEqual([0, 375, 812]);
-  }
+  // Schedules are a tab of the host modal.
+  await trigger.click();
+  const panel = host;
+  await tabs.getByRole("button", { name: "Schedules" }).click();
   await expect(panel).toContainText("No schedules on this host yet");
   await panel.getByRole("button", { name: "New schedule" }).click();
   // Validation is inline, and Escape returns to the list without closing the panel.
@@ -138,17 +133,20 @@ for (const width of [1440, 375]) test(`host row opens the host modal, and its cl
   await expect(panel).toBeHidden();
   await expect(page).toHaveURL(/\/a\//);
   if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
-  await clock.click();
+  await trigger.click();
+  await tabs.getByRole("button", { name: "Schedules" }).click();
   await fresh.getByRole("button", { name: "Edit New agent check" }).click();
   await freshForm.getByRole("button", { name: "Delete New agent check" }).click();
   await freshForm.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(panel).toContainText("No schedules on this host yet");
-  await panel.getByRole("button", { name: "Close schedules" }).click();
+  await panel.getByRole("button", { name: "Close host options" }).click();
   await expect(panel).toBeHidden();
-  await expect(clock).toBeFocused();
-  // The launcher's "Schedules on <host>" opens the same modal by event.
+  await expect(trigger).toBeFocused();
+  // The launcher's "Schedules on <host>" opens the host modal on its Schedules tab.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("casm:open-schedules", { detail: { host: "" } })));
   await expect(panel).toBeVisible();
+  await expect(tabs.getByRole("button", { name: "Schedules" })).toHaveAttribute("aria-pressed", "true");
+  await expect(panel.getByRole("button", { name: "New schedule" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(panel).toBeHidden();
 });

@@ -40,9 +40,10 @@ export function HostActions({ host, name, state, rpc, agents, projects, openAgen
   const options = useRef<HTMLButtonElement>(null);
   const plus = useRef<HTMLButtonElement>(null);
   // The open host modal's first section, and where focus returns when it closes (⋯, or what the launcher left focused).
-  const [settings, setSettings] = useState<{ section: HostSection; back: HTMLElement | null }>();
+  const [settings, setSettings] = useState<{ section: HostSection; back: HTMLElement | null; opened: number }>();
+  const opened = useRef(0);
   const [newProject, setNewProject] = useState(false);
-  useEffect(() => onOpenSchedules(host, () => setSettings({ section: "schedules", back: document.activeElement instanceof HTMLElement ? document.activeElement : null })), [host]);
+  useEffect(() => onOpenSchedules(host, () => setSettings({ section: "schedules", back: document.activeElement instanceof HTMLElement ? document.activeElement : null, opened: ++opened.current })), [host]);
   const online = state === "online" || state === "slow";
   return <>
     <button ref={plus} type="button" className="row-more row-add" disabled={!online} aria-haspopup="dialog" aria-expanded={newProject}
@@ -50,15 +51,17 @@ export function HostActions({ host, name, state, rpc, agents, projects, openAgen
       <PlusGlyph />
     </button>
     <button ref={options} type="button" className="row-more" data-host-menu-trigger aria-haspopup="dialog" aria-expanded={!!settings}
-      aria-label={`Host options for ${name}`} title="Host options" onClick={() => setSettings({ section: "usage", back: options.current })}>
+      aria-label={`Host options for ${name}`} title="Host options" onClick={() => setSettings({ section: "usage", back: options.current, opened: ++opened.current })}>
       <MoreGlyph />
     </button>
     {newProject && <NewProject host={host} name={name} projects={projects} rpc={rpc} online={online}
       close={() => { setNewProject(false); plus.current?.focus(); }}
       created={project => { setNewProject(false); openProject(project); }} />}
-    {settings && <HostSettings key={settings.section} host={host} name={name} state={state} rpc={rpc} online={online} agents={agents} projects={projects}
+    {settings && <HostSettings key={settings.opened} host={host} name={name} state={state} rpc={rpc} online={online} agents={agents} projects={projects}
       initialSection={settings.section} openAgent={openAgent && ((agent) => { setSettings(undefined); openAgent(agent); })}
-      close={() => { const back = settings.back; setSettings(undefined); (back?.isConnected ? back : options.current)?.focus(); }} />}
+      // The dialog's close event is async: a reopen (the launcher's Schedules) may already have replaced this one.
+      close={() => { const back = settings.back; setSettings(current => current === settings ? undefined : current);
+        if (!document.querySelector("dialog[open]")) (back?.isConnected ? back : options.current)?.focus(); }} />}
   </>;
 }
 

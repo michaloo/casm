@@ -44,6 +44,7 @@ import { PendingRows } from "./pending-strip";
 import { AttachGlyph, ChevronGlyph } from "./row-menu";
 import { MAX_IMAGES, imageFiles, prepareImage } from "./attach";
 import { NewAgentStarters, NewAgentWelcome } from "./new-agent";
+import { SignOut } from "./sign-out";
 import "./fonts/fonts.css";
 import "./style.css";
 // Same threshold the server uses for a slow peer probe.
@@ -866,16 +867,11 @@ function App() {
           <span className={online ? "" : "error"}>
             {online ? fresh ? "Connected" : "Syncing…" : "Offline · reconnecting…"}
           </span>
-          <button
-            title="Change the token; clears the copy saved on this device"
-            onClick={() => {
-              localStorage.removeItem("casm.token");
-              void cache.current?.clear();
-              setToken("");
-            }}
-          >
-            Token
-          </button>
+          <SignOut host={hosts.find((h) => !h.id)?.name ?? ""} signOut={() => {
+            localStorage.removeItem("casm.token");
+            void cache.current?.clear();
+            setToken("");
+          }} />
         </footer>
       </aside>
       <main className={`chat${starting ? " start" : ""}`}>

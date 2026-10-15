@@ -5,7 +5,11 @@ import { modelLabels } from "./model-label";
 import { ChevronGlyph } from "./row-menu";
 
 const clean = (text: string) => text.replace(/\s*\((?:catalog(?: default)?|recommended)\)/gi, "").trim();
-const compactModel = (text: string) => clean(text).replace(/\s*(?:[·–]\s*|\()\d+(?:\.\d+)?[MK](?:\s+context)?\)?$/i, "").trim();
+const compactModel = (text: string, id?: string | null) => {
+  const label = clean(text).replace(/\s*(?:[·–]\s*|\()\d+(?:\.\d+)?[MK](?:\s+context)?\)?$/i, "").trim();
+  // Catalog context sizes are details; an explicitly selected/reported 1M variant is identity.
+  return /\[1m\]$/i.test(id ?? "") && !/\[1m\]$/i.test(label) ? `${label} · 1M` : label;
+};
 const shortMode = (id: string, name?: string) => ({ default: "Default", auto: "Auto", plan: "Plan", acceptEdits: "Accept edits", bypassPermissions: "Bypass", bypass: "Bypass" }[id] ?? clean(name || id));
 const titleCase = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 type Option = { value: string; label: string; description?: string };
@@ -33,7 +37,7 @@ export function ComposerPickers({ provider, fixedProvider, catalog, model, effec
   setMode: (value: string) => void; setEffort: (value: string) => void;
 }) {
   const labels = modelLabels(model, effectiveModel, catalog.models);
-  const defaultLabel = effectiveModel && !/^default\b/i.test(compactModel(labels.actual ?? "")) ? `Default · ${compactModel(labels.actual!)}` : "Default";
+  const defaultLabel = effectiveModel && !/^default\b/i.test(compactModel(labels.actual ?? "", effectiveModel)) ? `Default · ${compactModel(labels.actual!, effectiveModel)}` : "Default";
   const selectedModel = catalog.models.find(item => item.id === (model || effectiveModel)) ?? (!model ? catalog.models.find(item => item.isDefault) : undefined);
   const modelOptions: Option[] = [{ value: "", label: defaultLabel, description: effectiveModel ? labels.sessionTitle : "Use the provider's default model" },
     ...catalog.models.map(item => ({ value: item.id, label: clean(item.name || item.id), description: item.description }))];
@@ -60,10 +64,10 @@ export function ComposerPickers({ provider, fixedProvider, catalog, model, effec
   return <div className="pickers" ref={row}>
     <Picker name="Provider" value={provider} label={provider === "pi" ? "pi" : providerNames[provider]} icon={<ProviderIcon provider={provider} />} disabled={fixedProvider}
       options={(["claude", "codex", "opencode", "pi"] as ProviderId[]).map(id => ({ value: id, label: id === "pi" ? "pi" : providerNames[id] }))} onChange={value => setProvider(value as ProviderId)} />
-    <Picker name="Model" value={model} label={model ? compactModel(labels.selectedLabel) : defaultLabel} prefix={model ? undefined : "Model"} options={modelOptions} onChange={setModel}
+    <Picker name="Model" value={model} label={model ? compactModel(labels.selectedLabel, model) : defaultLabel} prefix={model ? undefined : "Model"} options={modelOptions} onChange={setModel}
       title={[model || "Provider default", selectedModel?.name, selectedModel?.description, labels.sessionTitle].filter(Boolean).join(" · ")} />
     {catalog.modes.length > 1 && <Picker name="Mode" prefix="Mode" value={mode} label={modes.find(item => item.value === mode)?.label ?? "Default"} options={modes} onChange={setMode} />}
     {efforts.length > 1 && <Picker name="Effort" prefix="Effort" value={effort} label={effort ? titleCase(effort) : "Default"} options={[{ value: "", label: "Default", description: "Use the model's default reasoning effort" }, ...efforts.map(value => ({ value, label: titleCase(value) }))]} onChange={setEffort} />}
-    {labels.showSession && <small className="model-session" title={labels.sessionTitle}>Session: {compactModel(labels.actual!)}</small>}
+    {labels.showSession && <small className="model-session" title={labels.sessionTitle}>Session: {compactModel(labels.actual!, effectiveModel)}</small>}
   </div>;
 }

@@ -4,656 +4,187 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>casm: self-hosted orchestration for your coding agents</title>
-<meta name="description" content="casm runs Claude Code, Codex, OpenCode and pi on your own machines, over your own network, from your own devices. No casm cloud, no account.">
+<title>casm: a self-hosted agent orchestrator</title>
+<meta name="description" content="casm is a self-hosted orchestrator for Claude Code, Codex, OpenCode and pi. One server per machine; a CLI, a web client and a WebSocket JSON-RPC protocol.">
 <style>
 :root {
   color-scheme: light dark;
-  --sans: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --mono: "JetBrains Mono Variable", "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", ui-monospace, monospace;
-  --bg: #fffaf4; --panel: #faf0e5; --surface: #fffdfa; --raised: #f4e8dc; --code: #f8efe5;
-  --line: #ecdccb; --line-strong: #9a816c;
-  --text: #1d1a2b; --muted: #5f5768; --faint: #6b6274;
-  --accent: #0a716c; --accent-hover: #085c58; --accent-bright: #0fb5ae; --on-accent: #fff;
-  --attention: #ba3049; --attention-bright: #ff5a6e;
-  --agent: #6b3bd4; --agent-bright: #8b5cf6;
-  --success: #22704a; --warning: #8f530b;
-  --accent-soft: color-mix(in srgb, var(--accent-bright) 13%, var(--surface));
-  --attention-soft: color-mix(in srgb, var(--attention-bright) 11%, var(--surface));
-  --agent-soft: color-mix(in srgb, var(--agent-bright) 10%, var(--surface));
-  --shadow: 0 1px 2px #5a3a2010, 0 4px 14px #5a3a200b;
-  --shadow-pop: 0 1px 2px #3a24140f, 0 12px 32px #3a241420;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", ui-monospace, monospace;
+  --bg: #fffaf4; --code: #f6ece1; --line: #ecdccb;
+  --text: #1d1a2b; --muted: #5f5768;
+  --accent: #0a716c;
   --logo-a: #ff6b81; --logo-mid: #8b5cf6; --logo-end: #0fb5ae;
-  --wrap: 1180px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b141a; --panel: #081016; --surface: #0f1b22; --raised: #172630; --code: #08121a;
-    --line: #1e2f3a; --line-strong: #567080;
-    --text: #e4edf1; --muted: #97a8b2; --faint: #82939e;
-    --accent: #22d3ee; --accent-hover: #67e3f5; --accent-bright: #22d3ee; --on-accent: #04212a;
-    --attention: #ff7a8c; --attention-bright: #ff5a6e;
-    --agent: #bd8cff; --agent-bright: #b57bff;
-    --success: #5ad69b; --warning: #f2b85b;
-    --accent-soft: color-mix(in srgb, var(--accent-bright) 11%, var(--surface));
-    --attention-soft: color-mix(in srgb, var(--attention-bright) 13%, var(--surface));
-    --agent-soft: color-mix(in srgb, var(--agent-bright) 12%, var(--surface));
-    --shadow: 0 1px 2px #00000040, 0 6px 18px #00000030;
-    --shadow-pop: 0 1px 2px #00000050, 0 16px 40px #00000066;
+    --bg: #0b141a; --code: #0f1b22; --line: #1e2f3a;
+    --text: #e4edf1; --muted: #97a8b2;
+    --accent: #22d3ee;
     --logo-mid: #b57bff; --logo-end: #22d3ee;
   }
 }
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; scroll-behavior: smooth; }
-body {
-  margin: 0; background: var(--bg); color: var(--text);
-  font: 16px/1.6 var(--sans); font-feature-settings: "cv11", "ss03";
-  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
-}
-a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-a:hover { color: var(--accent-hover); }
-code, pre, kbd { font-family: var(--mono); font-size: 0.9em; }
-:not(pre) > code { background: var(--code); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
-.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 32px; }
-h1, h2, h3 { letter-spacing: -0.03em; line-height: 1.12; margin: 0; }
-h2 { font-size: clamp(28px, 3.4vw, 40px); font-weight: 750; }
-h3 { font-size: 18px; font-weight: 680; letter-spacing: -0.015em; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+a { color: var(--accent); text-underline-offset: 3px; }
+code, pre { font-family: var(--mono); font-size: 0.88em; }
+:not(pre) > code { background: var(--code); border-radius: 4px; padding: 1px 5px; }
+pre { background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; line-height: 1.55; margin: 16px 0 0; }
+pre .c { color: var(--muted); }
+h1, h2 { letter-spacing: -0.02em; line-height: 1.2; margin: 0; }
+h1 { font-size: clamp(28px, 4.4vw, 40px); font-weight: 720; }
+h2 { font-size: 22px; font-weight: 680; margin-bottom: 14px; }
 p { margin: 0; }
-.eyebrow { font: 600 12px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 14px; }
-.lede { color: var(--muted); font-size: 18px; max-width: 640px; margin-top: 14px; }
-section { padding: 96px 0; }
+p + p { margin-top: 10px; }
+.muted { color: var(--muted); }
+header { border-bottom: 1px solid var(--line); }
+header .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
+.brand { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 720; letter-spacing: -0.04em; color: var(--text); text-decoration: none; }
+.brand svg { width: 24px; height: 24px; }
+header nav { display: flex; gap: 18px; margin-left: auto; font-size: 14px; }
+header nav a { color: var(--muted); text-decoration: none; }
+header nav a:hover { color: var(--text); }
+section { padding: 48px 0; }
 section + section { border-top: 1px solid var(--line); }
-
-/* Header */
-header.top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
-header.top .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
-.brand { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 750; letter-spacing: -0.045em; color: var(--text); text-decoration: none; }
-.brand svg { width: 30px; height: 30px; }
-nav.links { display: flex; gap: 22px; margin-left: auto; font-size: 14px; }
-nav.links a { color: var(--muted); text-decoration: none; }
-nav.links a:hover { color: var(--text); }
-.btn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 10px; font: 600 14px/1 var(--sans); text-decoration: none; border: 1px solid var(--line); color: var(--text); background: var(--surface); box-shadow: var(--shadow); }
-.btn:hover { color: var(--text); border-color: var(--line-strong); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.btn.primary:hover { background: var(--accent-hover); color: var(--on-accent); }
-
-/* Hero */
-.hero { padding: 88px 0 96px; position: relative; overflow: hidden; }
-.hero::before { content: ""; position: absolute; inset: -40% -10% auto auto; width: 720px; height: 720px; background: radial-gradient(closest-side, color-mix(in srgb, var(--agent-bright) 16%, transparent), transparent); pointer-events: none; }
-.hero::after { content: ""; position: absolute; inset: auto auto -50% -15%; width: 680px; height: 680px; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent-bright) 14%, transparent), transparent); pointer-events: none; }
-.hero .wrap { display: grid; grid-template-columns: 1.05fr 1fr; gap: 64px; align-items: center; position: relative; z-index: 1; }
-.hero h1 { font-size: clamp(40px, 5.6vw, 68px); font-weight: 780; letter-spacing: -0.045em; }
-.hero h1 .grad { background: linear-gradient(120deg, var(--logo-a) 0%, var(--logo-mid) 45%, var(--logo-end) 95%); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.hero .lede { font-size: 19px; margin-top: 22px; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
-.chip { font: 500 13px/1 var(--mono); padding: 7px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
-.chip b { color: var(--text); font-weight: 600; }
-.install { margin-top: 30px; background: var(--code); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
-.install .bar { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--line); font: 500 12px/1 var(--mono); color: var(--faint); }
-.install pre { margin: 0; padding: 14px 16px; font-size: 13.5px; line-height: 1.75; overflow-x: auto; }
-.install .c { color: var(--faint); }
-.install .p { color: var(--accent); user-select: none; }
-.hero .cta { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
-.req { font-size: 13px; color: var(--faint); margin-top: 12px; }
-
-/* Hero mock of the app */
-.app { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-pop); overflow: hidden; display: grid; grid-template-columns: 190px 1fr; min-height: 430px; font-size: 13px; }
-.app .side { background: var(--panel); border-right: 1px solid var(--line); padding: 14px 10px; }
-.app .side .host { font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.07em; color: var(--faint); margin: 14px 8px 8px; display: flex; align-items: center; gap: 6px; }
-.app .side .host:first-child { margin-top: 2px; }
-.app .side .host i { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
-.app .side .proj { color: var(--muted); padding: 4px 8px; font-weight: 600; }
-.app .side .ag { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 18px; border-radius: 8px; color: var(--text); }
-.app .side .ag.sel { background: var(--accent-soft); }
-.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.dot.run { background: var(--accent-bright); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-bright) 25%, transparent); }
-.dot.wait { background: var(--attention-bright); }
-.dot.idle { background: var(--line-strong); }
-.dot.sub { background: var(--agent-bright); }
-.app .main { display: flex; flex-direction: column; min-width: 0; }
-.app .head { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; font-weight: 650; }
-.app .head small { color: var(--faint); font: 500 11.5px/1 var(--mono); margin-left: auto; }
-.app .log { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
-.msg { padding: 9px 12px; border-radius: 12px; max-width: 92%; line-height: 1.5; }
-.msg.you { align-self: flex-end; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent-bright) 30%, var(--line)); }
-.msg.sys { align-self: flex-start; background: var(--agent-soft); border: 1px solid color-mix(in srgb, var(--agent-bright) 28%, var(--line)); font-size: 12px; }
-.msg.sys b { color: var(--agent); }
-.tool { font: 12px/1.5 var(--mono); color: var(--muted); background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
-.tool b { color: var(--accent); font-weight: 600; }
-.ask { border: 1px solid color-mix(in srgb, var(--attention-bright) 40%, var(--line)); background: var(--attention-soft); border-radius: 12px; padding: 10px 12px; }
-.ask p { font-weight: 600; color: var(--attention); font-size: 12px; margin-bottom: 6px; }
-.ask .row { display: flex; gap: 6px; }
-.ask span { font-size: 12px; padding: 4px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); }
-.ask span.ok { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.app .composer { margin: 0 12px 12px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; color: var(--faint); display: flex; align-items: center; justify-content: space-between; }
-.app .composer .k { display: flex; gap: 6px; }
-.app .composer .k span { font: 600 11px/1 var(--sans); padding: 6px 9px; border-radius: 7px; border: 1px solid var(--line); color: var(--muted); }
-.app .composer .k span.go { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-
-/* Promises */
-.promises { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 44px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; box-shadow: var(--shadow); }
-.card .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 16px; }
-.card .ic svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.ic.t { background: var(--accent-soft); color: var(--accent); }
-.ic.v { background: var(--agent-soft); color: var(--agent); }
-.ic.c { background: var(--attention-soft); color: var(--attention); }
-.card p { color: var(--muted); font-size: 15px; margin-top: 8px; }
-
-/* Diagram */
-.diagram { margin-top: 44px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 28px; box-shadow: var(--shadow); }
-.diagram svg { width: 100%; height: auto; display: block; }
-.diagram svg text { font-family: var(--sans); }
-.diagram .mono { font-family: var(--mono); }
-.legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 18px; font-size: 13.5px; color: var(--muted); }
-.legend span { display: inline-flex; align-items: center; gap: 8px; }
-.legend i { width: 22px; height: 0; border-top: 2px solid; display: inline-block; }
-.diagram svg.diagram-mobile { display: none; }
-.hero .wrap > *, .steps > *, .grid > *, .recipes > *, .promises > * { min-width: 0; }
-
-/* How it works */
-.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 44px; counter-reset: s; }
-.step { counter-increment: s; position: relative; padding-top: 52px; }
-.step::before { content: counter(s); position: absolute; top: 0; left: 0; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font: 700 15px/1 var(--mono); color: var(--on-accent); background: var(--accent); }
-.step p { color: var(--muted); margin-top: 8px; }
-.step pre { margin: 14px 0 0; background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 12.5px; line-height: 1.7; overflow-x: auto; }
-
-/* Features */
-.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 44px; background: var(--line); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
-.feat { background: var(--surface); padding: 26px; }
-.feat h3 { display: flex; align-items: center; gap: 10px; }
-.feat p { color: var(--muted); font-size: 15px; margin-top: 8px; }
-.feat code { font-size: 12.5px; }
-
-/* Primitives */
-.prims { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 44px; background: var(--line); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
-.prim { background: var(--surface); padding: 20px 22px; }
-.prim code { font-size: 12.5px; font-weight: 600; color: var(--accent); background: none; padding: 0; }
-.prim p { color: var(--muted); font-size: 14.5px; margin-top: 6px; }
-.compose { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
-.compose > * { min-width: 0; }
-.compose .box { border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 22px; }
-.compose h3 { margin-bottom: 10px; }
-.compose ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; color: var(--muted); font-size: 15px; }
-.compose li::before { content: "\2715"; color: var(--attention); font-size: 11px; margin-right: 10px; }
-.compose p { color: var(--muted); font-size: 15px; margin-bottom: 12px; }
-.compose pre { margin: 0; background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 12.5px; line-height: 1.7; overflow-x: auto; }
-
-/* Recipes */
-.recipes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 44px; }
-.recipe { border: 1px solid var(--line); border-radius: 14px; padding: 20px; background: var(--surface); display: flex; flex-direction: column; gap: 10px; }
-.recipe .tag { align-self: flex-start; font: 600 11px/1 var(--mono); padding: 5px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
-.recipe .tag.alt { background: var(--agent-soft); color: var(--agent); }
-.recipe p { color: var(--muted); font-size: 14.5px; }
-.recipe .https { font-size: 13px; color: var(--faint); margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--line); }
-.rule { margin-top: 22px; display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--attention-bright) 40%, var(--line)); background: var(--attention-soft); }
-.rule svg { flex-shrink: 0; width: 22px; height: 22px; color: var(--attention); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; margin-top: 2px; }
-.rule p { font-size: 15px; }
-
-/* Trust table */
-.trust { margin-top: 44px; width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; font-size: 15px; }
-.trust th, .trust td { text-align: left; padding: 16px 20px; vertical-align: top; border-bottom: 1px solid var(--line); }
-.trust tr:last-child td { border-bottom: 0; }
-.trust th { font: 600 12px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); background: var(--panel); }
-.trust td:first-child { font-weight: 650; width: 22%; }
-.trust td { color: var(--muted); }
-.trust td:first-child { color: var(--text); }
-.pill { display: inline-block; font: 600 11.5px/1 var(--mono); padding: 5px 8px; border-radius: 6px; white-space: nowrap; }
-.pill.stay { background: var(--accent-soft); color: var(--accent); }
-.pill.leave { background: var(--attention-soft); color: var(--attention); }
-.pill.you { background: var(--agent-soft); color: var(--agent); }
-.trust-note { margin-top: 16px; font-size: 14px; color: var(--faint); max-width: 820px; }
-
-/* FAQ */
-.faq { margin-top: 36px; display: grid; grid-template-columns: 1fr 1fr; gap: 0 40px; }
-details { border-bottom: 1px solid var(--line); padding: 18px 0; }
-summary { cursor: pointer; font-weight: 650; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
-summary::-webkit-details-marker { display: none; }
-summary::after { content: "+"; font: 500 20px/1 var(--mono); color: var(--accent); }
-details[open] summary::after { content: "−"; }
-details p { color: var(--muted); margin-top: 10px; font-size: 15px; }
-
-/* Closing + footer */
-.closing { text-align: center; }
-.closing .lede { margin: 14px auto 0; }
-.closing .cta { justify-content: center; display: flex; gap: 10px; margin-top: 28px; flex-wrap: wrap; }
-footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--faint); font-size: 14px; }
-footer .wrap { display: flex; gap: 32px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
-footer .cols { display: flex; gap: 56px; flex-wrap: wrap; }
-footer h4 { margin: 0 0 10px; font: 600 12px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); }
-footer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-footer a { color: var(--muted); text-decoration: none; }
-footer a:hover { color: var(--accent); }
-footer .brand { font-size: 18px; }
-footer .brand svg { width: 24px; height: 24px; }
-footer .tagline { margin-top: 10px; max-width: 300px; }
-
-@media (max-width: 1080px) {
-  .hero .wrap { grid-template-columns: 1fr; }
-  .promises { grid-template-columns: repeat(2, 1fr); }
-  .recipes { grid-template-columns: repeat(2, 1fr); }
-  .grid { grid-template-columns: repeat(2, 1fr); }
-  .prims { grid-template-columns: repeat(2, 1fr); }
-  .compose { grid-template-columns: 1fr; }
-}
-@media (max-width: 720px) {
-  .wrap { padding: 0 20px; }
-  section { padding: 64px 0; }
-  .hero { padding: 48px 0 64px; }
-  nav.links { display: none; }
-  header.top .btn { margin-left: auto; }
-  .hero .lede { font-size: 17px; }
-  .promises, .steps, .recipes, .grid, .prims, .faq { grid-template-columns: 1fr; }
-  .app { grid-template-columns: 1fr; min-height: 0; }
-  .app .side { display: none; }
-  .diagram { padding: 18px; }
-  .diagram svg.diagram-wide { display: none; }
-  .diagram svg.diagram-mobile { display: block; }
-  .trust thead { display: none; }
-  .trust, .trust tbody, .trust tr, .trust td { display: block; width: 100% !important; }
-  .trust tr { border-bottom: 1px solid var(--line); padding: 14px 16px; }
-  .trust tr:last-child { border-bottom: 0; }
-  .trust td { border: 0; padding: 4px 0; }
+.intro { padding-top: 56px; }
+.intro p.lede { font-size: 18px; color: var(--muted); margin-top: 14px; }
+.intro .req { font-size: 14px; color: var(--muted); margin-top: 12px; }
+ul { margin: 0; padding-left: 20px; }
+li + li { margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); }
+th { font-size: 13px; font-weight: 600; color: var(--muted); }
+td code { white-space: nowrap; }
+.note { font-size: 14px; color: var(--muted); margin-top: 14px; }
+footer { border-top: 1px solid var(--line); padding: 28px 0 40px; font-size: 14px; color: var(--muted); }
+footer ul { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; }
+footer li + li { margin-top: 0; }
+@media (max-width: 640px) {
+  header nav { display: none; }
+  section { padding: 36px 0; }
+  .intro { padding-top: 36px; }
+  table, thead, tbody, tr, th, td { display: block; }
+  thead { display: none; }
+  tr { border-bottom: 1px solid var(--line); padding: 10px 0; }
+  td { border: 0; padding: 2px 0; }
+  td:first-child { font-weight: 600; }
+  td code { white-space: normal; }
 }
 </style>
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <linearGradient id="lg" gradientUnits="userSpaceOnUse" x1="216" y1="160" x2="1000" y2="944">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<linearGradient id="lg" gradientUnits="userSpaceOnUse" x1="216" y1="160" x2="1000" y2="944">
       <stop style="stop-color:var(--logo-a)" offset="8%"/><stop style="stop-color:var(--logo-mid)" offset="55%"/><stop style="stop-color:var(--logo-end)" offset="92%"/>
     </linearGradient>
-    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path style="fill:var(--accent)" d="M0 0L10 5L0 10z"/></marker>
-          <marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path style="fill:var(--attention)" d="M0 0L10 5L0 10z"/></marker>
-    <symbol id="glyph" viewBox="154 116 784 784"><g transform="translate(-62 -44)"><path d="M716.3 261.9 L711.7 258.4 L706.4 254.4 L701.0 250.7 L695.4 247.1 L689.8 243.7 L684.0 240.4 L678.2 237.3 L672.2 234.4 L666.2 231.6 L660.1 228.9 L653.9 226.5 L647.6 224.1 L641.2 222.0 L634.8 220.0 L628.3 218.1 L621.8 216.3 L615.2 214.8 L608.5 213.3 L601.8 212.0 L595.0 210.9 L588.2 209.9 L581.3 209.0 L574.4 208.3 L567.5 207.8 L560.5 207.3 L553.5 207.1 L546.5 206.9 L539.4 207.0 L532.3 207.1 L525.2 207.5 L518.1 207.9 L511.0 208.6 L503.9 209.4 L496.8 210.3 L489.7 211.4 L482.6 212.7 L475.5 214.1 L468.4 215.6 L461.3 217.4 L454.3 219.3 L447.3 221.4 L440.3 223.6 L433.3 226.0 L426.4 228.6 L419.6 231.3 L412.8 234.3 L406.0 237.4 L399.3 240.7 L392.7 244.2 L386.2 247.8 L379.7 251.6 L373.3 255.7 L367.0 259.9 L360.8 264.3 L354.7 268.9 L348.7 273.7 L342.8 278.6 L337.1 283.8 L331.4 289.2 L325.9 294.7 L320.6 300.5 L315.3 306.4 L310.3 312.6 L305.4 318.9 L300.6 325.4 L296.1 332.1 L291.7 339.0 L287.5 346.1 L283.4 353.4 L279.6 360.9 L276.0 368.5 L272.6 376.3 L269.3 384.3 L266.3 392.5 L263.6 400.9 L261.0 409.4 L258.7 418.1 L256.5 427.0 L254.7 436.1 L253.1 445.1 L251.7 453.5 L250.6 461.8 L249.6 470.0 L248.9 478.1 L248.3 486.2 L247.8 494.2 L247.6 502.1 L247.5 509.9 L247.6 517.6 L247.8 525.3 L248.2 532.8 L248.8 540.3 L249.6 547.7 L250.5 555.0 L251.5 562.2 L252.7 569.3 L254.1 576.4 L255.6 583.3 L257.3 590.1 L259.1 596.9 L261.1 603.5 L263.2 610.0 L265.4 616.5 L267.8 622.8 L270.3 629.0 L272.9 635.2 L275.7 641.2 L278.5 647.1 L281.5 652.9 L284.7 658.6 L287.9 664.2 L291.3 669.7 L294.7 675.1 L298.3 680.3 L302.0 685.5 L305.8 690.5 L309.7 695.4 L313.6 700.2 L317.7 704.9 L321.9 709.5 L326.1 714.0 L330.4 718.3 L334.8 722.5 L339.3 726.6 L343.9 730.6 L348.5 734.5 L353.3 738.2 L358.0 741.8 L362.9 745.4 L367.8 748.7 L372.8 752.0 L377.8 755.2 L382.9 758.2 L388.0 761.1 L393.2 763.9 L398.4 766.5 L403.7 769.1 L409.0 771.5 L414.4 773.8 L419.8 776.0 L425.2 778.0 L430.6 780.0 L436.1 781.8 L441.6 783.4 L447.2 785.0 L452.8 786.4 L458.3 787.7 L464.0 788.9 L469.6 790.0 L475.2 790.9 L480.9 791.7 L486.5 792.4 L492.2 792.9 L497.8 793.4 L503.5 793.6 L509.2 793.8 L514.8 793.8 L520.5 793.7 L526.1 793.5 L531.7 793.2 L536.9 792.7 L542.0 792.3 L547.0 791.8 L552.1 791.2 L557.1 790.7 L562.2 790.1 L567.2 789.4 L572.2 788.7 L577.1 788.0 L582.1 787.2 L587.0 786.4 L592.0 785.6 L596.9 784.7 L601.7 783.7 L606.6 782.8 L611.4 781.8 L616.2 780.7 L621.0 779.6 L625.7 778.5 L630.4 777.3 L635.1 776.1 L639.7 774.9 L644.4 773.6 L649.0 772.3 L653.5 770.9 L658.0 769.5 L662.5 768.0 L666.9 766.6 L671.3 765.0 L675.7 763.4 L680.0 761.8 L684.3 760.2 L688.6 758.5 L692.8 756.7 L696.9 754.9 L701.0 753.1 L705.1 751.2 L709.1 749.3 L713.1 747.4 L717.0 745.3 L720.8 743.3 L724.7 741.2 L728.4 739.0 L732.1 736.9 L735.8 734.6 L739.4 732.3 L742.9 730.0 L746.4 727.6 L749.8 725.2 L753.2 722.7 L756.5 720.2 L759.7 717.6 L762.8 714.9 L765.9 712.2 L769.0 709.5 L771.9 706.7 L774.8 703.8 L777.6 700.9 L780.3 698.0 L783.0 695.0 L785.5 691.9 L788.0 688.7 L790.4 685.6 L792.7 682.3 L794.9 679.0 L797.1 675.7 L799.1 672.2 L801.0 668.8 L802.9 665.2 L804.6 661.7 L806.2 658.0 L807.7 654.4 L809.1 650.6 L810.4 646.8 L811.6 643.0 L812.6 639.1 L813.5 635.2 L814.4 631.3 L815.0 627.3 L815.6 623.0 L816.0 618.8 L816.2 614.7 L816.2 610.8 L816.1 606.8 L815.8 603.0 L815.3 599.1 L814.7 595.4 L813.9 591.7 L812.9 588.1 L811.8 584.6 L810.6 581.1 L809.2 577.8 L807.6 574.5 L806.0 571.3 L804.2 568.3 L802.3 565.3 L800.3 562.4 L798.1 559.7 L795.9 557.1 L793.6 554.5 L791.1 552.1 L788.7 549.8 L786.1 547.6 L783.4 545.6 L780.7 543.6 L777.9 541.8 L775.1 540.0 L772.2 538.4 L769.3 536.9 L766.3 535.5 L763.3 534.2 L760.2 533.0 L757.1 531.9 L754.0 530.9 L750.9 530.0 L747.7 529.2 L744.5 528.5 L741.3 527.9 L738.1 527.4 L734.8 527.0 L731.6 526.7 L728.3 526.5 L725.0 526.5 L721.7 526.5 L718.5 526.6 L715.2 526.8 L711.9 527.1 L708.6 527.5 L705.4 528.1 L702.1 528.7 L698.9 529.4 L695.7 530.3 L692.5 531.2 L689.3 532.3 L686.2 533.4 L683.1 534.7 L680.0 536.1 L677.0 537.6 L674.0 539.2 L671.1 541.0 L668.2 542.8 L665.4 544.8 L662.6 546.9 L659.9 549.1 L657.3 551.4 L654.8 553.8 L652.3 556.4 L649.9 559.0 L647.7 561.8 L645.5 564.7 L643.4 567.7 L641.4 570.8 L639.6 574.0 L637.9 577.4 L636.2 580.8 L634.8 584.3 L633.4 587.9 L632.2 591.6 L631.1 595.4 L630.2 599.2 L629.4 602.7 L628.8 606.1 L628.3 609.5 L627.9 612.9 L627.6 616.3 L627.4 619.6 L627.3 623.0 L627.2 626.3 L627.3 629.6 L627.5 632.9 L627.7 636.1 L628.1 639.4 L628.5 642.6 L629.0 645.8 L629.6 649.0 L630.3 652.1 L631.1 655.2 L631.9 658.3 L632.9 661.4 L633.9 664.4 L635.0 667.4 L636.1 670.3 L637.4 673.2 L638.7 676.1 L640.0 679.0 L641.5 681.8 L643.0 684.6 L644.5 687.3 L646.2 690.0 L647.8 692.7 L649.6 695.3 L651.4 697.9 L653.3 700.5 L655.2 703.0 L657.1 705.5 L659.2 708.0 L661.2 710.4 L663.4 712.8 L665.5 715.1 L667.7 717.4 L670.0 719.7 L672.3 721.9 L674.7 724.1 L677.1 726.2 L679.5 728.3 L682.0 730.4 L684.5 732.4 L687.0 734.4 L689.6 736.4 L692.2 738.3 L694.9 740.2 L697.6 742.0 L700.3 743.8 L703.1 745.6 L705.8 747.3 L708.7 749.0 L711.5 750.6 L714.4 752.2 L717.3 753.8 L720.2 755.3 L723.1 756.7 L726.1 758.2 L729.1 759.6 L732.1 760.9 L735.2 762.2 L738.2 763.5 L741.3 764.7 L744.4 765.9 L747.5 767.0 L750.7 768.1 L753.8 769.1 L757.0 770.1 L760.1 771.1 L763.3 772.0 L766.5 772.9 L769.8 773.7 L773.0 774.5 L776.2 775.2 L779.5 775.9 L782.5 776.4 L784.0 776.8 L785.7 777.1 L787.2 777.4 L788.8 777.8 L790.4 778.2 L792.0 778.5 L793.5 778.9 L795.0 779.3 L796.6 779.7 L798.1 780.1 L799.6 780.5 L801.1 780.9 L802.5 781.4 L804.0 781.8 L805.4 782.3 L806.9 782.7 L808.3 783.2 L809.7 783.6 L811.1 784.1 L812.5 784.6 L813.9 785.1 L815.3 785.6 L816.6 786.1 L818.0 786.6 L819.3 787.2 L820.6 787.7 L821.9 788.2 L823.2 788.8 L824.5 789.3 L825.8 789.9 L827.0 790.5 L828.3 791.0 L829.5 791.6 L830.7 792.2 L831.9 792.8 L833.1 793.4 L834.3 794.0 L835.5 794.7 L836.6 795.3 L837.8 795.9 L838.9 796.6 L840.0 797.2 L841.2 797.9 L842.3 798.5 L843.3 799.2 L844.4 799.9 L845.5 800.6 L846.5 801.3 L847.6 802.0 L848.6 802.7 L849.6 803.4 L850.6 804.1 L851.6 804.8 L852.6 805.5 L853.5 806.3 L854.5 807.0 L855.4 807.8 L856.4 808.5 L857.3 809.3 L858.2 810.0 L859.1 810.8 L860.0 811.6 L860.8 812.4 L861.7 813.2 L862.5 814.0 L863.4 814.8 L864.2 815.6 L865.0 816.4 L865.8 817.2 L866.6 818.1 L867.3 818.9 L868.1 819.7 L868.9 820.6 L869.6 821.5 L870.3 822.3 L871.0 823.2 L871.7 824.1 L872.4 824.9 L873.1 825.8 L873.8 826.8 L898.2 809.2 L897.4 808.1 L896.5 806.9 L895.6 805.7 L894.7 804.5 L893.8 803.4 L892.9 802.2 L892.0 801.1 L891.1 799.9 L890.1 798.8 L889.1 797.7 L888.1 796.6 L887.1 795.5 L886.1 794.4 L885.1 793.3 L884.0 792.2 L883.0 791.2 L881.9 790.1 L880.8 789.1 L879.7 788.0 L878.6 787.0 L877.5 786.0 L876.4 785.0 L875.2 784.0 L874.1 783.0 L872.9 782.0 L871.7 781.1 L870.5 780.1 L869.3 779.2 L868.0 778.2 L866.8 777.3 L865.6 776.4 L864.3 775.5 L863.0 774.6 L861.7 773.7 L860.4 772.8 L859.1 771.9 L857.8 771.1 L856.4 770.2 L855.1 769.4 L853.7 768.6 L852.3 767.8 L850.9 766.9 L849.5 766.1 L848.1 765.4 L846.7 764.6 L845.3 763.8 L843.8 763.0 L842.4 762.3 L840.9 761.6 L839.4 760.8 L837.9 760.1 L836.4 759.4 L834.9 758.7 L833.3 758.0 L831.8 757.3 L830.2 756.7 L828.7 756.0 L827.1 755.3 L825.5 754.7 L823.9 754.1 L822.3 753.5 L820.7 752.8 L819.0 752.2 L817.4 751.7 L815.7 751.1 L814.1 750.5 L812.4 749.9 L810.7 749.4 L809.0 748.9 L807.3 748.3 L805.6 747.8 L803.8 747.3 L802.1 746.8 L800.3 746.3 L798.6 745.8 L796.8 745.4 L795.0 744.9 L793.2 744.4 L791.4 744.0 L789.5 743.6 L786.6 742.9 L783.8 742.2 L781.1 741.5 L778.4 740.8 L775.6 740.0 L772.9 739.2 L770.2 738.3 L767.6 737.4 L764.9 736.5 L762.2 735.5 L759.6 734.5 L757.0 733.5 L754.4 732.4 L751.8 731.3 L749.2 730.1 L746.7 728.9 L744.2 727.7 L741.7 726.5 L739.2 725.2 L736.7 723.9 L734.3 722.5 L731.9 721.1 L729.6 719.7 L727.2 718.3 L724.9 716.8 L722.7 715.3 L720.4 713.8 L718.2 712.2 L716.0 710.6 L713.9 709.0 L711.8 707.4 L709.7 705.7 L707.7 704.0 L705.7 702.3 L703.8 700.6 L701.9 698.8 L700.1 697.1 L698.2 695.3 L696.5 693.4 L694.8 691.6 L693.1 689.8 L691.5 687.9 L689.9 686.0 L688.3 684.1 L686.9 682.2 L685.4 680.2 L684.0 678.3 L682.7 676.3 L681.4 674.4 L680.2 672.4 L679.0 670.4 L677.9 668.4 L676.9 666.4 L675.8 664.3 L674.9 662.3 L674.0 660.3 L673.1 658.2 L672.3 656.1 L671.6 654.1 L670.9 652.0 L670.3 649.9 L669.7 647.8 L669.2 645.7 L668.8 643.6 L668.4 641.5 L668.1 639.4 L667.8 637.3 L667.6 635.2 L667.4 633.0 L667.3 630.9 L667.3 628.7 L667.3 626.5 L667.4 624.3 L667.6 622.2 L667.8 619.9 L668.1 617.7 L668.4 615.5 L668.8 613.2 L669.3 611.0 L669.8 608.8 L670.5 606.4 L671.2 604.2 L672.0 602.0 L672.9 600.0 L673.8 598.1 L674.7 596.2 L675.7 594.4 L676.8 592.7 L677.9 591.1 L679.0 589.5 L680.2 588.1 L681.5 586.6 L682.8 585.3 L684.1 584.0 L685.5 582.8 L686.9 581.6 L688.4 580.5 L689.9 579.5 L691.4 578.5 L693.0 577.5 L694.6 576.6 L696.2 575.8 L697.9 575.1 L699.7 574.3 L701.4 573.7 L703.2 573.1 L705.0 572.6 L706.8 572.1 L708.7 571.7 L710.6 571.3 L712.5 571.0 L714.4 570.8 L716.3 570.6 L718.2 570.5 L720.1 570.4 L722.0 570.4 L724.0 570.5 L725.9 570.6 L727.8 570.8 L729.7 571.0 L731.6 571.3 L733.4 571.6 L735.2 572.0 L737.1 572.5 L738.8 573.0 L740.6 573.6 L742.3 574.2 L744.0 574.8 L745.6 575.5 L747.2 576.3 L748.7 577.1 L750.2 577.9 L751.6 578.8 L753.0 579.7 L754.3 580.7 L755.6 581.7 L756.8 582.7 L758.0 583.8 L759.1 584.8 L760.1 586.0 L761.1 587.1 L762.0 588.3 L762.9 589.5 L763.7 590.7 L764.5 592.0 L765.1 593.3 L765.8 594.7 L766.4 596.0 L766.9 597.5 L767.4 598.9 L767.8 600.5 L768.1 602.0 L768.4 603.7 L768.6 605.4 L768.8 607.2 L768.9 609.0 L768.9 610.9 L768.8 612.9 L768.6 615.0 L768.4 617.0 L768.0 619.3 L767.4 621.8 L766.8 624.2 L766.2 626.7 L765.4 629.1 L764.6 631.4 L763.8 633.7 L762.8 636.0 L761.8 638.3 L760.7 640.6 L759.5 642.8 L758.3 645.0 L756.9 647.2 L755.5 649.4 L754.1 651.5 L752.5 653.7 L750.9 655.8 L749.2 657.9 L747.4 660.0 L745.6 662.0 L743.7 664.1 L741.7 666.1 L739.6 668.1 L737.5 670.1 L735.2 672.1 L732.9 674.0 L730.6 675.9 L728.1 677.8 L725.6 679.7 L723.0 681.6 L720.4 683.4 L717.7 685.2 L714.9 687.0 L712.0 688.7 L709.1 690.4 L706.1 692.1 L703.1 693.8 L699.9 695.5 L696.8 697.1 L693.5 698.7 L690.2 700.2 L686.9 701.7 L683.4 703.2 L680.0 704.7 L676.4 706.1 L672.9 707.5 L669.2 708.9 L665.5 710.2 L661.8 711.5 L658.0 712.8 L654.2 714.0 L650.3 715.2 L646.4 716.4 L642.4 717.6 L638.4 718.7 L634.4 719.7 L630.3 720.8 L626.1 721.8 L622.0 722.7 L617.8 723.7 L613.5 724.6 L609.3 725.4 L605.0 726.2 L600.6 727.0 L596.3 727.8 L591.9 728.5 L587.5 729.2 L583.0 729.8 L578.6 730.5 L574.1 731.0 L569.6 731.6 L565.0 732.1 L560.5 732.6 L555.9 733.0 L551.3 733.4 L546.7 733.8 L542.1 734.1 L537.5 734.4 L532.9 734.6 L528.3 734.8 L524.0 735.0 L519.7 735.0 L515.4 734.9 L511.1 734.7 L506.8 734.5 L502.5 734.1 L498.2 733.6 L493.9 733.0 L489.5 732.4 L485.3 731.6 L481.0 730.7 L476.7 729.8 L472.4 728.7 L468.2 727.6 L464.0 726.3 L459.8 725.0 L455.6 723.5 L451.4 722.0 L447.3 720.4 L443.2 718.6 L439.1 716.8 L435.1 714.9 L431.1 712.9 L427.1 710.8 L423.2 708.7 L419.3 706.4 L415.5 704.0 L411.7 701.6 L408.0 699.0 L404.3 696.4 L400.6 693.7 L397.1 690.9 L393.5 688.0 L390.1 685.1 L386.7 682.0 L383.3 678.9 L380.1 675.7 L376.9 672.4 L373.7 669.0 L370.6 665.5 L367.6 661.9 L364.7 658.3 L361.9 654.6 L359.1 650.8 L356.4 646.9 L353.8 643.0 L351.3 638.9 L348.8 634.8 L346.5 630.6 L344.2 626.3 L342.0 622.0 L339.9 617.5 L337.9 613.0 L336.0 608.4 L334.2 603.7 L332.5 598.9 L330.9 594.1 L329.4 589.1 L328.0 584.1 L326.7 579.0 L325.5 573.8 L324.4 568.6 L323.5 563.2 L322.6 557.8 L321.9 552.2 L321.3 546.6 L320.8 540.9 L320.5 535.2 L320.2 529.3 L320.1 523.3 L320.2 517.3 L320.4 511.1 L320.7 504.9 L321.1 498.6 L321.7 492.2 L322.5 485.7 L323.3 479.1 L324.4 472.5 L325.6 465.7 L326.9 458.9 L328.5 451.6 L330.3 444.7 L332.1 438.1 L334.2 431.6 L336.3 425.3 L338.6 419.2 L341.1 413.3 L343.7 407.6 L346.4 402.1 L349.2 396.7 L352.1 391.5 L355.2 386.5 L358.3 381.6 L361.6 376.9 L365.0 372.4 L368.5 368.0 L372.1 363.8 L375.8 359.7 L379.5 355.8 L383.4 352.0 L387.4 348.3 L391.4 344.8 L395.5 341.4 L399.7 338.1 L404.0 335.0 L408.4 332.0 L412.9 329.1 L417.4 326.4 L422.0 323.8 L426.6 321.3 L431.4 318.9 L436.2 316.7 L441.0 314.6 L445.9 312.6 L450.8 310.7 L455.8 309.0 L460.9 307.4 L466.0 305.9 L471.1 304.5 L476.2 303.2 L481.4 302.1 L486.6 301.1 L491.8 300.2 L497.0 299.4 L502.3 298.7 L507.5 298.2 L512.7 297.7 L518.0 297.4 L523.2 297.2 L528.4 297.1 L533.6 297.1 L538.7 297.3 L543.9 297.5 L549.0 297.9 L554.0 298.3 L559.0 298.9 L564.0 299.6 L568.8 300.3 L573.7 301.2 L578.4 302.2 L583.1 303.2 L587.7 304.4 L592.3 305.6 L596.7 307.0 L601.0 308.4 L605.3 309.9 L609.4 311.5 L613.4 313.2 L617.3 314.9 L621.1 316.7 L624.7 318.6 L628.3 320.5 L631.6 322.5 L634.9 324.5 L638.0 326.6 L640.9 328.7 L643.7 330.9 L646.3 333.1 L648.8 335.3 L651.7 338.1Z"/><circle cx="684.0" cy="300.0" r="50.0"/><circle cx="886.0" cy="818.0" r="15.0"/><circle cx="938" cy="896" r="30"/></g></symbol>
-  </defs>
-</svg>
+<symbol id="glyph" viewBox="154 116 784 784"><g transform="translate(-62 -44)"><path d="M716.3 261.9 L711.7 258.4 L706.4 254.4 L701.0 250.7 L695.4 247.1 L689.8 243.7 L684.0 240.4 L678.2 237.3 L672.2 234.4 L666.2 231.6 L660.1 228.9 L653.9 226.5 L647.6 224.1 L641.2 222.0 L634.8 220.0 L628.3 218.1 L621.8 216.3 L615.2 214.8 L608.5 213.3 L601.8 212.0 L595.0 210.9 L588.2 209.9 L581.3 209.0 L574.4 208.3 L567.5 207.8 L560.5 207.3 L553.5 207.1 L546.5 206.9 L539.4 207.0 L532.3 207.1 L525.2 207.5 L518.1 207.9 L511.0 208.6 L503.9 209.4 L496.8 210.3 L489.7 211.4 L482.6 212.7 L475.5 214.1 L468.4 215.6 L461.3 217.4 L454.3 219.3 L447.3 221.4 L440.3 223.6 L433.3 226.0 L426.4 228.6 L419.6 231.3 L412.8 234.3 L406.0 237.4 L399.3 240.7 L392.7 244.2 L386.2 247.8 L379.7 251.6 L373.3 255.7 L367.0 259.9 L360.8 264.3 L354.7 268.9 L348.7 273.7 L342.8 278.6 L337.1 283.8 L331.4 289.2 L325.9 294.7 L320.6 300.5 L315.3 306.4 L310.3 312.6 L305.4 318.9 L300.6 325.4 L296.1 332.1 L291.7 339.0 L287.5 346.1 L283.4 353.4 L279.6 360.9 L276.0 368.5 L272.6 376.3 L269.3 384.3 L266.3 392.5 L263.6 400.9 L261.0 409.4 L258.7 418.1 L256.5 427.0 L254.7 436.1 L253.1 445.1 L251.7 453.5 L250.6 461.8 L249.6 470.0 L248.9 478.1 L248.3 486.2 L247.8 494.2 L247.6 502.1 L247.5 509.9 L247.6 517.6 L247.8 525.3 L248.2 532.8 L248.8 540.3 L249.6 547.7 L250.5 555.0 L251.5 562.2 L252.7 569.3 L254.1 576.4 L255.6 583.3 L257.3 590.1 L259.1 596.9 L261.1 603.5 L263.2 610.0 L265.4 616.5 L267.8 622.8 L270.3 629.0 L272.9 635.2 L275.7 641.2 L278.5 647.1 L281.5 652.9 L284.7 658.6 L287.9 664.2 L291.3 669.7 L294.7 675.1 L298.3 680.3 L302.0 685.5 L305.8 690.5 L309.7 695.4 L313.6 700.2 L317.7 704.9 L321.9 709.5 L326.1 714.0 L330.4 718.3 L334.8 722.5 L339.3 726.6 L343.9 730.6 L348.5 734.5 L353.3 738.2 L358.0 741.8 L362.9 745.4 L367.8 748.7 L372.8 752.0 L377.8 755.2 L382.9 758.2 L388.0 761.1 L393.2 763.9 L398.4 766.5 L403.7 769.1 L409.0 771.5 L414.4 773.8 L419.8 776.0 L425.2 778.0 L430.6 780.0 L436.1 781.8 L441.6 783.4 L447.2 785.0 L452.8 786.4 L458.3 787.7 L464.0 788.9 L469.6 790.0 L475.2 790.9 L480.9 791.7 L486.5 792.4 L492.2 792.9 L497.8 793.4 L503.5 793.6 L509.2 793.8 L514.8 793.8 L520.5 793.7 L526.1 793.5 L531.7 793.2 L536.9 792.7 L542.0 792.3 L547.0 791.8 L552.1 791.2 L557.1 790.7 L562.2 790.1 L567.2 789.4 L572.2 788.7 L577.1 788.0 L582.1 787.2 L587.0 786.4 L592.0 785.6 L596.9 784.7 L601.7 783.7 L606.6 782.8 L611.4 781.8 L616.2 780.7 L621.0 779.6 L625.7 778.5 L630.4 777.3 L635.1 776.1 L639.7 774.9 L644.4 773.6 L649.0 772.3 L653.5 770.9 L658.0 769.5 L662.5 768.0 L666.9 766.6 L671.3 765.0 L675.7 763.4 L680.0 761.8 L684.3 760.2 L688.6 758.5 L692.8 756.7 L696.9 754.9 L701.0 753.1 L705.1 751.2 L709.1 749.3 L713.1 747.4 L717.0 745.3 L720.8 743.3 L724.7 741.2 L728.4 739.0 L732.1 736.9 L735.8 734.6 L739.4 732.3 L742.9 730.0 L746.4 727.6 L749.8 725.2 L753.2 722.7 L756.5 720.2 L759.7 717.6 L762.8 714.9 L765.9 712.2 L769.0 709.5 L771.9 706.7 L774.8 703.8 L777.6 700.9 L780.3 698.0 L783.0 695.0 L785.5 691.9 L788.0 688.7 L790.4 685.6 L792.7 682.3 L794.9 679.0 L797.1 675.7 L799.1 672.2 L801.0 668.8 L802.9 665.2 L804.6 661.7 L806.2 658.0 L807.7 654.4 L809.1 650.6 L810.4 646.8 L811.6 643.0 L812.6 639.1 L813.5 635.2 L814.4 631.3 L815.0 627.3 L815.6 623.0 L816.0 618.8 L816.2 614.7 L816.2 610.8 L816.1 606.8 L815.8 603.0 L815.3 599.1 L814.7 595.4 L813.9 591.7 L812.9 588.1 L811.8 584.6 L810.6 581.1 L809.2 577.8 L807.6 574.5 L806.0 571.3 L804.2 568.3 L802.3 565.3 L800.3 562.4 L798.1 559.7 L795.9 557.1 L793.6 554.5 L791.1 552.1 L788.7 549.8 L786.1 547.6 L783.4 545.6 L780.7 543.6 L777.9 541.8 L775.1 540.0 L772.2 538.4 L769.3 536.9 L766.3 535.5 L763.3 534.2 L760.2 533.0 L757.1 531.9 L754.0 530.9 L750.9 530.0 L747.7 529.2 L744.5 528.5 L741.3 527.9 L738.1 527.4 L734.8 527.0 L731.6 526.7 L728.3 526.5 L725.0 526.5 L721.7 526.5 L718.5 526.6 L715.2 526.8 L711.9 527.1 L708.6 527.5 L705.4 528.1 L702.1 528.7 L698.9 529.4 L695.7 530.3 L692.5 531.2 L689.3 532.3 L686.2 533.4 L683.1 534.7 L680.0 536.1 L677.0 537.6 L674.0 539.2 L671.1 541.0 L668.2 542.8 L665.4 544.8 L662.6 546.9 L659.9 549.1 L657.3 551.4 L654.8 553.8 L652.3 556.4 L649.9 559.0 L647.7 561.8 L645.5 564.7 L643.4 567.7 L641.4 570.8 L639.6 574.0 L637.9 577.4 L636.2 580.8 L634.8 584.3 L633.4 587.9 L632.2 591.6 L631.1 595.4 L630.2 599.2 L629.4 602.7 L628.8 606.1 L628.3 609.5 L627.9 612.9 L627.6 616.3 L627.4 619.6 L627.3 623.0 L627.2 626.3 L627.3 629.6 L627.5 632.9 L627.7 636.1 L628.1 639.4 L628.5 642.6 L629.0 645.8 L629.6 649.0 L630.3 652.1 L631.1 655.2 L631.9 658.3 L632.9 661.4 L633.9 664.4 L635.0 667.4 L636.1 670.3 L637.4 673.2 L638.7 676.1 L640.0 679.0 L641.5 681.8 L643.0 684.6 L644.5 687.3 L646.2 690.0 L647.8 692.7 L649.6 695.3 L651.4 697.9 L653.3 700.5 L655.2 703.0 L657.1 705.5 L659.2 708.0 L661.2 710.4 L663.4 712.8 L665.5 715.1 L667.7 717.4 L670.0 719.7 L672.3 721.9 L674.7 724.1 L677.1 726.2 L679.5 728.3 L682.0 730.4 L684.5 732.4 L687.0 734.4 L689.6 736.4 L692.2 738.3 L694.9 740.2 L697.6 742.0 L700.3 743.8 L703.1 745.6 L705.8 747.3 L708.7 749.0 L711.5 750.6 L714.4 752.2 L717.3 753.8 L720.2 755.3 L723.1 756.7 L726.1 758.2 L729.1 759.6 L732.1 760.9 L735.2 762.2 L738.2 763.5 L741.3 764.7 L744.4 765.9 L747.5 767.0 L750.7 768.1 L753.8 769.1 L757.0 770.1 L760.1 771.1 L763.3 772.0 L766.5 772.9 L769.8 773.7 L773.0 774.5 L776.2 775.2 L779.5 775.9 L782.5 776.4 L784.0 776.8 L785.7 777.1 L787.2 777.4 L788.8 777.8 L790.4 778.2 L792.0 778.5 L793.5 778.9 L795.0 779.3 L796.6 779.7 L798.1 780.1 L799.6 780.5 L801.1 780.9 L802.5 781.4 L804.0 781.8 L805.4 782.3 L806.9 782.7 L808.3 783.2 L809.7 783.6 L811.1 784.1 L812.5 784.6 L813.9 785.1 L815.3 785.6 L816.6 786.1 L818.0 786.6 L819.3 787.2 L820.6 787.7 L821.9 788.2 L823.2 788.8 L824.5 789.3 L825.8 789.9 L827.0 790.5 L828.3 791.0 L829.5 791.6 L830.7 792.2 L831.9 792.8 L833.1 793.4 L834.3 794.0 L835.5 794.7 L836.6 795.3 L837.8 795.9 L838.9 796.6 L840.0 797.2 L841.2 797.9 L842.3 798.5 L843.3 799.2 L844.4 799.9 L845.5 800.6 L846.5 801.3 L847.6 802.0 L848.6 802.7 L849.6 803.4 L850.6 804.1 L851.6 804.8 L852.6 805.5 L853.5 806.3 L854.5 807.0 L855.4 807.8 L856.4 808.5 L857.3 809.3 L858.2 810.0 L859.1 810.8 L860.0 811.6 L860.8 812.4 L861.7 813.2 L862.5 814.0 L863.4 814.8 L864.2 815.6 L865.0 816.4 L865.8 817.2 L866.6 818.1 L867.3 818.9 L868.1 819.7 L868.9 820.6 L869.6 821.5 L870.3 822.3 L871.0 823.2 L871.7 824.1 L872.4 824.9 L873.1 825.8 L873.8 826.8 L898.2 809.2 L897.4 808.1 L896.5 806.9 L895.6 805.7 L894.7 804.5 L893.8 803.4 L892.9 802.2 L892.0 801.1 L891.1 799.9 L890.1 798.8 L889.1 797.7 L888.1 796.6 L887.1 795.5 L886.1 794.4 L885.1 793.3 L884.0 792.2 L883.0 791.2 L881.9 790.1 L880.8 789.1 L879.7 788.0 L878.6 787.0 L877.5 786.0 L876.4 785.0 L875.2 784.0 L874.1 783.0 L872.9 782.0 L871.7 781.1 L870.5 780.1 L869.3 779.2 L868.0 778.2 L866.8 777.3 L865.6 776.4 L864.3 775.5 L863.0 774.6 L861.7 773.7 L860.4 772.8 L859.1 771.9 L857.8 771.1 L856.4 770.2 L855.1 769.4 L853.7 768.6 L852.3 767.8 L850.9 766.9 L849.5 766.1 L848.1 765.4 L846.7 764.6 L845.3 763.8 L843.8 763.0 L842.4 762.3 L840.9 761.6 L839.4 760.8 L837.9 760.1 L836.4 759.4 L834.9 758.7 L833.3 758.0 L831.8 757.3 L830.2 756.7 L828.7 756.0 L827.1 755.3 L825.5 754.7 L823.9 754.1 L822.3 753.5 L820.7 752.8 L819.0 752.2 L817.4 751.7 L815.7 751.1 L814.1 750.5 L812.4 749.9 L810.7 749.4 L809.0 748.9 L807.3 748.3 L805.6 747.8 L803.8 747.3 L802.1 746.8 L800.3 746.3 L798.6 745.8 L796.8 745.4 L795.0 744.9 L793.2 744.4 L791.4 744.0 L789.5 743.6 L786.6 742.9 L783.8 742.2 L781.1 741.5 L778.4 740.8 L775.6 740.0 L772.9 739.2 L770.2 738.3 L767.6 737.4 L764.9 736.5 L762.2 735.5 L759.6 734.5 L757.0 733.5 L754.4 732.4 L751.8 731.3 L749.2 730.1 L746.7 728.9 L744.2 727.7 L741.7 726.5 L739.2 725.2 L736.7 723.9 L734.3 722.5 L731.9 721.1 L729.6 719.7 L727.2 718.3 L724.9 716.8 L722.7 715.3 L720.4 713.8 L718.2 712.2 L716.0 710.6 L713.9 709.0 L711.8 707.4 L709.7 705.7 L707.7 704.0 L705.7 702.3 L703.8 700.6 L701.9 698.8 L700.1 697.1 L698.2 695.3 L696.5 693.4 L694.8 691.6 L693.1 689.8 L691.5 687.9 L689.9 686.0 L688.3 684.1 L686.9 682.2 L685.4 680.2 L684.0 678.3 L682.7 676.3 L681.4 674.4 L680.2 672.4 L679.0 670.4 L677.9 668.4 L676.9 666.4 L675.8 664.3 L674.9 662.3 L674.0 660.3 L673.1 658.2 L672.3 656.1 L671.6 654.1 L670.9 652.0 L670.3 649.9 L669.7 647.8 L669.2 645.7 L668.8 643.6 L668.4 641.5 L668.1 639.4 L667.8 637.3 L667.6 635.2 L667.4 633.0 L667.3 630.9 L667.3 628.7 L667.3 626.5 L667.4 624.3 L667.6 622.2 L667.8 619.9 L668.1 617.7 L668.4 615.5 L668.8 613.2 L669.3 611.0 L669.8 608.8 L670.5 606.4 L671.2 604.2 L672.0 602.0 L672.9 600.0 L673.8 598.1 L674.7 596.2 L675.7 594.4 L676.8 592.7 L677.9 591.1 L679.0 589.5 L680.2 588.1 L681.5 586.6 L682.8 585.3 L684.1 584.0 L685.5 582.8 L686.9 581.6 L688.4 580.5 L689.9 579.5 L691.4 578.5 L693.0 577.5 L694.6 576.6 L696.2 575.8 L697.9 575.1 L699.7 574.3 L701.4 573.7 L703.2 573.1 L705.0 572.6 L706.8 572.1 L708.7 571.7 L710.6 571.3 L712.5 571.0 L714.4 570.8 L716.3 570.6 L718.2 570.5 L720.1 570.4 L722.0 570.4 L724.0 570.5 L725.9 570.6 L727.8 570.8 L729.7 571.0 L731.6 571.3 L733.4 571.6 L735.2 572.0 L737.1 572.5 L738.8 573.0 L740.6 573.6 L742.3 574.2 L744.0 574.8 L745.6 575.5 L747.2 576.3 L748.7 577.1 L750.2 577.9 L751.6 578.8 L753.0 579.7 L754.3 580.7 L755.6 581.7 L756.8 582.7 L758.0 583.8 L759.1 584.8 L760.1 586.0 L761.1 587.1 L762.0 588.3 L762.9 589.5 L763.7 590.7 L764.5 592.0 L765.1 593.3 L765.8 594.7 L766.4 596.0 L766.9 597.5 L767.4 598.9 L767.8 600.5 L768.1 602.0 L768.4 603.7 L768.6 605.4 L768.8 607.2 L768.9 609.0 L768.9 610.9 L768.8 612.9 L768.6 615.0 L768.4 617.0 L768.0 619.3 L767.4 621.8 L766.8 624.2 L766.2 626.7 L765.4 629.1 L764.6 631.4 L763.8 633.7 L762.8 636.0 L761.8 638.3 L760.7 640.6 L759.5 642.8 L758.3 645.0 L756.9 647.2 L755.5 649.4 L754.1 651.5 L752.5 653.7 L750.9 655.8 L749.2 657.9 L747.4 660.0 L745.6 662.0 L743.7 664.1 L741.7 666.1 L739.6 668.1 L737.5 670.1 L735.2 672.1 L732.9 674.0 L730.6 675.9 L728.1 677.8 L725.6 679.7 L723.0 681.6 L720.4 683.4 L717.7 685.2 L714.9 687.0 L712.0 688.7 L709.1 690.4 L706.1 692.1 L703.1 693.8 L699.9 695.5 L696.8 697.1 L693.5 698.7 L690.2 700.2 L686.9 701.7 L683.4 703.2 L680.0 704.7 L676.4 706.1 L672.9 707.5 L669.2 708.9 L665.5 710.2 L661.8 711.5 L658.0 712.8 L654.2 714.0 L650.3 715.2 L646.4 716.4 L642.4 717.6 L638.4 718.7 L634.4 719.7 L630.3 720.8 L626.1 721.8 L622.0 722.7 L617.8 723.7 L613.5 724.6 L609.3 725.4 L605.0 726.2 L600.6 727.0 L596.3 727.8 L591.9 728.5 L587.5 729.2 L583.0 729.8 L578.6 730.5 L574.1 731.0 L569.6 731.6 L565.0 732.1 L560.5 732.6 L555.9 733.0 L551.3 733.4 L546.7 733.8 L542.1 734.1 L537.5 734.4 L532.9 734.6 L528.3 734.8 L524.0 735.0 L519.7 735.0 L515.4 734.9 L511.1 734.7 L506.8 734.5 L502.5 734.1 L498.2 733.6 L493.9 733.0 L489.5 732.4 L485.3 731.6 L481.0 730.7 L476.7 729.8 L472.4 728.7 L468.2 727.6 L464.0 726.3 L459.8 725.0 L455.6 723.5 L451.4 722.0 L447.3 720.4 L443.2 718.6 L439.1 716.8 L435.1 714.9 L431.1 712.9 L427.1 710.8 L423.2 708.7 L419.3 706.4 L415.5 704.0 L411.7 701.6 L408.0 699.0 L404.3 696.4 L400.6 693.7 L397.1 690.9 L393.5 688.0 L390.1 685.1 L386.7 682.0 L383.3 678.9 L380.1 675.7 L376.9 672.4 L373.7 669.0 L370.6 665.5 L367.6 661.9 L364.7 658.3 L361.9 654.6 L359.1 650.8 L356.4 646.9 L353.8 643.0 L351.3 638.9 L348.8 634.8 L346.5 630.6 L344.2 626.3 L342.0 622.0 L339.9 617.5 L337.9 613.0 L336.0 608.4 L334.2 603.7 L332.5 598.9 L330.9 594.1 L329.4 589.1 L328.0 584.1 L326.7 579.0 L325.5 573.8 L324.4 568.6 L323.5 563.2 L322.6 557.8 L321.9 552.2 L321.3 546.6 L320.8 540.9 L320.5 535.2 L320.2 529.3 L320.1 523.3 L320.2 517.3 L320.4 511.1 L320.7 504.9 L321.1 498.6 L321.7 492.2 L322.5 485.7 L323.3 479.1 L324.4 472.5 L325.6 465.7 L326.9 458.9 L328.5 451.6 L330.3 444.7 L332.1 438.1 L334.2 431.6 L336.3 425.3 L338.6 419.2 L341.1 413.3 L343.7 407.6 L346.4 402.1 L349.2 396.7 L352.1 391.5 L355.2 386.5 L358.3 381.6 L361.6 376.9 L365.0 372.4 L368.5 368.0 L372.1 363.8 L375.8 359.7 L379.5 355.8 L383.4 352.0 L387.4 348.3 L391.4 344.8 L395.5 341.4 L399.7 338.1 L404.0 335.0 L408.4 332.0 L412.9 329.1 L417.4 326.4 L422.0 323.8 L426.6 321.3 L431.4 318.9 L436.2 316.7 L441.0 314.6 L445.9 312.6 L450.8 310.7 L455.8 309.0 L460.9 307.4 L466.0 305.9 L471.1 304.5 L476.2 303.2 L481.4 302.1 L486.6 301.1 L491.8 300.2 L497.0 299.4 L502.3 298.7 L507.5 298.2 L512.7 297.7 L518.0 297.4 L523.2 297.2 L528.4 297.1 L533.6 297.1 L538.7 297.3 L543.9 297.5 L549.0 297.9 L554.0 298.3 L559.0 298.9 L564.0 299.6 L568.8 300.3 L573.7 301.2 L578.4 302.2 L583.1 303.2 L587.7 304.4 L592.3 305.6 L596.7 307.0 L601.0 308.4 L605.3 309.9 L609.4 311.5 L613.4 313.2 L617.3 314.9 L621.1 316.7 L624.7 318.6 L628.3 320.5 L631.6 322.5 L634.9 324.5 L638.0 326.6 L640.9 328.7 L643.7 330.9 L646.3 333.1 L648.8 335.3 L651.7 338.1Z"/><circle cx="684.0" cy="300.0" r="50.0"/><circle cx="886.0" cy="818.0" r="15.0"/><circle cx="938" cy="896" r="30"/></g></symbol>
+</defs></svg>
 
-<header class="top">
+<header>
   <div class="wrap">
     <a class="brand" href="#"><svg aria-hidden="true"><use href="#glyph" fill="url(#lg)"/></svg>casm</a>
-    <nav class="links">
-      <a href="#stays">Self-hosting</a>
-      <a href="#how">How it works</a>
+    <nav>
+      <a href="#architecture">Architecture</a>
       <a href="#primitives">Primitives</a>
-      <a href="#features">Features</a>
-      <a href="#leaves">What leaves</a>
-      <a href="#faq">FAQ</a>
+      <a href="#scope">Scope</a>
+      <a href="#traffic">Traffic</a>
+      <a href="#docs">Docs</a>
+      <a href="https://github.com/michaloo/casm">GitHub</a>
     </nav>
-    <a class="btn" href="https://github.com/michaloo/casm">GitHub</a>
   </div>
 </header>
 
 <main>
-<section class="hero">
+<section class="intro">
   <div class="wrap">
-    <div>
-      <div class="eyebrow">Self-hosted agent orchestrator</div>
-      <h1>Your agents.<br>Your machines.<br><span class="grad">Your network.</span></h1>
-      <p class="lede">casm runs Claude Code, Codex, OpenCode and pi on the computers you already own, and lets you drive them from your phone, your laptop or a script. One small server per machine. No casm cloud, no account, no relay. And no workflow of its own: casm gives you primitives to compose, not a process to follow.</p>
-      <div class="chips">
-        <span class="chip"><b>Node + SQLite</b> in ~/.casm-ng</span>
-        <span class="chip"><b>no</b> telemetry</span>
-        <span class="chip"><b>any</b> private network</span>
-      </div>
-      <div class="install">
-        <div class="bar"><span>install from a checkout</span><span>Linux · macOS</span></div>
-<pre><span class="p">$ </span>git clone https://github.com/michaloo/casm.git &amp;&amp; cd casm
-<span class="p">$ </span>npm ci &amp;&amp; npm run build
-<span class="p">$ </span>scripts/install.sh --skip-deps
-<span class="p">$ </span>casm serve           <span class="c"># 127.0.0.1:7373, state in ~/.casm-ng</span></pre>
-      </div>
-      <p class="req">Needs Node.js 24+ and a provider CLI you're already logged in to.</p>
-      <div class="cta">
-        <a class="btn primary" href="https://github.com/michaloo/casm/blob/main/docs/getting-started.md">Get started</a>
-        <a class="btn" href="https://github.com/michaloo/casm/blob/main/docs/network.md">Plan your network</a>
-      </div>
-    </div>
-
-    <div class="app" role="img" aria-label="The casm web client: two hosts, their agents, and a transcript with a permission request">
-      <div class="side">
-        <div class="host"><i></i>studio</div>
-        <div class="proj">acme-api</div>
-        <div class="ag sel"><span class="dot run"></span>reviewer</div>
-        <div class="ag"><span class="dot wait"></span>migrations</div>
-        <div class="proj">site</div>
-        <div class="ag"><span class="dot idle"></span>copy-edit</div>
-        <div class="host"><i></i>worker</div>
-        <div class="proj">acme-api</div>
-        <div class="ag"><span class="dot sub"></span>test-runner</div>
-        <div class="ag"><span class="dot idle"></span>bench</div>
-      </div>
-      <div class="main">
-        <div class="head"><span class="dot run"></span>reviewer <small>claude · studio</small></div>
-        <div class="log">
-          <div class="msg you">Review the orders refactor, then have the worker run the full suite.</div>
-          <div class="tool"><b>Read</b> src/orders.js · <b>Grep</b> "applyDiscount"</div>
-          <div class="msg sys"><b>casm</b> -H worker run --name test-runner "npm test"</div>
-          <div class="ask">
-            <p>Waiting for you · Bash</p>
-            <div class="row"><span class="ok">Allow</span><span>Allow always</span><span>Deny</span></div>
-          </div>
-        </div>
-        <div class="composer"><span>Message reviewer…</span><span class="k"><span>Steer</span><span class="go">Queue</span></span></div>
-      </div>
-    </div>
+    <h1>casm is a self-hosted orchestrator for Claude Code, Codex, OpenCode and pi.</h1>
+    <p class="lede">One server per machine runs the agents. You and the agents themselves drive them through a CLI, a web client and a WebSocket protocol. casm provides primitives and leaves the workflow to you.</p>
+<pre>git clone https://github.com/michaloo/casm.git &amp;&amp; cd casm
+npm ci &amp;&amp; npm run build
+scripts/install.sh --skip-deps
+casm serve                 <span class="c"># 127.0.0.1:7373, state in ~/.casm-ng</span></pre>
+    <p class="req">Linux or macOS, Node.js 24+, and at least one provider CLI installed and logged in. <a href="https://github.com/michaloo/casm/blob/main/docs/getting-started.md">Getting started</a></p>
   </div>
 </section>
 
-<section id="promises">
+<section id="architecture">
   <div class="wrap">
-    <div class="eyebrow">The deal</div>
-    <h2>Everything casm does happens on hardware you control.</h2>
-    <div class="promises">
-      <div class="card">
-        <div class="ic t"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
-        <h3>Runs on your machines</h3>
-        <p>A Node server per machine, with its state in a SQLite file under <code>~/.casm-ng</code>. No casm service to sign up for, and nothing that phones home.</p>
-      </div>
-      <div class="card">
-        <div class="ic v"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></div>
-        <h3>Your subscriptions</h3>
-        <p>casm drives the official Claude Code, Codex, OpenCode and pi CLIs and SDKs you already use. Your login, your plan, no API middleman.</p>
-      </div>
-      <div class="card">
-        <div class="ic t"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 11l10-5M7 13l10 5"/></svg></div>
-        <h3>Your network</h3>
-        <p>Tailscale, Headscale, WireGuard, a LAN or a Cloudflare tunnel. casm only needs one reachable port and a token per device.</p>
-      </div>
-      <div class="card">
-        <div class="ic c"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
-        <h3>Your devices</h3>
-        <p>A web app you install on iPhone, Mac or desktop, served by your own server. Recent chats stay readable offline; notifications use standard Web Push.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="stays">
-  <div class="wrap">
-    <div class="eyebrow">What stays on your machine</div>
-    <h2>Inside the line is yours. Two kinds of traffic cross it.</h2>
-    <p class="lede">Each server owns its projects, agents, queues, schedules and tokens. Your phone talks to one server; servers talk to their peers. Only model calls and push notifications go out.</p>
-
-    <div class="diagram">
-      <svg class="diagram-wide" viewBox="0 0 1060 470" role="img" aria-label="Diagram: a phone and laptop connect with a token to the studio server, which forwards to the worker server as a peer. All inside your private network. Outside: provider APIs and browser push services.">
-        <rect style="fill:var(--accent-soft);stroke:var(--accent)" x="10" y="14" width="1040" height="300" rx="22" stroke-width="1.5" stroke-dasharray="7 6"/>
-        <text style="fill:var(--accent)" x="34" y="46" font-size="13" font-weight="700" class="mono" letter-spacing="1">YOUR PRIVATE NETWORK · overlay VPN, tunnel or LAN</text>
-
-        <!-- devices -->
-        <g>
-          <rect style="fill:var(--surface);stroke:var(--line)" x="40" y="86" width="210" height="190" rx="16"/>
-          <text style="fill:var(--text)" x="60" y="116" font-size="15" font-weight="700">Phone · laptop</text>
-          <text style="fill:var(--muted)" x="60" y="138" font-size="12.5">web app / PWA, CLI</text>
-          <rect style="fill:var(--code);stroke:var(--line)" x="60" y="156" width="170" height="30" rx="8"/>
-          <text style="fill:var(--muted)" x="72" y="176" font-size="12" class="mono">offline copy</text>
-          <rect style="fill:var(--code);stroke:var(--line)" x="60" y="196" width="170" height="30" rx="8"/>
-          <text style="fill:var(--muted)" x="72" y="216" font-size="12" class="mono">its own token</text>
-          <text style="fill:var(--faint)" x="60" y="254" font-size="12">talks to one server</text>
-        </g>
-        <!-- studio -->
-        <g>
-          <rect style="fill:var(--surface);stroke:var(--accent)" x="380" y="70" width="290" height="222" rx="16" stroke-width="1.5"/>
-          <text style="fill:var(--text)" x="400" y="102" font-size="15" font-weight="700">studio</text>
-          <text style="fill:var(--faint)" x="470" y="102" font-size="12.5" class="mono">casm serve :7373</text>
-          <rect style="fill:var(--code);stroke:var(--line)" x="400" y="118" width="250" height="30" rx="8"/>
-          <text style="fill:var(--muted)" x="412" y="138" font-size="12" class="mono">~/.casm-ng · SQLite, tokens</text>
-          <rect style="fill:var(--agent-soft);stroke:var(--agent-bright)" x="400" y="158" width="120" height="30" rx="8" stroke-opacity=".5"/>
-          <text style="fill:var(--agent)" x="413" y="178" font-size="12" class="mono">Claude Code</text>
-          <rect style="fill:var(--agent-soft);stroke:var(--agent-bright)" x="530" y="158" width="120" height="30" rx="8" stroke-opacity=".5"/>
-          <text style="fill:var(--agent)" x="565" y="178" font-size="12" class="mono">Codex</text>
-          <rect style="fill:var(--code);stroke:var(--line)" x="400" y="198" width="250" height="30" rx="8"/>
-          <text style="fill:var(--muted)" x="412" y="218" font-size="12" class="mono">queues · schedules · projects</text>
-          <text style="fill:var(--faint)" x="400" y="266" font-size="12">your files, your user, your shell</text>
-        </g>
-        <!-- worker -->
-        <g>
-          <rect style="fill:var(--surface);stroke:var(--line)" x="800" y="86" width="220" height="190" rx="16"/>
-          <text style="fill:var(--text)" x="820" y="116" font-size="15" font-weight="700">worker</text>
-          <text style="fill:var(--faint)" x="890" y="116" font-size="12.5" class="mono">:7373</text>
-          <rect style="fill:var(--code);stroke:var(--line)" x="820" y="134" width="180" height="30" rx="8"/>
-          <text style="fill:var(--muted)" x="832" y="154" font-size="12" class="mono">its own ~/.casm-ng</text>
-          <rect style="fill:var(--agent-soft);stroke:var(--agent-bright)" x="820" y="174" width="85" height="30" rx="8" stroke-opacity=".5"/>
-          <text style="fill:var(--agent)" x="832" y="194" font-size="12" class="mono">OpenCode</text>
-          <rect style="fill:var(--agent-soft);stroke:var(--agent-bright)" x="915" y="174" width="85" height="30" rx="8" stroke-opacity=".5"/>
-          <text style="fill:var(--agent)" x="947" y="194" font-size="12" class="mono">pi</text>
-          <text style="fill:var(--faint)" x="820" y="254" font-size="12">no files or sessions copied</text>
-        </g>
-        <!-- links -->
-        <line style="stroke:var(--accent)" x1="252" y1="181" x2="374" y2="181" stroke-width="2" marker-end="url(#ar)"/>
-        <text style="fill:var(--accent)" x="270" y="170" font-size="12" class="mono">wss + token</text>
-        <line style="stroke:var(--accent)" x1="672" y1="181" x2="794" y2="181" stroke-width="2" marker-end="url(#ar)"/>
-        <text style="fill:var(--accent)" x="690" y="170" font-size="12" class="mono">peer token</text>
-        <text style="fill:var(--faint)" x="690" y="200" font-size="12" class="mono">casm -H worker</text>
-
-        <!-- outside -->
-        <line style="stroke:var(--attention)" x1="525" y1="294" x2="525" y2="372" stroke-width="2" marker-end="url(#ao)"/>
-        <line style="stroke:var(--attention)" x1="910" y1="278" x2="910" y2="372" stroke-width="2" marker-end="url(#ao)"/>
-        <line style="stroke:var(--attention)" x1="380" y1="270" x2="230" y2="372" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#ao)"/>
-        <rect style="fill:var(--attention-soft);stroke:var(--attention)" x="120" y="378" width="300" height="74" rx="14" stroke-opacity=".5"/>
-        <text style="fill:var(--text)" x="140" y="408" font-size="14" font-weight="700">Browser push service</text>
-        <text style="fill:var(--muted)" x="140" y="430" font-size="12">Apple · Google · Mozilla · Microsoft</text>
-        <rect style="fill:var(--attention-soft);stroke:var(--attention)" x="470" y="378" width="550" height="74" rx="14" stroke-opacity=".5"/>
-        <text style="fill:var(--text)" x="490" y="408" font-size="14" font-weight="700">Model provider APIs</text>
-        <text style="fill:var(--muted)" x="490" y="430" font-size="12">Anthropic, OpenAI, … called by the provider CLIs themselves, or none with local models</text>
-      </svg>
-
-      <svg class="diagram-mobile" viewBox="0 0 340 560" role="img" aria-label="Diagram: phone to studio to worker inside your network; push service and provider APIs outside.">
-        <rect style="fill:var(--accent-soft);stroke:var(--accent)" x="4" y="4" width="332" height="390" rx="18" stroke-width="1.5" stroke-dasharray="7 6"/>
-        <text style="fill:var(--accent)" x="20" y="30" font-size="11" font-weight="700" class="mono" letter-spacing="1">YOUR PRIVATE NETWORK</text>
-        <rect style="fill:var(--surface);stroke:var(--line)" x="24" y="48" width="292" height="70" rx="12"/>
-        <text style="fill:var(--text)" x="40" y="76" font-size="15" font-weight="700">Phone · laptop</text>
-        <text style="fill:var(--muted)" x="40" y="98" font-size="12">web app, offline copy, its token</text>
-        <line style="stroke:var(--accent)" x1="170" y1="120" x2="170" y2="158" stroke-width="2" marker-end="url(#ar)"/>
-        <text style="fill:var(--accent)" x="180" y="144" font-size="11" class="mono">wss + token</text>
-        <rect style="fill:var(--surface);stroke:var(--accent)" x="24" y="162" width="292" height="90" rx="12" stroke-width="1.5"/>
-        <text style="fill:var(--text)" x="40" y="190" font-size="15" font-weight="700">studio · casm serve</text>
-        <text style="fill:var(--muted)" x="40" y="212" font-size="12" class="mono">~/.casm-ng · SQLite · tokens</text>
-        <text style="fill:var(--agent)" x="40" y="234" font-size="12" class="mono">Claude Code · Codex</text>
-        <line style="stroke:var(--accent)" x1="170" y1="254" x2="170" y2="292" stroke-width="2" marker-end="url(#ar)"/>
-        <text style="fill:var(--accent)" x="180" y="278" font-size="11" class="mono">peer token</text>
-        <rect style="fill:var(--surface);stroke:var(--line)" x="24" y="296" width="292" height="80" rx="12"/>
-        <text style="fill:var(--text)" x="40" y="324" font-size="15" font-weight="700">worker · casm serve</text>
-        <text style="fill:var(--agent)" x="40" y="348" font-size="12" class="mono">OpenCode · pi</text>
-        <line style="stroke:var(--attention)" x1="170" y1="396" x2="170" y2="430" stroke-width="2" marker-end="url(#ao)"/>
-        <rect style="fill:var(--attention-soft);stroke:var(--attention)" x="4" y="434" width="332" height="56" rx="12" stroke-opacity=".5"/>
-        <text style="fill:var(--text)" x="20" y="458" font-size="13" font-weight="700">Model provider APIs</text>
-        <text style="fill:var(--muted)" x="20" y="478" font-size="11.5">via the provider CLIs, or local models</text>
-        <rect style="fill:var(--attention-soft);stroke:var(--attention)" x="4" y="500" width="332" height="56" rx="12" stroke-opacity=".5"/>
-        <text style="fill:var(--text)" x="20" y="524" font-size="13" font-weight="700">Browser push service</text>
-        <text style="fill:var(--muted)" x="20" y="544" font-size="11.5">encrypted Web Push, only if you enable it</text>
-      </svg>
-
-      <div class="legend">
-        <span><i style="border-color:var(--accent)"></i>stays on your network, every connection carries a token</span>
-        <span><i style="border-color:var(--attention)"></i>leaves your network: outbound HTTPS only</span>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="how">
-  <div class="wrap">
-    <div class="eyebrow">How it works</div>
-    <h2>A server, its peers, and the clients you already carry.</h2>
-    <div class="steps">
-      <div class="step">
-        <h3>Run a server on each machine</h3>
-        <p>It owns that machine's projects and agents, keeps state in SQLite and installs as a systemd user unit or a launchd agent. It listens on loopback until you choose otherwise.</p>
-<pre>casm service install
-casm token create phone</pre>
-      </div>
-      <div class="step">
-        <h3>Connect the machines as peers</h3>
-        <p>A server forwards requests to its peers, one hop. Peering forwards commands; it never copies files or sessions.</p>
-<pre>casm peer add worker ws://worker:7373 '&lt;token&gt;'
-casm -H worker projects</pre>
-      </div>
-      <div class="step">
-        <h3>Drive agents from anywhere you are</h3>
-        <p>Open your server's address and add it to your Home Screen or Dock. Or script it: agents get the same CLI, so they can spawn and steer other agents.</p>
-<pre>casm run --project acme-api --provider claude \
-  --name reviewer "Summarize src/orders.js"</pre>
-      </div>
-    </div>
+    <h2>Architecture</h2>
+    <ul>
+      <li><b>Server.</b> <code>casm serve</code>, one per machine. A Node.js process that owns the machine's projects and agents. State is SQLite in <code>~/.casm-ng</code>; transcripts stay in each provider's own history. Runs as a systemd user unit or a launchd agent.</li>
+      <li><b>Protocol.</b> JSON-RPC 2.0 over one WebSocket port, with a JSON Schema in <code>spec/protocol.json</code>. Every connection carries a named, revocable token.</li>
+      <li><b>Clients.</b> The web client, served by the server and installable as a PWA, and the <code>casm</code> CLI. Agents get the same CLI with their own identity.</li>
+      <li><b>Peers.</b> A server forwards requests to registered peer servers, one hop: <code>casm -H worker run …</code>. Peering forwards commands; it does not copy files or sessions.</li>
+    </ul>
   </div>
 </section>
 
 <section id="primitives">
   <div class="wrap">
-    <div class="eyebrow">Primitives, not opinions</div>
-    <h2>Small pieces that compose. You decide the workflow.</h2>
-    <p class="lede">casm doesn't manage your git branches, pull requests or task board. It gives you, and the agents themselves, a CLI of building blocks for running and coordinating agents. Everything below works from a shell, including an agent's.</p>
-    <div class="prims">
-      <div class="prim"><code>casm project create</code><p><b>Projects.</b> A named folder on a host, with optional group and tags. Agents work in it or in a sub-folder.</p></div>
-      <div class="prim"><code>casm run</code><p><b>Agents.</b> A saved conversation with Claude Code, Codex, OpenCode or pi, with its model, mode and working folder.</p></div>
-      <div class="prim"><code>casm send</code><p><b>Messages.</b> Queue behind a running turn, <code>--steer</code> into it, <code>send-now</code> out of order, or <code>interrupt</code>.</p></div>
-      <div class="prim"><code>casm wait</code><p><b>Wait.</b> Block until an agent's turn ends. Exit codes tell you if it is still busy, limit-deferred or failed.</p></div>
-      <div class="prim"><code>casm schedule</code><p><b>Schedules.</b> Cron, interval or one-time jobs that message an agent or start a new one.</p></div>
-      <div class="prim"><code>casm approve</code><p><b>Permissions.</b> List, approve or deny what an agent asks to run, from the web client or any shell.</p></div>
-      <div class="prim"><code>casm answer</code><p><b>Questions.</b> Answer an agent's question, or dismiss it, from the same places.</p></div>
-      <div class="prim"><code>casm -H worker</code><p><b>Peers.</b> Register another host once, then add <code>-H</code> to any command. One hop, nothing copied.</p></div>
-      <div class="prim"><code>casm notify</code><p><b>Notifications.</b> Push a message to your subscribed devices. From an agent it opens that agent.</p></div>
-      <div class="prim"><code>casm limits</code><p><b>Limits and usage.</b> Subscription windows per provider, and context and cost per agent.</p></div>
-      <div class="prim"><code>casm cat / get</code><p><b>Files.</b> Read or download files inside project folders. Read-only, never writable.</p></div>
-      <div class="prim"><code>casm shell</code><p><b>Shell.</b> Run a command in an agent's directory, as the agent's host user.</p></div>
-    </div>
-    <div class="compose">
-      <div class="box">
-        <h3>What casm deliberately doesn't do</h3>
-        <ul>
-          <li>Create folders, git worktrees or branches. Agents can use plain git; casm only lets an agent's working folder be a project sub-folder.</li>
-          <li>Run pull requests, task boards or any fixed workflow.</li>
-          <li>Sandbox agents. They run with their host user's permissions and their provider's permission settings.</li>
-          <li>Sync sessions or files between machines.</li>
-          <li>Run a relay or a cloud account.</li>
-        </ul>
-      </div>
-      <div class="box">
-        <h3>Compose them yourself</h3>
-        <p>An agent that wants a second opinion, using only git and casm:</p>
-<pre>git worktree add .worktrees/fix-orders -b fix-orders
-casm run --project acme-api --provider codex \
-  --cwd .worktrees/fix-orders --name reviewer \
-  "Review this branch against main"
-casm wait reviewer
-casm history reviewer -n 1</pre>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="features">
-  <div class="wrap">
-    <div class="eyebrow">What you get</div>
-    <h2>Built for unattended work on your own hardware.</h2>
-    <div class="grid">
-      <div class="feat"><h3><span class="dot sub"></span>Four providers, one place</h3><p>Claude Code and Codex on your subscriptions; OpenCode and pi with any model they support, including local ones.</p></div>
-      <div class="feat"><h3><span class="dot run"></span>Queue and steer</h3><p>Messages queue in strict FIFO order while an agent works. <b>Steer</b> puts a message into the running turn instead.</p></div>
-      <div class="feat"><h3><span class="dot wait"></span>Limit-aware</h3><p><code>casm limits</code> shows Claude's and Codex's windows. A message that hits a limit waits for the reset and goes then, across restarts.</p></div>
-      <div class="feat"><h3><span class="dot run"></span>Schedules</h3><p>Cron, interval or one-time jobs that message an agent or start a new one. <code>--every 30m</code>, <code>--at "in 2h"</code>.</p></div>
-      <div class="feat"><h3><span class="dot sub"></span>Agents running agents</h3><p>Every agent gets the CLI with its own identity, so it can start, message and wait for others, on this host or a peer.</p></div>
-      <div class="feat"><h3><span class="dot wait"></span>Approvals on your phone</h3><p>Permission requests and questions show up in the web app and the CLI. <code>casm notify</code> sends a push when work is done.</p></div>
-      <div class="feat"><h3><span class="dot idle"></span>Offline reading</h3><p>The sidebar and recent chats are kept on the device and stay readable without a connection. Sending waits for the server.</p></div>
-      <div class="feat"><h3><span class="dot run"></span>Files and previews</h3><p>Open files your agents mention, with line links and rendered HTML, through short-lived signed links with no token in the URL.</p></div>
-      <div class="feat"><h3><span class="dot sub"></span>Open protocol</h3><p>JSON-RPC 2.0 over one WebSocket, with a JSON Schema in <code>spec/protocol.json</code>. Write your own client.</p></div>
-    </div>
-  </div>
-</section>
-
-<section id="recipes">
-  <div class="wrap">
-    <div class="eyebrow">Self-hosting recipes</div>
-    <h2>Bring the network you trust.</h2>
-    <p class="lede">casm has no relay and no TLS of its own, on purpose. Pick a network, then point casm at it. The <a href="https://github.com/michaloo/casm/blob/main/docs/network.md">network guide</a> walks through each option with a checklist.</p>
-    <div class="recipes">
-      <div class="recipe"><span class="tag">easiest</span><h3>Tailscale</h3><p>Every device on one tailnet, works behind CGNAT, the phone app keeps push working.</p><p class="https">HTTPS: <code>tailscale serve</code> in front of loopback.</p></div>
-      <div class="recipe"><span class="tag alt">fully yours</span><h3>Headscale</h3><p>The same Tailscale clients with a control server you run. Needs one public server.</p><p class="https">HTTPS: your domain with DNS-01, or an internal CA.</p></div>
-      <div class="recipe"><span class="tag alt">nothing extra</span><h3>WireGuard</h3><p>A plain tunnel, phones join with a QR config. A public hub if you're behind CGNAT.</p><p class="https">HTTPS: Caddy with DNS-01, or mkcert.</p></div>
-      <div class="recipe"><span class="tag">phone-first</span><h3>Cloudflare Tunnel + Access</h3><p>A public address with a login in front, before any request reaches casm.</p><p class="https">HTTPS: Cloudflare terminates TLS.</p></div>
-    </div>
-    <div class="rule">
-      <svg viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg>
-      <p><b>One rule:</b> never expose port 7373 directly to the internet. A token is all that stands between a request and a shell on your machine, so keep the port on a private network or behind an identity-aware proxy. casm listens on <code>127.0.0.1</code> until you say otherwise.</p>
-    </div>
-  </div>
-</section>
-
-<section id="leaves">
-  <div class="wrap">
-    <div class="eyebrow">What leaves your machine</div>
-    <h2>Self-hosted doesn't mean nothing goes out. Here's exactly what does.</h2>
-    <table class="trust">
-      <thead><tr><th>Data</th><th>Where it lives</th><th>Who else sees it</th></tr></thead>
+    <h2>Primitives</h2>
+    <table>
+      <thead><tr><th>Primitive</th><th>CLI</th><th>What it does</th></tr></thead>
       <tbody>
-        <tr><td>Projects, agents, queues, schedules, tokens</td><td><span class="pill stay">your server</span> SQLite in <code>~/.casm-ng</code></td><td>Nobody. casm has no cloud service and no telemetry.</td></tr>
-        <tr><td>Transcripts and files</td><td><span class="pill stay">your server</span> provider-native history on that machine</td><td>Your devices, over your network. Peers forward requests; they don't copy sessions or files.</td></tr>
-        <tr><td>Prompts and code sent to a model</td><td><span class="pill leave">model provider</span></td><td>Anthropic, OpenAI or whichever provider you configure, through its own CLI and your account. Not casm. With local models in OpenCode or pi, nothing leaves.</td></tr>
-        <tr><td>Notifications</td><td><span class="pill leave">browser push service</span></td><td>Apple, Google, Mozilla or Microsoft relay the message, encrypted so only your device can read it, and signed with VAPID keys your server generated itself. Off until you enable it per device.</td></tr>
-        <tr><td>Who can connect</td><td><span class="pill you">your network</span></td><td>The coordination server of your VPN, if you use a hosted one (Tailscale, Cloudflare). Self-host Headscale or WireGuard to remove it.</td></tr>
+        <tr><td>Projects</td><td><code>casm project create</code></td><td>Registers a folder on a host. Agents run in it or a sub-folder.</td></tr>
+        <tr><td>Agents</td><td><code>casm run</code></td><td>Starts a Claude Code, Codex, OpenCode or pi session with a model, mode and folder.</td></tr>
+        <tr><td>Messages</td><td><code>casm send</code></td><td>Queued FIFO while the agent is busy; <code>--steer</code> goes into the running turn.</td></tr>
+        <tr><td>Wait</td><td><code>casm wait</code></td><td>Blocks until the turn ends. Exit 3 busy, 4 limit-deferred, 5 failed.</td></tr>
+        <tr><td>Schedules</td><td><code>casm schedule add</code></td><td>Cron, interval or one-time; messages an agent or starts one.</td></tr>
+        <tr><td>Permissions, questions</td><td><code>casm approve</code>, <code>casm answer</code></td><td>Answer what an agent asks, from the CLI or the web client.</td></tr>
+        <tr><td>Peers</td><td><code>casm -H &lt;peer&gt;</code></td><td>Runs any command on another host.</td></tr>
+        <tr><td>Limits, usage</td><td><code>casm limits</code>, <code>casm usage</code></td><td>Subscription windows; context and cost. Limited messages wait for the reset.</td></tr>
+        <tr><td>Notifications</td><td><code>casm notify</code></td><td>Web Push to the devices subscribed on the host.</td></tr>
+        <tr><td>Files</td><td><code>casm cat</code>, <code>casm get</code></td><td>Read-only access to files inside project folders.</td></tr>
       </tbody>
     </table>
-    <p class="trust-note">The provider CLIs casm drives are their own programs with their own update checks and telemetry settings; casm doesn't add to them or route around them. The web app's fonts and assets are served by your casm server, not a CDN.</p>
+    <p class="note">Full list: <code>casm --help</code> and the <a href="https://github.com/michaloo/casm/blob/main/docs/cli.md">CLI reference</a>.</p>
   </div>
 </section>
 
-<section id="faq">
+<section id="scope">
   <div class="wrap">
-    <div class="eyebrow">FAQ</div>
-    <h2>Questions people ask first.</h2>
-    <div class="faq">
-      <div>
-        <details open><summary>Do I need an account with casm?</summary><p>No. There's no casm account, cloud or relay. You install the server from the repository and create tokens for your own devices.</p></details>
-        <details><summary>Does it use my Claude or ChatGPT subscription?</summary><p>Yes. casm drives the official Claude Code (through Anthropic's Agent SDK) and Codex CLIs, logged in the way you already use them. It shows their usage windows and waits out limits instead of failing.</p></details>
-        <details><summary>Can I use local models?</summary><p>OpenCode and pi list the models in their own config, including local servers such as llama.cpp. Claude Code can point at an Anthropic-compatible local endpoint per agent.</p></details>
-        <details><summary>Is it safe to reach from my phone?</summary><p>Yes, over a private network: every connection needs a token, the browser sends it inside the connection rather than in a URL, and tokens can be revoked one by one. Don't put port 7373 on the public internet.</p></details>
-      </div>
-      <div>
-        <details><summary>Does casm sandbox my agents?</summary><p>No. Agents run as your user with their provider's own permission settings. casm passes their permission requests and questions to you. pi has no permission system, so its tools run without asking.</p></details>
-        <details><summary>Does it sync files between machines?</summary><p>No. Each server keeps its own projects. Peering forwards commands so you can drive agents on another machine; it doesn't copy files or sessions.</p></details>
-        <details><summary>Do I need HTTPS?</summary><p>Not to use it. The web app, Home Screen install on iPhone and the offline copy all work over plain HTTP on a private network. Notifications, a cold start with no connection and the Chrome/Edge install button need HTTPS with a certificate your device trusts.</p></details>
-        <details><summary>Is there a native app?</summary><p>The installable web app is the main mobile and desktop client. Native macOS and iOS clients are in progress on a separate branch.</p></details>
-      </div>
-    </div>
+    <h2>What casm does not do</h2>
+    <ul>
+      <li>Manage git worktrees, branches, pull requests or task boards. <code>casm run --cwd</code> can point at a worktree you create.</li>
+      <li>Sandbox agents. They run as the host user with their provider's permission settings.</li>
+      <li>Sync sessions or files between machines.</li>
+      <li>Run a relay, a cloud account or TLS. You provide the network.</li>
+    </ul>
   </div>
 </section>
 
-<section class="closing">
+<section id="traffic">
   <div class="wrap">
-    <h2>Run it where your code already lives.</h2>
-    <p class="lede">One server today, more machines when you need them.</p>
-    <div class="cta">
-      <a class="btn primary" href="https://github.com/michaloo/casm/blob/main/docs/getting-started.md">Get started</a>
-      <a class="btn" href="https://github.com/michaloo/casm">View on GitHub</a>
-    </div>
+    <h2>What leaves your machine</h2>
+    <table>
+      <thead><tr><th>Data</th><th>Stored</th><th>Sent to</th></tr></thead>
+      <tbody>
+        <tr><td>Projects, agents, queues, schedules, tokens</td><td>SQLite on the server</td><td>Your clients and peers only. No telemetry.</td></tr>
+        <tr><td>Transcripts, files</td><td>The machine the agent runs on</td><td>Your clients, on request.</td></tr>
+        <tr><td>Prompts and code</td><td>The provider</td><td>The provider's API, through its own CLI. Nothing with local models.</td></tr>
+        <tr><td>Notifications</td><td>None</td><td>The browser's push service (Apple, Google, Mozilla, Microsoft), encrypted. Off until enabled per device.</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The server binds <code>127.0.0.1</code> by default. Use a VPN or an authenticated proxy for other devices; do not expose port 7373 to the internet. See the <a href="https://github.com/michaloo/casm/blob/main/docs/network.md">network guide</a>.</p>
   </div>
 </section>
 </main>
 
-<footer>
+<footer id="docs">
   <div class="wrap">
-    <div>
-      <a class="brand" href="#"><svg aria-hidden="true"><use href="#glyph" fill="url(#lg)"/></svg>casm</a>
-      <p class="tagline">A small, self-hosted orchestrator for Claude Code, Codex, OpenCode and pi.</p>
-    </div>
-    <div class="cols">
-      <div><h4>Docs</h4><ul>
-        <li><a href="https://github.com/michaloo/casm/blob/main/docs/getting-started.md">Getting started</a></li>
-        <li><a href="https://github.com/michaloo/casm/blob/main/docs/concepts.md">Concepts</a></li>
-        <li><a href="https://github.com/michaloo/casm/blob/main/docs/cli.md">CLI reference</a></li>
-        <li><a href="https://github.com/michaloo/casm/blob/main/docs/web-client.md">Web client</a></li>
-      </ul></div>
-      <div><h4>Self-hosting</h4><ul>
-        <li><a href="https://github.com/michaloo/casm/blob/main/docs/network.md">Network guide</a></li>
-        <li><a href="https://github.com/michaloo/casm/blob/main/docs/pwa.md">Web app and offline</a></li>
-        <li><a href="https://github.com/michaloo/casm/blob/main/docs/providers.md">Providers</a></li>
-        <li><a href="https://github.com/michaloo/casm/blob/main/docs/protocol.md">Protocol</a></li>
-      </ul></div>
-      <div><h4>Project</h4><ul>
-        <li><a href="https://github.com/michaloo/casm">GitHub</a></li>
-        <li><a href="https://github.com/michaloo/casm/blob/main/docs/troubleshooting.md">Troubleshooting</a></li>
-      </ul></div>
-    </div>
+    <b>Docs</b>
+    <ul>
+      <li><a href="https://github.com/michaloo/casm/blob/main/docs/getting-started.md">Getting started</a></li>
+      <li><a href="https://github.com/michaloo/casm/blob/main/docs/network.md">Network</a></li>
+      <li><a href="https://github.com/michaloo/casm/blob/main/docs/concepts.md">Concepts</a></li>
+      <li><a href="https://github.com/michaloo/casm/blob/main/docs/cli.md">CLI</a></li>
+      <li><a href="https://github.com/michaloo/casm/blob/main/docs/web-client.md">Web client</a></li>
+      <li><a href="https://github.com/michaloo/casm/blob/main/docs/providers.md">Providers</a></li>
+      <li><a href="https://github.com/michaloo/casm/blob/main/docs/protocol.md">Protocol</a></li>
+      <li><a href="https://github.com/michaloo/casm">GitHub</a></li>
+    </ul>
   </div>
 </footer>
 </body>

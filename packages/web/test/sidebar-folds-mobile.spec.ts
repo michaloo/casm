@@ -75,7 +75,7 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
   // icon · name · + · ⋯ · chevron, on hosts and projects alike; ⌃ while open.
   expect(styles.hostChevron.x).toBeGreaterThan(styles.hostMore.x + styles.hostMore.width);
   expect(styles.projectChevron.x).toBeGreaterThan(styles.projectMore.x + styles.projectMore.width);
-  expect(styles.hostBox.x + styles.hostBox.width - (styles.hostChevron.x + styles.hostChevron.width)).toBeLessThan(12);
+  expect(styles.hostBox.x + styles.hostBox.width - (styles.hostChevron.x + styles.hostChevron.width)).toBeLessThan(width === 375 ? 20 : 12);
   expect(Math.abs(styles.hostChevron.x - styles.projectChevron.x)).toBeLessThan(2);
   expect(styles.hostRotate).toBe("180deg");
   expect(styles.projectRow.x).toBeGreaterThan(styles.hostBox.x);

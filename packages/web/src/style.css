@@ -382,9 +382,15 @@ nav .project-toggle:hover {
   transition: rotate 0.18s var(--ease);
 }
 /* A fold's chevron sits at the far right of its row, after + and ⋯ (inside
-   the fold button, so it folds too): ⌄ when folded, ⌃ when open. */
-nav .host-heading, nav .project-row { position: relative; padding-right: 30px; }
-.fold-mark { position: absolute; top: 0; right: 0; bottom: 0; width: 30px; display: grid; place-items: center; }
+   the fold button, so it folds too): ⌄ when folded, ⌃ when open.
+   The chevron column lines up with the agents' status dots below. */
+nav .host-heading, nav .project-row { position: relative; padding-right: 28px; }
+.fold-mark { position: absolute; top: 0; right: 0; bottom: 0; width: 28px; display: grid; place-items: center; }
+nav .host-heading > .host-collapse .fold-mark { right: 1px; }
+@media (max-width: 650px) {
+  nav .host-heading, nav .project-row { padding-right: 44px; }
+  .fold-mark { width: 44px; }
+}
 [aria-expanded="true"] > .fold-mark > .chevron-glyph { rotate: 180deg; }
 @media (prefers-reduced-motion: reduce) { .chevron-glyph { transition: none; } }
 nav .host-collapse .fold-mark { color: var(--muted); }

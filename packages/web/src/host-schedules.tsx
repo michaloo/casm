@@ -3,6 +3,7 @@ import type { Agent, Project, ProviderId, Schedule, ScheduleTarget } from "@casm
 import type { Rpc } from "./state";
 import { providerNames } from "./provider-icon";
 import { resetLabel } from "./usage-label";
+import { openSchedulesEvent } from "./open-schedules";
 import { agoLabel, cadenceLabel, cronPreview, dateLabel, describeCron, everyLabel, isFinished, localInput, outcomeLabels, parseCadence } from "./schedule-label";
 
 // schedule.changed/removed notifications, by host, for open schedule lists.
@@ -11,10 +12,7 @@ export function schedulesChanged(host: string) {
   for (const listener of listeners) listener(host);
 }
 
-// The launcher opens a host's schedules modal with this window event
-// (see open-schedules.ts); detail.host is "" for this server, else the peer name.
-export const openSchedulesEvent = "casm:open-schedules";
-/** Calls `open` whenever something asks for `host`'s schedules; returns the cleanup. */
+/** Calls `open` whenever openSchedules() asks for `host`'s schedules (the launcher); returns the cleanup. */
 export function onOpenSchedules(host: string, open: () => void) {
   const listener = (e: Event) => { if ((e as CustomEvent<{ host: string }>).detail?.host === host) open(); };
   window.addEventListener(openSchedulesEvent, listener);

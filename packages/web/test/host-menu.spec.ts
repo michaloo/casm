@@ -142,6 +142,7 @@ for (const width of [1440, 375]) test(`host row opens the host modal and edits s
   await panel.getByRole("button", { name: "Close host options" }).click();
   await expect(panel).toBeHidden();
   await expect(trigger).toBeFocused();
+  await expect(page.locator("dialog")).toHaveCount(0);
   // The launcher's "Schedules" action opens the host modal on its Schedules tab.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("casm:open-schedules", { detail: { host: "" } })));
   await expect(panel).toBeVisible();

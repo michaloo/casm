@@ -45,8 +45,8 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
     await expect(header.locator(".activity-spinner")).toHaveCount(0);
     expect(await header.innerText()).not.toContain("Working");
     if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
-    const menu = page.getByRole("button", { name: "Project options for Test project", exact: true });
-    const menuBox = (await menu.boundingBox())!;
+    // Status dots line up under the project's fold chevron, the sidebar's right-hand column.
+    const menuBox = (await page.getByRole("button", { name: "Toggle Test project", exact: true }).locator(".fold-mark").boundingBox())!;
     let height = 0;
     for (let i = 0; i < 8; i++) {
       const agent = row(i);

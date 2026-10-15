@@ -265,8 +265,8 @@ This file defines an in-memory order database with a static array of three order
 ```
 
 `>` marks prompts, `✓`/`…`/`✗` tool calls (done, running, failed), and a
-`from <agent> · <host>` line prompts that another agent or a schedule sent.
-`-n` limits it to the last entries.
+`from <agent> · <host>` line prompts that another agent sent (`from schedule
+<name>` for a schedule). It shows the last 50 entries; `-n` changes that.
 
 ### casm watch
 

@@ -20,11 +20,13 @@ ws://<host>:7373/?token=<token>          for browsers, which can't set headers
 GET /health                              unauthenticated
 ```
 
-Create a token on the server with `casm token create <name>`. `/health` tells
+Create a token on the server with `casm token create <name>`. The server
+listens on `127.0.0.1:7373` by default; another machine needs `listen` in
+`$CASM_HOME/config.json` (or `casm serve --listen`). `/health` tells
 you the server and protocol version before you connect:
 
 ```console
-$ curl -s http://127.0.0.1:7481/health
+$ curl -s http://127.0.0.1:7373/health
 {"id":"78486051-526d-4303-8180-098146be5f3f","name":"studio","version":"0.0.1","protocol":1}
 ```
 
@@ -110,7 +112,7 @@ sends a message and prints the reply as it arrives:
 
 ```js
 // client.mjs: CASM_TOKEN=… node client.mjs
-const ws = new WebSocket(`ws://127.0.0.1:7481/?token=${process.env.CASM_TOKEN}`);
+const ws = new WebSocket(`ws://127.0.0.1:7373/?token=${process.env.CASM_TOKEN}`);
 let nextId = 1;
 const waiting = new Map();
 const call = (method, params = {}, host) =>

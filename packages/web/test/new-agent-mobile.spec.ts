@@ -29,14 +29,8 @@ for (const width of [1440, 375]) test(`new-agent screen welcomes, starts and set
   expect(center).toBeLessThan(height * 0.72);
   expect((await welcome.boundingBox())!.y + 10).toBeLessThan(box.y);
 
-  // Starter chips fill the composer, they never send.
-  const starters = main.getByRole("group", { name: "Starter prompts" });
-  await expect(starters.getByRole("button")).toHaveText(["Explore this project", "Summarize recent changes", "Run the tests"]);
-  await starters.getByRole("button", { name: "Run the tests" }).click();
-  await expect(message).toHaveValue(/^Run this project's tests/);
-  await expect(message).toBeFocused();
-  await expect(page).toHaveURL(/\/new$/);
-  if (width === 375) for (const chip of await main.locator(".start-chip").all()) expect((await chip.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // Calm: no starter chips or recent agents, only the keys.
+  await expect(main.getByRole("group")).toHaveCount(0);
   const keys = main.locator(".start-keys");
   if (width === 1440) {
     await expect(keys).toContainText("Enter send");
@@ -45,7 +39,6 @@ for (const width of [1440, 375]) test(`new-agent screen welcomes, starts and set
   } else await expect(keys).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
 
-  await message.fill("");
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.evaluate(() => document.fonts.ready);
@@ -53,15 +46,6 @@ for (const width of [1440, 375]) test(`new-agent screen welcomes, starts and set
     await page.screenshot({ path: test.info().outputPath(`new-agent-${scheme}-${width}.png`) });
   }
   await page.emulateMedia({ colorScheme: "light" });
-
-  // Recent agents of the project jump straight back in.
-  const recent = main.getByRole("group", { name: "Recent agents in this project" });
-  await expect(recent.getByRole("button")).toHaveCount(3);
-  await recent.getByRole("button").first().click();
-  await expect(page).toHaveURL(/\/a\//);
-  await expect(main.locator(".start-welcome")).toHaveCount(0);
-  await page.goBack();
-  await expect(welcome).toBeVisible();
 
   // Once the conversation starts, the composer settles at the bottom.
   await message.fill("Hello from the start screen");

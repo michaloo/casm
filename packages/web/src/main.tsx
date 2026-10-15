@@ -44,9 +44,9 @@ import { Question } from "./question";
 import { ChatWorking } from "./chat-working";
 import { newMessageId, sendMode, visiblePending } from "./outbox";
 import { PendingRows } from "./pending-strip";
-import { AttachGlyph, ChevronGlyph } from "./row-menu";
+import { AttachGlyph, ChevronGlyph, PlusGlyph } from "./row-menu";
 import { MAX_IMAGES, imageFiles, prepareImage } from "./attach";
-import { NewAgentStarters, NewAgentWelcome } from "./new-agent";
+import { NewAgentKeys, NewAgentWelcome } from "./new-agent";
 import { SignOut } from "./sign-out";
 import "./fonts/fonts.css";
 import "./style.css";
@@ -839,7 +839,7 @@ function App() {
                   const agents = agentHierarchy(h.agents, p.id, h.serverId);
                   return (
                   <div key={p.id} className="project-group">
-                    {/* The whole row folds; new agents start from the project modal or the launcher. */}
+                    {/* The whole row folds; + starts a new agent, ⋯ opens the project modal. */}
                     <div className={`project-row ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}>
                     <button className="project-toggle"
                       aria-label={`Toggle ${p.name}`}
@@ -847,9 +847,14 @@ function App() {
                       disabled={pinned}
                       title={pinned ? "Current agent's project stays visible" : `${expanded ? "Collapse" : "Expand"} ${p.name}`}
                       onClick={() => toggleProject(h.id, p.id)}>
+                      <ChevronGlyph />
                       <span className="project-name">{p.name}</span>
                       {!expanded && agents.length > 0 && <span className="project-count" aria-hidden="true">{agents.length}</span>}
-                      <span className="fold-mark"><ChevronGlyph /></span>
+                    </button>
+                    <button type="button" className="row-more row-add" disabled={!online}
+                      aria-label={`New agent in ${p.name}`} title={online ? "New agent" : offlineNote}
+                      onClick={() => choose({ host: h.id, project: p.id })}>
+                      <PlusGlyph />
                     </button>
                     <ProjectOptions host={h.id} hostName={h.name} project={p}
                       rpc={rpc.current} online={state === "online" || state === "slow"} newAgent={() => choose({ host: h.id, project: p.id })} />
@@ -1175,18 +1180,7 @@ function App() {
                 </button>
               </div>
             </form>
-            {starting && <NewAgentStarters agents={host!.agents.filter((a) => a.projectId === project.id)} mac={mac}
-              open={(a) => choose({ host: selection.host, project: a.projectId, id: a.id })}
-              fill={(prompt) => {
-                c.input = c.input.trim() ? `${c.input.trimEnd()}\n\n${prompt}` : prompt;
-                saveDraft(c);
-                redraw();
-                requestAnimationFrame(() => {
-                  const box = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]');
-                  box?.focus();
-                  box?.setSelectionRange(box.value.length, box.value.length);
-                });
-              }} />}
+            {starting && <NewAgentKeys mac={mac} />}
           </>
         )}
       </main>

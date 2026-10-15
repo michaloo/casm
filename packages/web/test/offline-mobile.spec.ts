@@ -58,7 +58,7 @@ test("offline mobile: losing the server shows the banner and makes the view read
   const agents = page.getByRole("button", { name: "Agents", exact: true });
   if (await agents.isVisible()) await agents.click();
   await expect(page.getByRole("button", { name: "New project on Test host" })).toBeDisabled();
-  await expect(page.locator("nav .project-row").getByText("＋")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "New agent in Test project", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Project options for Test project", exact: true }).click();
   const project = page.getByRole("dialog", { name: "Test project project", exact: true });
   await expect(project.getByRole("button", { name: "New agent", exact: true })).toBeDisabled();

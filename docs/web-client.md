@@ -81,11 +81,13 @@ other agents created are nested under their parent, also across hosts.
 - **Project options** (⋯ next to a project) opens the project's window:
   AGENTS.md and Memories, with the path (Copy), host and group under the
   title and **New agent** in its header.
-- A project row folds or unfolds when clicked anywhere; ⋯ always means options.
+- **+** next to a project starts a new agent in it.
+- A project row folds or unfolds when clicked anywhere (› folded, ⌄ open); a
+  host's chevron sits at the end of its header (‹ folded, ⌄ open). ⋯ always
+  means options.
 
 A new agent opens on a welcome screen: the project, its path and host, the
-composer near the middle, starter prompts that fill the composer, the
-project's recent agents to jump back into, and the keyboard shortcuts.
+composer near the middle, and the keyboard shortcuts.
 
 On a phone the sidebar is behind the **Agents** button.
 

@@ -281,7 +281,7 @@ Image data isn't saved and very long tool output is cut short. It lives in the
 browser's IndexedDB, which also works on a plain-HTTP address. Starting the app
 or coming back to it shows the saved copy for the last address at once, then
 replaces it with the server's version (the same items are never shown twice).
-Changing the token (**Token** in the sidebar) or connecting with a different
+Signing out (**Sign out** in the sidebar, after a confirmation) or connecting with a different
 token deletes the copy.
 
 **What works while disconnected.** Reading: the sidebar and the saved chats.

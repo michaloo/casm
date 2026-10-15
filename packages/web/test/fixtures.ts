@@ -52,3 +52,9 @@ export const test = base.extend<{ server: void }>({
   ],
 });
 export { expect };
+
+/** Opens a project's new-agent screen the way people do: its ⋯ modal's New agent. */
+export async function openNewAgent(page: import("@playwright/test").Page, project = "Test project") {
+  await page.getByRole("button", { name: `Project options for ${project}`, exact: true }).click();
+  await page.getByRole("dialog", { name: `${project} project` }).getByRole("button", { name: "New agent", exact: true }).click();
+}

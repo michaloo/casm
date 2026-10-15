@@ -28,10 +28,10 @@ function ProjectSettings({ host, project, agentCount, rpc, online, close, newAge
 }) {
   const [section, setSection] = useState<Section>("instructions");
   return <SettingsDialog label={`${project.name} project`} title={<>{project.name} <span className="settings-kind">project</span></>} closeLabel="Close project options"
-    sections={[["instructions", "AGENTS.md"], ["memories", "Memories"], ["info", "Info"]] as const} section={section} setSection={setSection} close={close}>
+    sections={[["instructions", "AGENTS.md"], ["memories", "Memories"], ["info", "Info"]] as const} section={section} setSection={setSection} close={close}
+    actions={<button type="button" className="primary" disabled={!online} title={online ? "Start a new agent in this project" : offlineNote} onClick={newAgent}>New agent</button>}>
     <section hidden={section !== "info"} aria-label="Project info">
       <h3>Info</h3><dl className="project-info"><dt>Path</dt><dd><code className="settings-path">{project.path}</code></dd><dt>Group</dt><dd>{project.group || "No group"}</dd><dt>Agents</dt><dd>{agentCount}</dd></dl>
-      <button type="button" className="primary" disabled={!online} title={online ? undefined : offlineNote} onClick={newAgent}>New agent here</button>
     </section>
     {!online || !rpc ? section !== "info" && <p role="status">Host offline. Reconnect to load project settings.</p> : <>
       <div hidden={section !== "instructions"}><ProjectInstructions host={host} project={project} rpc={rpc} /></div>

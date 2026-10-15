@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { test, expect } from "./fixtures.ts";
+import { test, expect, openNewAgent } from "./fixtures.ts";
 import { testHome } from "./config.ts";
 
 const providers = ["claude", "codex", "opencode", "pi"];
@@ -86,7 +86,7 @@ for (const width of [1440, 375]) test(`composer picker mobile snapshots and choi
     }
   }
   await sidebar();
-  await page.getByRole("button", { name: "Test project ＋", exact: true }).click();
+  await openNewAgent(page);
   for (let index = 0; index < 4; index++) {
     await page.getByRole("combobox", { name: "Provider", exact: true }).selectOption(providers[index]);
     await expect(face("Provider")).toHaveText(names[index]);

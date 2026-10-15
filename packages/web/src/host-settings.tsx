@@ -1,31 +1,26 @@
 import { InstructionEditor, SettingsDialog, TextEditor } from "./settings-shared";
 import { useEffect, useRef, useState } from "react";
-import type { Agent, AgentPromptInfo, HostAgentsMdFile, Project } from "@casm/protocol";
+import type { AgentPromptInfo, HostAgentsMdFile } from "@casm/protocol";
 import { HostIdentity, type HostState } from "./host-menu";
 import { HostUsage } from "./host-usage";
-import { HostSchedules } from "./host-schedules";
 import type { Rpc } from "./state";
 import { providerNames } from "./provider-icon";
 import { Prose } from "./transcript";
 
-type Section = "usage" | "schedules" | "instructions";
+type Section = "usage" | "instructions";
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
 
-export function HostSettings({ host, name, state, rpc, online, agents, projects, openAgent, close }: {
-  host: string; name: string; state: HostState; rpc: Rpc | null; online: boolean; agents: Agent[]; projects: Project[];
-  openAgent?: (agent: Agent) => void; close: () => void;
+export function HostSettings({ host, name, state, rpc, online, close }: {
+  host: string; name: string; state: HostState; rpc: Rpc | null; online: boolean; close: () => void;
 }) {
   const [section, setSection] = useState<Section>("usage");
   return <SettingsDialog label={`${name} host`} closeLabel="Close host options"
     title={<span className="settings-title-host"><HostIdentity name={name} state={state} /></span>}
-    sections={[["usage", "Usage"], ["schedules", "Schedules"], ["instructions", "Instructions"]] as const} section={section} setSection={setSection} close={close}>
-    {!online || !rpc ? <p role="status">Host offline. Reconnect to load its usage, schedules and instructions.</p> : <>
+    sections={[["usage", "Usage"], ["instructions", "Instructions"]] as const} section={section} setSection={setSection} close={close}>
+    {!online || !rpc ? <p role="status">Host offline. Reconnect to load its usage and instructions.</p> : <>
       {section === "usage" && <section aria-label="Usage"><h3>Usage</h3>
         <p className="settings-lede">Subscription limit windows per provider, and when they reset.</p>
         <HostUsage host={host} rpc={rpc} online={online} /></section>}
-      {section === "schedules" && <section aria-label="Schedules" className="settings-schedules"><h3>Schedules</h3>
-        <p className="settings-lede">Prompts sent on a cadence to an agent on this host, or to a new one.</p>
-        <HostSchedules host={host} rpc={rpc} online={online} agents={agents} projects={projects} openAgent={openAgent} /></section>}
       <div hidden={section !== "instructions"}>
         <Instructions host={host} rpc={rpc} />
         <HostPrompt host={host} rpc={rpc} />

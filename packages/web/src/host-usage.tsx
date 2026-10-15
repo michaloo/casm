@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { LimitWindow, ProviderLimits } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { ProviderIcon, providerNames } from "./provider-icon";
-import { usageLabel, resetLabel } from "./usage-label";
+import { usageLabel, resetLabel, elapsedPercent } from "./usage-label";
 
 /** Provider limit windows for one host, read when shown. */
 export function HostUsage({ host, rpc, online }: { host: string; rpc: Rpc | null; online: boolean }) {
@@ -42,7 +42,8 @@ export function HostUsage({ host, rpc, online }: { host: string; rpc: Rpc | null
               <span>{window.label || window.id}</span>
               <span>{usageLabel(window)}</span>
               </div>
-              {window.usedPercent !== undefined && <span className={`usage-meter ${meterTone(window)}`} aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(0, window.usedPercent))}%` }} /></span>}
+              {window.usedPercent !== undefined && <span className={`usage-meter ${meterTone(window)}`} aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(0, window.usedPercent))}%` }} />
+                {elapsedPercent(window) !== undefined && <i className="usage-now" style={{ left: `${elapsedPercent(window)}%` }} title={`${Math.round(elapsedPercent(window)!)}% of the window has passed`} />}</span>}
               {window.resetsAt && <small>Resets <time dateTime={window.resetsAt} title={new Date(window.resetsAt).toLocaleString()}>{resetLabel(window.resetsAt)}</time>{clock(window.resetsAt)}</small>}
             </div>)}
             <small className="usage-reported">Reported <time dateTime={limit.updatedAt} title={new Date(limit.updatedAt).toLocaleString()}>{agoLabel(limit.updatedAt)}</time></small>

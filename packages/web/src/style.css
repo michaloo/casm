@@ -2074,11 +2074,22 @@ textarea::placeholder {
   font-weight: 600;
 }
 .usage-meter {
+  position: relative;
   display: block;
   height: 5px;
   border-radius: 3px;
   background: var(--raised);
-  overflow: hidden;
+}
+/* Now: how far into the window we are. Usage left of it is ahead of pace. */
+.usage-now {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text);
+  opacity: .55;
 }
 .usage-meter > span {
   display: block;

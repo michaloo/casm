@@ -35,8 +35,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
           if (request.method !== "provider.limits") { server.send(message); return; }
           socket.send(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { limits: [
             { provider: "claude", plan: "Max", updatedAt: new Date().toISOString(), windows: [
-              { id: "five-hour", label: "5-hour", usedPercent: 100, status: "exhausted", resetsAt: new Date(Date.now() + 2.5 * 3600000).toISOString() },
-              { id: "week", label: "Weekly", usedPercent: 42, status: "ok", resetsAt: new Date(Date.now() + 2 * 86400000).toISOString() },
+              { id: "five-hour", label: "5-hour", usedPercent: 100, status: "exhausted", windowMinutes: 300, resetsAt: new Date(Date.now() + 2.5 * 3600000).toISOString() },
+              { id: "week", label: "Weekly", usedPercent: 42, status: "ok", windowMinutes: 10080, resetsAt: new Date(Date.now() + 2 * 86400000).toISOString() },
             ] },
             { provider: "codex", plan: "Pro", updatedAt: new Date().toISOString(), windows: [
               { id: "primary", label: "5-hour", usedPercent: 23, status: "ok", resetsAt: new Date(Date.now() + 45 * 60000).toISOString() },
@@ -57,6 +57,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       const dialog = page.getByRole("dialog", { name: /host$/ });
       const panel = dialog.getByRole("region", { name: "Usage" });
       await expect(panel).toContainText("100% used · exhausted");
+      // A marker shows how far into each window we are (Codex's window here has no length).
+      const marks = panel.locator(".usage-now");
+      await expect(marks).toHaveCount(2);
+      const at = await marks.evaluateAll((els) => els.map((el) => parseFloat((el as HTMLElement).style.left)));
+      expect(at[0]).toBeCloseTo(50, 0);
+      expect(at[1]).toBeCloseTo(71.4, 0);
+      await panel.screenshot({ path: test.info().outputPath(`usage-${viewport.width}-${colorScheme}.png`) });
       expect(await panel.locator(".provider-icon").first().evaluate((element) => getComputedStyle(element).maskImage)).not.toBe("none");
       await expect(panel.locator("time").first()).toHaveAttribute("title", /.+/);
       await expect(panel.locator("time").first()).toContainText("in 2h");

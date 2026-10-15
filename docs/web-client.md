@@ -27,19 +27,25 @@ itself.
 
 ## The sidebar
 
-Hosts, then their projects, then agents. Each agent shows its provider icon,
+Hosts, then their projects, then agents. Hosts are section headers (server
+icon, status dot, name in small caps); projects are indented rows below them.
+Each agent shows its provider icon,
 model and status: idle (○), working, waiting for you, queued messages. Agents
 other agents created are nested under their parent, also across hosts.
 
 ![an agent that split its work across agents on two hosts](media/web-orchestration.png)
 
-- **Host options** (⋯ next to a host) opens the host's window: Usage,
-  Schedules and Instructions.
+- **Host options** (⋯ next to a host) opens the host's window: Usage and
+  Instructions.
+- **Schedules** (the clock next to a host) opens the host's schedules.
 - **New project** (+ next to a host) registers a folder on that host.
 - **Project options** (⋯ next to a project) opens the project's window:
-  AGENTS.md, Memories and Info (with **New agent here**).
-- **+** next to a project starts a new agent in it.
-- A chevron only folds or unfolds; ⋯ always means options.
+  AGENTS.md, Memories and Info, with **New agent** in its header.
+- A project row folds or unfolds when clicked anywhere; ⋯ always means options.
+
+A new agent opens on a welcome screen: the project, its path and host, the
+composer near the middle, starter prompts that fill the composer, the
+project's recent agents to jump back into, and the keyboard shortcuts.
 
 On a phone the sidebar is behind the **Agents** button.
 

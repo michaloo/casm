@@ -619,6 +619,8 @@ async function run(c: CasmClient) {
       });
       if (r.deferredUntil) {
         out(r, () => console.error(`${a.provider} is over its usage limit; queued until ${new Date(r.deferredUntil!).toLocaleString()}`));
+        // Same exit code as run --wait: deferred by a usage limit.
+        if (opt.wait) process.exitCode = 4;
         return;
       }
       if (opt.wait) return waitAndPrint(c, a.id);

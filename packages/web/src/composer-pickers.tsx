@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Catalog, ProviderId } from "@casm/protocol";
 import { ProviderIcon, providerNames } from "./provider-icon";
 import { modelLabels } from "./model-label";
+import { ChevronGlyph } from "./row-menu";
 
 const clean = (text: string) => text.replace(/\s*\((?:catalog(?: default)?|recommended)\)/gi, "").trim();
 const compactModel = (text: string) => clean(text).replace(/\s*(?:[·–]\s*|\()\d+(?:\.\d+)?[MK](?:\s+context)?\)?$/i, "").trim();
@@ -19,7 +20,7 @@ function Picker({ name, value, label, options, onChange, icon, prefix, disabled 
   const selected = options.find(option => option.value === value);
   return <label className={`composer-picker${disabled ? " composer-picker-fixed" : ""}`} title={`${name}: ${title ?? selected?.description ?? label}`}>
     {icon}{prefix && <span className="composer-picker-prefix" aria-hidden="true">{prefix}</span>}<span className="composer-picker-label" aria-hidden={!disabled}>{label}</span>
-    {!disabled && <span className="composer-picker-chevron" aria-hidden="true">⌄</span>}
+    {!disabled && <ChevronGlyph className="composer-picker-chevron" />}
     {!disabled && <select aria-label={name} value={value} onChange={event => onChange(event.target.value)}>
       {options.map(option => <option key={option.value} value={option.value}>{option.label}{option.description ? ` — ${option.description}` : ""}</option>)}
     </select>}

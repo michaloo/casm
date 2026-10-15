@@ -38,6 +38,7 @@ import { ChatWorking } from "./chat-working";
 import { newMessageId, sendMode, visiblePending } from "./outbox";
 import { PendingRows } from "./pending-strip";
 import { ChevronGlyph } from "./row-menu";
+import { NewAgentStarters, NewAgentWelcome } from "./new-agent";
 import "./fonts/fonts.css";
 import "./style.css";
 // Same threshold the server uses for a slow peer probe.
@@ -446,6 +447,8 @@ function App() {
     } catch (e) { setError(String(e)); }
     finally { setCommandBusy(false); }
   }
+  // A project's new-agent screen: a welcome with the composer near the center.
+  const starting = !!(selection && !selection.id && project && host);
   const rows = visiblePending(c);
   const busy = !!agent && agent.status !== "idle";
   const primary = sendMode(agent?.status, rows.length);
@@ -792,7 +795,7 @@ function App() {
           </button>
         </footer>
       </aside>
-      <main className="chat">
+      <main className={`chat${starting ? " start" : ""}`}>
         <header>
           <button className="mobile" onClick={() => showSidebar(true)}>
             <span className="menu-glyph" aria-hidden="true" />
@@ -834,7 +837,7 @@ function App() {
               <strong>Not available offline</strong>
               <p>This conversation was not saved on this device. It loads when the connection is back.</p>
             </div>
-          ) : selection && (
+          ) : starting ? <NewAgentWelcome project={project} host={host!.name} /> : selection && (
             <FileLinksContext.Provider value={fileLinks}>
             <Transcript
               key={ckey}
@@ -972,7 +975,7 @@ function App() {
               <textarea
                 {...slash.inputProps}
                 aria-label="Message"
-                placeholder="Message agent…"
+                placeholder={starting ? `What should the agent do in ${project.name}?` : "Message agent…"}
                 value={c.input}
                 onChange={(e) => {
                   c.input = e.target.value;
@@ -1062,6 +1065,18 @@ function App() {
                 </button>
               </div>
             </form>
+            {starting && <NewAgentStarters agents={host!.agents.filter((a) => a.projectId === project.id)} mac={mac}
+              open={(a) => choose({ host: selection.host, project: a.projectId, id: a.id })}
+              fill={(prompt) => {
+                c.input = c.input.trim() ? `${c.input.trimEnd()}\n\n${prompt}` : prompt;
+                saveDraft(c);
+                redraw();
+                requestAnimationFrame(() => {
+                  const box = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]');
+                  box?.focus();
+                  box?.setSelectionRange(box.value.length, box.value.length);
+                });
+              }} />}
           </>
         )}
       </main>

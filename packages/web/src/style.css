@@ -2562,3 +2562,49 @@ nav .row-add:disabled { opacity: 0.35; }
   }
 }
 
+/* The new-agent screen: a calm welcome with the composer near the center;
+   once the conversation starts it settles at the bottom as usual. */
+.chat.start .transcript { flex: 0 0 auto; margin-top: auto; }
+.chat.start .start-extras { margin-bottom: auto; padding-bottom: max(24px, 7vh); }
+.start-welcome { display: grid; justify-items: center; gap: 0; width: min(calc(100% - 48px), calc(70ch + 24px)); margin: 0 auto; padding: 24px 0 22px; text-align: center; animation: start-in 0.32s var(--ease) both; }
+.start-glyph { width: 44px; height: 44px; margin-bottom: 16px; }
+.start-eyebrow { margin: 0; color: var(--faint); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.start-welcome h1 { margin: 4px 0 10px; font-size: 28px; font-weight: 720; letter-spacing: -0.035em; line-height: 1.15; overflow-wrap: anywhere; }
+.start-context { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 10px; margin: 0; color: var(--muted); font-size: 12.5px; min-width: 0; max-width: 100%; }
+.start-context code { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border-radius: 6px; background: color-mix(in srgb, var(--raised) 55%, transparent); color: var(--muted); font-size: 12px; }
+.start-host { display: inline-flex; align-items: center; gap: 5px; }
+.start-host .server-glyph { width: 14px; height: 14px; color: var(--accent); }
+.chat.start .composer { margin-bottom: 14px; animation: start-in 0.32s 0.04s var(--ease) both; }
+.start-extras { display: grid; gap: 10px; justify-items: center; width: min(calc(100% - 48px), calc(70ch + 24px)); margin: 0 auto; animation: start-in 0.32s 0.08s var(--ease) both; }
+.start-chips { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
+.start-chip { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 13px; border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--surface) 70%, transparent); color: var(--muted); font-size: 12.5px; font-weight: 550; }
+.start-chip:hover { color: var(--text); background: var(--surface); border-color: color-mix(in srgb, var(--accent-bright) 45%, var(--line)); }
+.start-label { color: var(--faint); font-size: 12px; font-weight: 550; margin-right: 2px; }
+.start-agent { max-width: 240px; }
+.start-agent-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.start-agent small { color: var(--faint); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.start-agent .provider-icon { flex: 0 0 auto; }
+.start-keys { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; margin: 8px 0 0; color: var(--faint); font-size: 11.5px; }
+.start-keys span { display: inline-flex; align-items: center; gap: 4px; }
+.start-keys kbd { display: inline-grid; place-items: center; min-width: 20px; height: 19px; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); color: var(--muted); font: 600 10.5px/1 var(--sans); }
+/* The keys line says it all on the start screen. */
+.chat.start .send-hint { visibility: hidden; }
+@keyframes start-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .start-welcome, .chat.start .composer, .start-extras { animation: none; } }
+@media (max-width: 650px) {
+  .chat.start .start-extras { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .start-welcome { width: calc(100% - 32px); padding: 16px 0 14px; }
+  .start-glyph { width: 36px; height: 36px; margin-bottom: 12px; }
+  .start-welcome h1 { font-size: 24px; }
+  .start-context { font-size: 13px; }
+  .start-extras { width: calc(100% - 32px); }
+  /* One calm row per group that scrolls sideways, instead of a stack of pills. */
+  .start-chips { flex-wrap: nowrap; justify-content: safe center; width: 100%; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .start-chips::-webkit-scrollbar { display: none; }
+  .start-chip { flex: 0 0 auto; min-height: 44px; border-radius: 22px; font-size: 14px; padding: 0 15px; white-space: nowrap; }
+  .start-label { flex: 0 0 auto; }
+  .start-agent { max-width: 70vw; }
+  /* Touch keyboards: Return adds a line and Send sends; no shortcuts to list. */
+  .start-keys { display: none; }
+  .chat.start .send-hint { visibility: visible; }
+}

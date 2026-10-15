@@ -209,6 +209,13 @@ opens a preview: syntax-highlighted code, rendered Markdown, pretty JSON,
 images, with **Download** and **Copy path**. `/f/<absolute path>` opens a
 preview directly. Files are read-only through casm.
 
+Images attached to messages or tool output open in that same preview (click or
+press Enter). Images fit by default; click or pinch to zoom, use **1:1** for
+natural pixels, and drag to pan. **← / →** or the arrow buttons move between
+images in the same message or tool row. On mobile, swipe down while fitted to
+close. **Download** saves inline images with a tool/message name and timestamp;
+**Copy image** appears where the browser supports image clipboard writes.
+
 ![previewing files an agent mentioned](media/web-file-preview.gif)
 
 ## Addresses you can share

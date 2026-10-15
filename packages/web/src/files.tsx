@@ -1,5 +1,7 @@
-// Read-only project files: a preview dialog (with Download and Copy path) for
-// paths linked in the transcript. Downloads use short-lived signed links from the server
+import type { PreviewImage } from "./image-preview";
+import { ImageCanvas } from "./image-canvas";
+// Shared read-only preview for project files and in-memory transcript images.
+// File paths keep Download and Copy path; inline images use named downloads. Downloads use short-lived signed links from the server
 // the page is connected to, so they work for peers' files and on iPhone Safari.
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
@@ -35,6 +37,22 @@ function save(href: string, name: string) {
   a.click();
   a.remove();
 }
+// Clipboard image writes consistently support PNG, including when the source is JPEG/WebP.
+async function clipboardPng(source: string): Promise<Blob> {
+  const response = await fetch(source);
+  if (!response.ok) throw new Error("Could not load image for copying");
+  const url = URL.createObjectURL(await response.blob());
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve(); img.onerror = () => reject(new Error("Could not load image for copying")); img.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+    canvas.getContext("2d")!.drawImage(img, 0, 0);
+    return await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not copy image")), "image/png"));
+  } finally { URL.revokeObjectURL(url); }
+}
 type Link = { href: string; expires: number };
 async function signedLink(rpc: Rpc, host: string, path: string, inline = false): Promise<Link> {
   const r = await rpc.call("fs.downloadLink", { path, inline }, host);
@@ -44,10 +62,12 @@ async function signedLink(rpc: Rpc, host: string, path: string, inline = false):
   return { href, expires: Date.parse(r.expiresAt) };
 }
 
-export function FilePreview({ rpc, host, path: initial, roots, close }: {
-  rpc: Rpc; host: string; path: string; roots: string[]; close: () => void;
+export function FilePreview({ rpc, host = "", path: initial = "", images, index: initialIndex = 0, roots, close }: {
+  rpc?: Rpc; host?: string; path?: string; images?: PreviewImage[]; index?: number; roots: string[]; close: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const [index, setIndex] = useState(initialIndex);
+  const memory = images?.[index];
   const [trail, setTrail] = useState([initial]);
   const path = trail[trail.length - 1];
   const [file, setFile] = useState<FileContent>();
@@ -55,10 +75,15 @@ export function FilePreview({ rpc, host, path: initial, roots, close }: {
   const [download, setDownload] = useState<Link>();
   const [image, setImage] = useState<string>();
   const [copied, setCopied] = useState("");
-  useEffect(() => { dialog.current?.showModal(); }, []);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    dialog.current?.showModal();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, []);
   useEffect(() => {
     let active = true;
     setFile(undefined); setError(""); setDownload(undefined); setImage(undefined);
+    if (memory || !rpc) return;
     void rpc.call("fs.read", { path }, host).then(async (f) => {
       if (!active) return;
       setFile(f);
@@ -72,53 +97,68 @@ export function FilePreview({ rpc, host, path: initial, roots, close }: {
       if (inline) setImage(inline.href);
     }).catch((e) => { if (active) setError(message(e)); });
     return () => { active = false; };
-  }, [rpc, host, path]);
+  }, [rpc, host, path, memory]);
   const go = (next: string) => setTrail((t) => [...t, next]);
   // Opening a link inside the preview moves the preview there.
   const links = useMemo(() => ({ roots, open: go }), [roots]);
   // Links last a few minutes; an old one is replaced before it is followed.
   const fresh = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (memory || !rpc) return;
     if (download && download.expires - Date.now() > 30_000) return;
     e.preventDefault();
     void signedLink(rpc, host, path).then((link) => { setDownload(link); save(link.href, name); }).catch((err) => setError(message(err)));
   };
-  const name = baseName(path);
+  const name = memory?.name ?? baseName(path);
+  const source = memory?.src ?? image;
+  const navigate = (delta: number) => setIndex(i => Math.max(0, Math.min((images?.length ?? 1) - 1, i + delta)));
   return createPortal(<dialog ref={dialog} className="host-settings file-preview" aria-label={`File ${name}`}
+    onKeyDown={event => { if (images && !/INPUT|TEXTAREA/.test((event.target as HTMLElement).tagName) && ["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); navigate(event.key === "ArrowLeft" ? -1 : 1); } }}
     // React passes "close" up through portals: it must not also close a settings dialog this one opened from.
     onClose={(e) => { e.stopPropagation(); close(); }}>
     <header>
-      <h2 title={path}>{name}</h2>
+      <h2 title={path || name}>{name}</h2>
       <button type="button" aria-label="Close file preview" onClick={() => dialog.current?.close()}>×</button>
     </header>
     <div className="file-preview-bar">
-      <code className="settings-path">{path}</code>
+      {!memory && <code className="settings-path">{path}</code>}
       {file && <small className="file-meta">{file.type === "dir" ? "Folder" : `${formatSize(file.size)} · ${file.mime}`} · modified {formatTime(file.mtime)}</small>}
       <div className="settings-actions">
         {trail.length > 1 && <button type="button" onClick={() => setTrail((t) => t.slice(0, -1))}>Back</button>}
+        {memory && <a className="button" href={memory.src} download={name}>Download</a>}
         {file?.type === "file" && (download
           ? <a className="button" href={download.href} download={name} onClick={fresh}>Download</a>
           : <button type="button" disabled>Download</button>)}
-        <button type="button" onClick={() => void copy(path).then(() => setCopied("Copied ✓"), () => setCopied("Select to copy"))
-          .finally(() => setTimeout(() => setCopied(""), 1800))}>{copied || "Copy path"}</button>
+        {!memory && <button type="button" onClick={() => void copy(path).then(() => setCopied("Copied ✓"), () => setCopied("Select to copy"))
+          .finally(() => setTimeout(() => setCopied(""), 1800))}>{copied || "Copy path"}</button>}
+        {source && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write && <button type="button" onClick={() => {
+          const blob = clipboardPng(source);
+          void navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(() => setCopied("Image copied ✓"), err => setError(message(err)));
+        }}>{copied || "Copy image"}</button>}
+        {images && images.length > 1 && <div className="image-navigation">
+          <button type="button" aria-label="Previous image" disabled={index === 0} onClick={() => navigate(-1)}>←</button>
+          <span className="image-position" role="status">{index + 1} / {images.length}</span>
+          <button type="button" aria-label="Next image" disabled={index === images.length - 1} onClick={() => navigate(1)}>→</button>
+        </div>}
       </div>
     </div>
-    <div className="settings-content file-preview-body">
+    <div className={`settings-content file-preview-body${source ? " has-image" : ""}`}>
       {error && <p role="alert" className="error">{error}</p>}
-      {!file && !error && <p role="status">Loading…</p>}
-      {file && <FileLinksContext.Provider value={links}>
-        <FileBody file={file} image={image} />
+      {!memory && !file && !error && <p role="status">Loading…</p>}
+      {source && <ImageCanvas key={`${index}:${path || name}`} src={source} name={name} close={() => dialog.current?.close()} />}
+      {!source && file && <FileLinksContext.Provider value={links}>
+        <FileBody file={file} />
       </FileLinksContext.Provider>}
     </div>
   </dialog>, document.body);
 }
 
-function FileBody({ file, image }: { file: FileContent; image?: string }) {
+function FileBody({ file }: { file: FileContent }) {
   const ext = extension(file.path);
   if (file.type === "dir") return <p className="file-note">This is a folder. Open a file inside it from the transcript to preview or download it.</p>;
   if (file.type !== "file") return <p>This is not a regular file, so there is nothing to preview.</p>;
   const truncated = file.truncated && <p role="note" className="file-note">Showing the first 1 MB of {formatSize(file.size)}. Download the file to see all of it.</p>;
   if (file.mime.startsWith("image/"))
-    return image ? <img className="file-image" src={image} alt={baseName(file.path)} /> : <p role="status">Loading image…</p>;
+    return <p role="status">Loading image…</p>;
   if (file.content === null)
     return <p className="file-note">{file.binary ? "Binary file" : "No preview"} · {formatSize(file.size)} · {file.mime}. Use Download to open it on this device.</p>;
   if (!file.content) return <p className="file-note">This file is empty.</p>;

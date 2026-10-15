@@ -23,7 +23,7 @@ export function ProjectOptions({ host, project, agentCount, rpc, online, newAgen
   </>;
 }
 
-function ProjectSettings({ host, project, agentCount, rpc, online, close, newAgent }: {
+export function ProjectSettings({ host, project, agentCount, rpc, online, close, newAgent }: {
   host: string; project: Project; agentCount: number; rpc: Rpc | null; online: boolean; close: () => void; newAgent: () => void;
 }) {
   const [section, setSection] = useState<Section>("instructions");

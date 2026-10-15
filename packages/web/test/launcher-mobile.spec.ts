@@ -108,7 +108,7 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await expect(dialog.getByRole("option", { selected: true })).toContainText("Project options");
   await input.press("Enter");
   const project = page.getByRole("dialog", { name: "Test project project", exact: true });
-  await expect(project).toBeVisible(); await project.getByRole("button", { name: "Info", exact: true }).click();
+  await expect(project).toBeVisible();
   await expect(project.getByRole("button", { name: "New agent", exact: true })).toBeVisible();
   await project.getByRole("button", { name: "Close project options" }).click();
   // Ctrl/Cmd+Enter on a project opens its options as well.

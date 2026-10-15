@@ -2405,8 +2405,6 @@ nav .row-more:hover, nav .row-more:focus-visible, nav .row-more[aria-expanded="t
 .slash-palette p, .command-notice { font-size: 13px; margin: 8px; overflow-wrap: anywhere; }
 .mcp-panel h3, .mcp-panel p { overflow-wrap: anywhere; }
 
-.project-info dt { color: var(--muted); margin-top: 16px; }
-.project-info dd { margin: 4px 0 16px; overflow-wrap: anywhere; }
 /* Project files: links in transcripts, the preview dialog and the browser. */
 a.file-link { overflow-wrap: anywhere; cursor: pointer; }
 a.file-link code { color: inherit; }
@@ -2793,3 +2791,21 @@ footer .sign-out:hover { color: var(--text); }
 .pickers[data-more~="end"] { --fade-end: transparent; }
 .pickers > * { flex: 0 0 auto; }
 .pickers .model-session { white-space: nowrap; }
+
+/* Project modal header: the path (middle-truncated, keeping its last folder),
+   Copy, host and group under the title; a compact New agent beside it. */
+.settings-heading { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.settings-context { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0; min-width: 0; color: var(--muted); font-size: 12.5px; }
+.middle-path { display: inline-flex; min-width: 0; max-width: min(100%, 52ch); color: var(--muted); font-size: 12px; white-space: nowrap; }
+.middle-path .path-head { min-width: 1ch; overflow: hidden; text-overflow: ellipsis; }
+.middle-path .path-tail { flex: 0 0 auto; }
+.host-settings .settings-context .copy-path { min-width: 0; min-height: 24px; padding: 0 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.settings-context-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.settings-context-item .server-glyph { width: 14px; height: 14px; color: var(--accent); }
+.host-settings .settings-head-actions button.compact { min-height: 34px; padding: 0 14px; font-size: 13px; }
+@media (max-width: 650px) {
+  .settings-context { font-size: 13px; }
+  .middle-path { max-width: 100%; flex: 1 1 100%; }
+  .host-settings .settings-context .copy-path { min-height: 44px; padding: 0 12px; }
+  .host-settings .settings-head-actions button.compact { min-height: 44px; }
+}

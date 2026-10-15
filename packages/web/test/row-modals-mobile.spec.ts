@@ -42,19 +42,18 @@ for (const width of [1440, 375]) test(`host and project modals open from ⋯ at 
   await expect(host).toBeHidden();
   await expect(hostOptions).toBeFocused();
 
-  // Project: ⋯ opens the same layout with AGENTS.md · Memories · Info; no Files.
+  // Project: ⋯ opens the same layout with AGENTS.md · Memories, the path under its title; no Info or Files.
   const projectOptions = nav.getByRole("button", { name: "Project options for Test project", exact: true });
   await projectOptions.click();
   await expect(page.getByRole("menu")).toHaveCount(0);
   const project = page.getByRole("dialog", { name: "Test project project" });
   const projectTabs = project.getByRole("navigation").getByRole("button");
-  await expect(projectTabs).toHaveText(["AGENTS.md", "Memories", "Info"]);
+  await expect(projectTabs).toHaveText(["AGENTS.md", "Memories"]);
   await expect(project.getByRole("region", { name: "Project instructions" })).toBeVisible();
   await projectTabs.filter({ hasText: "Memories" }).click();
   await expect(project.locator("summary").filter({ hasText: "Project workflow" })).toBeVisible();
   await expect(project.locator("details.memory-project")).toHaveCount(0);
-  await projectTabs.filter({ hasText: "Info" }).click();
-  await expect(project.getByRole("region", { name: "Project info" })).toContainText(testHome);
+  await expect(project.locator(".settings-context .middle-path")).toHaveAttribute("title", testHome);
   await expect(project.getByRole("button", { name: "New agent", exact: true })).toBeEnabled();
   // Same shell for both: tab rail on desktop, scrolling tabs on phones.
   const rail = await project.getByRole("navigation").evaluate((el) => getComputedStyle(el).flexDirection);

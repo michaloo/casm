@@ -851,7 +851,7 @@ function App() {
                       {!expanded && agents.length > 0 && <span className="project-count" aria-hidden="true">{agents.length}</span>}
                       <span className="fold-mark"><ChevronGlyph /></span>
                     </button>
-                    <ProjectOptions host={h.id} project={p} agentCount={h.agents.filter((a) => a.projectId === p.id && !a.archivedAt).length}
+                    <ProjectOptions host={h.id} hostName={h.name} project={p}
                       rpc={rpc.current} online={state === "online" || state === "slow"} newAgent={() => choose({ host: h.id, project: p.id })} />
                     </div>
                     {expanded && !agents.length && <p className="sidebar-empty project-empty">No agents yet</p>}

@@ -241,8 +241,7 @@ export function LauncherDestination({ target, rpc, online, choose, created, clos
   const available = online && !host.error && !host.loading;
   if (target.kind === "new-project") return <NewProject host={host.id} name={host.name} projects={host.projects} rpc={rpc} online={available} close={close}
     created={project => { close(); created(host.id, project); }} />;
-  if (target.kind === "project" && target.project) return <ProjectSettings host={host.id} project={target.project} rpc={rpc} online={available}
-    agentCount={host.agents.filter(agent => agent.projectId === target.project!.id && !agent.archivedAt).length} close={close}
+  if (target.kind === "project" && target.project) return <ProjectSettings host={host.id} hostName={host.name} project={target.project} rpc={rpc} online={available} close={close}
     newAgent={() => { close(); choose({ host: host.id, project: target.project!.id }); }} />;
   return <HostSettings host={host.id} name={host.name} state={available ? "online" : "offline"} online={available} rpc={rpc}
     agents={host.agents} projects={host.projects} initialSection={target.section} close={close}

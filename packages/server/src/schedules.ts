@@ -113,7 +113,10 @@ export class Scheduler {
       ...(p.enabled !== undefined ? { enabled: p.enabled } : {}),
     };
     const ranOnce = next.cadence.type === "once" && x.lastRun !== null && !p.cadence;
-    next.nextRunAt = next.enabled ? (nextRun(next.cadence, new Date(), ranOnce)?.toISOString() ?? null) : null;
+    // Renaming or rewording keeps the next run; an interval would otherwise
+    // restart from now. A new cadence or re-enabling recomputes it.
+    const retime = !x.enabled || !x.nextRunAt || (!!p.cadence && JSON.stringify(p.cadence) !== JSON.stringify(x.cadence));
+    next.nextRunAt = !next.enabled ? null : retime ? (nextRun(next.cadence, new Date(), ranOnce)?.toISOString() ?? null) : x.nextRunAt;
     return this.save(next);
   }
 

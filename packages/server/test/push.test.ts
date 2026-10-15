@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { CasmClient, CasmError } from "@casm/client";
-import { ErrorCode, type UserNotification } from "@casm/protocol";
+import { ErrorCode } from "@casm/protocol";
 import { Store } from "../src/db.ts";
 import { startServer, type RunningServer } from "../src/server.ts";
 import { PushService, type PushSend } from "../src/push.ts";
@@ -157,20 +157,16 @@ test("devices subscribe, list with the public key, renew in place and unsubscrib
   await assert.rejects(client.call("push.subscribe", { subscription: { endpoint: "https://push.example/x", keys: { p256dh: "short", auth: "short" } }, label: "bad" }), /keys/);
 });
 
-test("an agent's notification is titled after it, links to it and reaches every device and client", async () => {
+test("an agent's notification is titled after it, links to it and reaches every device", async () => {
   const project = await client.call("project.create", { path: home, name: "casm-ng" });
   const agent = await client.call("agent.create", { projectId: project.id, provider: "claude", name: "builder" });
   const phone = await subscribe("iPhone");
   const mac = await subscribe("Mac");
-  const other = await CasmClient.connect(server.url, token);
-  const shown = new Promise<UserNotification>((r) => other.on("notification", r));
   const info = await client.call("server.info", {});
   const r = await client.call("push.notify", { message: "Tests are green", sender: { serverId: info.id, agentId: agent.id } });
-  other.close();
   const url = `/h/pushhost/a/${agent.id}`;
   assert.deepEqual({ ...r.notification, id: "", at: "" }, { id: "", at: "", title: "builder · casm-ng", body: "Tests are green", url, agentId: agent.id });
   assert.deepEqual([r.delivered, r.devices, r.failed], [2, 2, []]);
-  assert.deepEqual(await shown, r.notification);
   assert.deepEqual(sent.map((s) => s.endpoint).sort(), [phone.endpoint, mac.endpoint].sort());
   const req = sent.find((s) => s.endpoint === phone.endpoint)!;
   assert.equal(req.headers["content-encoding"], "aes128gcm");

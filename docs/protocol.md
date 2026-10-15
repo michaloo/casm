@@ -71,7 +71,7 @@ Errors use the standard codes plus casm's own:
 Notifications: `agent.event` (for subscribed agents), `agent.status`,
 `agent.changed`, `agent.removed`, `project.changed`, `project.removed`,
 `schedule.changed`, `schedule.removed`, `provider.limits`,
-`peer.disconnected`, `notification` (a `push.notify`, to every client).
+`peer.disconnected`.
 
 ## Transcripts and live events
 
@@ -167,7 +167,7 @@ previews up to 1 MiB. Paths must resolve inside a registered project folder.
 
 `push.notify {message, title?, url?, device?, sender?}` notifies the user: the
 server sends a Web Push message to each subscribed device (or the one whose
-label or id is `device`) and a `notification` to every connected client. A
+label or id is `device`). A
 `sender` that is an agent on this server titles it `<agent> · <project>` and
 sets `url` to `/h/<host>/a/<agent>`. Senders get 10 a minute (error 1002
 beyond). The result reports `delivered`, `devices` and per-device `failed`

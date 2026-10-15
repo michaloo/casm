@@ -100,7 +100,7 @@ export class PushService {
   }
 
   // Builds the notification (titled and linked after a local agent sender),
-  // then pushes it to the devices. The caller shows it to connected clients.
+  // then pushes it to the devices.
   async notify(p: Params<"push.notify">, ctx: PushContext, caller: string): Promise<Result<"push.notify">> {
     const devices = this.store.listPushDevices();
     const targets = p.device ? devices.filter((d) => d.id === p.device || d.label.toLowerCase() === p.device!.toLowerCase()) : devices;

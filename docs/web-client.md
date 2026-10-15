@@ -164,8 +164,11 @@ providers' memories (read-only), and its path, group and agent count.
 
 Agents notify you when you ask them to ("tell me when the deploy is done"):
 they run [`casm notify`](cli.md#notifications), and every device you enabled
-gets a system notification, whether casm is open or not. Open casm windows
-show it as a toast too. Clicking either opens the agent.
+gets a system notification through Web Push, whether casm is focused, in the
+background or closed. Clicking it opens the agent, in the open casm window if
+there is one. On iPhone and iPad, whether a notification shows as a banner
+while casm is in front is up to iOS; it lands in Notification Center either
+way.
 
 **Host options → Notifications** on the host serving the page:
 

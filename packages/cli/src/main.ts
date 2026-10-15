@@ -97,8 +97,8 @@ agents:
 notifications:
   notify <message> [--title t] [--url path] [--device name]
                                      notify the user: a push to every device subscribed on the host
-                                     (or the one named), and a toast in open web clients. From an
-                                     agent it is titled "<agent> · <project>" and opens the agent
+                                     (or the one named). From an agent it is titled
+                                     "<agent> · <project>" and opens the agent
 
 schedules (run on the host; messages to busy or limited agents become pending):
   schedules [--agent a]
@@ -596,7 +596,7 @@ async function run(c: CasmClient) {
       if (!message) fail("notify needs a message");
       const r = await c.call("push.notify", { message, title: opt.title, url: opt.url, device: opt.device, sender: messageSender() });
       return out(r, () => {
-        if (!r.devices) console.error("no devices subscribed for notifications on this host (enable them in the web client's host options); shown in open web clients only");
+        if (!r.devices) console.error("no devices subscribed for notifications on this host: enable them in the web client's host options → Notifications");
         else console.error(`delivered to ${r.delivered} of ${r.devices} device${r.devices === 1 ? "" : "s"}`);
         for (const f of r.failed) console.error(`  ${f.device}: ${f.error}`);
         if (r.devices && !r.delivered) process.exitCode = 1;

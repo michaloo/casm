@@ -1,7 +1,7 @@
 // Notifications: enabling Web Push on this device from the host modal (with
 // the browser's PushManager mocked; there is no push service here), the device
-// list, why it can be unavailable, in-app toasts for casm notify, and the
-// service worker's click routing into an open window.
+// list, why it can be unavailable, and the service worker's click routing
+// into an open window.
 import { existsSync, readFileSync } from "node:fs";
 import { createECDH, randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
@@ -130,31 +130,16 @@ for (const [why, opts, text] of unavailable) test(`notifications explain why the
   await expect(section.getByRole("button", { name: "Enable notifications" })).toHaveCount(0);
 });
 
-test("casm notify shows a toast in open windows that opens the agent, and worker clicks route in place (mobile)", async ({ page }) => {
+test("a notification click routes the open window to the agent, same-origin paths only (mobile)", async ({ page }) => {
   await mockPush(page);
   await login(page, 1440);
   const { agents } = await call("agent.list", {});
-  const server = await call("server.info", {});
-  const first = agents.find((a: { name: string }) => a.name === "Agent 01");
-  const second = agents.find((a: { name: string }) => a.name === "Agent 02");
-  const r = await call("push.notify", { message: "Tests are green", sender: { serverId: server.id, agentId: first.id } });
-  expect(r.notification.title).toBe("Agent 01 · Test project");
-  const toast = page.getByRole("log", { name: "Notifications" });
-  await expect(toast).toContainText("Agent 01 · Test project");
-  await expect(toast).toContainText("Tests are green");
-  await toast.getByRole("button", { name: "Agent 01 · Test project Tests are green", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/h/Test%20host/a/${first.id}$`));
-  await expect(toast).toHaveCount(0);
-
-  // What the service worker posts after a notification click.
-  await page.evaluate((url) => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "casm:navigate", url } })), `/h/Test%20host/a/${second.id}`);
-  await expect(page).toHaveURL(new RegExp(`/h/Test%20host/a/${second.id}$`));
-  await page.evaluate(() => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "casm:navigate", url: "https://evil.example/x" } })));
-  await expect(page).toHaveURL(new RegExp(`/h/Test%20host/a/${second.id}$`));
-
-  // A notification without a link only dismisses.
-  await call("push.notify", { message: "From a plain shell", title: "Heads up" });
-  await expect(toast).toContainText("Heads up");
-  await toast.getByRole("button", { name: "Dismiss “Heads up”" }).click();
-  await expect(toast).toHaveCount(0);
+  const agent = agents.find((a: { name: string }) => a.name === "Agent 02");
+  // What the service worker posts to an open window after a notification click.
+  const click = (url: string) => page.evaluate((u) => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "casm:navigate", url: u } })), url);
+  await click(`/h/Test%20host/a/${agent.id}`);
+  await expect(page).toHaveURL(new RegExp(`/h/Test%20host/a/${agent.id}$`));
+  await expect(page.getByRole("main").getByText("Agent 02", { exact: true })).toBeVisible();
+  await click("https://evil.example/x");
+  await expect(page).toHaveURL(new RegExp(`/h/Test%20host/a/${agent.id}$`));
 });

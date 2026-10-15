@@ -7158,36 +7158,6 @@
         "agentId"
       ]
     },
-    "notification": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "body": {
-          "type": "string"
-        },
-        "url": {
-          "type": "string"
-        },
-        "agentId": {
-          "type": "string"
-        },
-        "at": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "title",
-        "body",
-        "at"
-      ]
-    },
     "project.changed": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",

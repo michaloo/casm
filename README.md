@@ -146,7 +146,7 @@ casm pending                                     # queued, deferred and failed m
 casm history <agent>    casm watch <agent>    casm wait <agent>    casm interrupt <agent>
 casm limits             casm usage <agent>
 casm schedule add --at "in 2h" --agent <agent> "Check the results"
-casm notify "Deploy finished"                    # push to your devices and open web clients
+casm notify "Deploy finished"                    # a push notification to your devices
 ```
 
 Use `--json` for scripting and `-H <peer>` for another host; `casm --help`

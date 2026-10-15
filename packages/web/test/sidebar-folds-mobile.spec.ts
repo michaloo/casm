@@ -43,7 +43,7 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
   expect(toggleBox.width).toBeGreaterThan(150);
 
   // Hosts: a tinted full-width header, small caps, server glyph and status dot,
-  // the chevron at its end; projects are indented with a lighter chevron at their start.
+  // projects indented and lighter. Both put the chevron at the far right, after + and ⋯.
   const host = nav.getByRole("button", { name: "Toggle Test host host", exact: true });
   await expect(host.locator(".server-glyph")).toHaveCount(1);
   await expect(host.locator(".host-dot.online")).toHaveCount(1);
@@ -62,6 +62,8 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
       hostStroke: getComputedStyle(hostChevron).strokeWidth, projectStroke: getComputedStyle(projectChevron).strokeWidth,
       hostBox: box(host), hostChevron: box(hostChevron), hostNameBox: box(hostName), projectChevron: box(projectChevron),
       projectRow: box(document.querySelector("nav .project-row")!),
+      hostMore: box(host.querySelector(".row-more:last-of-type")!), projectMore: box(document.querySelector("nav .project-row .row-more")!),
+      hostRotate: getComputedStyle(hostChevron).rotate,
     };
   });
   expect(styles.hostTransform).toBe("uppercase");
@@ -70,9 +72,12 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
   expect(styles.hostBackground).not.toBe(styles.projectBackground);
   expect(styles.hostChevronColor).not.toBe(styles.projectChevronColor);
   expect(parseFloat(styles.projectStroke)).toBeLessThan(parseFloat(styles.hostStroke));
-  // Host chevron after the name; project chevron before it, inside the indent.
-  expect(styles.hostChevron.x).toBeGreaterThan(styles.hostNameBox.x + styles.hostNameBox.width);
-  expect(styles.projectChevron.x).toBeLessThan(styles.projectRow.x + 20);
+  // icon · name · + · ⋯ · chevron, on hosts and projects alike; ⌃ while open.
+  expect(styles.hostChevron.x).toBeGreaterThan(styles.hostMore.x + styles.hostMore.width);
+  expect(styles.projectChevron.x).toBeGreaterThan(styles.projectMore.x + styles.projectMore.width);
+  expect(styles.hostBox.x + styles.hostBox.width - (styles.hostChevron.x + styles.hostChevron.width)).toBeLessThan(12);
+  expect(Math.abs(styles.hostChevron.x - styles.projectChevron.x)).toBeLessThan(2);
+  expect(styles.hostRotate).toBe("180deg");
   expect(styles.projectRow.x).toBeGreaterThan(styles.hostBox.x);
   expect(Math.round(styles.hostBox.width)).toBeGreaterThan(200);
   // Both chevrons are centered on their rows.
@@ -82,17 +87,35 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
   const peer = nav.locator("section.host").nth(1).locator(".host-heading");
   await host.click();
   await expect(host).toHaveAttribute("aria-expanded", "false");
+  // ⌄ while folded; the turn finishes quickly.
+  await expect.poll(() => host.locator(".chevron-glyph").evaluate((el) => getComputedStyle(el).rotate)).toBe("none");
   const [first, second] = [(await nav.locator("section.host").first().locator(".host-heading").boundingBox())!, (await peer.boundingBox())!];
   expect(second.y - (first.y + first.height)).toBeGreaterThanOrEqual(16);
   await host.click();
 
-  // The host row is icon · name · chevron · + · ⋯: the name in full, no status text or clock.
+  // The host row: the name in full, no status text or clock.
   await expect(nav.getByRole("button", { name: "New project on Test host", exact: true })).toBeVisible();
   await expect(nav.getByRole("button", { name: /^Schedules on / })).toHaveCount(0);
   await expect(host.locator("small")).toHaveCount(0);
   const name = host.locator(".host-name");
   expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  expect(styles.hostChevron.x - (styles.hostNameBox.x + styles.hostNameBox.width)).toBeLessThan(16);
+
+  // Focus rings follow the keyboard: none after a click (also when focus returns from a modal), shown on Tab.
+  const outline = (el: import("@playwright/test").Locator) => el.evaluate((e) => getComputedStyle(e).outlineStyle);
+  await host.click();
+  await host.click();
+  expect(await outline(host)).toBe("none");
+  const options = nav.getByRole("button", { name: "Host options for Test host", exact: true });
+  await options.click();
+  await page.getByRole("button", { name: "Close host options" }).click();
+  await expect(page.locator("dialog")).toHaveCount(0);
+  await expect(options).toBeFocused();
+  expect(await outline(options)).toBe("none");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Test host host" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(options).toBeFocused();
+  expect(await outline(options)).toBe("solid");
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await nav.getByRole("button", { name: "Test project", exact: false }).first().hover();

@@ -2,6 +2,7 @@ import { ImagePreviewContext, type ImageSelection } from "./image-preview";
 import { Launcher, LauncherDestination, SearchGlyph, type LauncherAction } from "./launcher";
 import { rememberAgent } from "./launcher-search";
 import "./register-service-worker";
+import "./input-modality";
 import { ComposerPickers } from "./composer-pickers";
 import { ProjectOptions } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
@@ -807,9 +808,9 @@ function App() {
                       disabled={pinned}
                       title={pinned ? "Current agent's project stays visible" : `${expanded ? "Collapse" : "Expand"} ${p.name}`}
                       onClick={() => toggleProject(h.id, p.id)}>
-                      <ChevronGlyph />
                       <span className="project-name">{p.name}</span>
                       {!expanded && agents.length > 0 && <span className="project-count" aria-hidden="true">{agents.length}</span>}
+                      <span className="fold-mark"><ChevronGlyph /></span>
                     </button>
                     <ProjectOptions host={h.id} project={p} agentCount={h.agents.filter((a) => a.projectId === p.id && !a.archivedAt).length}
                       rpc={rpc.current} online={state === "online" || state === "slow"} newAgent={() => choose({ host: h.id, project: p.id })} />

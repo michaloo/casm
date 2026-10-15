@@ -1,4 +1,7 @@
 :root {
+  /* iOS inflates text in landscape, and the size can stick after rotating back */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   /* casm palette, from the logo: teal/cyan for action, focus, links and running
      work; coral for anything that needs you (waiting, failed, held, destructive);
      violet for agents, subagents and thinking. Neutrals are warm paper in light

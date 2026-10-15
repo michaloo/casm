@@ -37,6 +37,7 @@ import { Question } from "./question";
 import { ChatWorking } from "./chat-working";
 import { newMessageId, sendMode, visiblePending } from "./outbox";
 import { PendingRows } from "./pending-strip";
+import { ChevronGlyph } from "./row-menu";
 import "./fonts/fonts.css";
 import "./style.css";
 // Same threshold the server uses for a slow peer probe.
@@ -744,7 +745,7 @@ function App() {
                       disabled={pinned}
                       title={pinned ? "Current agent's project stays visible" : `${expanded ? "Collapse" : "Expand"} ${p.name}`}
                       onClick={() => toggleProject(h.id, p.id)}>
-                      <span className="chevron" aria-hidden="true" />
+                      <ChevronGlyph />
                     </button>
                     <button
                       className={`project ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}

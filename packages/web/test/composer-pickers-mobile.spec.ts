@@ -53,6 +53,15 @@ for (const width of [1440, 375]) test(`composer picker mobile snapshots and choi
       const box = (await pill.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
       expect(box.height).toBe(width === 375 ? 44 : 32);
+      // The chevron is a 12px SVG centered on the pill and on its label, like the sidebar's.
+      const chevron = pill.locator(".composer-picker-chevron");
+      if (!await chevron.count()) continue;
+      const mark = (await chevron.boundingBox())!;
+      const label = (await pill.locator(".composer-picker-label").boundingBox())!;
+      expect([mark.width, mark.height]).toEqual([12, 12]);
+      expect(Math.abs(mark.y + mark.height / 2 - (box.y + box.height / 2))).toBeLessThanOrEqual(1);
+      expect(Math.abs(mark.y + mark.height / 2 - (label.y + label.height / 2))).toBeLessThanOrEqual(1.5);
+      expect(mark.x + mark.width).toBeLessThanOrEqual(box.x + box.width - 6);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     await page.locator(".composer").screenshot({ path: info.outputPath(`${name}-${width}.png`) });

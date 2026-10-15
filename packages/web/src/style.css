@@ -233,7 +233,7 @@ nav .host-collapse {
 }
 nav .host-collapse > .host-icon { margin-right: 10px; }
 nav .host-collapse .host-label { color: var(--text); }
-nav .host-collapse > .chevron { justify-self: center; }
+nav .host-collapse > .chevron-glyph { justify-self: center; }
 .host-icon {
   position: relative;
   display: grid;
@@ -342,17 +342,19 @@ nav .project-toggle {
 nav .project-toggle:disabled {
   opacity: 0.45;
 }
-.chevron {
-  width: 6px;
-  height: 6px;
-  border: solid currentColor;
-  border-width: 0 1.5px 1.5px 0;
-  transform: translateY(-1px) rotate(45deg);
+/* Folds and pickers share one SVG chevron; a fold turns it to point right. */
+.chevron-glyph {
+  display: block;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   transition: transform 0.18s var(--ease);
 }
-.project-toggle[aria-expanded="false"] .chevron {
-  transform: translateX(-1px) rotate(-45deg);
-}
+[aria-expanded="false"] > .chevron-glyph { transform: rotate(-90deg); }
 nav .project {
   flex: 1;
   min-width: 0;
@@ -1268,7 +1270,7 @@ details[open] > summary:before {
 .composer-picker-prefix { flex: 0 0 auto; color: var(--faint); font-weight: 500; }
 .composer-picker-prefix + .composer-picker-label { color: var(--text); }
 .composer-picker-label { min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-picker-chevron { flex-shrink: 0; color: var(--faint); }
+.composer-picker-chevron { flex: 0 0 auto; margin-right: -2px; color: var(--faint); }
 .composer-picker select { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; font-size: 16px; }
 .composer-picker:has(select):hover { color: var(--text); border-color: var(--line-strong); }
 .composer-picker:has(select:focus-visible) { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
@@ -2225,7 +2227,6 @@ button.pending-more:hover { background: none; text-decoration: underline; }
 }
 
 .host-heading { display: flex; align-items: center; gap: 2px; }
-.host-collapse[aria-expanded="false"] .chevron { transform: translateX(-1px) rotate(-45deg); }
 /* One ⋯ button for every sidebar row with a menu: same place, size and glyph.
    Pointer devices show it on hover or focus; touch screens always show it. */
 nav .row-more { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border-radius: 7px; color: var(--muted); }

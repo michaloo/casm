@@ -148,6 +148,14 @@ for (const width of [1440, 375]) test(`host row opens the host modal and edits s
   await expect(panel).toBeVisible();
   await expect(tabs.getByRole("button", { name: "Schedules" })).toHaveAttribute("aria-pressed", "true");
   await expect(panel.getByRole("button", { name: "New schedule" })).toBeVisible();
+  // Reopening before the closing dialog's async close event lands keeps the new modal.
+  await page.evaluate(() => {
+    document.querySelector<HTMLButtonElement>('dialog[open] [aria-label="Close host options"]')!.click();
+    window.dispatchEvent(new CustomEvent("casm:open-schedules", { detail: { host: "" } }));
+  });
+  await page.waitForTimeout(100);
+  await expect(panel).toBeVisible();
+  await expect(tabs.getByRole("button", { name: "Schedules" })).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
   await expect(panel).toBeHidden();
 });

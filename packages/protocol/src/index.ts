@@ -609,7 +609,7 @@ export const methods = {
   // Sends a test notification to one device now; fails with the push service's answer.
   "push.test": method(ById, Ok),
   // Notifies the user: a push to every device subscribed here (or the one whose
-  // label or id is `device`), and a `notification` to every connected client.
+  // label or id is `device`).
   // `sender` (as in agent.send) attributes it: a local agent titles it
   // "<agent> · <project>" and links to the agent. `url` is a path on this
   // server's web client. At most 10 a minute per sender (Busy beyond that).
@@ -826,8 +826,6 @@ export const notifications = {
   "agent.status": z.object({ agentId: z.string(), status: AgentStatus }),
   "agent.changed": z.object({ agent: Agent }),
   "agent.removed": z.object({ agentId: z.string() }),
-  // A push.notify, to every client (shown in-app).
-  "notification": UserNotification,
   "project.changed": z.object({ project: Project }),
   "provider.limits": z.object({ limits: ProviderLimits }),
   "schedule.changed": z.object({ schedule: Schedule }),

@@ -267,10 +267,6 @@ export function createHandlers(
     "push.subscribe": (p) => push.subscribe(p),
     "push.unsubscribe": (p) => push.unsubscribe(p),
     "push.test": (p) => push.test(p.id, identity.name),
-    "push.notify": async (p, conn) => {
-      const result = await push.notify(p, { server: identity, turnSender: (id) => agents.turnSender(id) }, conn.name ?? "client");
-      notify("notification", result.notification);
-      return result;
-    },
+    "push.notify": (p, conn) => push.notify(p, { server: identity, turnSender: (id) => agents.turnSender(id) }, conn.name ?? "client"),
   };
 }

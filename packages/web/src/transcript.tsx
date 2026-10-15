@@ -423,6 +423,12 @@ export function Row({
         ))}
       </div>
     );
+  if (item.kind === "notice" && item.restart)
+    return (
+      <div className="item notice restart" role="separator">
+        <Prose text={item.text} />
+      </div>
+    );
   if (item.kind === "notice")
     return (
       <div className={`item notice ${item.level ?? "info"}`}>

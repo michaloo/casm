@@ -196,8 +196,9 @@ function App() {
   const redraw = () => render((x) => x + 1);
   const [error, setError] = useState("");
   const [mcp, setMcp] = useState<{ host: string; id: string; name: string }>();
-  const [commandBusy, setCommandBusy] = useState(false);
-  const [commandNotice, setCommandNotice] = useState("");
+  // Per chat key: a slash action's result belongs to the agent it ran for.
+  const [commandBusy, setCommandBusy] = useState<ReadonlySet<string>>(new Set());
+  const [commandNotices, setCommandNotices] = useState<Readonly<Record<string, string>>>({});
   const deferredSteers = useRef(new Map<string, string>()).current;
   // Status text of pending rows with an action in flight, by key(host, id).
   const rowNotes = useRef(new Map<string, string>()).current;
@@ -372,6 +373,14 @@ function App() {
           redraw();
         }
         if (n.method === "agent.status" || n.method === "agent.changed") {
+          // A /restart (here or from another client) ended the native session:
+          // read the history again for its divider.
+          const before = hostsRef.current.find((h) => h.id === host)?.agents.find((a) => a.id === p.agent?.id);
+          if (n.method === "agent.changed" && before?.nativeSessionId && !p.agent.nativeSessionId) {
+            chat(k).loaded = false;
+            const s = selected.current;
+            if (s && s.host === host && s.id === p.agent.id) void load(host, p.agent.id, true).catch(() => resubscribe(host, p.agent.id, r));
+          }
           setHosts((hs) =>
             hs.map((h) =>
               h.id !== host
@@ -474,17 +483,19 @@ function App() {
   const c = chat(ckey);
   const slash = useSlashCommands({ rpc: rpc.current, host: selection?.host ?? "", agentId: agent?.id,
     value: c.input, setValue: (text) => { c.input = text; saveDraft(c); redraw(); },
-    action: composerAction, enabled: online && !commandBusy });
+    action: composerAction, enabled: online && !commandBusy.has(ckey) });
   async function composerAction(name: CasmCommand) {
-    if (!agent || !selection || !rpc.current || commandBusy) return;
-    const target = c; const draft = c.input;
-    setCommandBusy(true); setCommandNotice("");
+    if (!agent || !selection || !rpc.current || commandBusy.has(ckey)) return;
+    const target = c; const draft = c.input; const k = ckey;
+    const notice = (text: string) => setCommandNotices(({ [k]: _, ...rest }) => text ? { ...rest, [k]: text } : rest);
+    setCommandBusy((b) => new Set(b).add(k)); notice("");
     try {
       if (name === "mcp") setMcp({ host: selection.host, id: agent.id, name: agent.name });
-      else { await rpc.current.call(`agent.${name}`, { id: agent.id }, selection.host); setCommandNotice(`/${name} completed for ${agent.name}.`); }
+      // The transcript shows a restart as its divider.
+      else { await rpc.current.call(`agent.${name}`, { id: agent.id }, selection.host); if (name !== "restart") notice(`/${name} completed for ${agent.name}.`); }
       if (target.input === draft) { target.input = ""; saveDraft(target); redraw(); }
     } catch (e) { setError(String(e)); }
-    finally { setCommandBusy(false); }
+    finally { setCommandBusy((b) => { const next = new Set(b); next.delete(k); return next; }); }
   }
   // A project's new-agent screen: a welcome with the composer near the center.
   const starting = !!(selection && !selection.id && project && host);
@@ -632,7 +643,7 @@ function App() {
   // the transcript, or in the queue. The server's copy replaces it by id.
   async function send(steer = false) {
     // Offline the draft stays in the composer (and on this device) instead.
-    if (!online || !selection || (!c.input.trim() && !c.images.length) || creating || commandBusy || attaching > 0) return;
+    if (!online || !selection || (!c.input.trim() && !c.images.length) || creating || commandBusy.has(ckey) || attaching > 0) return;
     if (slash.sendAction()) return;
     const s = selection;
     const text = c.input;
@@ -1084,7 +1095,7 @@ function App() {
               }}
             >
               {slash.palette}
-              {commandNotice && <p role="status" className="command-notice">{commandNotice}</p>}
+              {commandNotices[ckey] && <p role="status" className="command-notice">{commandNotices[ckey]}</p>}
               <ComposerPickers provider={provider} fixedProvider={!!agent} catalog={catalog}
                 model={model} configuredModel={agent?.config.model} effectiveModel={agent?.effectiveModel} mode={mode} effort={effort}
                 setProvider={value => { setProvider(value); setModel(""); setMode(""); setEffort(""); }}
@@ -1217,9 +1228,10 @@ function TranscriptHeader({ context }: { context?: TranscriptContext }) {
 const TranscriptEnd = ({ context }: { context?: TranscriptContext }) =>
   context?.pills ? <div className="transcript-end" aria-hidden="true" /> : null;
 const transcriptComponents = { Header: TranscriptHeader, Footer: TranscriptEnd };
-function Entry({ item, time, expansion }: { item: Item; time?: ToolTime; expansion: Record<string, boolean> }) {
+// `earlier`: before a /restart divider, so not in the agent's context.
+function Entry({ item, time, expansion, earlier }: { item: Item; time?: ToolTime; expansion: Record<string, boolean>; earlier?: boolean }) {
   const when = entryTimes(item, time);
-  return <div className="entry">
+  return <div className={earlier ? "entry earlier" : "entry"}>
     <Row item={item} time={time} expansion={expansion} />
     {when && <EntryTime start={when.start} end={when.end} />}
   </div>;
@@ -1255,6 +1267,7 @@ function Transcript({
       ? [{ kind: "assistant" as const, id: "draft-assistant", text: c.draft }]
       : []),
   ];
+  const restartAt = c.items.findLastIndex((i) => i.kind === "notice" && !!i.restart);
   // A pending-strip resize must keep a reader who was at the end at the end.
   useLayoutEffect(() => {
     // Checked again in the frame: a scroll-up in between wins.
@@ -1390,8 +1403,8 @@ function Transcript({
         startReached={() => {
           if (c.loaded && c.start > 0) void older();
         }}
-        itemContent={(_, item) => (
-          <Entry item={item} time={c.toolTimes?.[item.id]} expansion={(c.expanded ??= {})} />
+        itemContent={(i, item) => (
+          <Entry item={item} time={c.toolTimes?.[item.id]} expansion={(c.expanded ??= {})} earlier={i - first < restartAt} />
         )}
         context={{
           start: c.start,

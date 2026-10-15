@@ -261,7 +261,9 @@ export const Item = z.discriminatedUnion("kind", [
   SubagentItem,
   // Status lines: interrupts, retries, compaction, warnings. Upserted by id, so
   // a retry notice can update its countdown.
-  z.object({ kind: z.literal("notice"), id: z.string(), at: z.string().optional(), text: z.string(), level: z.enum(["info", "warning", "error"]).optional() }),
+  // `restart`: the divider agent.history puts where a /restart began a new native
+  // session; the items before it are not in the agent's context.
+  z.object({ kind: z.literal("notice"), id: z.string(), at: z.string().optional(), text: z.string(), level: z.enum(["info", "warning", "error"]).optional(), restart: z.boolean().optional() }),
   // The agent's todo list / plan. Each update replaces the entries.
   z.object({ kind: z.literal("plan"), id: z.string(), at: z.string().optional(), entries: z.array(PlanEntry) }),
 ]);

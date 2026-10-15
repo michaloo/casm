@@ -1,0 +1,172 @@
+/* casm CLI calls: the tool row's card, a sentence for a header, the message as prose. */
+.casm-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 65%, var(--bg));
+  min-width: 0;
+}
+.casm-tool:has(.casm-head .status.running) .casm-card {
+  border-color: color-mix(in srgb, var(--accent-bright) 45%, var(--line));
+  box-shadow: inset 3px 0 var(--accent-bright);
+}
+.casm-tool:has(.casm-head .status.error) .casm-card {
+  border-color: color-mix(in srgb, var(--attention-bright) 40%, var(--line));
+  box-shadow: inset 3px 0 var(--attention-bright);
+}
+.casm-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.casm-head .mini-glyph {
+  width: 13px;
+  height: 13px;
+}
+.casm-verb {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.casm-agent,
+.casm-ref {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  font-weight: 600;
+}
+.casm-head > .casm-agent {
+  max-width: 45%;
+}
+.casm-agent a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.casm-agent a:hover {
+  text-decoration: underline;
+}
+.casm-ref {
+  font: 11.5px/1.5 var(--mono);
+  color: var(--muted);
+}
+.casm-peer {
+  margin-left: 2px;
+  color: var(--faint);
+  font-weight: 500;
+}
+.casm-arrow {
+  color: var(--faint);
+}
+.casm-result {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.casm-head time {
+  font: 10.5px/1.5 var(--mono);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.casm-head .status {
+  flex-shrink: 0;
+  margin-left: 0;
+}
+.casm-raw-toggle {
+  flex-shrink: 0;
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  color: var(--faint);
+  font: 500 11px/1.5 var(--mono);
+  cursor: pointer;
+}
+.casm-raw-toggle:hover,
+.casm-raw-toggle[aria-expanded="true"] {
+  color: var(--accent);
+}
+.casm-text {
+  padding: 0 12px 10px 33px;
+  min-width: 0;
+}
+.casm-text-label {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 2px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+}
+.casm-prose .prose {
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+.casm-text.clamped .casm-prose {
+  max-height: 6.4em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+.casm-more {
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.casm-code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.5 var(--mono);
+  color: var(--muted);
+}
+.casm-raw {
+  padding-bottom: 12px;
+}
+@media (max-width: 650px) {
+  .casm-head {
+    min-height: 44px;
+    padding: 8px 10px;
+  }
+  .casm-verb {
+    font-size: 14px;
+  }
+  .casm-head {
+    font-size: 13px;
+  }
+  .casm-head time {
+    display: none;
+  }
+  .casm-head .status {
+    font-size: 12px;
+    padding: 2px 6px;
+  }
+  .casm-raw-toggle {
+    min-height: 44px;
+    padding: 0 4px;
+    font-size: 12px;
+  }
+  .casm-text {
+    padding: 0 10px 10px;
+  }
+  .casm-prose .prose {
+    font-size: 15px;
+  }
+  .casm-more {
+    min-height: 36px;
+    font-size: 13px;
+  }
+}

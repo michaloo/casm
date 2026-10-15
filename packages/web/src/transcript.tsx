@@ -14,6 +14,8 @@ import remarkGfm from "remark-gfm";
 import { userLineBreaks } from "./user-line-breaks";
 import type { ImageData, Item } from "@casm/protocol";
 import { messageAuthor } from "./message-author";
+import { casmToolCalls } from "./casm-command";
+import { CasmToolRow } from "./casm-tool";
 import { FileLinksContext, MarkdownLink, linkifyHtml, linkifyText, openFromClick, remarkFilePaths } from "./file-links";
 const aliases: Record<string, string> = {
   js: "javascript",
@@ -204,6 +206,29 @@ function shortInput(input: unknown) {
   return input ? JSON.stringify(input) : "";
 }
 export type ToolTime = { start: number; end?: number };
+export function ToolStatus({ status, time }: { status: Extract<Item, { kind: "tool" }>["status"]; time?: ToolTime }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!time || time.end) return;
+    const timer = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [time?.start, time?.end]);
+  const elapsed = time
+    ? Math.max(0, ((time.end ?? Date.now()) - time.start) / 1000)
+    : undefined;
+  return (
+    <>
+      <span className={`status ${status}`}>
+        {status === "done" ? "Done" : status === "error" ? "Failed" : "Running"}
+      </span>
+      {elapsed !== undefined && (
+        <time title="Elapsed since this client observed the tool start">
+          {elapsed.toFixed(elapsed < 10 ? 1 : 0)}s
+        </time>
+      )}
+    </>
+  );
+}
 // The toggle event fires a task after the click. A row that Virtuoso unmounts
 // in between would never record it and would remount collapsed, so record the
 // new state as soon as the summary is clicked.
@@ -224,15 +249,6 @@ function ToolRow({
   expansion: Record<string, boolean>;
 }) {
   const [open, setOpen] = useState(expansion[item.id] ?? false);
-  const [, tick] = useState(0);
-  useEffect(() => {
-    if (!time || time.end) return;
-    const timer = setInterval(() => tick((n) => n + 1), 1000);
-    return () => clearInterval(timer);
-  }, [time?.start, time?.end]);
-  const elapsed = time
-    ? Math.max(0, ((time.end ?? Date.now()) - time.start) / 1000)
-    : undefined;
   const summary = shortInput(item.input);
   const [imageRendered, setImageRendered] = useState(false);
   const output = imageRendered ? withoutImagePlaceholders(item.output ?? "") : item.output ?? "";
@@ -255,18 +271,7 @@ function ToolRow({
           <span className="tool-argument" title={summary}>
             {summary}
           </span>
-          <span className={`status ${item.status}`}>
-            {item.status === "done"
-              ? "Done"
-              : item.status === "error"
-                ? "Failed"
-                : "Running"}
-          </span>
-          {elapsed !== undefined && (
-            <time title="Elapsed since this client observed the tool start">
-              {elapsed.toFixed(elapsed < 10 ? 1 : 0)}s
-            </time>
-          )}
+          <ToolStatus status={item.status} time={time} />
         </summary>
         {open && (
           <div className="tool-body">
@@ -333,8 +338,11 @@ export function Row({
   time?: ToolTime;
   expansion: Record<string, boolean>;
 }) {
-  if (item.kind === "tool")
+  if (item.kind === "tool") {
+    const calls = casmToolCalls(item.name, item.input);
+    if (calls) return <CasmToolRow item={item} calls={calls} time={time} expansion={expansion} />;
     return <ToolRow item={item} time={time} expansion={expansion} />;
+  }
   if (item.kind === "reasoning")
     return (
       <div className="item thinking">

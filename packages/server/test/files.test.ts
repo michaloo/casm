@@ -1,4 +1,4 @@
-// Read-only file access: project scoping, listings, previews, signed download
+// Read-only file access: project scoping, previews, signed download
 // links and their streaming, locally and through a peer.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -38,7 +38,6 @@ before(async () => {
   mkdirSync(join(project, "sub", "deeper"), { recursive: true });
   mkdirSync(outside);
   writeFileSync(join(project, "data.json"), json);
-  writeFileSync(join(project, ".env"), "SECRET=1\n");
   writeFileSync(join(project, "b.md"), "# Notes\n");
   writeFileSync(join(project, "sub", "zażółć plik.txt"), "zażółć\n");
   writeFileSync(join(project, "pixel.png"), Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
@@ -46,7 +45,6 @@ before(async () => {
   writeFileSync(join(project, "big.txt"), "ą".repeat(MAX_READ_BYTES));
   writeFileSync(join(outside, "secret.txt"), "not yours\n");
   symlinkSync(join(outside, "secret.txt"), join(project, "escape.txt"));
-  symlinkSync(outside, join(project, "escape-dir"));
   symlinkSync(join(project, "data.json"), join(project, "alias.json"));
   alpha = await host("alpha");
   beta = await host("beta");
@@ -71,39 +69,13 @@ async function refused(p: Promise<unknown>, code: number, message: RegExp) {
   });
 }
 
-test("fs.list: directories first, hidden files marked, symlinks flagged", async () => {
-  const r = await alpha.client.call("fs.list", { projectId });
-  assert.equal(r.dir, project);
-  assert.equal(r.root, project);
-  assert.equal(r.projectId, projectId);
-  const names = r.entries.map((e) => e.name);
-  assert.deepEqual(names.slice(0, 2), ["escape-dir", "sub"]);
-  assert.deepEqual(names.slice(2), [...names.slice(2)].sort((a, b) => a.localeCompare(b)));
-  const env = r.entries.find((e) => e.name === ".env")!;
-  assert.equal(env.hidden, true);
-  assert.equal(env.type, "file");
-  assert.equal(env.size, 9);
-  assert.ok(Date.parse(env.mtime));
-  assert.equal(r.entries.find((e) => e.name === "alias.json")!.symlink, true);
-  assert.equal(r.entries.find((e) => e.name === "data.json")!.hidden, false);
-
-  const sub = await alpha.client.call("fs.list", { projectId, dir: "sub" });
-  assert.deepEqual(sub.entries.map((e) => [e.name, e.type]), [["deeper", "dir"], ["zażółć plik.txt", "file"]]);
-  const abs = await alpha.client.call("fs.list", { path: join(project, "sub") });
-  assert.deepEqual(abs.entries, sub.entries);
-});
-
 test("paths outside project folders are refused, including through .. and symlinks", async () => {
   await refused(alpha.client.call("fs.read", { path: "/etc/passwd" }), ErrorCode.InvalidParams, /not inside a project folder/);
   await refused(alpha.client.call("fs.read", { path: `${project}/../outside/secret.txt` }), ErrorCode.InvalidParams, /not inside a project folder/);
   await refused(alpha.client.call("fs.read", { path: "data.json" }), ErrorCode.InvalidParams, /must be absolute/);
   await refused(alpha.client.call("fs.read", { path: join(project, "escape.txt") }), ErrorCode.InvalidParams, /outside every project folder/);
-  await refused(alpha.client.call("fs.list", { projectId, dir: "escape-dir" }), ErrorCode.InvalidParams, /outside every project folder/);
-  await refused(alpha.client.call("fs.list", { projectId, dir: "../outside" }), ErrorCode.InvalidParams, /not inside a project folder/);
   await refused(alpha.client.call("fs.downloadLink", { path: join(project, "escape.txt") }), ErrorCode.InvalidParams, /outside/);
   await refused(alpha.client.call("fs.read", { path: join(project, "missing.txt") }), ErrorCode.NotFound, /no such file/);
-  await refused(alpha.client.call("fs.list", { projectId: "nope" }), ErrorCode.NotFound, /project nope not found/);
-  await refused(alpha.client.call("fs.list", { projectId, dir: "data.json" }), ErrorCode.InvalidParams, /not a directory/);
   // A symlink to a file inside the project is fine.
   assert.equal((await alpha.client.call("fs.read", { path: join(project, "alias.json") })).content, json);
 });
@@ -115,7 +87,6 @@ test("the server's state directory is refused even inside a project", async () =
       await refused(alpha.client.call("fs.read", { path: join(alpha.home, name) }), ErrorCode.InvalidParams, /casm's state directory/);
       await refused(alpha.client.call("fs.downloadLink", { path: join(alpha.home, name) }), ErrorCode.InvalidParams, /casm's state directory/);
     }
-    await refused(alpha.client.call("fs.list", { projectId: p.id }), ErrorCode.InvalidParams, /casm's state directory/);
   } finally {
     await alpha.client.call("project.delete", { id: p.id });
   }
@@ -234,14 +205,12 @@ test("links expire, and stop working when the file leaves every project", async 
   }
 });
 
-test("a peer's files: list and read forward, downloads stream through this server", async () => {
-  const listed = await alpha.client.call("fs.list", { path: project, dir: undefined });
+test("a peer's files: reads forward, downloads stream through this server", async () => {
   const viaPeer = await CasmClient.connect(alpha.url, alpha.token, { host: "beta" });
   try {
-    const r = await viaPeer.call("fs.list", { path: project });
-    assert.deepEqual(r.entries.map((e) => e.name), listed.entries.map((e) => e.name));
-    assert.notEqual(r.projectId, projectId);
-    assert.equal((await viaPeer.call("fs.read", { path: join(project, "data.json") })).content, json);
+    const read = await viaPeer.call("fs.read", { path: join(project, "data.json") });
+    assert.equal(read.content, json);
+    assert.notEqual(read.projectId, projectId);
     await refused(viaPeer.call("fs.read", { path: "/etc/passwd" }), ErrorCode.InvalidParams, /not inside a project folder/);
 
     const link = await viaPeer.call("fs.downloadLink", { path: join(project, "pixel.png"), inline: true });

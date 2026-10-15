@@ -1,15 +1,15 @@
-// Read-only access to files inside project folders: directory listings, text
-// previews, and short-lived signed download links served at GET /dl/<token>.
+// Read-only access to files inside project folders: text previews and
+// short-lived signed download links served at GET /dl/<token>.
 // A link carries no client token; it is an HMAC (with a secret kept in
 // $CASM_HOME) over one path and an expiry. Links to a peer's file wrap the
 // peer's own link, so the download streams through this server.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { lstat, open, readdir, realpath, stat } from "node:fs/promises";
+import { open, realpath, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
-import { ErrorCode, type FileContent, type FileEntry, type FileType, type Project, type Result } from "@casm/protocol";
+import { ErrorCode, type FileContent, type FileType, type Project, type Result } from "@casm/protocol";
 import { RpcError } from "./agents.ts";
 import type { Store, StoredPeer } from "./db.ts";
 import type { PeerPool } from "./peers.ts";
@@ -131,38 +131,6 @@ export class Files {
     if (!match) throw new RpcError(ErrorCode.InvalidParams, `${path} resolves to ${real}, outside every project folder on this host`);
     if (this.home && inside(this.home, real)) throw new RpcError(ErrorCode.InvalidParams, `${path} is in casm's state directory, which is never shared`);
     return { real, project: match.project, root: match.real };
-  }
-
-  async list(p: { projectId?: string; path?: string; dir?: string }): Promise<Result<"fs.list">> {
-    let dir: string;
-    if (p.projectId) {
-      const project = this.store.getProject(p.projectId);
-      if (!project) throw new RpcError(ErrorCode.NotFound, `project ${p.projectId} not found`);
-      dir = resolve(project.path, p.dir ?? p.path ?? ".");
-    } else {
-      dir = p.path ?? p.dir ?? "";
-      if (!isAbsolute(dir)) throw new RpcError(ErrorCode.InvalidParams, "give a projectId, or an absolute path");
-      dir = resolve(dir);
-    }
-    const { real, project } = await this.resolve(dir);
-    if (!(await stat(real)).isDirectory()) throw new RpcError(ErrorCode.InvalidParams, `not a directory: ${dir}`);
-    const entries: FileEntry[] = [];
-    for (const d of await readdir(real, { withFileTypes: true })) {
-      const full = join(real, d.name);
-      const link = await lstat(full).catch(() => null);
-      if (!link) continue;
-      const target = link.isSymbolicLink() ? await stat(full).catch(() => null) : link;
-      entries.push({
-        name: d.name,
-        type: target ? typeOf(target) : "other",
-        size: target?.isFile() ? target.size : 0,
-        mtime: (target ?? link).mtime.toISOString(),
-        hidden: d.name.startsWith("."),
-        ...(link.isSymbolicLink() ? { symlink: true } : {}),
-      });
-    }
-    entries.sort((a, b) => Number(b.type === "dir") - Number(a.type === "dir") || a.name.localeCompare(b.name));
-    return { projectId: project.id, root: project.path, dir, entries };
   }
 
   async read(p: { path: string; maxBytes?: number }): Promise<FileContent> {

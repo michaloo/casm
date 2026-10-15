@@ -450,18 +450,6 @@ export type AgentPromptInfo = z.infer<typeof AgentPromptInfo>;
 export const FileType = z.enum(["file", "dir", "other"]);
 export type FileType = z.infer<typeof FileType>;
 
-// `symlink` entries are listed with their target's type; a link leading out of
-// the project folder lists but can't be opened.
-export const FileEntry = z.object({
-  name: z.string(),
-  type: FileType,
-  size: z.number(),
-  mtime: z.string(),
-  hidden: z.boolean(),
-  symlink: z.boolean().optional(),
-});
-export type FileEntry = z.infer<typeof FileEntry>;
-
 export const FileContent = z.object({
   path: z.string(),
   projectId: z.string(),
@@ -567,17 +555,6 @@ export const methods = {
 
   // Read-only access to files inside project folders. Paths must stay inside a
   // project folder once symlinks and ".." are resolved; anything else is refused.
-  // A directory: `dir` absolute, or relative to the project (`projectId`), or `path`.
-  // Directories come first, then by name; `hidden` marks dot-files.
-  "fs.list": method(
-    z.object({ projectId: z.string().optional(), path: z.string().optional(), dir: z.string().optional() }),
-    z.object({
-      projectId: z.string(),
-      root: z.string(),
-      dir: z.string(),
-      entries: z.array(FileEntry),
-    }),
-  ),
   // A file's info and, for text, its first `maxBytes` (default and at most
   // 1 MiB). `content` is null for binary files and directories.
   "fs.read": method(z.object({ path: z.string(), maxBytes: z.number().int().positive().optional() }), FileContent),

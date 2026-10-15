@@ -117,7 +117,6 @@ export function createHandlers(
       return { root, entries: await searchFiles(root, p.query, p.limit) };
     },
 
-    "fs.list": (p) => files.list(p),
     "fs.read": (p) => files.read(p),
     "fs.downloadLink": (p) => files.link(p),
 

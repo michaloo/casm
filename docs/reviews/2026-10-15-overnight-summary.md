@@ -26,8 +26,6 @@ run `4433da7`**; the server restarted at 02:41 UTC. Final checks: typecheck, **3
    This silences the warning, and it also gives Codex agents in those projects the workspace-write
    sandbox under casm's `auto` mode.
 3. **License.** The new `main` has no LICENSE. The legacy casm was MIT.
-4. **Server `fs.list`.** It's now unused by the UI after the file browser was removed. Keep it for the
-   API, or remove it?
 
 ## Open issues (low)
 

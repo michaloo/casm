@@ -65,7 +65,7 @@ Errors use the standard codes plus casm's own:
 | Requests | `agent.respondPermission`, `agent.answerQuestion` |
 | MCP | `agent.mcpStatus`, `agent.mcpReconnect`, `agent.mcpToggle` |
 | Host-wide | `pending.list`, `provider.limits`, `provider.catalog`, `schedule.list`, `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.runNow` |
-| Files | `fs.list`, `fs.read`, `fs.search`, `fs.downloadLink` |
+| Files | `fs.read`, `fs.search`, `fs.downloadLink` |
 
 Notifications: `agent.event` (for subscribed agents), `agent.status`,
 `agent.changed`, `agent.removed`, `project.changed`, `project.removed`,

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { Catalog, ProviderId } from "@casm/protocol";
 import { ProviderIcon, providerNames } from "./provider-icon";
 import { modelLabels } from "./model-label";
@@ -41,7 +41,23 @@ export function ComposerPickers({ provider, fixedProvider, catalog, model, effec
   const modes: Option[] = [{ value: "", label: "Default", description: "Use the provider's default mode" }, ...catalog.modes.map(item => ({ value: item.id, label: shortMode(item.id, item.name), description: [item.name, item.description].filter(Boolean).join(" — ") }))];
   if (mode && !catalog.modes.some(item => item.id === mode)) modes.push({ value: mode, label: shortMode(mode) });
   const efforts = selectedModel?.efforts ?? [];
-  return <div className="pickers">
+  const row = useRef<HTMLDivElement>(null);
+  // Marks which edges have pills scrolled out of view, for the fade.
+  useEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const mark = () => {
+      const more = [el.scrollLeft > 1 && "start", el.scrollLeft + el.clientWidth < el.scrollWidth - 1 && "end"].filter(Boolean).join(" ");
+      if (more) el.dataset.more = more; else delete el.dataset.more;
+    };
+    mark();
+    el.addEventListener("scroll", mark, { passive: true });
+    const observer = new ResizeObserver(mark);
+    observer.observe(el);
+    for (const child of el.children) observer.observe(child);
+    return () => { el.removeEventListener("scroll", mark); observer.disconnect(); };
+  }, [catalog, provider, model, mode, effort, effectiveModel]);
+  return <div className="pickers" ref={row}>
     <Picker name="Provider" value={provider} label={provider === "pi" ? "pi" : providerNames[provider]} icon={<ProviderIcon provider={provider} />} disabled={fixedProvider}
       options={(["claude", "codex", "opencode", "pi"] as ProviderId[]).map(id => ({ value: id, label: id === "pi" ? "pi" : providerNames[id] }))} onChange={value => setProvider(value as ProviderId)} />
     <Picker name="Model" value={model} label={model ? compactModel(labels.selectedLabel) : defaultLabel} prefix={model ? undefined : "Model"} options={modelOptions} onChange={setModel}

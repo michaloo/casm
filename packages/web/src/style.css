@@ -1263,12 +1263,25 @@ details[open] > summary:before {
     0 0 0 4px color-mix(in srgb, var(--accent-bright) 10%, transparent),
     var(--shadow);
 }
+/* One line of pills that scrolls sideways (never wraps); the edge with more
+   pills fades (data-more, set by ComposerPickers). */
 .pickers {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  --fade-start: #000;
+  --fade-end: #000;
+  mask-image: linear-gradient(to right, var(--fade-start), #000 28px, #000 calc(100% - 28px), var(--fade-end));
+  -webkit-mask-image: linear-gradient(to right, var(--fade-start), #000 28px, #000 calc(100% - 28px), var(--fade-end));
   gap: 6px;
-  margin-bottom: 7px;
+  /* Room for the focus ring inside the scroller. */
+  padding: 2px;
+  margin: -2px -2px 5px;
 }
 /* The native select is the hit target; concise text and icon form its face. */
 .composer-picker {
@@ -1653,11 +1666,17 @@ textarea::placeholder {
   :root {
     font-size: 16px;
   }
+  /* The whole screen (to the home indicator, also in the installed PWA);
+     with the keyboard open, just the visible part above it. */
   .app {
     position: fixed;
-    top: var(--viewport-top, 0px);
-    left: 0;
+    inset: 0;
     width: 100%;
+    height: auto;
+  }
+  html[data-keyboard] .app {
+    top: var(--viewport-top, 0px);
+    bottom: auto;
     height: var(--viewport-height, 100dvh);
   }
   input,
@@ -1835,17 +1854,18 @@ textarea::placeholder {
   }
   .composer {
     width: calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right));
+    /* Exactly one bottom inset: the composer sits just above the home indicator. */
     margin: 6px auto max(8px, env(safe-area-inset-bottom));
     padding: 8px 10px;
     border-radius: 14px;
   }
+  html[data-keyboard] .composer { margin-bottom: 8px; }
   .pickers {
     gap: 6px;
     margin-bottom: 4px;
   }
   .composer-picker { height: 44px; border-radius: 22px; max-width: 100%; }
   .composer-picker-label { max-width: 210px; }
-  .composer-picker:has(select[aria-label="Model"]) { flex: 1 1 calc(100% - 120px); }
   .composer textarea {
     min-height: 48px;
     max-height: 30dvh;
@@ -1854,13 +1874,14 @@ textarea::placeholder {
     resize: none;
   }
   .actions {
-    gap: 8px;
+    gap: 6px;
   }
   .actions small {
     display: none;
   }
+  /* Attach, Interrupt, Steer and Queue fit one row at 360px. */
   .actions button {
-    padding: 0 18px;
+    padding: 0 14px;
     font-size: 16px;
   }
   .pending {
@@ -2767,3 +2788,8 @@ footer .sign-out:hover { color: var(--text); }
   .exit-glyph { width: 16px; height: 16px; }
   .confirm-actions button { flex: 1; min-height: 44px; font-size: 16px; }
 }
+.pickers::-webkit-scrollbar { display: none; }
+.pickers[data-more~="start"] { --fade-start: transparent; }
+.pickers[data-more~="end"] { --fade-end: transparent; }
+.pickers > * { flex: 0 0 auto; }
+.pickers .model-session { white-space: nowrap; }

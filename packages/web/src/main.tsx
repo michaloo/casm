@@ -94,6 +94,11 @@ function App() {
     const update = () => {
       root.setProperty("--viewport-height", `${viewport.height}px`);
       root.setProperty("--viewport-top", `${viewport.offsetTop}px`);
+      // The keyboard covers the home indicator: no bottom safe-area inset then,
+      // and the app follows the visible viewport; otherwise it fills the screen.
+      const keyboard = window.innerHeight - viewport.height > 120;
+      if (keyboard) document.documentElement.dataset.keyboard = "open";
+      else delete document.documentElement.dataset.keyboard;
     };
     update();
     viewport.addEventListener("resize", update);

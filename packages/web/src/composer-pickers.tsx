@@ -31,13 +31,14 @@ function Picker({ name, value, label, options, onChange, icon, prefix, disabled 
   </label>;
 }
 
-export function ComposerPickers({ provider, fixedProvider, catalog, model, effectiveModel, mode, effort, setProvider, setModel, setMode, setEffort }: {
-  provider: ProviderId; fixedProvider: boolean; catalog: Catalog; model: string; effectiveModel?: string | null;
+export function ComposerPickers({ provider, fixedProvider, catalog, model, configuredModel, effectiveModel, mode, effort, setProvider, setModel, setMode, setEffort }: {
+  provider: ProviderId; fixedProvider: boolean; catalog: Catalog; model: string; configuredModel?: string | null; effectiveModel?: string | null;
   mode: string; effort: string; setProvider: (value: ProviderId) => void; setModel: (value: string) => void;
   setMode: (value: string) => void; setEffort: (value: string) => void;
 }) {
-  const labels = modelLabels(model, effectiveModel, catalog.models);
-  const defaultLabel = effectiveModel && !/^default\b/i.test(compactModel(labels.actual ?? "", effectiveModel)) ? `Default · ${compactModel(labels.actual!, effectiveModel)}` : "Default";
+  const labels = modelLabels(model, effectiveModel, catalog.models, configuredModel ?? null);
+  const session = labels.effective;
+  const defaultLabel = session && !/^default\b/i.test(compactModel(labels.actual ?? "", session)) ? `Default · ${compactModel(labels.actual!, session)}` : "Default";
   const selectedModel = catalog.models.find(item => item.id === (model || effectiveModel)) ?? (!model ? catalog.models.find(item => item.isDefault) : undefined);
   const modelOptions: Option[] = [{ value: "", label: defaultLabel, description: effectiveModel ? labels.sessionTitle : "Use the provider's default model" },
     ...catalog.models.map(item => ({ value: item.id, label: clean(item.name || item.id), description: item.description }))];
@@ -68,6 +69,6 @@ export function ComposerPickers({ provider, fixedProvider, catalog, model, effec
       title={[model || "Provider default", selectedModel?.name, selectedModel?.description, labels.sessionTitle].filter(Boolean).join(" · ")} />
     {catalog.modes.length > 1 && <Picker name="Mode" prefix="Mode" value={mode} label={modes.find(item => item.value === mode)?.label ?? "Default"} options={modes} onChange={setMode} />}
     {efforts.length > 1 && <Picker name="Effort" prefix="Effort" value={effort} label={effort ? titleCase(effort) : "Default"} options={[{ value: "", label: "Default", description: "Use the model's default reasoning effort" }, ...efforts.map(value => ({ value, label: titleCase(value) }))]} onChange={setEffort} />}
-    {labels.showSession && <small className="model-session" title={labels.sessionTitle}>Session: {compactModel(labels.actual!, effectiveModel)}</small>}
+    {labels.showSession && <small className="model-session" title={labels.sessionTitle}>Session: {compactModel(labels.actual!, session)}</small>}
   </div>;
 }

@@ -2556,7 +2556,6 @@ nav .row-add:disabled { opacity: 0.35; }
 .settings-title-host .host-label { line-height: 1.25; }
 .settings-title-host .host-name { font-size: 18px; }
 .settings-title-host .host-label small { font-weight: 500; letter-spacing: 0; }
-.settings-next { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
 /* Schedules and usage inside the host modal. */
 .settings-dialog .switch { min-width: 0; min-height: 0; }
 .settings-dialog .schedule-actions .icon-button { min-width: 0; min-height: 0; }

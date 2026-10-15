@@ -66,7 +66,7 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   const options = await dialog.getByRole("option").allTextContents();
   expect(options.filter(text => text.startsWith("New project"))).toEqual(["New projectTest host"]);
   expect(options.filter(text => text.startsWith("Schedules"))).toEqual(["SchedulesTest host"]);
-  expect(options.some(text => /^(Project options|Host usage|Host instructions)/.test(text))).toBe(false);
+  expect(options.some(text => /^(Project options|Host usage|Host AGENTS\.md|System Prompt)/.test(text))).toBe(false);
   await input.press("Tab");
   await expect(dialog.getByRole("option", { selected: true })).toContainText(/Agent 01|Agent 03/);
   await expect(dialog.getByRole("button", { name: "Close launcher" })).toBeVisible({ visible: width === 375 });
@@ -116,9 +116,9 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await expect(dialog.getByRole("option", { selected: true })).toContainText("Test project");
   await input.press("Control+Enter"); await expect(project).toBeVisible();
   await project.getByRole("button", { name: "Close project options" }).click();
-  await page.keyboard.press("Control+k"); await input.fill("Host instructions Remote lab"); await input.press("Enter");
+  await page.keyboard.press("Control+k"); await input.fill("Host AGENTS.md Remote lab"); await input.press("Enter");
   const host = page.getByRole("dialog", { name: "Remote lab host" });
-  await expect(host).toBeVisible(); await expect(host.getByRole("button", { name: "Instructions", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(host).toBeVisible(); await expect(host.getByRole("button", { name: "AGENTS.md", exact: true })).toHaveAttribute("aria-pressed", "true");
   await host.getByRole("button", { name: "Close host options" }).click();
   await page.evaluate(() => window.addEventListener("casm:open-schedules", event => { (window as any).__scheduleHost = (event as CustomEvent).detail.host; }));
   await page.keyboard.press("Control+k"); await input.fill("Schedules Remote lab"); await input.press("Enter");

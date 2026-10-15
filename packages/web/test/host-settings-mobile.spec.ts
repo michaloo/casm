@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
 
-for (const width of [1440, 375]) test(`host modal instructions: mobile-safe editing and agent prompt at ${width}`, async ({ page }) => {
+for (const width of [1440, 375]) test(`host modal AGENTS.md and System Prompt tabs: mobile-safe editing at ${width}`, async ({ page }) => {
   writeFileSync(`${testHome}/host-settings/AGENTS.md`, "# Shared host instructions\n\nUse isolated fixtures.");
   await page.setViewportSize({ width, height: 812 });
   const hostName = width === 375 ? "Settings peer" : "Test host";
@@ -32,7 +32,7 @@ for (const width of [1440, 375]) test(`host modal instructions: mobile-safe edit
   const panel = page.getByRole("dialog", { name: `${hostName} host` });
   // Host-wide memories are gone; memories live with each project.
   await expect(panel.getByRole("button", { name: "Memories", exact: true })).toHaveCount(0);
-  await panel.getByRole("button", { name: "Instructions", exact: true }).click();
+  await panel.getByRole("button", { name: "AGENTS.md", exact: true }).click();
   await expect(panel.getByRole("heading", { name: "Shared host instructions" })).toBeVisible();
   await expect(panel.locator("article.settings-card")).toHaveCount(1);
   await expect(panel.locator("article h4")).toContainText("Claude · Codex · OpenCode · Pi");
@@ -58,17 +58,20 @@ for (const width of [1440, 375]) test(`host modal instructions: mobile-safe edit
   await panel.getByRole("button", { name: "Save instructions", exact: true }).click();
   await expect(panel.getByRole("heading", { name: "My saved instructions" })).toBeVisible();
   expect(readFileSync(`${testHome}/host-settings/AGENTS.md`, "utf8")).toContain("Keep this draft");
-  // The casm agent prompt sits under the global AGENTS.md on the same tab.
-  const enabled = panel.getByLabel("Enable host agent prompt");
+  // casm's System Prompt has its own tab.
+  await expect(panel.getByRole("region", { name: "System Prompt" })).toBeHidden();
+  await panel.getByRole("button", { name: "System Prompt", exact: true }).click();
+  await expect(panel.getByRole("region", { name: "Global AGENTS.md" })).toBeHidden();
+  const enabled = panel.getByLabel("Enable the System Prompt");
   await expect(enabled).toBeVisible();
   if (!await enabled.isChecked()) { await enabled.click(); await expect(enabled).toBeChecked(); }
-  await panel.getByRole("button", { name: "Edit agent prompt", exact: true }).click();
-  await panel.getByRole("textbox", { name: "Agent prompt template", exact: true }).fill("# Custom host prompt\n\nExample agent instructions.");
-  await panel.getByRole("button", { name: "Save agent prompt", exact: true }).click();
+  await panel.getByRole("button", { name: "Edit System Prompt", exact: true }).click();
+  await panel.getByRole("textbox", { name: "System Prompt template", exact: true }).fill("# Custom host prompt\n\nExample agent instructions.");
+  await panel.getByRole("button", { name: "Save System Prompt", exact: true }).click();
   await expect(panel.getByRole("heading", { name: "Custom host prompt" })).toBeVisible();
   await enabled.click();
   await expect(enabled).not.toBeChecked();
-  await expect(panel.getByText("The host agent prompt is disabled.", { exact: true })).toBeVisible();
+  await expect(panel.getByText("The System Prompt is disabled.", { exact: true })).toBeVisible();
   await enabled.click();
   await expect(enabled).toBeChecked();
   await expect(panel.getByRole("heading", { name: "Custom host prompt" })).toBeVisible();

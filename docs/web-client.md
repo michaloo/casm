@@ -59,7 +59,7 @@ strongest match comes first.
 
 Enter on a project starts a new-agent draft there. Actions (each with its host
 as secondary text) open **New project**, **Schedules**, **Host usage**, **Host
-instructions** and **Project options**. The existing settings dialogs retain
+AGENTS.md**, **System Prompt** and **Project options**. The existing settings dialogs retain
 their own keyboard focus and unsaved edit guards; close them before opening the
 launcher again. Theme continues to follow the system preference, so there is no
 separate toggle action.
@@ -76,7 +76,7 @@ other agents created are nested under their parent, also across hosts.
 ![an agent that split its work across agents on two hosts](media/web-orchestration.png)
 
 - **Host options** (⋯ next to a host) opens the host's window: Usage,
-  Schedules, Instructions and Notifications.
+  Schedules, AGENTS.md, System Prompt and Notifications.
 - **New project** (+ next to a host) registers a folder on that host.
 - **Project options** (⋯ next to a project) opens the project's window:
   AGENTS.md and Memories, with the path (Copy), host and group under the
@@ -158,12 +158,13 @@ or skip when busy) or to a new agent made from a preset.
 
 ## Settings
 
-**Host options → Instructions** edits the host's global instruction files (the
-`CLAUDE.md`/`AGENTS.md` each provider reads, with a conflict check) and edits,
-previews, disables or resets the [agent prompt](concepts.md#the-agent-prompt).
+**Host options → AGENTS.md** edits the host's global instruction files (the
+`CLAUDE.md`/`AGENTS.md` each provider reads, with a conflict check).
+**Host options → System Prompt** edits, previews, disables or resets casm's
+[agent prompt](concepts.md#the-agent-prompt) (`casm agent-prompt` on the CLI).
 Details: [host settings](host-settings.md).
 
-![host settings: the agent prompt and its preview](media/web-host-settings.png)
+![host settings: the System Prompt and its preview](media/web-host-settings.png)
 
 **Project options** does the same for one project: its `AGENTS.md`, its
 providers' memories (read-only), and its path, group and agent count.

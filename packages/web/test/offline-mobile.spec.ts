@@ -2,7 +2,7 @@
 // on reload with the server gone, and noticing a socket that died silently.
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
-import { testHome } from "./config.ts";
+import { testHome, testURL, testWS } from "./config.ts";
 
 const server = () => Number(readFileSync(`${testHome}/web-pid`, "utf8"));
 const signal = (name: NodeJS.Signals) => process.kill(server(), name);
@@ -138,4 +138,60 @@ test("offline mobile: coming back to the page checks the connection at once", as
   await expect(page.locator(".item").first()).toBeVisible();
   await send(page, "after resume");
   await expect(page.getByText("echo: after resume", { exact: true })).toBeVisible();
+});
+
+test("offline mobile: plain remote HTTP keeps the saved copy without a service worker", async ({ page }) => {
+  // A non-loopback http origin mapped to the disposable server, its socket too.
+  const origin = "http://casm-insecure.test";
+  const workerRequests: string[] = [];
+  page.on("request", (request) => { if (request.url().includes("/sw.js")) workerRequests.push(request.url()); });
+  await page.route(`${origin}/**`, async (route) => {
+    const url = new URL(route.request().url());
+    await route.fulfill({ response: await page.request.get(`${testURL}${url.pathname}${url.search}`) });
+  });
+  let refuse = false;
+  await page.routeWebSocket(/casm-insecure\.test/, (ws) => {
+    if (refuse) return ws.close();
+    const upstream = new WebSocket(`${testWS}${new URL(ws.url()).search}`);
+    const early: string[] = [];
+    upstream.onopen = () => early.splice(0).forEach((m) => upstream.send(m));
+    upstream.onmessage = (m) => ws.send(String(m.data));
+    upstream.onclose = () => ws.close();
+    ws.onMessage((m) => upstream.readyState === WebSocket.OPEN ? upstream.send(String(m)) : early.push(String(m)));
+    ws.onClose(() => upstream.close());
+  });
+  await page.goto(origin);
+  expect(await page.evaluate(() => isSecureContext)).toBe(false);
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await openAgent(page, "Agent 00");
+  await expect(page.getByText(/Message 319/)).toBeVisible();
+  const agent = new URL(page.url()).pathname.split("/").pop();
+  await expect.poll(() => savedKeys(page)).toEqual(expect.arrayContaining(["meta", "sidebar", `chat:/${agent}`]));
+  expect(workerRequests).toEqual([]);
+  expect(await page.evaluate(async () => "serviceWorker" in navigator ? (await navigator.serviceWorker.getRegistrations()).length : 0)).toBe(0);
+  // No notice anywhere but one quiet line in the serving host's options.
+  await expect(banner(page)).toHaveCount(0);
+  const agents = page.getByRole("button", { name: "Agents", exact: true });
+  if (await agents.isVisible()) await agents.click();
+  await page.getByRole("button", { name: "Host options for Test host" }).click();
+  await expect(page.locator(".http-note")).toHaveText("Served over HTTP: cold offline start and notifications need HTTPS (everything else works).");
+  await page.getByRole("button", { name: "Close host options" }).click();
+
+  // The app still in memory, the server unreachable: a reload with the socket
+  // refused renders the saved copy from IndexedDB.
+  refuse = true;
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("main header strong")).toHaveText("Agent 00");
+  await expect(page.getByText(/Message 319/)).toBeVisible();
+  await expect(banner(page)).toHaveText(/showing saved copy from \d/);
+});
+
+test("offline mobile: a secure origin shows no HTTP note", async ({ page }) => {
+  await login(page);
+  const agents = page.getByRole("button", { name: "Agents", exact: true });
+  if (await agents.isVisible()) await agents.click();
+  await page.getByRole("button", { name: "Host options for Test host" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.locator(".http-note")).toHaveCount(0);
 });

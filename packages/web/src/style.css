@@ -1215,6 +1215,25 @@ details[open] > summary:before {
 .notice.error .notice-icon {
   background: var(--attention-soft);
 }
+/* /restart: a rule across the transcript; what precedes it is out of context. */
+.notice.restart {
+  align-items: center;
+  gap: 12px;
+}
+.notice.restart::before,
+.notice.restart::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
+.notice.restart .prose {
+  flex: none;
+  max-width: 70%;
+  text-align: center;
+}
+.entry.earlier > .item {
+  opacity: 0.55;
+}
 .plan {
   padding-top: 8px;
   padding-bottom: 8px;

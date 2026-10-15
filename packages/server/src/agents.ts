@@ -254,7 +254,7 @@ export class AgentManager {
         // records as running ran in a process that is gone: sessions don't
         // survive a server restart, and this server would have seen it otherwise.
         const seen = new Set(list.map((x) => x.id));
-        const items = await this.history(agentId, undefined, 100_000).then((h) => h.items, () => []);
+        const items = await this.currentHistory(agentId).catch(() => []);
         const latest = new Map<string, SubagentItem>();
         for (const i of items) if (i.kind === "subagent" && !seen.has(i.id)) latest.set(i.id, i);
         const older = [...latest.values()].reverse().map(({ kind: _, ...i }): SubagentInfo => ({
@@ -828,9 +828,12 @@ export class AgentManager {
     await s?.close();
   }
 
-  // Like reload, but the next send starts a new native session.
+  // Like reload, but the next send starts a new native session. The old one
+  // stays in the history, before a divider.
   async restart(id: string) {
     await this.reload(id);
+    const a = this.agent(id);
+    if (a.nativeSessionId) this.store.addPastSession(id, a.nativeSessionId);
     const updated = this.store.updateAgent(id, { nativeSessionId: null })!;
     this.notify("agent.changed", { agent: this.withStatus(updated) });
   }
@@ -930,7 +933,7 @@ export class AgentManager {
   async dropAnsweredFailed() {
     for (const m of this.store.listPending()) {
       if (m.reason !== "failed") continue;
-      const items = await this.history(m.agentId, undefined, 50).then((h) => h.items, () => []);
+      const items = await this.currentHistory(m.agentId).then((h) => h.slice(-50), () => []);
       const asked = items.findLastIndex((i) => i.kind === "user" && i.text === m.text);
       if (asked >= 0 && items.slice(asked + 1).some((i) => i.kind === "assistant")) {
         this.store.removePending(m.id);
@@ -996,8 +999,11 @@ export class AgentManager {
   async subagentHistory(id: string, subagentId: string, limit = 500): Promise<Item[]> {
     const a = this.agent(id);
     const p = this.provider(a.provider);
-    if (!a.nativeSessionId || !p.subagentHistory) return [];
-    return (await p.subagentHistory(a.nativeSessionId, a.cwd, subagentId)).slice(-limit);
+    // A subagent from a session left by /restart (agent.history prefixed its id).
+    const past = /^past(\d+):(.*)$/s.exec(subagentId);
+    const session = past ? this.store.pastSessions(id)[Number(past[1])]?.nativeSessionId : a.nativeSessionId;
+    if (!session || !p.subagentHistory) return [];
+    return (await p.subagentHistory(session, a.cwd, past ? past[2] : subagentId)).slice(-limit);
   }
 
   async usage(id: string): Promise<Usage | null> {
@@ -1029,19 +1035,40 @@ export class AgentManager {
     return entry.promise;
   }
 
+  // The transcript the user sees: sessions left by /restart first, each closed
+  // by a divider, then the current one. Their item ids get a `past<n>:` prefix
+  // so they can't collide with the current session's.
   async history(id: string, before?: number, limit = 200): Promise<{ items: Item[]; start: number; total: number }> {
     const a = this.agent(id);
-    if (!a.nativeSessionId) return { items: [], start: 0, total: 0 };
-    const provider = this.provider(a.provider);
-    const aliases = await provider.historyAliases?.(a.nativeSessionId, a.cwd) ?? {};
-    const all = (await provider.history(a.nativeSessionId, a.cwd)).map((item) => {
-      if (item.kind !== "user") return item;
-      const sender = this.store.messageSender(id, item.id) ?? (aliases[item.id] ? this.store.messageSender(id, aliases[item.id]) : undefined);
-      return sender ? { ...item, sender } : item;
-    });
+    const past = this.store.pastSessions(id);
+    const all: Item[] = [];
+    for (const [n, s] of past.entries()) {
+      const items = await this.sessionHistory(a, s.nativeSessionId).catch(() => []);
+      all.push(...items.map((item) => ({ ...item, id: `past${n}:${item.id}` })), {
+        kind: "notice", id: `restart:${n}`, at: s.endedAt, level: "info", restart: true,
+        text: "Session restarted: earlier messages are not in the agent's context",
+      });
+    }
+    if (a.nativeSessionId) all.push(...await this.sessionHistory(a, a.nativeSessionId));
     const end = Math.min(before ?? all.length, all.length);
     const start = Math.max(0, end - limit);
     return { items: all.slice(start, end), start, total: all.length };
+  }
+
+  private async sessionHistory(a: StoredAgent, nativeSessionId: string): Promise<Item[]> {
+    const provider = this.provider(a.provider);
+    const aliases = await provider.historyAliases?.(nativeSessionId, a.cwd) ?? {};
+    return (await provider.history(nativeSessionId, a.cwd)).map((item) => {
+      if (item.kind !== "user") return item;
+      const sender = this.store.messageSender(a.id, item.id) ?? (aliases[item.id] ? this.store.messageSender(a.id, aliases[item.id]) : undefined);
+      return sender ? { ...item, sender } : item;
+    });
+  }
+
+  // What the current native session holds, for the server's own checks.
+  private async currentHistory(id: string): Promise<Item[]> {
+    const a = this.agent(id);
+    return a.nativeSessionId ? this.sessionHistory(a, a.nativeSessionId) : [];
   }
 
   async wait(id: string, timeoutMs = 10 * 60_000) {
@@ -1064,7 +1091,7 @@ export class AgentManager {
     // Only without a turn since the server started: an interrupted or failed
     // turn has no reply, and an older one would read as its answer.
     if (lastReply === null && !l.lastTurn && this.status(id) === "idle") {
-      const { items } = await this.history(id, undefined, 50);
+      const items = await this.currentHistory(id);
       lastReply = items.findLast((i) => i.kind === "assistant")?.text ?? null;
     }
     return { status: this.status(id), timedOut, lastReply, lastTurn: l.lastTurn };

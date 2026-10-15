@@ -4077,6 +4077,9 @@
                         "warning",
                         "error"
                       ]
+                    },
+                    "restart": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -4481,6 +4484,9 @@
                                 "warning",
                                 "error"
                               ]
+                            },
+                            "restart": {
+                              "type": "boolean"
                             }
                           },
                           "required": [
@@ -5470,6 +5476,9 @@
                         "warning",
                         "error"
                       ]
+                    },
+                    "restart": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -6695,6 +6704,9 @@
                             "warning",
                             "error"
                           ]
+                        },
+                        "restart": {
+                          "type": "boolean"
                         }
                       },
                       "required": [

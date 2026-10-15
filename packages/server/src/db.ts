@@ -113,6 +113,13 @@ CREATE TABLE IF NOT EXISTS message_senders (
   sender TEXT NOT NULL,
   PRIMARY KEY (agent_id, item_id)
 );
+-- Native sessions an agent left behind on /restart, oldest first (rowid order).
+CREATE TABLE IF NOT EXISTS past_sessions (
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  native_session_id TEXT NOT NULL,
+  ended_at TEXT NOT NULL,
+  PRIMARY KEY (agent_id, native_session_id)
+);
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -416,6 +423,15 @@ export class Store {
   messageSender(agentId: string, itemId: string): MessageSender | undefined {
     const row = this.db.prepare("SELECT sender FROM message_senders WHERE agent_id = ? AND item_id = ?").get(agentId, itemId) as Row | undefined;
     return row ? JSON.parse(row.sender as string) : undefined;
+  }
+
+  addPastSession(agentId: string, nativeSessionId: string) {
+    this.db.prepare("INSERT OR IGNORE INTO past_sessions (agent_id, native_session_id, ended_at) VALUES (?, ?, ?)").run(agentId, nativeSessionId, now());
+  }
+
+  pastSessions(agentId: string): { nativeSessionId: string; endedAt: string }[] {
+    return (this.db.prepare("SELECT native_session_id, ended_at FROM past_sessions WHERE agent_id = ? ORDER BY rowid").all(agentId) as Row[])
+      .map((r) => ({ nativeSessionId: r.native_session_id as string, endedAt: r.ended_at as string }));
   }
 
   // An authoritative healthy account refresh makes limit-deferred work due.

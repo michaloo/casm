@@ -12,6 +12,7 @@ Decisions for the unattended PWA implementation:
 - Only exact same-origin shell asset URLs without a query are read from the cache. The worker has no runtime cache writes, API cache, cross-origin cache, background sync, or offline message delivery. It does not change existing localStorage credentials/drafts behavior. WebSockets never go through fetch handling.
 - Do not call `skipWaiting` or force reload. Registration checks for a new build on each page load; new builds wait for older controlled windows to close. Activation removes only older `casm-shell-*` caches and claims clients. The server already serves manifests with `application/manifest+json`, PNGs with `image/png`, JS with a JavaScript MIME type, and revalidates unversioned icons/manifest/worker with `no-cache`. Hashed bundle assets remain immutable.
 - Cache registration failures are nonfatal: online use must work even if browser policy disables offline storage.
+- The readable offline copy (sidebar and recent transcripts) is not the worker's: the page keeps it in IndexedDB (`offline-cache.ts`, `offline-idb.ts`), so it also works on plain HTTP, where there is no worker. There a cold offline start depends on the OS keeping the app in memory.
 
 ## Validation
 

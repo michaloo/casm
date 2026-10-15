@@ -115,7 +115,10 @@ Use the server address you normally connect to, including its port. The installe
 app uses the casm Apple icon and opens without browser navigation controls.
 
 On HTTPS or localhost, casm caches its public app shell for offline startup.
-Connecting to agents still needs the server. The service worker never caches API
+Recently opened chats and the sidebar are kept in IndexedDB on every address,
+plain HTTP included, and stay readable offline (see
+[Offline and connection](docs/web-client.md#offline-and-connection)); sending
+still needs the server. The service worker never caches API
 responses, WebSockets, signed downloads, or URLs with query parameters. A new
 shell is checked on launch after deployment and activates after all old casm
 tabs/app windows close; it does not reload an active chat. Plain remote HTTP works without a

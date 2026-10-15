@@ -157,10 +157,59 @@ The web client installs as an app with its own window and the casm icon:
   `tailscale serve` or a reverse proxy with a certificate.
 
 Safari's Home Screen and Dock apps also work with a plain HTTP address. On
-HTTPS or localhost the app shell is cached so the app starts offline;
-connecting to agents still needs the server, and API responses, WebSockets and
-downloads are never cached. The [README](../README.md#install-as-an-app) has
-the details and [pwa.md](pwa.md) the implementation decisions.
+HTTPS or localhost the app shell is cached so the app starts offline (see
+[Offline and connection](#offline-and-connection)); the service worker never
+caches API responses, WebSockets or downloads. The
+[README](../README.md#install-as-an-app) has the details and [pwa.md](pwa.md)
+the implementation decisions.
+
+## Offline and connection
+
+The client never shows an old view as if it were live. Whenever it isn't
+connected, or has just reconnected and is still fetching, a banner under the
+header says so and how old the view is:
+
+- **Reconnecting… · showing saved copy from 14:32**: the server can't be
+  reached (or is being reached again).
+- **Offline · saved copy from 14:32**: the device has no network.
+- **Checking connection…**: the page came back after a long quiet spell and
+  the client is confirming the connection.
+
+The banner goes away once the sidebar and the open chat have been fetched
+again; other chats refresh when you open them.
+
+**Noticing a dead connection.** A laptop that slept or a phone app left in the
+background can keep a connection that looks open but is dead. The client
+checks it whenever the page becomes visible again, gets focus, is restored
+from the back/forward cache, or the network changes, and also every 20
+seconds of silence; a check that gets no answer (5 seconds after a resume, 10
+otherwise) drops the connection and reconnects at once.
+
+**The saved copy.** The client keeps, per browser, a copy of the sidebar
+(hosts, projects, agents with their status) and the transcripts of the 50
+agents opened most recently (their last 200 items each, about 50 MB at most).
+Image data isn't saved and very long tool output is cut short. It lives in the
+browser's IndexedDB, which also works on a plain-HTTP address. Starting the app
+or coming back to it shows the saved copy for the last address at once, then
+replaces it with the server's version (the same items are never shown twice).
+Changing the token (**Token** in the sidebar) or connecting with a different
+token deletes the copy.
+
+**What works while disconnected.** Reading: the sidebar and the saved chats.
+A chat that was never opened on this device shows **Not available offline**.
+You can keep typing drafts; they're saved on the device and can be sent once
+you're back. Everything that needs the server is disabled until then, with a
+tooltip saying why: sending, steering and interrupting, **New agent**, **New
+project**, queued-message actions (**Send now**, **Retry now**, **Edit**,
+**Cancel**), permission and question answers, and schedule and settings
+changes.
+
+**Starting with no connection at all.** On HTTPS or localhost the service
+worker keeps the app itself, so a cold start without the server still opens
+the saved copy. On a plain-HTTP address there is no service worker: the app
+opens offline only while the browser or the OS still has it in memory (a
+backgrounded Home Screen app, a Dock app that wasn't quit); a cold start needs
+the server to load the app. The saved copy itself works on both.
 
 ## Dark mode
 

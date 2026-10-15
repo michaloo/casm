@@ -1546,18 +1546,6 @@ textarea::placeholder {
   border-color: transparent;
   background: transparent;
 }
-.latest {
-  position: absolute;
-  bottom: 14px;
-  right: 24px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  box-shadow: var(--shadow-pop);
-  color: var(--accent);
-  padding: 7px 13px;
-  background: var(--overlay);
-}
 .login {
   display: grid;
   place-items: center;
@@ -1950,11 +1938,6 @@ textarea::placeholder {
   .notice {
     gap: 8px;
   }
-  .latest {
-    right: 12px;
-    bottom: 10px;
-    font-size: 14px;
-  }
   .prose h1 {
     font-size: 1.45em;
   }
@@ -2181,8 +2164,52 @@ button.pending-more:hover { background: none; text-decoration: underline; }
 .queue-list .pending-edit textarea { min-height: 3.2em; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); }
 /* One compact row of pills (Working, N queued) on the column's left edge;
    with neither it takes no room at all. */
-.composer-status { display: flex; align-items: center; gap: 6px; min-height: 28px; padding-top: 8px; }
-.composer-status:not(:has(.working-pill, .queue-toggle)) { min-height: 0; padding: 0; }
+/* The pill row floats over the transcript's last 28px, in the column: Working
+   and the queue pill on the left, Latest on the right. The row itself is
+   transparent and lets clicks through; only the pills are surfaces. */
+.pill-row {
+  position: absolute;
+  bottom: 0;
+  z-index: 2;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.pill-row button, .pill-row .working-pill { pointer-events: auto; }
+.composer-status { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* The transcript's end clears the pill row, so its last line scrolls above it. */
+.transcript-end { height: 40px; }
+.latest {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  order: 2;
+  margin-left: auto;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+}
+.latest-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--accent);
+  transition: background-color 0.16s var(--ease);
+}
+.latest:hover { background: transparent; }
+.latest:hover .latest-pill { background: var(--raised); }
+.latest:focus-visible { outline: none; }
+.latest:focus-visible .latest-pill { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* A small pill matching the composer pickers; the button around it is the
    (taller, on phones) tap target. */
 .queue-toggle {
@@ -2210,6 +2237,7 @@ button.pending-more:hover { background: none; text-decoration: underline; }
   padding: 0 10px 0 11px;
   border: 1px solid var(--line);
   border-radius: 14px;
+  background: var(--bg);
   transition: background-color 0.16s var(--ease), border-color 0.16s var(--ease);
 }
 .queue-toggle:hover { background: transparent; }
@@ -2239,8 +2267,11 @@ button.pending-more:hover { background: none; text-decoration: underline; }
   /* 44px to tap, 32px to look at. */
   .queue-toggle { height: 44px; min-height: 44px; font-size: 13px; }
   .queue-pill { height: 32px; border-radius: 16px; }
-  .composer-status { min-height: 44px; padding-top: 0; margin-bottom: -6px; }
-  .composer-status:not(:has(.working-pill, .queue-toggle)) { margin-bottom: 0; }
+  /* 44px tap targets around 32px pills; the pills sit 6px above the composer. */
+  .pill-row { bottom: -6px; height: 44px; }
+  .transcript-end { height: 44px; }
+  .latest { height: 44px; min-height: 44px; font-size: 13px; }
+  .latest-pill { height: 32px; padding: 0 13px; border-radius: 16px; }
   .card button { min-height: 44px; min-width: 44px; }
 }
 

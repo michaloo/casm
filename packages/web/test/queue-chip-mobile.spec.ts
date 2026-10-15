@@ -57,9 +57,8 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
         expect(Math.abs(queueBox.x - box.x)).toBeLessThan(1);
         expect(Math.abs(queueBox.width - box.width)).toBeLessThan(1);
         expect(box.y + box.height).toBeLessThanOrEqual(812);
-        // The transcript ends above the status line; nothing runs under it.
-        const scroller = (await page.locator("[data-virtuoso-scroller]").boundingBox())!;
-        expect(scroller.y + scroller.height).toBeLessThanOrEqual((await line.boundingBox())!.y + 1);
+        // The status line floats over the transcript's end, transparent.
+        await expect(page.locator(".pill-row")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
         if (count) {
           // A small pill like the composer pickers, still 44px to tap on phones.
           const chipBox = (await pill.boundingBox())!;
@@ -84,7 +83,8 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
         await expect(page.locator(".pending-row")).toHaveCount(count);
         await expect(list).toBeVisible();
         const listBox = (await list.boundingBox())!;
-        expect(listBox.y + listBox.height).toBeLessThanOrEqual((await line.boundingBox())!.y);
+        // The pills stay over the transcript's end; the list opens below them.
+        expect((await pill.boundingBox())!.y + (await pill.boundingBox())!.height).toBeLessThanOrEqual(listBox.y);
         expect((await composer.boundingBox())!.y + (await composer.boundingBox())!.height).toBeLessThanOrEqual(812);
         // Rows: text and actions never overlap, nothing is clipped sideways.
         for (const row of await page.locator(".pending-row").all()) {

@@ -119,12 +119,11 @@ for (const width of [1440, 375]) {
     const composer = await edges(".composer");
     expect(await edges(".item")).toEqual(composer);
     expect(await edges(".user .message-content")).toEqual(composer);
-    // Idle with nothing queued, the pill row takes no room: the transcript
-    // ends where the composer's margin begins, with no band over it.
-    const scroller = (await page.locator("[data-virtuoso-scroller]").boundingBox())!;
-    const status = (await page.locator(".composer-status").boundingBox())!;
-    expect(status.height).toBe(0);
-    expect(Math.abs(scroller.y + scroller.height - status.y)).toBeLessThan(1);
+    // The pill row floats over the transcript's end and is transparent: no
+    // band covers the transcript, only the pills are surfaces.
+    const row = page.locator(".pill-row");
+    await expect(row).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(row).toHaveCSS("position", "absolute");
     await page.getByLabel("Message").fill("slow");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     const pill = page.locator(".working-pill");
@@ -135,9 +134,12 @@ for (const width of [1440, 375]) {
     expect(Math.abs(pillBox.x - composer[0])).toBeLessThan(1);
     expect(pillBox.y + pillBox.height).toBeLessThanOrEqual((await page.locator(".composer").boundingBox())!.y);
     expect(pillBox.height).toBe(width < 600 ? 32 : 28);
-    // The transcript still ends where the bottom area begins.
+    // The pill sits over the transcript's end, which still reaches the bottom area.
     const running = (await page.locator("[data-virtuoso-scroller]").boundingBox())!;
     expect(Math.abs(running.y + running.height - (await page.locator(".pending-queue").boundingBox())!.y)).toBeLessThan(1);
+    expect(pillBox.y).toBeGreaterThan(running.y);
+    expect(pillBox.y + pillBox.height).toBeLessThanOrEqual(running.y + running.height + 0.5);
+    await expect(pill).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   });
 }
 
@@ -148,3 +150,47 @@ test("the working spinner holds still with reduced motion", async ({ page }) => 
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.locator(".working-pill .activity-spinner")).toHaveCSS("animation-name", "none");
 });
+
+for (const width of [1440, 375]) {
+  for (const scheme of ["light", "dark"] as const) {
+    test(`Latest sits on the column's right edge in the pill row; the end clears the pills at width ${width} ${scheme}`, async ({ page, isMobile }, info) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width, height: 812 });
+      await login(page);
+      // Following: the last line ends above the pill row, nothing is hidden under it.
+      await page.getByLabel("Message").fill("slow");
+      await page.getByRole("button", { name: "Send", exact: true }).click();
+      const pill = page.locator(".working-pill");
+      await expect(pill).toBeVisible();
+      await expect.poll(async () => {
+        const last = (await page.locator(".item").last().boundingBox())!;
+        return last.y + last.height <= (await pill.boundingBox())!.y + 1;
+      }).toBe(true);
+      await page.screenshot({ path: info.outputPath(`following-${scheme}.png`) });
+      // Scrolled up: Latest ↓ joins the row on the right, the same pill size.
+      // Let the end settle first, as a reader's scroll comes after it.
+      await page.waitForTimeout(250);
+      const scroller = page.locator("[data-virtuoso-scroller]");
+      await scroller.hover();
+      if (isMobile) { await scroller.dispatchEvent("touchmove"); await scroller.evaluate((el) => el.scrollBy(0, -700)); }
+      else await page.mouse.wheel(0, -700);
+      const latest = page.getByRole("button", { name: "Latest ↓", exact: true });
+      await expect(latest).toBeVisible();
+      const composer = (await page.locator(".composer").boundingBox())!;
+      const latestPill = (await latest.locator(".latest-pill").boundingBox())!;
+      const working = (await pill.boundingBox())!;
+      expect(Math.abs(latestPill.x + latestPill.width - (composer.x + composer.width))).toBeLessThan(1);
+      expect(Math.abs(working.x - composer.x)).toBeLessThan(1);
+      expect(latestPill.height).toBe(working.height);
+      expect(Math.abs(latestPill.y - working.y)).toBeLessThan(1);
+      await page.screenshot({ path: info.outputPath(`latest-${scheme}.png`) });
+      await page.screenshot({ path: `/tmp/cb-shots/latest-${width}-${scheme}.png` });
+      await latest.click();
+      await expect(latest).toBeHidden();
+      await expect.poll(async () => {
+        const last = (await page.locator(".item").last().boundingBox())!;
+        return last.y + last.height <= (await pill.boundingBox())!.y + 1;
+      }).toBe(true);
+    });
+  }
+}

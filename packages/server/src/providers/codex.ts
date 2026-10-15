@@ -30,6 +30,7 @@ import type {
 import type { OpenOptions, PermissionAnswer, Provider, ProviderSession } from "./types.ts";
 import { codexMemories } from "./codex-memory.ts";
 import { limitFromText } from "../limits.ts";
+import { isoTime, seen, timed } from "../item-times.ts";
 
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -1184,14 +1185,17 @@ async function failedTurns(rpc: Rpc, threadId: string): Promise<Map<string, Item
   let cursor: string | null = null;
   try {
     do {
-      const page: { data: { id: string; status: string; error?: unknown }[]; nextCursor: string | null } = await rpc.request("thread/turns/list", {
+      const page: { data: { id: string; status: string; error?: unknown; completedAt?: number | null }[]; nextCursor: string | null } = await rpc.request("thread/turns/list", {
         threadId,
         cursor,
         itemsView: "notLoaded",
         limit: 200,
       });
       for (const t of page.data)
-        if (t.status === "failed" && t.error) out.set(t.id, { kind: "notice", id: `error-${t.id}`, text: errorMessage(t.error), level: "error" });
+        if (t.status === "failed" && t.error) {
+          const at = t.completedAt ? isoTime(t.completedAt * 1000) : undefined;
+          out.set(t.id, { kind: "notice", id: `error-${t.id}`, ...(at ? { at } : {}), text: errorMessage(t.error), level: "error" });
+        }
       cursor = page.nextCursor;
     } while (cursor);
   } catch {
@@ -1210,13 +1214,15 @@ export async function readHistory(sessionId: string, cwd: string): Promise<Item[
     const lastOfTurn = new Map<string, string>();
     let cursor: string | null = null;
     do {
-      const page: { data: { item: CodexItem; turnId?: string }[]; nextCursor: string | null } = await rpc.request("thread/items/list", {
+      const page: { data: { item: CodexItem; turnId?: string; startedAtMs?: number | null; completedAtMs?: number | null }[]; nextCursor: string | null } = await rpc.request("thread/items/list", {
         threadId: sessionId,
         cursor,
         limit: 500,
       });
-      for (const { item, turnId } of page.data) {
-        for (const it of normalizeItems(item, subagents)) {
+      for (const { item, turnId, startedAtMs, completedAtMs } of page.data) {
+        for (const raw of normalizeItems(item, subagents)) {
+          const prev = byId.get(raw.id);
+          const it = timed(prev && seen(prev), raw, isoTime(startedAtMs ?? completedAtMs), isoTime(completedAtMs));
           byId.set(it.id, it);
           if (turnId) lastOfTurn.set(turnId, it.id);
         }

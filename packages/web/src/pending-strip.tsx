@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PendingMessage } from "@casm/protocol";
 import { pendingLabel, queueHeld } from "./outbox";
 import { offlineNote } from "./connection";
+import { EntryTime } from "./entry-time";
 
 export type PendingActions = {
   sendNow: (p: PendingMessage) => void;
@@ -68,6 +69,7 @@ export function PendingRows({ rows, unconfirmed, online, labels, actions }: {
                   <small>
                     {local ? "Sending…" : labels?.get(p.id) ?? status}
                     {i === 0 && held && rows.length > 1 ? " · holds the queue" : ""}
+                    {!Number.isNaN(Date.parse(p.createdAt)) && <EntryTime start={Date.parse(p.createdAt)} inline />}
                   </small>
                 </div>
                 <div className="pending-actions">

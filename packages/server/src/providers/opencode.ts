@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Answers, Catalog, Command, ImageData, Item, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
 import type { OpenOptions, Provider, ProviderEvent, ProviderSession } from "./types.ts";
+import { isoTime, seen, timed } from "../item-times.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
 // History drops image data above this many base64 characters (~1 MB decoded).
@@ -78,6 +79,7 @@ export type OcMessageInfo = {
   id: string;
   sessionID: string;
   role: "user" | "assistant";
+  time?: { created?: number; completed?: number };
   error?: OcError;
   // assistant only
   parentID?: string;
@@ -254,8 +256,10 @@ export function normalizeMessages(messages: OcMessage[], aliases?: ReadonlyMap<s
   const out: Item[] = [];
   // Repeated items (a turn's plan or retry notice) stay at their first position with the latest content.
   const at = new Map<string, number>();
-  const push = (item: Item) => {
+  const push = (item: Item, time?: number, end?: number) => {
     const i = at.get(item.id);
+    const prev = i === undefined ? undefined : out[i];
+    item = timed(prev && seen(prev), item, isoTime(time), isoTime(end));
     if (i === undefined) at.set(item.id, out.push(item) - 1);
     else out[i] = item;
   };
@@ -268,7 +272,7 @@ export function normalizeMessages(messages: OcMessage[], aliases?: ReadonlyMap<s
       for (const p of m.parts) {
         const end = p.type === "text" && p.synthetic ? taskOutput(p.text ?? "") : null;
         const task = end && background.get(end.session);
-        if (task && end.state !== "running") background.delete(end.session), push(backgroundEnd(task, end));
+        if (task && end.state !== "running") background.delete(end.session), push(backgroundEnd(task, end), m.info.time?.created, m.info.time?.created);
       }
       const text = m.parts
         .filter((p) => p.type === "text" && !p.synthetic && !p.ignored)
@@ -276,17 +280,17 @@ export function normalizeMessages(messages: OcMessage[], aliases?: ReadonlyMap<s
         .join("\n")
         .trim();
       const images = userImages(m.parts);
-      if (text || images.length) push({ kind: "user", id: userItemId(m, aliases), text, ...(images.length ? { images } : {}) });
-      for (const p of m.parts) if (p.type === "compaction") push(normalizePart(p)!);
+      if (text || images.length) push({ kind: "user", id: userItemId(m, aliases), text, ...(images.length ? { images } : {}) }, m.info.time?.created);
+      for (const p of m.parts) if (p.type === "compaction") push(normalizePart(p)!, m.info.time?.created);
       continue;
     }
     const shell = shellTurns.has(m.info.parentID ?? "");
     for (const p of m.parts) {
       const item = normalizePart(p, m.info.parentID);
-      if (item) push(shell && item.kind === "tool" ? shellTool(item) : item);
+      if (item) push(shell && item.kind === "tool" ? shellTool(item) : item, p.state?.time?.start ?? p.time?.start ?? m.info.time?.created, p.state?.time?.end);
       if (item?.kind === "subagent" && item.status === "running" && p.state?.metadata?.sessionId) background.set(p.state.metadata.sessionId, item);
     }
-    if (m.info.error && m.info.error.name !== "MessageAbortedError") push(errorItem(m.info.id, m.info.error));
+    if (m.info.error && m.info.error.name !== "MessageAbortedError") push(errorItem(m.info.id, m.info.error), m.info.time?.completed ?? m.info.time?.created);
   }
   return out;
 }

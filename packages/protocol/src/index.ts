@@ -216,6 +216,7 @@ export type Schedule = z.infer<typeof Schedule>;
 export const SubagentItem = z.object({
   kind: z.literal("subagent"),
   id: z.string(),
+  at: z.string().optional(),
   title: z.string(),
   agentType: z.string().optional(),
   status: z.enum(["running", "done", "error"]),
@@ -238,14 +239,19 @@ export const SubagentInfo = SubagentItem.omit({ kind: true }).extend({
 });
 export type SubagentInfo = z.infer<typeof SubagentInfo>;
 
+// `at` (ISO): when the entry started, from the provider's transcript or when
+// the server first emitted it. Absent where nothing recorded a time.
 export const Item = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("user"), id: z.string(), text: z.string(), images: z.array(ImageData).optional(), sender: MessageSender.optional() }),
-  z.object({ kind: z.literal("assistant"), id: z.string(), text: z.string() }),
-  z.object({ kind: z.literal("reasoning"), id: z.string(), text: z.string() }),
+  z.object({ kind: z.literal("user"), id: z.string(), at: z.string().optional(), text: z.string(), images: z.array(ImageData).optional(), sender: MessageSender.optional() }),
+  z.object({ kind: z.literal("assistant"), id: z.string(), at: z.string().optional(), text: z.string() }),
+  z.object({ kind: z.literal("reasoning"), id: z.string(), at: z.string().optional(), text: z.string() }),
   z.object({
     kind: z.literal("tool"),
     origin: z.enum(["user", "agent"]).optional(),
     id: z.string(),
+    at: z.string().optional(),
+    // When it finished, if the provider recorded it.
+    endedAt: z.string().optional(),
     name: z.string(),
     input: z.unknown(),
     status: z.enum(["running", "done", "error"]),
@@ -255,14 +261,16 @@ export const Item = z.discriminatedUnion("kind", [
   SubagentItem,
   // Status lines: interrupts, retries, compaction, warnings. Upserted by id, so
   // a retry notice can update its countdown.
-  z.object({ kind: z.literal("notice"), id: z.string(), text: z.string(), level: z.enum(["info", "warning", "error"]).optional() }),
+  z.object({ kind: z.literal("notice"), id: z.string(), at: z.string().optional(), text: z.string(), level: z.enum(["info", "warning", "error"]).optional() }),
   // The agent's todo list / plan. Each update replaces the entries.
-  z.object({ kind: z.literal("plan"), id: z.string(), entries: z.array(PlanEntry) }),
+  z.object({ kind: z.literal("plan"), id: z.string(), at: z.string().optional(), entries: z.array(PlanEntry) }),
 ]);
 export type Item = z.infer<typeof Item>;
 
 export const PermissionRequest = z.object({
   id: z.string(),
+  // When the server received it (ISO).
+  at: z.string().optional(),
   toolName: z.string(),
   input: z.unknown(),
   title: z.string().optional(),
@@ -296,6 +304,7 @@ export type QuestionPrompt = z.infer<typeof QuestionPrompt>;
 
 export const QuestionRequest = z.object({
   id: z.string(),
+  at: z.string().optional(),
   title: z.string().optional(),
   prompts: z.array(QuestionPrompt).min(1),
 });

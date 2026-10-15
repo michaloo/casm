@@ -101,6 +101,6 @@ test("pi history aliases use native timestamps without replacing stable disk ent
   try {
     const provider = piProvider();
     assert.deepEqual(await provider.historyAliases!(file, dir), { "native-entry": "pi:12345" });
-    assert.deepEqual(await provider.history(file, dir), [{ kind: "user", id: "native-entry", text: "hello" }]);
+    assert.deepEqual(await provider.history(file, dir), [{ kind: "user", id: "native-entry", text: "hello", at: "1970-01-01T00:00:12.345Z" }]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

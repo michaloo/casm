@@ -28,6 +28,7 @@ import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from "./providers/types.ts";
 import { AgentPrompt, type PromptVars } from "./agent-prompt.ts";
 import { limitFromText, mergeWindows, retryAt, transientRateLimit, type LimitHit } from "./limits.ts";
+import { seen, timed, type Seen } from "./item-times.ts";
 
 // What sessions are told about the server that runs them.
 export type SessionContext = { serverId: string; serverName: string };
@@ -77,6 +78,8 @@ type Live = {
   // (same messageId) is not delivered twice.
   delivered: string[];
   statusWaiters: Set<() => void>;
+  // When each live item was first seen (and a tool finished), so upserts keep it.
+  times: Map<string, Seen>;
   // Subagent items the provider reported since the server started, by id, kept
   // across turns: background ones finish while the agent is idle.
   subagents: Map<string, Tracked>;
@@ -379,7 +382,7 @@ export class AgentManager {
   private liveFor(id: string): Live {
     let l = this.live.get(id);
     if (!l) {
-      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, answers: 0, steered: [], delivered: [], statusWaiters: new Set(), subagents: new Map() };
+      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, answers: 0, steered: [], delivered: [], statusWaiters: new Set(), subagents: new Map(), times: new Map() };
       this.live.set(id, l);
     }
     return l;
@@ -387,6 +390,15 @@ export class AgentManager {
 
   private emit(id: string, event: AgentEvent) {
     const l = this.liveFor(id);
+    if (event.type === "item") {
+      const now = new Date().toISOString();
+      const item = timed(l.times.get(event.item.id), event.item, now);
+      // Bounded: only the newest items can still be upserted.
+      if (l.times.size >= 2000) l.times.delete(l.times.keys().next().value!);
+      l.times.delete(item.id);
+      l.times.set(item.id, seen(item));
+      event = { ...event, item };
+    }
     if (l.turnId) {
       // Usage isn't an answer: Claude reports it on system/init, before replying.
       if ((event.type === "item" && event.item.kind !== "user" && event.item.kind !== "notice") || event.type === "delta" || event.type === "toolOutput")
@@ -693,6 +705,7 @@ export class AgentManager {
         this.emit(id, pending.kind === "permission" ? { type: "permissionResolved", requestId: reqId } : { type: "questionResolved", requestId: reqId });
         this.statusChanged(id);
       };
+      pending.req.at ??= new Date().toISOString();
       l.pending.set(reqId, {
         ...pending,
         resolve: (a: A) => (done(), resolve(a)),

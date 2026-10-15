@@ -22,15 +22,14 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
   await expect(project).toHaveAttribute("aria-expanded", "true");
   await expect(nav.getByRole("button", { name: /Agent 00/ })).toBeVisible();
 
-  // No + on project rows: a row is its fold toggle and its ⋯ only.
-  for (const row of await nav.locator(".project-row").all()) {
-    await expect(row.getByRole("button")).toHaveCount(2);
-    await expect(row).not.toContainText("＋");
-    await expect(row.locator(".plus-glyph")).toHaveCount(0);
-  }
+  // A project row: chevron · name · + (new agent) · ⋯.
+  for (const row of await nav.locator(".project-row").all()) await expect(row.getByRole("button")).toHaveCount(3);
+  const plus = nav.getByRole("button", { name: "New agent in Test project", exact: true });
+  await expect(plus.locator(".plus-glyph")).toHaveCount(1);
   // The name folds too, not just the chevron.
   await project.locator(".project-name").click();
   await expect(project).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(() => project.locator(".chevron-glyph").evaluate((el) => getComputedStyle(el).rotate)).toBe("-90deg");
   await expect(nav.getByRole("button", { name: /Agent 00/ })).toHaveCount(0);
   await expect(page).toHaveURL(/\/$/);
   await expect(project.locator(".project-count")).toHaveText(/^\d+$/);
@@ -39,8 +38,11 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
   await expect(nav.getByRole("button", { name: /Agent 00/ })).toBeVisible();
   const toggleBox = (await project.boundingBox())!;
   const optionsBox = (await nav.getByRole("button", { name: "Project options for Test project", exact: true }).boundingBox())!;
-  expect(toggleBox.x + toggleBox.width).toBeLessThanOrEqual(optionsBox.x + 1);
-  expect(toggleBox.width).toBeGreaterThan(150);
+  const plusBox = (await plus.boundingBox())!;
+  expect(toggleBox.x + toggleBox.width).toBeLessThanOrEqual(plusBox.x + 1);
+  expect(plusBox.x + plusBox.width).toBeLessThanOrEqual(optionsBox.x + 1);
+  expect(toggleBox.width).toBeGreaterThan(120);
+  if (width === 375) for (const b of [toggleBox, plusBox, optionsBox]) expect(b.height).toBeGreaterThanOrEqual(44);
 
   // Hosts: a tinted full-width header, small caps, server glyph and status dot,
   // projects indented and lighter. Both put the chevron at the far right, after + and ⋯.
@@ -63,7 +65,7 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
       hostBox: box(host), hostChevron: box(hostChevron), hostNameBox: box(hostName), projectChevron: box(projectChevron),
       projectRow: box(document.querySelector("nav .project-row")!),
       hostMore: box(host.querySelector(".row-more:last-of-type")!), projectMore: box(document.querySelector("nav .project-row .row-more")!),
-      hostRotate: getComputedStyle(hostChevron).rotate,
+      hostRotate: getComputedStyle(hostChevron).rotate, projectRotate: getComputedStyle(projectChevron).rotate,
     };
   });
   expect(styles.hostTransform).toBe("uppercase");
@@ -72,12 +74,13 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
   expect(styles.hostBackground).not.toBe(styles.projectBackground);
   expect(styles.hostChevronColor).not.toBe(styles.projectChevronColor);
   expect(parseFloat(styles.projectStroke)).toBeLessThan(parseFloat(styles.hostStroke));
-  // icon · name · + · ⋯ · chevron, on hosts and projects alike; ⌃ while open.
+  // Hosts: icon · name · + · ⋯ · chevron. Projects: chevron · name · + · ⋯. Both ⌄ while open.
   expect(styles.hostChevron.x).toBeGreaterThan(styles.hostMore.x + styles.hostMore.width);
-  expect(styles.projectChevron.x).toBeGreaterThan(styles.projectMore.x + styles.projectMore.width);
   expect(styles.hostBox.x + styles.hostBox.width - (styles.hostChevron.x + styles.hostChevron.width)).toBeLessThan(width === 375 ? 20 : 12);
-  expect(Math.abs(styles.hostChevron.x - styles.projectChevron.x)).toBeLessThan(2);
-  expect(styles.hostRotate).toBe("180deg");
+  expect(styles.projectChevron.x).toBeLessThan(styles.projectRow.x + 20);
+  expect(styles.projectChevron.x).toBeLessThan(styles.projectMore.x);
+  expect(styles.hostRotate).toBe("none");
+  expect(styles.projectRotate).toBe("none");
   expect(styles.projectRow.x).toBeGreaterThan(styles.hostBox.x);
   expect(Math.round(styles.hostBox.width)).toBeGreaterThan(200);
   // Both chevrons are centered on their rows.
@@ -87,8 +90,8 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
   const peer = nav.locator("section.host").nth(1).locator(".host-heading");
   await host.click();
   await expect(host).toHaveAttribute("aria-expanded", "false");
-  // ⌄ while folded; the turn finishes quickly.
-  await expect.poll(() => host.locator(".chevron-glyph").evaluate((el) => getComputedStyle(el).rotate)).toBe("none");
+  // A folded host points left (‹), a folded project right (›).
+  await expect.poll(() => host.locator(".chevron-glyph").evaluate((el) => getComputedStyle(el).rotate)).toBe("90deg");
   const [first, second] = [(await nav.locator("section.host").first().locator(".host-heading").boundingBox())!, (await peer.boundingBox())!];
   expect(second.y - (first.y + first.height)).toBeGreaterThanOrEqual(16);
   await host.click();

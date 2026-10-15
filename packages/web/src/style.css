@@ -358,7 +358,7 @@ nav .project-toggle {
   align-items: center;
   gap: 7px;
   height: 32px;
-  padding: 0 8px 0 10px;
+  padding: 0 8px 0 7px;
   border-radius: 8px;
   color: var(--text);
   font-size: 13px;
@@ -381,29 +381,29 @@ nav .project-toggle:hover {
   stroke-linejoin: round;
   transition: rotate 0.18s var(--ease);
 }
-/* A fold's chevron sits at the far right of its row, after + and ⋯ (inside
-   the fold button, so it folds too): ⌄ when folded, ⌃ when open.
-   The chevron column lines up with the agents' status dots below. */
-nav .host-heading, nav .project-row { position: relative; padding-right: 28px; }
-.fold-mark { position: absolute; top: 0; right: 0; bottom: 0; width: 28px; display: grid; place-items: center; }
-nav .host-heading > .host-collapse .fold-mark { right: 1px; }
+/* Hosts keep their chevron at the far right of the header (in the fold
+   button, so it folds too): ‹ folded, ⌄ open. Projects use the classic
+   disclosure at the start of the row: › folded, ⌄ open. One glyph, rotated. */
+nav .host-heading { position: relative; padding-right: 28px; }
+.fold-mark { position: absolute; top: 0; right: 1px; bottom: 0; width: 28px; display: grid; place-items: center; color: var(--muted); }
 @media (max-width: 650px) {
-  nav .host-heading, nav .project-row { padding-right: 44px; }
+  nav .host-heading { padding-right: 44px; }
   .fold-mark { width: 44px; }
 }
-[aria-expanded="true"] > .fold-mark > .chevron-glyph { rotate: 180deg; }
+nav .host-collapse[aria-expanded="false"] .chevron-glyph { rotate: 90deg; }
+nav .project-toggle[aria-expanded="false"] > .chevron-glyph { rotate: -90deg; }
 @media (prefers-reduced-motion: reduce) { .chevron-glyph { transition: none; } }
-nav .host-collapse .fold-mark { color: var(--muted); }
-nav .project-toggle .chevron-glyph {
+nav .project-toggle > .chevron-glyph {
+  flex: 0 0 auto;
   width: 11px;
   height: 11px;
   stroke-width: 1.3;
+  color: var(--faint);
 }
-nav .project-toggle .fold-mark { color: var(--faint); }
-nav .project-toggle:hover .fold-mark { color: var(--muted); }
+nav .project-toggle:hover > .chevron-glyph { color: var(--muted); }
 /* An open agent's project can't fold; only its chevron says so. */
 nav .project-toggle:disabled { opacity: 1; }
-nav .project-toggle:disabled .fold-mark { opacity: 0.4; }
+nav .project-toggle:disabled > .chevron-glyph { opacity: 0.4; }
 .project-name {
   flex: 1;
   min-width: 0;
@@ -2550,7 +2550,7 @@ button.danger.quiet:hover { background: var(--attention-soft); }
 .plus-glyph { fill: none; stroke-linejoin: round; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 nav .row-add:disabled { opacity: 0.35; }
 @media (hover: hover) and (pointer: fine) {
-  nav .host-heading:hover .row-add, nav .row-add:focus-visible, nav .row-add[aria-expanded="true"] { opacity: 1; }
+  nav .host-heading:hover .row-add, nav .project-row:hover .row-add, nav .row-add:focus-visible, nav .row-add[aria-expanded="true"] { opacity: 1; }
 }
 .settings-title-host { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
 .settings-title-host .host-label { line-height: 1.25; }
@@ -2607,14 +2607,6 @@ nav .row-add:disabled { opacity: 0.35; }
 .start-host .server-glyph { width: 14px; height: 14px; color: var(--accent); }
 .chat.start .composer { margin-bottom: 14px; animation: start-in 0.32s 0.04s var(--ease) both; }
 .start-extras { display: grid; gap: 10px; justify-items: center; width: min(calc(100% - 48px), calc(70ch + 24px)); margin: 0 auto; animation: start-in 0.32s 0.08s var(--ease) both; }
-.start-chips { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
-.start-chip { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 13px; border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--surface) 70%, transparent); color: var(--muted); font-size: 12.5px; font-weight: 550; }
-.start-chip:hover { color: var(--text); background: var(--surface); border-color: color-mix(in srgb, var(--accent-bright) 45%, var(--line)); }
-.start-label { color: var(--faint); font-size: 12px; font-weight: 550; margin-right: 2px; }
-.start-agent { max-width: 240px; }
-.start-agent-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.start-agent small { color: var(--faint); font-size: 11px; font-weight: 500; white-space: nowrap; }
-.start-agent .provider-icon { flex: 0 0 auto; }
 .start-keys { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; margin: 8px 0 0; color: var(--faint); font-size: 11.5px; }
 .start-keys span { display: inline-flex; align-items: center; gap: 4px; }
 .start-keys kbd { display: inline-grid; place-items: center; min-width: 20px; height: 19px; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); color: var(--muted); font: 600 10.5px/1 var(--sans); }
@@ -2629,12 +2621,6 @@ nav .row-add:disabled { opacity: 0.35; }
   .start-welcome h1 { font-size: 24px; }
   .start-context { font-size: 13px; }
   .start-extras { width: calc(100% - 32px); }
-  /* One calm row per group that scrolls sideways, instead of a stack of pills. */
-  .start-chips { flex-wrap: nowrap; justify-content: safe center; width: 100%; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
-  .start-chips::-webkit-scrollbar { display: none; }
-  .start-chip { flex: 0 0 auto; min-height: 44px; border-radius: 22px; font-size: 14px; padding: 0 15px; white-space: nowrap; }
-  .start-label { flex: 0 0 auto; }
-  .start-agent { max-width: 70vw; }
   /* Touch keyboards: Return adds a line and Send sends; no shortcuts to list. */
   .start-keys { display: none; }
   .chat.start .send-hint { visibility: visible; }

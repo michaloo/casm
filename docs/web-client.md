@@ -102,7 +102,9 @@ output, plans, subagents and notices. Long histories load as you scroll up;
 while you're at the bottom, it follows new output.
 
 The composer has pickers for the provider (new agents), model, mode and
-effort. Paste images to attach them. Type `/` for commands: casm's own
+effort. Attach images with the paperclip (on an iPhone: Photo Library, Take
+Photo or Choose File), by pasting, or by dropping them on the composer; photos
+over 2000px are scaled down, up to 10 images and 5 MB each. Type `/` for commands: casm's own
 `/mcp`, `/reload`, `/restart` and `/interrupt`, then the provider's commands and
 skills (see [MCP controls](mcp-controls.md#mcp-controls-and-composer-commands)).
 

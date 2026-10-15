@@ -14,3 +14,8 @@ export function PlusGlyph() {
 export function ChevronGlyph({ className = "" }: { className?: string }) {
   return <svg className={`chevron-glyph ${className}`.trim()} viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M3 4.5 6 7.5 9 4.5" /></svg>;
 }
+
+/** A paperclip for attaching images. */
+export function AttachGlyph() {
+  return <svg className="attach-glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M13.2 7.6 8.1 12.7a3.3 3.3 0 0 1-4.7-4.7l5.3-5.3a2.2 2.2 0 0 1 3.1 3.1L6.6 11a1.1 1.1 0 0 1-1.6-1.6l4.8-4.8" /></svg>;
+}

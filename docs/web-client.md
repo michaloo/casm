@@ -79,7 +79,8 @@ other agents created are nested under their parent, also across hosts.
   Schedules, Instructions and Notifications.
 - **New project** (+ next to a host) registers a folder on that host.
 - **Project options** (⋯ next to a project) opens the project's window:
-  AGENTS.md, Memories and Info, with **New agent** in its header.
+  AGENTS.md and Memories, with the path (Copy), host and group under the
+  title and **New agent** in its header.
 - A project row folds or unfolds when clicked anywhere; ⋯ always means options.
 
 A new agent opens on a welcome screen: the project, its path and host, the

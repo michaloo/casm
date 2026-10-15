@@ -7,8 +7,8 @@ import { Prose } from "./transcript";
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
 
 /** The settings dialog shared by host and project settings: sticky header, section nav, and a guard for unsaved edits. */
-export function SettingsDialog<S extends string>({ label, title, closeLabel, sections, section, setSection, close, actions, children }: {
-  label: string; title: ReactNode; closeLabel: string; sections: readonly (readonly [S, string])[]; section: S; setSection: (s: S) => void;
+export function SettingsDialog<S extends string>({ label, title, subtitle, closeLabel, sections, section, setSection, close, actions, children }: {
+  label: string; title: ReactNode; subtitle?: ReactNode; closeLabel: string; sections: readonly (readonly [S, string])[]; section: S; setSection: (s: S) => void;
   close: () => void; actions?: ReactNode; children: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -19,7 +19,7 @@ export function SettingsDialog<S extends string>({ label, title, closeLabel, sec
   return createPortal(<dialog ref={dialog} className="host-settings settings-dialog" aria-label={label} onClose={close}
     onCancel={(e) => { if (dirty()) { e.preventDefault(); setConfirming(true); } }}>
     <header>
-      <h2>{title}</h2>
+      <div className="settings-heading"><h2>{title}</h2>{subtitle}</div>
       {actions && <div className="settings-head-actions">{actions}</div>}
       <button type="button" className="settings-close" aria-label={closeLabel} title="Close" onClick={request}>×</button>
     </header>

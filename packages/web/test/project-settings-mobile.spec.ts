@@ -33,17 +33,22 @@ for (const width of [1440, 375]) test(`project modal mobile view edit conflict c
   await expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
   await trigger.focus(); await trigger.press("Enter");
   const panel = page.getByRole("dialog", { name: "Test project project" });
-  await expect(panel.getByRole("navigation").getByRole("button")).toHaveText(["AGENTS.md", "Memories", "Info"]);
+  await expect(panel.getByRole("navigation").getByRole("button")).toHaveText(["AGENTS.md", "Memories"]);
+  // Where it lives sits under the title: the path (whole in its tooltip), Copy, the host; no group set.
+  const context = panel.locator(".settings-context");
+  await expect(context.locator(".middle-path")).toHaveAttribute("title", testHome);
+  await expect(context.locator(".path-tail")).toHaveText(testHome.slice(testHome.lastIndexOf("/")));
+  await expect(context).toContainText(hostName);
+  await expect(context.locator(".settings-context-item")).toHaveCount(1);
+  await context.getByRole("button", { name: "Copy project path" }).click();
+  await expect(context.getByRole("button", { name: "Copy project path" })).toHaveText("Copied");
   await expect(panel.getByRole("button", { name: "Files", exact: true })).toHaveCount(0);
   await expect(panel.getByRole("heading", { name: "Project rules" })).toBeVisible();
   await panel.getByRole("button", { name: "Edit instructions", exact: true }).click();
   const editor = panel.getByRole("textbox", { name: "Project instructions", exact: true });
   await editor.fill("# My project draft\n\nKeep my edits.");
   // Switching sections must preserve the unsaved draft.
-  await panel.getByRole("button", { name: "Info", exact: true }).click();
-  await expect(panel.getByRole("region", { name: "Project info" })).toContainText(testHome);
-  await expect(panel.getByRole("region", { name: "Project info" })).toContainText("No group");
-  expect(Number(await panel.locator(".project-info dd").last().textContent())).toBeGreaterThanOrEqual(65);
+  await panel.getByRole("button", { name: "Memories", exact: true }).click();
   await panel.getByRole("button", { name: "AGENTS.md", exact: true }).click();
   await expect(editor).toHaveValue("# My project draft\n\nKeep my edits.");
   writeFileSync(file, "# Concurrent project edit");
@@ -84,7 +89,6 @@ for (const width of [1440, 375]) test(`project modal mobile view edit conflict c
   expect(writes[0].params.expectedSha256).toMatch(/^[a-f0-9]{64}$/);
   expect(writes.at(-1)!.params.expectedSha256).toBe(null);
   expect(routed.every((r) => r.host === (width === 375 ? hostName : undefined))).toBe(true);
-  await panel.getByRole("button", { name: "Info", exact: true }).click();
   await panel.getByRole("button", { name: "New agent", exact: true }).click();
   await expect(panel).toHaveCount(0);
   await expect(page.getByLabel("Message", { exact: true })).toBeVisible();

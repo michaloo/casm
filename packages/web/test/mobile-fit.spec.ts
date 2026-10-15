@@ -117,3 +117,27 @@ test("composer follows visual viewport resizing and keyboard dismissal", async (
     expect(composer.y + composer.height).toBeLessThanOrEqual(height);
   }
 });
+
+// iOS text autosizing inflates fonts in landscape and can keep them after rotating back.
+test("text keeps its size across a landscape round trip", async ({ page, browserName }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await page.getByRole("button", { name: /Agent 00/ }).click();
+  await expect(page.locator(".item p").first()).toBeVisible();
+  const size = () => page.evaluate(() => {
+    // The declaration on :root (computed styles don't expose it in every engine).
+    const rules = [...document.styleSheets].flatMap((sheet) => [...sheet.cssRules]) as CSSStyleRule[];
+    const adjust = (rule: CSSStyleRule) => rule.style?.getPropertyValue("-webkit-text-size-adjust") || rule.style?.getPropertyValue("text-size-adjust");
+    const root = rules.find((rule) => rule.selectorText === ":root" && adjust(rule));
+    return { adjust: root ? adjust(root) : "", font: getComputedStyle(document.querySelector(".item p")!).fontSize };
+  });
+  const before = await size();
+  // Playwright's desktop WebKit drops the iOS-only property from the CSSOM.
+  if (browserName === "chromium") expect(before.adjust).toBe("100%");
+  await page.setViewportSize({ width: 812, height: 375 });
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await size()).toEqual(before);
+});

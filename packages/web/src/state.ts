@@ -37,6 +37,10 @@ export type Chat = {
   draftStorageKey?: string;
   scroll?: number;
   atBottom?: boolean;
+  // Shown from the offline copy saved at this time, until a fresh load.
+  cachedAt?: number;
+  // The offline copy was looked up (whether or not it had this chat).
+  cacheRead?: boolean;
 };
 export type Host = {
   id: string;
@@ -140,11 +144,19 @@ export function serverURL(): URL {
   url.hash = "";
   return url;
 }
+// How the client notices a socket that died without closing (a sleeping
+// laptop, a dropped network): no message for `heartbeat` ms starts a probe,
+// and a probe or a connection attempt that takes too long drops the socket.
+export const timing = { heartbeat: 20_000, probe: 10_000, resume: 5_000, connect: 10_000, retry: 1_500 };
 export class Rpc {
   socket?: WebSocket;
   next = 0;
   stopped = false;
   timer?: ReturnType<typeof setTimeout>;
+  beat?: ReturnType<typeof setInterval>;
+  // When the server last sent anything; 0 before the first connection.
+  lastSeen = 0;
+  probing = false;
   pending = new Map<
     number,
     {
@@ -153,24 +165,47 @@ export class Rpc {
       timer: ReturnType<typeof setTimeout>;
     }
   >();
+  token: string;
+  status: (v: boolean) => void;
+  notify: (n: any) => void;
+  ready: () => void;
+  // True while a probe runs after a long silence: the view may be stale.
+  suspect: (v: boolean) => void;
   constructor(
-    public token: string,
-    public status: (v: boolean) => void,
-    public notify: (n: any) => void,
-    public ready: () => void,
+    token: string,
+    status: (v: boolean) => void,
+    notify: (n: any) => void,
+    ready: () => void,
+    suspect: (v: boolean) => void = () => {},
   ) {
+    this.token = token;
+    this.status = status;
+    this.notify = notify;
+    this.ready = ready;
+    this.suspect = suspect;
     this.connect();
+    this.beat = setInterval(() => {
+      if (Date.now() - this.lastSeen >= timing.heartbeat) this.check();
+    }, timing.heartbeat);
+  }
+  get open() {
+    return this.socket?.readyState === WebSocket.OPEN;
   }
   connect() {
+    clearTimeout(this.timer);
     const url = serverURL();
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     url.searchParams.set("token", this.token);
     const s = (this.socket = new WebSocket(url));
+    const opening = setTimeout(() => this.drop(s), timing.connect);
     s.onopen = () => {
+      clearTimeout(opening);
+      this.lastSeen = Date.now();
       this.status(true);
       this.ready();
     };
     s.onmessage = (m) => {
+      this.lastSeen = Date.now();
       const n = JSON.parse(m.data);
       if (n.id !== undefined) {
         const p = this.pending.get(n.id);
@@ -182,20 +217,62 @@ export class Rpc {
       } else this.notify(n);
     };
     s.onclose = () => {
-      this.status(false);
-      for (const p of this.pending.values()) {
-        clearTimeout(p.timer);
-        p.reject(new Error("Connection lost"));
-      }
-      this.pending.clear();
-      if (!this.stopped) this.timer = setTimeout(() => this.connect(), 1500);
+      clearTimeout(opening);
+      this.closed(s);
     };
     s.onerror = () => s.close();
+  }
+  private closed(s: WebSocket) {
+    if (s !== this.socket) return;
+    this.socket = undefined;
+    this.probing = false;
+    this.suspect(false);
+    this.status(false);
+    for (const p of this.pending.values()) {
+      clearTimeout(p.timer);
+      p.reject(new Error("Connection lost"));
+    }
+    this.pending.clear();
+    if (!this.stopped) this.timer = setTimeout(() => this.connect(), timing.retry);
+  }
+  // A dead socket may never fire close (its closing handshake can't
+  // complete): treat it as closed now and reconnect.
+  drop(s = this.socket) {
+    if (!s || s !== this.socket) return;
+    s.onopen = s.onmessage = s.onclose = s.onerror = null;
+    try {
+      s.close();
+    } catch {}
+    this.closed(s);
+  }
+  // Confirms the connection now (the page was resumed, focused, or the
+  // network changed): reconnects at once when closed, probes when open.
+  check(timeout = timing.probe) {
+    if (this.stopped) return;
+    const s = this.socket;
+    if (!s) return this.connect();
+    // Something arrived this very moment (focus events come in bursts).
+    if (s.readyState !== WebSocket.OPEN || this.probing || Date.now() - this.lastSeen < 1000) return;
+    if (Date.now() - this.lastSeen >= timing.heartbeat) this.suspect(true);
+    this.probing = true;
+    this.call("server.info", {}, "", timeout).then(
+      () => {
+        if (s !== this.socket) return;
+        this.probing = false;
+        this.suspect(false);
+      },
+      () => {
+        if (s !== this.socket) return;
+        this.probing = false;
+        this.drop(s);
+      },
+    );
   }
   call<M extends MethodName>(
     method: M,
     params: Params<M>,
     host = "",
+    timeout = 30000,
   ): Promise<Result<M>> {
     if (this.socket?.readyState !== WebSocket.OPEN)
       return Promise.reject(new Error("Offline"));
@@ -204,7 +281,7 @@ export class Rpc {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error("Request timed out"));
-      }, 30000);
+      }, timeout);
       this.pending.set(id, { resolve, reject, timer });
       this.socket!.send(
         JSON.stringify({
@@ -220,6 +297,7 @@ export class Rpc {
   close() {
     this.stopped = true;
     clearTimeout(this.timer);
+    clearInterval(this.beat);
     this.socket?.close();
   }
 }

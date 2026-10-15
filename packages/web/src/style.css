@@ -2535,3 +2535,24 @@ nav .row-add:disabled { opacity: 0.35; }
 }
 .settings-dialog .schedule-form textarea { font: 13.5px/1.5 var(--sans); min-height: 92px; margin-top: 0; padding: 7px 10px; }
 @media (max-width: 650px) { .settings-dialog .schedule-form textarea { font-size: 16px; } }
+.connection-banner {
+  font-size: 12px;
+  padding: 7px 24px;
+  color: var(--attention);
+  background: var(--attention-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--attention-bright) 30%, var(--line));
+}
+.connection-banner[data-state="syncing"] {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 70%, var(--bg));
+  border-bottom-color: var(--line);
+}
+.offline-missing strong {
+  display: block;
+  color: var(--text);
+}
+@media (max-width: 650px) {
+  .connection-banner {
+    padding: 6px 14px;
+  }
+}

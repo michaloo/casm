@@ -1,12 +1,15 @@
 import { useState } from "react";
+import { offlineNote } from "./connection";
 import type { Answers, QuestionRequest } from "@casm/protocol";
 
 export function Question({
   request,
   answer,
+  disabled = false,
 }: {
   request: QuestionRequest;
   answer: (answers?: Answers) => void;
+  disabled?: boolean;
 }) {
   const [values, set] = useState<Answers>({});
   const [other, setOther] = useState<Record<string, string>>({});
@@ -120,8 +123,8 @@ export function Question({
           )}
         </label>
       ))}
-      <button>Answer</button>
-      <button type="button" onClick={() => answer()}>
+      <button disabled={disabled} title={disabled ? offlineNote : undefined}>Answer</button>
+      <button type="button" disabled={disabled} title={disabled ? offlineNote : undefined} onClick={() => answer()}>
         Dismiss
       </button>
     </form>

@@ -3,6 +3,7 @@ import type { Project } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { InstructionEditor, ProjectMemories, SettingsDialog, type InstructionFile } from "./settings-shared";
 import { MoreGlyph } from "./row-menu";
+import { offlineNote } from "./connection";
 
 type Section = "instructions" | "memories" | "info";
 
@@ -30,7 +31,7 @@ function ProjectSettings({ host, project, agentCount, rpc, online, close, newAge
     sections={[["instructions", "AGENTS.md"], ["memories", "Memories"], ["info", "Info"]] as const} section={section} setSection={setSection} close={close}>
     <section hidden={section !== "info"} aria-label="Project info">
       <h3>Info</h3><dl className="project-info"><dt>Path</dt><dd><code className="settings-path">{project.path}</code></dd><dt>Group</dt><dd>{project.group || "No group"}</dd><dt>Agents</dt><dd>{agentCount}</dd></dl>
-      <button type="button" className="primary" disabled={!online} onClick={newAgent}>New agent here</button>
+      <button type="button" className="primary" disabled={!online} title={online ? undefined : offlineNote} onClick={newAgent}>New agent here</button>
     </section>
     {!online || !rpc ? section !== "info" && <p role="status">Host offline. Reconnect to load project settings.</p> : <>
       <div hidden={section !== "instructions"}><ProjectInstructions host={host} project={project} rpc={rpc} /></div>

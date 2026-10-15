@@ -44,6 +44,7 @@ import type {
 import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
 import { claudeMemories } from "./claude-memory.ts";
 import { ClaudeTasks } from "./claude-tasks.ts";
+import { isoTime, TimedItems } from "../item-times.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
 const MAX_TOOL_INPUT_PREVIEW = 8000;
@@ -507,7 +508,7 @@ async function transcriptPath(sessionId: string, cwd: string): Promise<string | 
   return null;
 }
 
-type Line = Entry & { parentUuid?: string | null; logicalParentUuid?: string | null; isSidechain?: boolean; totalCostUSD?: number; modelUsage?: Record<string, SdkModelUsage> };
+type Line = Entry & { timestamp?: string; parentUuid?: string | null; logicalParentUuid?: string | null; isSidechain?: boolean; totalCostUSD?: number; modelUsage?: Record<string, SdkModelUsage> };
 
 export function parseLines(text: string): Line[] {
   const out: Line[] = [];
@@ -553,10 +554,10 @@ export function chain(lines: Line[]): Line[] {
 
 export function historyItems(lines: Line[]): Item[] {
   const n = new Normalizer();
-  const byId = new Map<string, Item>();
+  const items = new TimedItems();
   // An updated item (tool result, plan change) replaces it in place.
-  for (const l of chain(lines)) for (const item of n.entry(l)) byId.set(item.id, item);
-  return [...byId.values()];
+  for (const l of chain(lines)) for (const item of n.entry(l)) items.put(item, isoTime(l.timestamp));
+  return items.values();
 }
 
 // Context = the input side of the newest model call; totals and cost come from

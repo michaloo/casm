@@ -3777,6 +3777,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "at": {
+                      "type": "string"
+                    },
                     "text": {
                       "type": "string"
                     },
@@ -3850,6 +3853,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "at": {
+                      "type": "string"
+                    },
                     "text": {
                       "type": "string"
                     }
@@ -3868,6 +3874,9 @@
                       "const": "reasoning"
                     },
                     "id": {
+                      "type": "string"
+                    },
+                    "at": {
                       "type": "string"
                     },
                     "text": {
@@ -3895,6 +3904,12 @@
                       ]
                     },
                     "id": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "string"
+                    },
+                    "endedAt": {
                       "type": "string"
                     },
                     "name": {
@@ -3946,6 +3961,9 @@
                       "const": "subagent"
                     },
                     "id": {
+                      "type": "string"
+                    },
+                    "at": {
                       "type": "string"
                     },
                     "title": {
@@ -4018,6 +4036,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "at": {
+                      "type": "string"
+                    },
                     "text": {
                       "type": "string"
                     },
@@ -4044,6 +4065,9 @@
                       "const": "plan"
                     },
                     "id": {
+                      "type": "string"
+                    },
+                    "at": {
                       "type": "string"
                     },
                     "entries": {
@@ -4157,6 +4181,9 @@
                             "id": {
                               "type": "string"
                             },
+                            "at": {
+                              "type": "string"
+                            },
                             "text": {
                               "type": "string"
                             },
@@ -4230,6 +4257,9 @@
                             "id": {
                               "type": "string"
                             },
+                            "at": {
+                              "type": "string"
+                            },
                             "text": {
                               "type": "string"
                             }
@@ -4248,6 +4278,9 @@
                               "const": "reasoning"
                             },
                             "id": {
+                              "type": "string"
+                            },
+                            "at": {
                               "type": "string"
                             },
                             "text": {
@@ -4275,6 +4308,12 @@
                               ]
                             },
                             "id": {
+                              "type": "string"
+                            },
+                            "at": {
+                              "type": "string"
+                            },
+                            "endedAt": {
                               "type": "string"
                             },
                             "name": {
@@ -4326,6 +4365,9 @@
                               "const": "subagent"
                             },
                             "id": {
+                              "type": "string"
+                            },
+                            "at": {
                               "type": "string"
                             },
                             "title": {
@@ -4398,6 +4440,9 @@
                             "id": {
                               "type": "string"
                             },
+                            "at": {
+                              "type": "string"
+                            },
                             "text": {
                               "type": "string"
                             },
@@ -4424,6 +4469,9 @@
                               "const": "plan"
                             },
                             "id": {
+                              "type": "string"
+                            },
+                            "at": {
                               "type": "string"
                             },
                             "entries": {
@@ -4566,6 +4614,9 @@
                         "id": {
                           "type": "string"
                         },
+                        "at": {
+                          "type": "string"
+                        },
                         "toolName": {
                           "type": "string"
                         },
@@ -4617,6 +4668,9 @@
                       "type": "object",
                       "properties": {
                         "id": {
+                          "type": "string"
+                        },
+                        "at": {
                           "type": "string"
                         },
                         "title": {
@@ -4766,6 +4820,9 @@
                 "id": {
                   "type": "string"
                 },
+                "at": {
+                  "type": "string"
+                },
                 "toolName": {
                   "type": "string"
                 },
@@ -4791,6 +4848,9 @@
               "type": "object",
               "properties": {
                 "id": {
+                  "type": "string"
+                },
+                "at": {
                   "type": "string"
                 },
                 "title": {
@@ -5110,6 +5170,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "at": {
+                      "type": "string"
+                    },
                     "text": {
                       "type": "string"
                     },
@@ -5183,6 +5246,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "at": {
+                      "type": "string"
+                    },
                     "text": {
                       "type": "string"
                     }
@@ -5201,6 +5267,9 @@
                       "const": "reasoning"
                     },
                     "id": {
+                      "type": "string"
+                    },
+                    "at": {
                       "type": "string"
                     },
                     "text": {
@@ -5228,6 +5297,12 @@
                       ]
                     },
                     "id": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "string"
+                    },
+                    "endedAt": {
                       "type": "string"
                     },
                     "name": {
@@ -5279,6 +5354,9 @@
                       "const": "subagent"
                     },
                     "id": {
+                      "type": "string"
+                    },
+                    "at": {
                       "type": "string"
                     },
                     "title": {
@@ -5351,6 +5429,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "at": {
+                      "type": "string"
+                    },
                     "text": {
                       "type": "string"
                     },
@@ -5377,6 +5458,9 @@
                       "const": "plan"
                     },
                     "id": {
+                      "type": "string"
+                    },
+                    "at": {
                       "type": "string"
                     },
                     "entries": {
@@ -5443,6 +5527,9 @@
               "type": "object",
               "properties": {
                 "id": {
+                  "type": "string"
+                },
+                "at": {
                   "type": "string"
                 },
                 "title": {
@@ -6308,6 +6395,9 @@
                         "id": {
                           "type": "string"
                         },
+                        "at": {
+                          "type": "string"
+                        },
                         "text": {
                           "type": "string"
                         },
@@ -6381,6 +6471,9 @@
                         "id": {
                           "type": "string"
                         },
+                        "at": {
+                          "type": "string"
+                        },
                         "text": {
                           "type": "string"
                         }
@@ -6399,6 +6492,9 @@
                           "const": "reasoning"
                         },
                         "id": {
+                          "type": "string"
+                        },
+                        "at": {
                           "type": "string"
                         },
                         "text": {
@@ -6426,6 +6522,12 @@
                           ]
                         },
                         "id": {
+                          "type": "string"
+                        },
+                        "at": {
+                          "type": "string"
+                        },
+                        "endedAt": {
                           "type": "string"
                         },
                         "name": {
@@ -6477,6 +6579,9 @@
                           "const": "subagent"
                         },
                         "id": {
+                          "type": "string"
+                        },
+                        "at": {
                           "type": "string"
                         },
                         "title": {
@@ -6549,6 +6654,9 @@
                         "id": {
                           "type": "string"
                         },
+                        "at": {
+                          "type": "string"
+                        },
                         "text": {
                           "type": "string"
                         },
@@ -6575,6 +6683,9 @@
                           "const": "plan"
                         },
                         "id": {
+                          "type": "string"
+                        },
+                        "at": {
                           "type": "string"
                         },
                         "entries": {
@@ -6717,6 +6828,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "at": {
+                      "type": "string"
+                    },
                     "toolName": {
                       "type": "string"
                     },
@@ -6768,6 +6882,9 @@
                   "type": "object",
                   "properties": {
                     "id": {
+                      "type": "string"
+                    },
+                    "at": {
                       "type": "string"
                     },
                     "title": {

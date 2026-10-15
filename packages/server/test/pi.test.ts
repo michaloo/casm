@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { untimed } from "./untimed.ts";
 import type { Item } from "@casm/protocol";
 import {
   argumentHint,
@@ -110,7 +111,7 @@ const session = [
 ].join("\n");
 
 test("parseSession follows the active branch and upserts tool results", () => {
-  assert.deepEqual(parseSession(session), [
+  assert.deepEqual(untimed(parseSession(session)), [
     { kind: "user", id: "u1", text: "hello" },
     { kind: "reasoning", id: "102:0", text: "greet" },
     { kind: "assistant", id: "102:1", text: "Hi!" },
@@ -122,8 +123,8 @@ test("parseSession follows the active branch and upserts tool results", () => {
 });
 
 test("an empty or header-only session has no items", () => {
-  assert.deepEqual(parseSession(""), []);
-  assert.deepEqual(parseSession(line({ type: "session", version: 3, id: "x", cwd: "/" })), []);
+  assert.deepEqual(untimed(parseSession("")), []);
+  assert.deepEqual(untimed(parseSession(line({ type: "session", version: 3, id: "x", cwd: "/" }))), []);
 });
 
 // extension_ui_request shapes from docs/rpc-extension-ui.md and a live rpc run.
@@ -273,7 +274,7 @@ test("history: custom messages and plans; a failed response followed by a retry 
     line({ type: "custom", id: "pm", parentId: "cm2", timestamp: "t", customType: "plan-mode", data: { todos: [{ step: 1, text: "Read", completed: true }] } }),
     msg("a3", "pm", assistant(4, [], { stopReason: "error", errorMessage: "fatal" })),
   ].join("\n");
-  assert.deepEqual(parseSession(jsonl), [
+  assert.deepEqual(untimed(parseSession(jsonl)), [
     { kind: "user", id: "u1", text: "What colour?" },
     { kind: "notice", id: "2:error", text: "Retried after: 503 overloaded", level: "warning" },
     { kind: "assistant", id: "3:0", text: "Red" },

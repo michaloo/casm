@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import type { Answers, Catalog, Command, ImageData, Item, McpServer, ModelInfo, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
 import { COMMAND as CASM_MCP_COMMAND, ENV as CASM_MCP_ENV } from "./pi-extension.ts";
 import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
+import { isoTime, TimedItems } from "../item-times.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
 // History drops image data above this many base64 characters (~1 MB decoded).
@@ -211,6 +212,7 @@ export function normalize(msg: PiMessage, tools: Map<string, Tool>, fallbackId =
 type Entry = {
   type: string;
   id?: string;
+  timestamp?: string;
   parentId?: string | null;
   message?: PiMessage;
   summary?: string;
@@ -244,11 +246,14 @@ function activePath(entries: Entry[]): Entry[] {
 // Normalizes a session file along the active branch.
 export function parseSession(jsonl: string): Item[] {
   const tools = new Map<string, Tool>();
-  const items = new Map<string, Item>();
-  const put = (item: Item) => items.set(item.id, item);
+  const items = new TimedItems();
+  // The entry being read: its timestamp dates the items it produces.
+  let at: string | undefined;
+  const put = (item: Item) => items.put(item, at);
   // A failed response directly followed by another one was retried by pi.
   let failed: Notice | null = null;
   for (const e of activePath(entriesOf(jsonl))) {
+    at = isoTime(e.timestamp ?? e.message?.timestamp);
     if (e.type === "message" && e.message) {
       const m = e.message;
       if (failed && m.role === "assistant") put({ ...failed, text: `Retried after: ${failed.text}`, level: "warning" });
@@ -269,7 +274,7 @@ export function parseSession(jsonl: string): Item[] {
       if (plan) put(plan);
     }
   }
-  return [...items.values()];
+  return items.values();
 }
 
 // Last known usage from a session file: context of the latest valid assistant

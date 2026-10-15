@@ -14,7 +14,8 @@ import { ConnectionBanner, offlineNote } from "./connection";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { Row, Images } from "./transcript";
+import { Row, Images, type ToolTime } from "./transcript";
+import { EntryTime, entryTimes } from "./entry-time";
 import type {
   Agent,
   Catalog,
@@ -974,7 +975,7 @@ function App() {
           <>
             <div className="pending" aria-label="Pending requests">
               {c.permissions.map((p) => (
-                <div className="card" key={p.id}>
+                <div className="entry" key={p.id}><div className="card">
                   <strong>{p.title ?? `Permission: ${p.toolName}`}</strong>
                   <pre>{JSON.stringify(p.input, null, 2)}</pre>
                   {(
@@ -1009,11 +1010,10 @@ function App() {
                           : "Always allow"}
                     </button>
                   ))}
-                </div>
+                </div>{p.at && <EntryTime start={Date.parse(p.at)} />}</div>
               ))}
               {c.questions.map((q) => (
-                <Question
-                  key={q.id}
+                <div className="entry" key={q.id}><Question
                   request={q}
                   disabled={!online}
                   answer={(answers) =>
@@ -1025,7 +1025,7 @@ function App() {
                       ),
                     )
                   }
-                />
+                />{q.at && <EntryTime start={Date.parse(q.at)} />}</div>
               ))}
             </div>
             <PendingQueue key={key(selection.host, selection.id ?? "new")} agentKey={key(selection.host, selection.id ?? "new")} messages={rows}
@@ -1206,6 +1206,13 @@ function TranscriptHeader({ context }: { context?: TranscriptContext }) {
   ) : null;
 }
 const transcriptComponents = { Header: TranscriptHeader };
+function Entry({ item, time, expansion }: { item: Item; time?: ToolTime; expansion: Record<string, boolean> }) {
+  const when = entryTimes(item, time);
+  return <div className="entry">
+    <Row item={item} time={time} expansion={expansion} />
+    {when && <EntryTime start={when.start} end={when.end} />}
+  </div>;
+}
 function Transcript({
   ckey,
   older,
@@ -1284,6 +1291,9 @@ function Transcript({
     const gutter = () => {
       const el = scroller.current;
       chatEl?.style.setProperty("--chat-scrollbar", `${el ? el.offsetWidth - el.clientWidth : 0}px`);
+      // Entry times need about 80px left of the column; else they go inside it.
+      const column = el?.querySelector(".item")?.getBoundingClientRect().width;
+      if (el && chatEl && column) chatEl.dataset.gutter = (el.clientWidth - column) / 2 >= 80 ? "wide" : "narrow";
     };
     const observer = (resized.current = new ResizeObserver(() => { gutter(); stick(); }));
     observer.observe(box.current);
@@ -1311,6 +1321,7 @@ function Transcript({
     return () => {
       observer.disconnect(); mutated.disconnect(); wrapper.removeEventListener("scroll", settle, { capture: true });
       chatEl?.style.removeProperty("--chat-scrollbar");
+      delete chatEl?.dataset.gutter;
     };
   }, []);
   useEffect(() => {
@@ -1364,11 +1375,7 @@ function Transcript({
           if (c.loaded && c.start > 0) void older();
         }}
         itemContent={(_, item) => (
-          <Row
-            item={item}
-            time={c.toolTimes?.[item.id]}
-            expansion={(c.expanded ??= {})}
-          />
+          <Entry item={item} time={c.toolTimes?.[item.id]} expansion={(c.expanded ??= {})} />
         )}
         context={{
           start: c.start,

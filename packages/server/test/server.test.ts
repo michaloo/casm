@@ -439,6 +439,10 @@ test("server identity, images, tool output, usage and commands", async () => {
   const user = events.find((e) => e.type === "item" && e.item.kind === "user");
   assert.deepEqual(user?.type === "item" && user.item.kind === "user" && user.item.images, [{ mediaType: "image/png", data: "iVBOR" }]);
   assert.ok(events.some((e) => e.type === "toolOutput"));
+  // Live items carry when the server first saw them; upserts keep that time.
+  const items = events.flatMap((e) => (e.type === "item" ? [e.item] : []));
+  assert.ok(items.length && items.every((i) => i.at && Math.abs(Date.parse(i.at) - Date.now()) < 60_000));
+  for (const i of items) assert.equal(i.at, items.find((x) => x.id === i.id)!.at);
   assert.deepEqual((await client.call("agent.usage", { id: a.id })).usage, { contextTokens: 500, contextWindow: 1000 });
   assert.equal((await client.call("agent.commands", { id: a.id })).commands[0].name, "review");
 });

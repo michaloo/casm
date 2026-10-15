@@ -35,6 +35,8 @@ writeFileSync(`${home}/web-token`, store.createToken("web-test"));
 const history: Item[] = Array.from({ length: 320 }, (_, i) => ({
   kind: i % 2 ? "assistant" : "user",
   id: `history-${i}`,
+  // A day of history, 37s apart: dated entries that are not today.
+  at: new Date(Date.UTC(2026, 9, 14, 8, 0, 0) + i * 37_000).toISOString(),
   text: `Message ${i}\n\nA focused conversation with enough history to scroll.\n\n${"More context. ".repeat(10)}`,
 }));
 let seq = 0;

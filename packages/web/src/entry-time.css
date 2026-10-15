@@ -1,0 +1,35 @@
+/* Each transcript entry spans the scroller; its time sits in the left gutter,
+   right-aligned against the column, level with the entry's first line. Where
+   the gutter is too narrow it moves inside the column, top right, into the
+   row's top padding. Hidden until hover or focus, so it never shifts layout. */
+.entry { position: relative; }
+.entry-time {
+  --entry-column: min(calc(100% - var(--chat-gutters)), var(--chat-measure));
+  position: absolute;
+  top: var(--entry-time-top, 19px);
+  right: calc((100% + var(--entry-column)) / 2 + 14px);
+  color: var(--faint);
+  font: 11px/16px var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s var(--ease);
+}
+.entry:hover .entry-time,
+.entry:focus-within .entry-time { opacity: 1; pointer-events: auto; }
+/* First lines: the role label inside a message bubble, a tool summary. */
+.entry:has(> .item.user) { --entry-time-top: 35px; }
+.entry:has(> .item.assistant) { --entry-time-top: 17px; }
+.entry:has(> .card) { --entry-time-top: 20px; }
+.chat[data-gutter="narrow"] .entry-time:not(.inline) {
+  top: 1px;
+  right: calc((100% - var(--entry-column)) / 2);
+}
+/* Queued rows: after the status line, revealed the same way. */
+.entry-time.inline { position: static; margin-left: 6px; font-size: 10.5px; }
+.pending-row:hover .entry-time.inline,
+.pending-row:focus-within .entry-time.inline { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  .entry-time { display: none; }
+}

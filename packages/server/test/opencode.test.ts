@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { untimed } from "./untimed.ts";
 import {
   imageParts,
   normalizeMessages,
@@ -68,7 +69,7 @@ const messages: OcMessage[] = [
 ];
 
 test("normalizes a session transcript", () => {
-  assert.deepEqual(normalizeMessages(messages), [
+  assert.deepEqual(untimed(normalizeMessages(messages)), [
     { kind: "user", id: "msg_u1", text: "Read /etc/hostname" },
     { kind: "reasoning", id: "prt_r1", text: "I'll use the read tool." },
     { kind: "tool", id: "prt_t1", name: "read", input: { filePath: "/etc/hostname" }, status: "done", output: "1: box\n" },
@@ -248,7 +249,7 @@ const chat: OcMessage[] = [
 ];
 
 test("history: images, retry and compaction notices, one plan per turn", () => {
-  assert.deepEqual(normalizeMessages(chat), [
+  assert.deepEqual(untimed(normalizeMessages(chat)), [
     { kind: "user", id: "msg_u1", text: "What colour is this image? One word.", images: [{ mediaType: "image/png", data: PNG }] },
     { kind: "notice", id: "msg_u1:retry", text: "Retry attempt 1: Rate limited", level: "warning" },
     {
@@ -345,7 +346,7 @@ test("shell commands: the bash part after the synthetic user message is a shell 
       parts: [{ id: "prt_sh", ...sh, type: "tool", tool: "bash", callID: "c", state: { status: "completed", input: { command: "sleep 30" }, output: "start\n\n\n<metadata>\nUser aborted the command\n</metadata>" } }],
     },
   ];
-  assert.deepEqual(normalizeMessages(shellMessages), [{ kind: "tool", id: "prt_sh", name: "shell", origin: "user", input: { command: "sleep 30" }, status: "error", output: "start" }]);
+  assert.deepEqual(untimed(normalizeMessages(shellMessages)), [{ kind: "tool", id: "prt_sh", name: "shell", origin: "user", input: { command: "sleep 30" }, status: "error", output: "start" }]);
   const ok = shellTool({ kind: "tool", id: "p", name: "bash", input: { command: "ls" }, status: "done", output: "a\n" });
   assert.deepEqual(ok, { kind: "tool", id: "p", name: "shell", origin: "user", input: { command: "ls" }, status: "done", output: "a\n" });
   // A model's bash call stays bash.
@@ -575,8 +576,8 @@ test("OpenCode background tasks stay running until the parent session reports th
     { info: { id: "msg_u2", sessionID: "ses_1", role: "user" }, parts: [{ id: "p2", sessionID: "ses_1", messageID: "msg_u2", type: "text", text: backgroundResult("completed", "Found 3 files"), synthetic: true }] },
   ];
   const usage = { model: "opencode/big-pickle" };
-  assert.deepEqual(normalizeMessages(history.slice(0, 2))[1], { kind: "subagent", id: "prt_bg", title: "Scan repo", agentType: "general", status: "running", usage });
-  assert.deepEqual(normalizeMessages(history), [
+  assert.deepEqual(untimed(normalizeMessages(history.slice(0, 2))[1]), { kind: "subagent", id: "prt_bg", title: "Scan repo", agentType: "general", status: "running", usage });
+  assert.deepEqual(untimed(normalizeMessages(history)), [
     { kind: "user", id: "msg_u1", text: "go" },
     { kind: "subagent", id: "prt_bg", title: "Scan repo", agentType: "general", status: "done", summary: "Found 3 files", usage },
   ]);
@@ -670,7 +671,7 @@ test("user history items carry casm's ids: recorded alias, part metadata, legacy
   assert.equal(userItemId(user("msg_13bdcee58001sJYNn0xTYGD8F0", [{ id: "p", sessionID: "s", messageID: "m", type: "text", text: "hi", metadata: { casmItemId: uuid } }])), uuid);
   // Prompts typed in OpenCode itself, or sent before this process without metadata.
   assert.equal(userItemId(user("msg_13bdcee58001sJYNn0xTYGD8F0"), new Map([["other", uuid]])), "msg_13bdcee58001sJYNn0xTYGD8F0");
-  assert.deepEqual(normalizeMessages([user(`msg_${uuid.replaceAll("-", "")}`)]), [{ kind: "user", id: uuid, text: "hi" }]);
+  assert.deepEqual(untimed(normalizeMessages([user(`msg_${uuid.replaceAll("-", "")}`)])), [{ kind: "user", id: uuid, text: "hi" }]);
 });
 
 test("mid-turn, agent.history shows an OpenCode prompt with the live turn's id", async () => {

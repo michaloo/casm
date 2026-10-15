@@ -94,6 +94,12 @@ agents:
   subagents [agent] [-n count]       subagents the agents run themselves (Claude Task/Agent,
                                      Codex sub-agents, OpenCode tasks): running, then recent
 
+notifications:
+  notify <message> [--title t] [--url path] [--device name]
+                                     notify the user: a push to every device subscribed on the host
+                                     (or the one named), and a toast in open web clients. From an
+                                     agent it is titled "<agent> · <project>" and opens the agent
+
 schedules (run on the host; messages to busy or limited agents become pending):
   schedules [--agent a]
   schedule add (--cron "0 9 * * 1-5" | --every 30m | --at 18:30|"in 2h"|ISO) <prompt>
@@ -170,6 +176,9 @@ const options = {
   disable: { type: "boolean" },
   force: { type: "boolean" },
   output: { type: "string", short: "o" },
+  title: { type: "string" },
+  url: { type: "string" },
+  device: { type: "string" },
 } as const;
 
 // The first positional decides; flags (and the values of flags that take one) may
@@ -579,6 +588,18 @@ async function run(c: CasmClient) {
           console.log(
             `${shortId(a.id)}  ${a.status.padEnd(7)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}${a.deferred ? `  limited, retries ${new Date(a.deferred.until).toLocaleTimeString()}` : ""}${a.pending?.count && !a.deferred ? `  ${a.pending.count} pending` : ""}${a.subagents?.running ? `  ${a.subagents.running} subagent${a.subagents.running === 1 ? "" : "s"}` : ""}${opt.usage ? `  ${usage.get(a.id) ? formatUsage(usage.get(a.id)!) : "-"}` : ""}`,
           );
+      });
+    }
+
+    case "notify": {
+      const message = args.join(" ");
+      if (!message) fail("notify needs a message");
+      const r = await c.call("push.notify", { message, title: opt.title, url: opt.url, device: opt.device, sender: messageSender() });
+      return out(r, () => {
+        if (!r.devices) console.error("no devices subscribed for notifications on this host (enable them in the web client's host options); shown in open web clients only");
+        else console.error(`delivered to ${r.delivered} of ${r.devices} device${r.devices === 1 ? "" : "s"}`);
+        for (const f of r.failed) console.error(`  ${f.device}: ${f.error}`);
+        if (r.devices && !r.delivered) process.exitCode = 1;
       });
     }
 

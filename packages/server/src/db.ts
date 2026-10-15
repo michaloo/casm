@@ -122,6 +122,16 @@ CREATE TABLE IF NOT EXISTS tokens (
   hash TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS push_devices (
+  id TEXT PRIMARY KEY,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  label TEXT NOT NULL,
+  origin TEXT,
+  created_at TEXT NOT NULL,
+  last_used_at TEXT
+);
 CREATE TABLE IF NOT EXISTS peers (
   name TEXT PRIMARY KEY,
   url TEXT NOT NULL,
@@ -130,6 +140,20 @@ CREATE TABLE IF NOT EXISTS peers (
   created_at TEXT NOT NULL
 );
 `;
+
+// A browser's Web Push subscription (see push.ts).
+export type StoredPushDevice = {
+  id: string; endpoint: string; p256dh: string; auth: string; label: string; origin: string | null;
+  createdAt: string; lastUsedAt: string | null;
+};
+
+function toPushDevice(r: Row): StoredPushDevice {
+  return {
+    id: r.id as string, endpoint: r.endpoint as string, p256dh: r.p256dh as string, auth: r.auth as string,
+    label: r.label as string, origin: (r.origin as string | null) ?? null,
+    createdAt: r.created_at as string, lastUsedAt: (r.last_used_at as string | null) ?? null,
+  };
+}
 
 // Another casm server. The token is ours to use on it (outbound), so it is
 // stored in clear, unlike client tokens.
@@ -501,5 +525,30 @@ export class Store {
 
   removePeer(name: string): boolean {
     return this.db.prepare("DELETE FROM peers WHERE name = ?").run(name).changes > 0;
+  }
+
+  // --- push devices
+
+  listPushDevices(): StoredPushDevice[] {
+    return (this.db.prepare("SELECT * FROM push_devices ORDER BY created_at").all() as Row[]).map(toPushDevice);
+  }
+
+  // Upserts by endpoint: a renewed subscription keeps its id and created date.
+  savePushDevice(d: Omit<StoredPushDevice, "id" | "createdAt" | "lastUsedAt">): StoredPushDevice {
+    this.db
+      .prepare(
+        `INSERT INTO push_devices (id, endpoint, p256dh, auth, label, origin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, label = excluded.label, origin = excluded.origin`,
+      )
+      .run(randomUUID(), d.endpoint, d.p256dh, d.auth, d.label, d.origin, now());
+    return toPushDevice(this.db.prepare("SELECT * FROM push_devices WHERE endpoint = ?").get(d.endpoint) as Row);
+  }
+
+  touchPushDevice(id: string) {
+    this.db.prepare("UPDATE push_devices SET last_used_at = ? WHERE id = ?").run(now(), id);
+  }
+
+  removePushDevice(id: string): boolean {
+    return this.db.prepare("DELETE FROM push_devices WHERE id = ?").run(id).changes > 0;
   }
 }

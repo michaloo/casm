@@ -79,8 +79,8 @@ const scenes: Record<string, Scene> = {
     height: 26,
     steps: [
       { hidden: "casm project create /tmp/code/acme-api --name acme-api" },
-      { comment: "# --casm-tools gives an agent casm's MCP tools: it can run agents itself" },
-      { cmd: 'casm run --project acme-api --provider claude --model haiku --casm-tools --mode bypassPermissions --name lead --wait "With your casm tools, start a claude haiku agent named helper on host worker in project acme-api with the prompt \'Say hello from worker in five words.\', wait for it and quote its reply in one line."', maxGap: 1.5 },
+      { comment: "# agents run agents with the casm CLI from their own shell" },
+      { cmd: 'casm run --project acme-api --provider claude --model haiku --mode bypassPermissions --name lead --wait "With the casm CLI, start a claude haiku agent named helper on host worker in project acme-api with the prompt \'Say hello from worker in five words.\', wait for it and quote its reply in one line."', maxGap: 1.5 },
       { cmd: "casm -H worker agents" },
       { cmd: "casm -H worker history helper" },
     ],

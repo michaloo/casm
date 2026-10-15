@@ -144,7 +144,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     }
   }
 
-  // Through the same peer connections the MCP tools use. Subscriptions are
+  // Through the server's peer connections. Subscriptions are
   // relayed: the peer's notifications for the agent reach this client.
   async function forward(client: Client, ref: string, method: MethodName, params: unknown): Promise<unknown> {
     // Forward the sender's name snapshot from its origin before crossing hosts.

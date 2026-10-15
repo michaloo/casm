@@ -19,6 +19,7 @@ setup: a server named `studio` with a peer named `worker`, a demo project
 - [Files: cat, get](#files)
 - [Subagents, shell, MCP](#subagents-shell-and-mcp)
 - [The agent prompt](#the-agent-prompt)
+- [Agents running agents](#agents-running-agents)
 - [Lifecycle: reload, restart, archive, rm](#lifecycle)
 - [Exit codes and scripting](#exit-codes-and-scripting)
 
@@ -161,7 +162,7 @@ work/
 
 ```text
 casm run --project p [--cwd dir] [--provider claude] [--name n] [--model m] [--mode m]
-         [--parent serverId/agentId|none] [--casm-tools] [--env K=V]... [--wait] <prompt>
+         [--parent serverId/agentId|none] [--env K=V]... [--wait] <prompt>
 ```
 
 Creates an agent and sends it the first prompt. Prints the new agent's ID, or
@@ -174,7 +175,6 @@ with `--wait`, its reply.
 - `--cwd`: a folder inside the project, relative or absolute, such as a git
   worktree: `--cwd .worktrees/feature-x`.
 - `--env K=V`: the agent's environment, for example a provider base URL.
-- `--casm-tools`: give the agent [casm's MCP tools](mcp-tools.md).
 
 ```console
 $ casm run --project acme-api --provider claude --model haiku --name reviewer "Read src/orders.js and tell me in two sentences what it does."
@@ -489,6 +489,55 @@ casm agent-prompt --enable | --disable
 ```
 
 See [the agent prompt](concepts.md#the-agent-prompt).
+
+## Agents running agents
+
+Agents use this same CLI from their shell to spawn, message and steer other
+agents; casm has no MCP tools of its own.
+
+![a lead agent starts a helper on a peer with the CLI](media/cli-orchestration.svg)
+
+Inside an agent, `CASM_SERVER_ID`,
+`CASM_SERVER_NAME`, `CASM_AGENT_ID` and `CASM_AGENT_NAME` are set, so the agent
+is the parent of what it starts and the sender of what it sends, also across
+peers with `-H`. The [agent prompt](#the-agent-prompt) teaches it the commands.
+
+| To | Run |
+| --- | --- |
+| See the hosts it can use, their reachability and agents | `casm peers --probe`, `casm -H <peer> info` |
+| Check limits before delegating long work | `casm [-H <peer>] limits`, `casm usage <agent>` |
+| Find a project, list agents | `casm projects`, `casm agents [--project p]` |
+| Start an agent (it becomes the parent) | `casm [-H <peer>] run --project p [--cwd dir] [--provider …] [--model m] [--name n] "<prompt>"` |
+| Message it, or steer its running turn | `casm send <agent> "<text>"`, `casm send <agent> "<text>" --steer` |
+| Wait for its reply, read its transcript | `casm wait <agent> [--timeout s]`, `casm history <agent> [-n count]` |
+| See what is waiting | `casm pending` |
+| Unblock it | `casm permissions` / `approve` / `deny`, `casm questions` / `answer` |
+
+`casm wait` exits `3` while the agent is still busy or waiting for an answer
+and `4` when a usage limit deferred its prompt (see
+[exit codes](#exit-codes-and-scripting)), so an agent can loop on it or pick
+another provider or host. A lead agent on `studio` starting a helper on
+`worker`:
+
+```console
+$ casm -H worker run --project acme-api --provider claude --model haiku --name helper "Say hello from worker."
+$ casm -H worker wait helper
+Hello from worker! 👋 I'm ready to help you with the acme-api project. What would you like to work on?
+```
+
+The helper's history on `worker` records who asked:
+
+```console
+$ casm -H worker history helper
+from lead · studio
+> Say hello from worker.
+
+Hello from worker! 👋 I'm ready to help you with the acme-api project. What would you like to work on?
+```
+
+Providers that ask before running shell commands need a permission mode that
+lets the agent run `casm` (for example Claude's `acceptEdits` with an allow
+rule, or `bypassPermissions`).
 
 ## Lifecycle
 

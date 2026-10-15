@@ -132,7 +132,7 @@ $ casm -H worker projects
 
 `worker` must resolve to the other machine (`wss://` through TLS). Now `-H
 worker` runs any command there, the web client shows `worker` as a second
-host, and agents with casm tools can start agents on it.
+host, and agents can start agents on it with `casm -H worker run`.
 
 ![peers and -H](media/cli-peers.svg)
 
@@ -142,5 +142,5 @@ directly: `casm host add worker ws://worker:7373 '<token>' --default`.
 ## Next
 
 - [Concepts](concepts.md): hosts, projects, agents, the queue, schedules, limits.
-- [CLI reference](cli.md) and [MCP tools](mcp-tools.md).
+- [CLI reference](cli.md), including how agents run agents.
 - [Troubleshooting](troubleshooting.md).

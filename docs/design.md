@@ -109,13 +109,13 @@ vary by provider; unavailable information must remain explicit. The server's
 runtime `NODE_ENV` is removed from inherited provider environments so it cannot
 change agent builds or dependency installation.
 
-Agent-to-agent orchestration is available through the CLI and opt-in per-agent
-MCP tools. MCP credentials identify their calling agent. Claude and Codex take
-the casm server in their session configuration; pi gets it, with
-`config.mcpServers`, from a casm extension that registers them for that pi
-session only. A peer child executes
-and stores its state on its own host; forwarding is coordination, not migration
-or synchronization. Peer disconnects invalidate subscriptions and require
+Agent-to-agent orchestration goes through the CLI, run from the agent's shell:
+every session gets `CASM_*` env naming its server and agent, so children link
+to it as parent and its messages carry it as sender. casm offers agents no MCP
+server of its own; per-agent `config.mcpServers` reach each provider in its own
+format (pi through a casm extension, for that session only). A peer child
+executes and stores its state on its own host; forwarding is coordination, not
+migration or synchronization. Peer disconnects invalidate subscriptions and require
 clients to reconnect and reload.
 
 ## Web client and validation

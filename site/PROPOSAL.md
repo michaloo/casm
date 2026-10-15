@@ -27,6 +27,14 @@ code or tokens.
 4. **Your devices.** An installable web app served by your own server, offline
    reading, standard Web Push.
 
+**Second theme: primitives, not opinions.** casm is deliberately unopinionated.
+It doesn't create worktrees or branches, run PRs or task boards, sandbox agents
+or impose a workflow; it offers composable primitives (projects, agents,
+messages, wait, schedules, permissions, questions, peers, notifications,
+limits, files) that you, or the agents themselves through the CLI, combine.
+Self-hosting stays the lead message; this is the second beat, carried by the
+hero lede's last sentence and its own section.
+
 The differentiator against Paseo and HAPI (README "How it compares") is not that
 casm is self-hosted (they are too) but that it has *no* central component at
 all: every server is independent, and there's no hub or relay to run, trust or
@@ -45,6 +53,13 @@ self-host.
 | Peering copies nothing | README "Connect another machine", `docs/concepts.md` |
 | Offline read-only cache, HTTP vs HTTPS | `docs/pwa.md`, README "Install as an app" |
 | Limits, schedules, queue/steer | `docs/concepts.md` |
+| Primitives list (projects, agents, send/steer/send-now/interrupt, wait, schedules, permissions, questions, peers, notify, limits/usage, cat/get, shell) | `casm --help`, `docs/cli.md`, `docs/concepts.md` |
+| `casm wait` exit codes (busy, limit-deferred, failed) | `casm --help` (`wait`: exit 3, 4, 5) |
+| casm doesn't create folders, worktrees or branches; `--cwd` is a project sub-folder such as a worktree | `docs/concepts.md` "Projects", `casm run --help` text |
+| No sandboxing, no session/file sync, no relay or cloud account | `docs/concepts.md` "What casm deliberately does not do" |
+| Agents coordinate through the same CLI, with identity env vars | `docs/concepts.md` "Agents running agents" |
+| "No PRs, task boards or fixed workflow" | Absence only: no such feature in `casm --help` or the docs; not a sentence in `docs/concepts.md`, so soften or drop if challenged |
+| Compose example (`git worktree add`, `casm run --cwd`, `wait`, `history -n 1`) | Flags as in `casm --help`; the git line is plain git, not casm |
 | Local models | `docs/providers.md` "Local models" |
 | Never expose 7373 | `docs/network.md` "Requirements" |
 
@@ -76,6 +91,14 @@ page says so), licensing, pricing, numbers or testimonials.
    the honesty of the trust table.
 5. **How it works.** Three numbered steps (server, peers, clients) with the
    real commands.
+5b. **Primitives, not opinions** (`#primitives`, nav link "Primitives"). Lede
+   ("casm doesn't manage your git branches, pull requests or task board…"), a
+   4×3 grid of twelve primitives (command in mono, bold name, one line), then
+   two boxes: *What casm deliberately doesn't do* (five ✕ items) and *Compose
+   them yourself* (an agent makes a worktree with git, spawns a Codex reviewer
+   with `casm run --cwd`, then `casm wait` and `casm history`). *Why:* it
+   states the unopinionated stance concretely and shows the CLI-as-API idea
+   without a diagram.
 6. **Features.** A 3×3 grid: providers, queue/steer, limits, schedules,
    agents running agents, approvals on the phone, offline reading, files and
    previews, open protocol. Status dots reuse casm's colour semantics (teal =
@@ -98,9 +121,17 @@ page says so), licensing, pricing, numbers or testimonials.
 >
 > casm runs Claude Code, Codex, OpenCode and pi on the computers you already
 > own, and lets you drive them from your phone, your laptop or a script. One
-> small server per machine. No casm cloud, no account, no relay.
+> small server per machine. No casm cloud, no account, no relay. And no
+> workflow of its own: casm gives you primitives to compose, not a process to
+> follow.
 
 **The deal:** "Everything casm does happens on hardware you control."
+
+**Primitives:** "Small pieces that compose. You decide the workflow." / "casm
+doesn't manage your git branches, pull requests or task board. It gives you,
+and the agents themselves, a CLI of building blocks for running and
+coordinating agents. Everything below works from a shell, including an
+agent's."
 
 **Stays:** "Inside the line is yours. Two kinds of traffic cross it." /
 "Each server owns its projects, agents, queues, schedules and tokens. Your phone
@@ -129,6 +160,11 @@ does."
 machines when you need them."
 
 ## Alternatives
+
+Headlines (primitives angle):
+- Primitives, not opinions. *(used as the section eyebrow)*
+- You bring the workflow. casm brings the agents.
+- Agents you can script, including by other agents.
 
 Headlines:
 - Your agents. Your machines. Your network. *(used)*

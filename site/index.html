@@ -165,6 +165,20 @@ nav.links a:hover { color: var(--text); }
 .feat p { color: var(--muted); font-size: 15px; margin-top: 8px; }
 .feat code { font-size: 12.5px; }
 
+/* Primitives */
+.prims { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 44px; background: var(--line); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+.prim { background: var(--surface); padding: 20px 22px; }
+.prim code { font-size: 12.5px; font-weight: 600; color: var(--accent); background: none; padding: 0; }
+.prim p { color: var(--muted); font-size: 14.5px; margin-top: 6px; }
+.compose { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
+.compose > * { min-width: 0; }
+.compose .box { border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 22px; }
+.compose h3 { margin-bottom: 10px; }
+.compose ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; color: var(--muted); font-size: 15px; }
+.compose li::before { content: "\2715"; color: var(--attention); font-size: 11px; margin-right: 10px; }
+.compose p { color: var(--muted); font-size: 15px; margin-bottom: 12px; }
+.compose pre { margin: 0; background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 12.5px; line-height: 1.7; overflow-x: auto; }
+
 /* Recipes */
 .recipes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 44px; }
 .recipe { border: 1px solid var(--line); border-radius: 14px; padding: 20px; background: var(--surface); display: flex; flex-direction: column; gap: 10px; }
@@ -219,6 +233,8 @@ footer .tagline { margin-top: 10px; max-width: 300px; }
   .promises { grid-template-columns: repeat(2, 1fr); }
   .recipes { grid-template-columns: repeat(2, 1fr); }
   .grid { grid-template-columns: repeat(2, 1fr); }
+  .prims { grid-template-columns: repeat(2, 1fr); }
+  .compose { grid-template-columns: 1fr; }
 }
 @media (max-width: 720px) {
   .wrap { padding: 0 20px; }
@@ -227,7 +243,7 @@ footer .tagline { margin-top: 10px; max-width: 300px; }
   nav.links { display: none; }
   header.top .btn { margin-left: auto; }
   .hero .lede { font-size: 17px; }
-  .promises, .steps, .recipes, .grid, .faq { grid-template-columns: 1fr; }
+  .promises, .steps, .recipes, .grid, .prims, .faq { grid-template-columns: 1fr; }
   .app { grid-template-columns: 1fr; min-height: 0; }
   .app .side { display: none; }
   .diagram { padding: 18px; }
@@ -259,6 +275,7 @@ footer .tagline { margin-top: 10px; max-width: 300px; }
     <nav class="links">
       <a href="#stays">Self-hosting</a>
       <a href="#how">How it works</a>
+      <a href="#primitives">Primitives</a>
       <a href="#features">Features</a>
       <a href="#leaves">What leaves</a>
       <a href="#faq">FAQ</a>
@@ -273,7 +290,7 @@ footer .tagline { margin-top: 10px; max-width: 300px; }
     <div>
       <div class="eyebrow">Self-hosted agent orchestrator</div>
       <h1>Your agents.<br>Your machines.<br><span class="grad">Your network.</span></h1>
-      <p class="lede">casm runs Claude Code, Codex, OpenCode and pi on the computers you already own, and lets you drive them from your phone, your laptop or a script. One small server per machine. No casm cloud, no account, no relay.</p>
+      <p class="lede">casm runs Claude Code, Codex, OpenCode and pi on the computers you already own, and lets you drive them from your phone, your laptop or a script. One small server per machine. No casm cloud, no account, no relay. And no workflow of its own: casm gives you primitives to compose, not a process to follow.</p>
       <div class="chips">
         <span class="chip"><b>Node + SQLite</b> in ~/.casm-ng</span>
         <span class="chip"><b>no</b> telemetry</span>
@@ -477,6 +494,50 @@ casm -H worker projects</pre>
         <p>Open your server's address and add it to your Home Screen or Dock. Or script it: agents get the same CLI, so they can spawn and steer other agents.</p>
 <pre>casm run --project acme-api --provider claude \
   --name reviewer "Summarize src/orders.js"</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="primitives">
+  <div class="wrap">
+    <div class="eyebrow">Primitives, not opinions</div>
+    <h2>Small pieces that compose. You decide the workflow.</h2>
+    <p class="lede">casm doesn't manage your git branches, pull requests or task board. It gives you, and the agents themselves, a CLI of building blocks for running and coordinating agents. Everything below works from a shell, including an agent's.</p>
+    <div class="prims">
+      <div class="prim"><code>casm project create</code><p><b>Projects.</b> A named folder on a host, with optional group and tags. Agents work in it or in a sub-folder.</p></div>
+      <div class="prim"><code>casm run</code><p><b>Agents.</b> A saved conversation with Claude Code, Codex, OpenCode or pi, with its model, mode and working folder.</p></div>
+      <div class="prim"><code>casm send</code><p><b>Messages.</b> Queue behind a running turn, <code>--steer</code> into it, <code>send-now</code> out of order, or <code>interrupt</code>.</p></div>
+      <div class="prim"><code>casm wait</code><p><b>Wait.</b> Block until an agent's turn ends. Exit codes tell you if it is still busy, limit-deferred or failed.</p></div>
+      <div class="prim"><code>casm schedule</code><p><b>Schedules.</b> Cron, interval or one-time jobs that message an agent or start a new one.</p></div>
+      <div class="prim"><code>casm approve</code><p><b>Permissions.</b> List, approve or deny what an agent asks to run, from the web client or any shell.</p></div>
+      <div class="prim"><code>casm answer</code><p><b>Questions.</b> Answer an agent's question, or dismiss it, from the same places.</p></div>
+      <div class="prim"><code>casm -H worker</code><p><b>Peers.</b> Register another host once, then add <code>-H</code> to any command. One hop, nothing copied.</p></div>
+      <div class="prim"><code>casm notify</code><p><b>Notifications.</b> Push a message to your subscribed devices. From an agent it opens that agent.</p></div>
+      <div class="prim"><code>casm limits</code><p><b>Limits and usage.</b> Subscription windows per provider, and context and cost per agent.</p></div>
+      <div class="prim"><code>casm cat / get</code><p><b>Files.</b> Read or download files inside project folders. Read-only, never writable.</p></div>
+      <div class="prim"><code>casm shell</code><p><b>Shell.</b> Run a command in an agent's directory, as the agent's host user.</p></div>
+    </div>
+    <div class="compose">
+      <div class="box">
+        <h3>What casm deliberately doesn't do</h3>
+        <ul>
+          <li>Create folders, git worktrees or branches. Agents can use plain git; casm only lets an agent's working folder be a project sub-folder.</li>
+          <li>Run pull requests, task boards or any fixed workflow.</li>
+          <li>Sandbox agents. They run with their host user's permissions and their provider's permission settings.</li>
+          <li>Sync sessions or files between machines.</li>
+          <li>Run a relay or a cloud account.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Compose them yourself</h3>
+        <p>An agent that wants a second opinion, using only git and casm:</p>
+<pre>git worktree add .worktrees/fix-orders -b fix-orders
+casm run --project acme-api --provider codex \
+  --cwd .worktrees/fix-orders --name reviewer \
+  "Review this branch against main"
+casm wait reviewer
+casm history reviewer -n 1</pre>
       </div>
     </div>
   </div>

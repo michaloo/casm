@@ -2458,6 +2458,15 @@ a.file-link code { color: inherit; }
 .file-preview a.button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 7px 14px; border: 1px solid transparent; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-weight: 600; text-decoration: none; }
 .file-preview a.button:hover { background: var(--accent-hover); color: var(--on-accent); }
 .file-preview-body { flex: 1; }
+.code-block pre.has-mark { position: relative; }
+.line-mark { position: absolute; left: 0; right: 0; min-width: 100%; background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); pointer-events: none; }
+.file-view-toggle { display: inline-flex; gap: 0; margin: 10px 0 0; }
+.file-view-toggle button { min-height: 44px; padding: 7px 14px; border-radius: 0; }
+.file-view-toggle button:first-child { border-radius: 8px 0 0 8px; }
+.file-view-toggle button:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+.file-view-toggle button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); position: relative; }
+.file-html-frame { display: block; width: 100%; height: min(70dvh, 640px); border: 1px solid var(--line); border-radius: 10px; background: #fff; margin-top: 10px; }
+.file-preview-body .file-note.muted { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
 .file-preview-body .code-block { margin: 0; }
 .file-image { display: block; max-width: 100%; max-height: 70dvh; margin: 0 auto; object-fit: contain; background: repeating-conic-gradient(var(--panel) 0 25%, var(--surface) 0 50%) 0 0 / 16px 16px; }
 .file-note { color: var(--muted); overflow-wrap: anywhere; }

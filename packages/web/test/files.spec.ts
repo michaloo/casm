@@ -109,3 +109,57 @@ for (const width of [1440, 375]) {
     await expect(folder.getByRole("list")).toHaveCount(0);
   });
 }
+
+for (const width of [1440, 375]) {
+  test(`file links with a line open the file and highlight it at ${width}`, async ({ page }) => {
+    const agentId = readFileSync(`${testHome}/web-files-agent-id`, "utf8");
+    await login(page, width, `/h/${encodeURIComponent("Test host")}/a/${agentId}`);
+    const reply = page.locator(".item.assistant").filter({ hasText: "See " });
+    await reply.getByRole("link", { name: `${exportsDir}/lines.ts:40:5` }).click();
+    const dialog = page.getByRole("dialog", { name: "File lines.ts" });
+    await expect(dialog.locator(".settings-path")).toHaveText(`${exportsDir}/lines.ts`);
+    const mark = dialog.locator(".line-mark");
+    await expect(mark).toHaveAttribute("data-line", "40");
+    await expect(dialog.locator("pre")).toContainText("line40 = 40");
+    const inView = async (n: number) => {
+      const text = dialog.getByText(`line${n} = ${n}`).first();
+      const [m, t] = await Promise.all([mark.boundingBox(), text.boundingBox()]);
+      expect(Math.abs(m!.y + m!.height / 2 - (t!.y + t!.height / 2))).toBeLessThan(t!.height);
+      const body = (await dialog.locator(".file-preview-body").boundingBox())!;
+      expect(m!.y).toBeGreaterThanOrEqual(body.y - 1);
+      expect(m!.y + m!.height).toBeLessThanOrEqual(body.y + body.height + 1);
+    };
+    await inView(40);
+    await fits(page, dialog, width);
+    await dialog.getByRole("button", { name: "Close file preview" }).click();
+    await reply.getByRole("link", { name: "the helper" }).click();
+    await expect(page.getByRole("dialog", { name: "File lines.ts" }).locator(".line-mark")).toHaveAttribute("data-line", "90");
+    await inView(90);
+    await page.getByRole("button", { name: "Close file preview" }).click();
+    // The /f/ route takes the suffix too.
+    await page.goto(`/f${exportsDir}/lines.ts:75`);
+    await expect(page.getByRole("dialog", { name: "File lines.ts" }).locator(".line-mark")).toHaveAttribute("data-line", "75");
+    await inView(75);
+  });
+
+  test(`html files render in a sandboxed frame with a source toggle at ${width}`, async ({ page }) => {
+    await login(page, width, `/f${exportsDir}/page.html`);
+    const dialog = page.getByRole("dialog", { name: "File page.html" });
+    const frame = dialog.locator("iframe.file-html-frame");
+    await expect(frame).toBeVisible();
+    // No allow-same-origin: the page cannot reach casm's origin.
+    expect(await frame.getAttribute("sandbox")).toBe("allow-scripts");
+    const inner = page.frameLocator("iframe.file-html-frame");
+    await expect(inner.locator("h1")).toHaveText("Rendered page");
+    await expect(inner.locator("h1")).toHaveAttribute("data-js", "ran");
+    await expect(inner.locator("h1")).toHaveAttribute("data-blocked", "yes");
+    await expect(dialog.locator(".file-note.muted")).toContainText("next to it");
+    await expect(dialog.getByRole("button", { name: "Rendered" })).toHaveAttribute("aria-pressed", "true");
+    await fits(page, dialog, width);
+    await dialog.getByRole("button", { name: "Source" }).click();
+    await expect(frame).toHaveCount(0);
+    await expect(dialog.locator("pre")).toContainText("<h1 id=\"hi\">Rendered page</h1>");
+    await fits(page, dialog, width);
+    await expect(dialog.getByRole("link", { name: "Download", exact: true })).toBeVisible();
+  });
+}

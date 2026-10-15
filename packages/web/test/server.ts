@@ -203,6 +203,8 @@ writeFileSync(`${exportsDir}/cykelhuset-web-merge.json`, JSON.stringify({ merged
 writeFileSync(`${exportsDir}/notes.md`, "# Import notes\n\nAll **rows** merged.\n");
 writeFileSync(`${exportsDir}/pixel.png`, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"));
 writeFileSync(`${exportsDir}/blob.bin`, Buffer.from([0, 1, 2, 3]));
+writeFileSync(`${exportsDir}/lines.ts`, Array.from({ length: 120 }, (_, i) => `export const line${i + 1} = ${i + 1};`).join("\n") + "\n");
+writeFileSync(`${exportsDir}/page.html`, `<!doctype html><html><head><title>t</title><link rel="stylesheet" href="style.css"></head><body><h1 id="hi">Rendered page</h1><script>document.getElementById("hi").dataset.js = "ran"; try { window.parent.document.title; document.title = "reached"; } catch (e) { document.getElementById("hi").dataset.blocked = "yes"; }</script></body></html>`);
 writeFileSync(`${exportsDir}/nested/deep.txt`, "deep\n");
 writeFileSync(`${home}/.hidden-config`, "hidden=1\n");
 const filesAgent = store.createAgent({ projectId: p.id, name: "Files agent", provider: "claude", cwd: home, config: {} });
@@ -210,6 +212,7 @@ histories.set("files-history", [
   { kind: "user", id: "files-ask", text: "Merge the exports" },
   { kind: "tool", id: "files-tool", name: "Bash", status: "done", input: { command: `ls ${exportsDir}` }, output: `${exportsDir}/pixel.png\n${exportsDir}/blob.bin\n` },
   { kind: "assistant", id: "files-reply", text: `Saved the merge to ${exportsDir}/cykelhuset-web-merge.json.\n\nNotes are in \`${exportsDir}/notes.md\`; /etc/passwd was not touched.` },
+  { kind: "assistant", id: "files-lines", text: `See ${exportsDir}/lines.ts:40:5 and [the helper](${exportsDir}/lines.ts#L90) or ${exportsDir}/page.html.` },
 ]);
 store.updateAgent(filesAgent.id, { nativeSessionId: "files-history" });
 writeFileSync(`${home}/web-files-agent-id`, filesAgent.id);

@@ -8,7 +8,16 @@ export const FileLinksContext = createContext<FileLinks | null>(null);
 
 const CHARS = "[\\p{L}\\p{N}_.@+~%,=-]";
 // Not inside a word, URL or relative path ("a/b", "./x", "https://h/x").
-const PATH = new RegExp(`(?<![\\p{L}\\p{N}_.~:/\\\\@%+-])/${CHARS}+(?:/${CHARS}+)*/?`, "gu");
+// An optional trailing :line, :line:col or #L<line> points into the file.
+const PATH = new RegExp(`(?<![\\p{L}\\p{N}_.~:/\\\\@%+-])/${CHARS}+(?:/${CHARS}+)*/?(?:(?::\\d+(?::\\d+)?|#L\\d+(?:-L?\\d+)?)(?![\\p{L}\\p{N}]))?`, "gu");
+
+// Splits a trailing :123, :123:45 or #L123 (also #L12-L20) off a file reference.
+// Only that exact shape is a position, so names like "a:b" or "v1.2:x" stay whole.
+export function splitLine(ref: string): { path: string; line?: number } {
+  const m = /^(.*?[^/])(?<!:\d+)(?::(\d+)(?::\d+)?|#L(\d+)(?:-L?\d+)?)$/.exec(ref);
+  const line = m ? Number(m[2] ?? m[3]) : 0;
+  return m && line > 0 ? { path: m[1], line } : { path: ref };
+}
 
 export const insideRoot = (path: string, roots: string[]) =>
   roots.some((r) => {
@@ -22,7 +31,7 @@ export function findPaths(text: string, roots: string[]): { index: number; path:
   for (const m of text.matchAll(PATH)) {
     // Sentence punctuation after a path is not part of it.
     const path = m[0].replace(/[.,:;=-]+$/, "").replace(/(.)\/$/, "$1");
-    if (insideRoot(path, roots)) found.push({ index: m.index, path });
+    if (insideRoot(splitLine(path).path, roots)) found.push({ index: m.index, path });
   }
   return found;
 }
@@ -103,7 +112,7 @@ export function remarkFilePaths({ roots }: { roots: string[] }) {
       if (child.type === "inlineCode") {
         const value = (child.value ?? "").trim();
         const [first] = findPaths(value, roots);
-        if (first?.index === 0 && /^(:\d+)*\/?$/.test(value.slice(first.path.length)))
+        if (first?.index === 0 && /^\/?$/.test(value.slice(first.path.length)))
           return [{ type: "link", url: fileHref(first.path), children: [child] }];
         return [child];
       }
@@ -131,7 +140,7 @@ export function isExternalLink(href: string | undefined, base = globalThis.locat
 export function MarkdownLink({ href, children, node: _node, ...rest }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
   const links = useContext(FileLinksContext);
   if (isExternalLink(href)) return <a {...rest} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
-  const path = pathFromHref(href) ?? (href?.startsWith("/") && !href.startsWith("//") && links && insideRoot(href, links.roots) ? href : null);
+  const path = pathFromHref(href) ?? (href?.startsWith("/") && !href.startsWith("//") && links && insideRoot(splitLine(href).path, links.roots) ? href : null);
   if (!path || !links) return <a href={href} {...rest}>{children}</a>;
   return <a {...rest} className="file-link" href={fileHref(path)} onClick={(e) => openFromClick(e, links)}>{children}</a>;
 }

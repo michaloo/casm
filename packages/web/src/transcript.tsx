@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent,
   type ReactNode,
@@ -56,8 +57,10 @@ export function CodeBlock({
   truncate = false,
   expansion,
   expansionKey,
+  line,
 }: {
   text: string;
+  line?: number;
   language?: string;
   truncate?: boolean;
   expansion?: Record<string, boolean>;
@@ -95,6 +98,36 @@ export function CodeBlock({
     }, 1800);
     return () => clearTimeout(timer);
   }, [copied, copyFailed]);
+  const pre = useRef<HTMLPreElement>(null);
+  const [mark, setMark] = useState<{ top: number; height: number }>();
+  // Highlights and scrolls to `line`: measured from the rendered text, so it
+  // follows wrapping and syntax-highlight spans.
+  useEffect(() => {
+    const el = pre.current;
+    if (!el || !line) return setMark(undefined);
+    const code = el.firstElementChild!;
+    const nth = (n: number) => { let at = 0; for (let i = 1; i < n; i++) { at = visible.indexOf("\n", at) + 1; if (!at) return -1; } return at; };
+    const start = nth(line);
+    if (start < 0) return setMark(undefined);
+    let end = visible.indexOf("\n", start);
+    if (end < 0) end = visible.length;
+    const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let seen = 0, started = false;
+    for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+      const len = node.data.length;
+      if (!started && start < seen + len) { range.setStart(node, start - seen); started = true; }
+      if (started && end <= seen + len) { range.setEnd(node, end - seen); break; }
+      seen += len;
+    }
+    if (!started) return setMark(undefined);
+    const box = range.getBoundingClientRect();
+    const host = el.getBoundingClientRect();
+    const top = box.top - host.top + el.scrollTop;
+    setMark({ top, height: Math.max(box.height, 12) });
+    el.parentElement!.scrollIntoView({ block: "nearest" });
+    el.scrollTop = Math.max(0, top - el.clientHeight / 3);
+  }, [line, visible, highlighted]);
   return (
     <div className={`code-block ${lang === "diff" ? "diff" : ""}`}>
       <div className="code-toolbar">
@@ -111,7 +144,7 @@ export function CodeBlock({
           {copied ? "Copied ✓" : copyFailed ? "Select to copy" : "Copy"}
         </button>
       </div>
-      <pre onClick={links ? (e) => openFromClick(e, links) : undefined}>
+      <pre ref={pre} className={line ? "has-mark" : undefined} onClick={links ? (e) => openFromClick(e, links) : undefined}>
         <code>
           {lang === "diff" ? (
             visible.split("\n").map((line, i) => (
@@ -130,6 +163,7 @@ export function CodeBlock({
             visible
           )}
         </code>
+        {mark && <div className="line-mark" data-line={line} aria-hidden style={{ top: mark.top, height: mark.height }} />}
       </pre>
       {long && (
         <button

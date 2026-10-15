@@ -2,7 +2,7 @@ import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect, openNewAgent } from "./fixtures.ts";
 
-// The new-agent screen: a centered welcome, the composer near the middle, starters below.
+// The new-agent screen: a centered welcome, the composer near the middle, the keys below.
 for (const width of [1440, 375]) test(`new-agent screen welcomes, starts and settles at ${width}px`, async ({ page }) => {
   const height = width === 375 ? 812 : 900;
   await page.setViewportSize({ width, height });

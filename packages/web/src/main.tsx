@@ -1080,7 +1080,7 @@ function App() {
               {slash.palette}
               {commandNotice && <p role="status" className="command-notice">{commandNotice}</p>}
               <ComposerPickers provider={provider} fixedProvider={!!agent} catalog={catalog}
-                model={model} effectiveModel={agent?.effectiveModel} mode={mode} effort={effort}
+                model={model} configuredModel={agent?.config.model} effectiveModel={agent?.effectiveModel} mode={mode} effort={effort}
                 setProvider={value => { setProvider(value); setModel(""); setMode(""); setEffort(""); }}
                 setModel={value => { setModel(value); setEffort(""); }} setMode={setMode} setEffort={setEffort} />
               {c.images.length > 0 && <Images images={c.images} remove={(index) => {

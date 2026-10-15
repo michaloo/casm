@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { modelLabels } from "../src/model-label.ts";
+import { modelLabels, modelsDiffer, sessionModel } from "../src/model-label.ts";
 
 const models = [{ id: "sonnet", name: "Sonnet", isDefault: true }, { id: "opus", name: "Opus" }];
 test("default selection shows reported session model before catalog default", () => {
@@ -76,4 +76,48 @@ test("unknown, nameless and ambiguous models keep the exact raw identity", () =>
   assert.equal(modelLabels("", "model", providers).actual, "model");
   assert.equal(modelLabels("", "three/model", providers).actual, "three/model");
   assert.equal(modelLabels("", "one/model", providers).actual, "First model");
+});
+
+// The stable server's Claude catalog: no 1M rows, as Opus 5.5 is natively 1M.
+const live = [
+  { id: "default", name: "Default (recommended)", isDefault: true },
+  { id: "opus", name: "Opus 5.5" }, { id: "fable", name: "Fable 5.1" }, { id: "sonnet", name: "Sonnet 5.5" },
+  { id: "haiku", name: "Haiku 4.5" }, { id: "claude-opus-5", name: "Opus 5" }, { id: "claude-opus-4-6", name: "Opus 4.6" },
+];
+test("an alias and the id it resolves to are the same model, with or without [1m]", () => {
+  for (const [a, b] of [
+    ["opus", "claude-opus-5-5"], ["opus", "claude-opus-5-5[1m]"], ["opus[1m]", "claude-opus-5-5"],
+    ["opus[1m]", "claude-opus-5-5[1m]"], ["claude-opus-5-5", "claude-opus-5-5[1m]"],
+    ["haiku", "claude-haiku-4-5-20251001"], ["claude-opus-4-6[1m]", "claude-opus-4-6"],
+  ]) {
+    assert.equal(modelsDiffer(a, b, live), false, `${a} vs ${b}`);
+    assert.equal(modelsDiffer(b, a, live), false, `${b} vs ${a}`);
+  }
+});
+test("different models differ; unknown or default identities never do", () => {
+  for (const [a, b] of [["opus", "claude-sonnet-5-5"], ["opus", "claude-opus-5"], ["opus[1m]", "claude-opus-4-6[1m]"], ["sonnet", "claude-opus-5-5[1m]"], ["custom", "other"]])
+    assert.equal(modelsDiffer(a, b, live), true, `${a} vs ${b}`);
+  for (const [a, b] of [["default", "claude-opus-5-5"], ["", "claude-opus-5-5"], ["opus", null], ["opus", undefined], ["custom", "custom[1m]"]])
+    assert.equal(modelsDiffer(a, b, live), false, `${a} vs ${b}`);
+});
+test("the session hint shows only for a real difference (agent with model opus, session claude-opus-5-5)", () => {
+  assert.equal(modelLabels("opus", "claude-opus-5-5", live).showSession, false);
+  assert.equal(modelLabels("opus[1m]", "claude-opus-5-5", live, "opus").showSession, false);
+  assert.equal(modelLabels("opus", "claude-opus-5-5[1m]", live, null).showSession, false);
+  assert.equal(modelLabels("sonnet", "claude-opus-5-5", live, "opus").showSession, true);
+  assert.equal(modelLabels("sonnet", "claude-opus-5-5", live, "opus").actual, "Opus 5.5");
+  assert.equal(modelLabels("", "claude-opus-5-5", live, "opus").showSession, false);
+});
+test("1M comes from the report or the configured model, and is never invented", () => {
+  assert.equal(sessionModel("claude-opus-5-5", "opus", live), "claude-opus-5-5");
+  assert.equal(sessionModel("claude-opus-5-5", "opus[1m]", live), "claude-opus-5-5[1m]");
+  assert.equal(sessionModel("claude-opus-5-5", "claude-opus-5-5[1m]", live), "claude-opus-5-5[1m]");
+  assert.equal(sessionModel("claude-opus-5-5[1m]", undefined, live), "claude-opus-5-5[1m]");
+  // A configured 1M model that isn't the reported one says nothing about it.
+  assert.equal(sessionModel("claude-opus-5-5", "sonnet[1m]", live), "claude-opus-5-5");
+  assert.equal(sessionModel(null, "opus[1m]", live), null);
+  assert.equal(modelLabels("opus[1m]", "claude-opus-5-5", live).actual, "Opus 5.5 · 1M");
+  assert.equal(modelLabels("opus", "claude-opus-5-5", live).actual, "Opus 5.5");
+  assert.equal(modelLabels("opus[1m]", "claude-opus-5-5", live, "opus").actual, "Opus 5.5");
+  assert.equal(modelLabels("opus[1m]", "claude-opus-5-5", live, "opus").selectedLabel, "Opus 5.5 · 1M");
 });

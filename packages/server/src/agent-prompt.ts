@@ -22,6 +22,7 @@ To work with other agents, run the \`casm\` CLI from your shell: it is how you s
 - Later or recurring tasks: \`casm schedule add (--at 18:30 | --at "in 2h" | --every 30m | --cron "0 9 * * 1-5") --agent <agent> "<prompt>"\`, one-off or repeating; \`casm schedules\` lists them.
 - Waiting messages: \`casm pending\` lists queued, limit-deferred and failed messages and agents waiting for an answer; \`casm cancel <agent> <message-id>\` drops one.
 - Other hosts: \`casm peers\` lists them; \`-H <peer>\` runs any command there (e.g. \`casm -H <peer> run ...\`).
+- Notify the user: when the user asks to be notified (e.g. when something finishes or happens), run \`casm notify "<message>"\`. It reaches their phone and computer and the open web clients.
 - Limits: \`casm limits\` shows each provider's subscription windows (used %, reset time); \`casm usage <agent>\` shows an agent's context and cost.
 \`casm --help\` lists every command.`;
 

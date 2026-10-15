@@ -26,6 +26,7 @@ import { Scheduler } from "./schedules.ts";
 import { PeerPool } from "./peers.ts";
 import { Files } from "./files.ts";
 import { AgentPrompt } from "./agent-prompt.ts";
+import { PushService, type PushSend } from "./push.ts";
 import type { Provider } from "./providers/types.ts";
 
 export type ServerOptions = {
@@ -45,6 +46,8 @@ export type ServerOptions = {
   home?: string;
   // The built web client (packages/web/dist), served at /. Without it, / says to use a WebSocket.
   webRoot?: string;
+  // Delivers Web Push requests (tests replace the real HTTP POST).
+  pushSend?: PushSend;
 };
 
 export type RunningServer = {
@@ -54,6 +57,7 @@ export type RunningServer = {
   url: string;
   agents: AgentManager;
   scheduler: Scheduler;
+  push: PushService;
   peers: PeerPool;
   close: () => Promise<void>;
 };
@@ -75,10 +79,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const identity = { id: opts.store.serverId(), name: opts.name ?? hostname(), version: opts.version };
   const peers = new PeerPool(opts.store, opts.peerTimeoutMs);
   const files = new Files({ store: opts.store, peers, home: opts.home });
+  const push = new PushService({ store: opts.store, home: opts.home, log, send: opts.pushSend });
   let scheduler: Scheduler | undefined;
-  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!, files);
+  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!, files, push);
   scheduler = new Scheduler(opts.store, agents, notify, (p) =>
-    (handlers["agent.create"] as (p: Params<"agent.create">, c: Conn) => Promise<Agent>)(p, { subscriptions: new Set() }),
+    (handlers["agent.create"] as (p: Params<"agent.create">, c: Conn) => Promise<Agent>)(p, { subscriptions: new Set(), name: "schedule" }),
   );
 
   const http = createServer((req, res) => {
@@ -227,6 +232,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     agents,
     scheduler,
     peers,
+    push,
     async close() {
       scheduler?.stop();
       await agents.shutdown();

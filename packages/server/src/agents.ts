@@ -404,6 +404,12 @@ export class AgentManager {
     this.notify("agent.event", { agentId: id, event }, id);
   }
 
+  // Who sent the prompt that started the agent's running turn.
+  turnSender(id: string): MessageSender | undefined {
+    const l = this.live.get(id);
+    return l?.turnId ? l.prompt?.sender : undefined;
+  }
+
   private statusChanged(id: string) {
     this.notify("agent.status", { agentId: id, status: this.status(id) });
     const l = this.live.get(id);

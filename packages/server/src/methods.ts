@@ -10,9 +10,11 @@ import type { Files } from "./files.ts";
 import { hostAgentsMd, setHostAgentsMd } from "./host-details.ts";
 import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts";
 import type { PeerPool } from "./peers.ts";
+import type { PushService } from "./push.ts";
 import { DEFAULT_AGENT_PROMPT, PLACEHOLDERS, type AgentPromptState } from "./agent-prompt.ts";
 
-export type Conn = { subscriptions: Set<string> };
+// `name`: the client token's name (or what started the call, e.g. a schedule).
+export type Conn = { subscriptions: Set<string>; name?: string };
 
 export type Handlers = { [M in MethodName]: (p: Params<M>, conn: Conn) => Result<M> | Promise<Result<M>> };
 
@@ -48,6 +50,7 @@ export function createHandlers(
   peers: PeerPool,
   schedules: () => Scheduler,
   files: Files,
+  push: PushService,
 ): Handlers {
   const getProject = (id: string) => {
     const p = store.getProject(id);
@@ -259,5 +262,15 @@ export function createHandlers(
       return { ok: true };
     },
     "agent.wait": (p) => agents.wait(p.id, p.timeoutMs),
+
+    "push.list": (p) => push.list(p.endpoint),
+    "push.subscribe": (p) => push.subscribe(p),
+    "push.unsubscribe": (p) => push.unsubscribe(p),
+    "push.test": (p) => push.test(p.id, identity.name),
+    "push.notify": async (p, conn) => {
+      const result = await push.notify(p, { server: identity, turnSender: (id) => agents.turnSender(id) }, conn.name ?? "client");
+      notify("notification", result.notification);
+      return result;
+    },
   };
 }

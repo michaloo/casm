@@ -447,6 +447,31 @@ export type AgentPromptInfo = z.infer<typeof AgentPromptInfo>;
 export const FileType = z.enum(["file", "dir", "other"]);
 export type FileType = z.infer<typeof FileType>;
 
+// A browser push subscription on this server. Its endpoint and keys stay on
+// the server; `service` is the push service's host (web.push.apple.com, …).
+export const PushDevice = z.object({
+  id: z.string(),
+  label: z.string(),
+  service: z.string(),
+  createdAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+  // push.list was given this device's endpoint.
+  current: z.boolean().optional(),
+});
+export type PushDevice = z.infer<typeof PushDevice>;
+
+// What push.notify shows. `url`: a path on the web client; `agentId`: the
+// local agent it is about.
+export const UserNotification = z.object({
+  id: z.string(),
+  title: z.string(),
+  body: z.string(),
+  url: z.string().optional(),
+  agentId: z.string().optional(),
+  at: z.string(),
+});
+export type UserNotification = z.infer<typeof UserNotification>;
+
 export const FileContent = z.object({
   path: z.string(),
   projectId: z.string(),
@@ -562,6 +587,46 @@ export const methods = {
   "fs.downloadLink": method(
     z.object({ path: z.string(), inline: z.boolean().optional() }),
     z.object({ url: z.string(), name: z.string(), size: z.number(), expiresAt: z.string() }),
+  ),
+
+  // Web Push (RFC 8030/8291/8292): notifications agents send on request
+  // (push.notify) reach every browser subscribed on this server. `publicKey`:
+  // the VAPID application server key (base64url) for PushManager.subscribe.
+  // `endpoint` marks the caller's own device `current`.
+  "push.list": method(z.object({ endpoint: z.string().optional() }), z.object({ publicKey: z.string(), devices: z.array(PushDevice) })),
+  // Registers (or refreshes) a PushSubscription; the same endpoint keeps its id.
+  // `origin`: the page's origin, used as the VAPID contact.
+  "push.subscribe": method(
+    z.object({
+      subscription: z.object({ endpoint: z.url(), keys: z.object({ p256dh: z.string(), auth: z.string() }) }),
+      label: z.string().max(80),
+      origin: z.string().optional(),
+    }),
+    PushDevice,
+  ),
+  // By id (any device) or by the caller's own endpoint.
+  "push.unsubscribe": method(z.object({ id: z.string().optional(), endpoint: z.string().optional() }), z.object({ removed: z.boolean() })),
+  // Sends a test notification to one device now; fails with the push service's answer.
+  "push.test": method(ById, Ok),
+  // Notifies the user: a push to every device subscribed here (or the one whose
+  // label or id is `device`), and a `notification` to every connected client.
+  // `sender` (as in agent.send) attributes it: a local agent titles it
+  // "<agent> · <project>" and links to the agent. `url` is a path on this
+  // server's web client. At most 10 a minute per sender (Busy beyond that).
+  "push.notify": method(
+    z.object({
+      message: z.string().min(1).max(1000),
+      title: z.string().max(200).optional(),
+      url: z.string().optional(),
+      device: z.string().optional(),
+      sender: MessageSender.optional(),
+    }),
+    z.object({
+      notification: UserNotification,
+      delivered: z.number(),
+      devices: z.number(),
+      failed: z.array(z.object({ device: z.string(), error: z.string() })),
+    }),
   ),
 
   "project.list": method(z.object({ includeArchived: z.boolean().optional() }), z.object({ projects: z.array(Project) })),
@@ -761,6 +826,8 @@ export const notifications = {
   "agent.status": z.object({ agentId: z.string(), status: AgentStatus }),
   "agent.changed": z.object({ agent: Agent }),
   "agent.removed": z.object({ agentId: z.string() }),
+  // A push.notify, to every client (shown in-app).
+  "notification": UserNotification,
   "project.changed": z.object({ project: Project }),
   "provider.limits": z.object({ limits: ProviderLimits }),
   "schedule.changed": z.object({ schedule: Schedule }),

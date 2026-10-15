@@ -9,6 +9,7 @@ import type {
 } from "../../server/src/providers/types.ts";
 import type { Item } from "@casm/protocol";
 import { visualItems } from "./visual-fixture.ts";
+import { scrollItems } from "./scroll-fixture.ts";
 import { testHome as home, testPort } from "./config.ts";
 mkdirSync(home, { recursive: true });
 rmSync(`${home}/web-test.db`, { force: true });
@@ -186,6 +187,9 @@ const visual = store.createAgent({
 });
 histories.set("visual-history", visualItems);
 store.updateAgent(visual.id, { nativeSessionId: "visual-history" });
+const long = store.createAgent({ projectId: visualProject.id, name: "Long mixed", provider: "claude", cwd: home, config: {} });
+histories.set("long-history", scrollItems());
+store.updateAgent(long.id, { nativeSessionId: "long-history" });
 const archived = store.createAgent({
   projectId: p.id,
   name: "Archived agent",

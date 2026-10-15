@@ -26,6 +26,8 @@ export function HostSettings({ host, name, state, rpc, online, close }: {
         <HostPrompt host={host} rpc={rpc} />
       </div>
     </>}
+    {/* About this browser's page, so only on the host that serves it. */}
+    {!host && !window.isSecureContext && <p className="settings-note http-note">Served over HTTP: cold offline start and notifications need HTTPS (everything else works).</p>}
   </SettingsDialog>;
 }
 

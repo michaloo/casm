@@ -152,9 +152,8 @@ The web client installs as an app with its own window and the casm icon:
 - **iPhone:** in Safari, **Share → Add to Home Screen** (keep **Open as Web
   App** on if shown).
 - **macOS:** in Safari, **File → Add to Dock**.
-- **Chrome / Edge:** the install button in the address bar. This needs
-  **HTTPS** (or `localhost` on the server machine), for example through
-  `tailscale serve` or a reverse proxy with a certificate.
+- **Chrome / Edge:** the install button in the address bar (or the browser
+  menu's install item).
 
 Safari's Home Screen and Dock apps also work with a plain HTTP address. On
 HTTPS or localhost the app shell is cached so the app starts offline (see
@@ -204,12 +203,14 @@ project**, queued-message actions (**Send now**, **Retry now**, **Edit**,
 **Cancel**), permission and question answers, and schedule and settings
 changes.
 
-**Starting with no connection at all.** On HTTPS or localhost the service
-worker keeps the app itself, so a cold start without the server still opens
-the saved copy. On a plain-HTTP address there is no service worker: the app
-opens offline only while the browser or the OS still has it in memory (a
-backgrounded Home Screen app, a Dock app that wasn't quit); a cold start needs
-the server to load the app. The saved copy itself works on both.
+**HTTP and HTTPS.** Everything above works on a plain-HTTP address too:
+installing the app, the saved copy, the connection banner, drafts, copying
+code. Only the service worker needs HTTPS (or localhost), and two things depend
+on it: a cold start with no connection at all (the app no longer in memory),
+which on HTTP needs the server to load the app; and notifications. Whether to
+serve casm over HTTPS (for example with `tailscale serve` or a reverse proxy) is
+your network's choice. On HTTP the host options of the serving host say so in
+one line; nothing else changes.
 
 ## Dark mode
 

@@ -1,3 +1,5 @@
+import { Launcher, LauncherDestination, SearchGlyph, type LauncherAction } from "./launcher";
+import { rememberAgent } from "./launcher-search";
 import "./register-service-worker";
 import { ComposerPickers } from "./composer-pickers";
 import { ProjectOptions } from "./project-settings";
@@ -66,6 +68,19 @@ const mac = /Mac|iPhone|iPad/.test(navigator.platform);
 function App() {
   const [token, setToken] = useState(localStorage.getItem("casm.token") ?? "");
   const [entry, setEntry] = useState("");
+  const [launcher, setLauncher] = useState(false);
+  const [launcherAction, setLauncherAction] = useState<LauncherAction>();
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      // Keep the existing modal's focus/unsaved-edit guard in charge.
+      if (token && !document.querySelector("dialog[open]:not(.launcher)")) setLauncher(true);
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [token]);
+
 
   useEffect(() => {
     // iOS keeps the layout viewport under the keyboard; size the app to what is visible.
@@ -138,6 +153,9 @@ function App() {
     setRouteError(view.error ?? "");
     select(view.selection);
   }, [path, hosts]);
+  useEffect(() => {
+    if (selection?.id) rememberAgent(localStorage, selection.host, selection.id);
+  }, [selection?.host, selection?.id]);
   // The open file preview: from a file link (host of the open chat) or the /f/ route.
   const [preview, setPreview] = useState<{ host: string; path: string; route?: boolean }>();
   const routeFile = filePathFromRoute(path);
@@ -697,6 +715,13 @@ function App() {
     );
   return (
     <div className="app">
+      {launcher && <Launcher hosts={hosts} models={rowModels} online={online} choose={chooseAgent} action={setLauncherAction} close={() => setLauncher(false)} />}
+      {launcherAction && <LauncherDestination target={launcherAction} rpc={rpc.current} online={online} choose={chooseAgent} close={() => setLauncherAction(undefined)}
+        created={(host, project) => {
+          setHosts(list => list.map(item => item.id === host ? { ...item, projects: [...item.projects.filter(p => p.id !== project.id), project] } : item));
+          choose({ host, project: project.id });
+        }} />}
+
       {preview && rpc.current && online && <FilePreview key={`${preview.host}\n${preview.path}`} rpc={rpc.current} host={preview.host} path={preview.path}
         roots={previewRoots} close={closePreview} />}
       {mcp && rpc.current && <McpPanel {...mcp} rpc={rpc.current} close={() => { setMcp(undefined); document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus(); }} />}
@@ -706,6 +731,7 @@ function App() {
             <span className="brand-glyph" aria-hidden="true" />
             casm
           </strong>
+          <button type="button" className="launcher-trigger" aria-label="Open launcher" title="Launcher: Cmd/Ctrl+K" onClick={() => setLauncher(true)}><SearchGlyph /></button>
           <button className="mobile" onClick={() => showSidebar(false)}>
             Close
           </button>
@@ -813,6 +839,7 @@ function App() {
                   : "Choose a project to start a conversation"}
             </small>
           </div>
+          <button type="button" className="launcher-trigger" aria-label="Open launcher" title="Launcher: Cmd/Ctrl+K" onClick={() => setLauncher(true)}><SearchGlyph /></button>
           {!online && <span className="error">Offline</span>}
         </header>
         <ConnectionBanner online={online} fresh={fresh} checking={checking} networkOffline={networkOffline}

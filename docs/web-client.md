@@ -25,6 +25,40 @@ such as Tailscale, or an HTTPS reverse proxy) with `listen` in
 `$CASM_HOME/config.json`; the default `127.0.0.1` only accepts the machine
 itself.
 
+## Launcher: Cmd/Ctrl+K
+
+Press **⌘K** on macOS or **Ctrl+K** on Windows/Linux to open the global launcher.
+**⌘O / Ctrl+O** remains the browser's standard Open File shortcut.
+The search buttons in the chat header and sidebar open the same launcher. On
+phones it fills the screen and follows the keyboard's visible viewport.
+
+Search agent names, projects, hosts, providers, or models. Matches are fuzzy,
+with word-start/prefix boosts and highlighted characters. Results use the
+already-loaded sidebar data across local and peer hosts: typing makes no server
+requests. Agent results show status, model, queue/subagent counts and last
+activity; the list is virtualized for large workspaces. Cached host data remains
+searchable while disconnected; actions requiring a server explain that they
+need a connection.
+
+With an empty search, agents needing attention (waiting, failed, or a held queue)
+come first, then running agents, recently opened agents, and the remainder by
+last activity. Recent visits are saved in this browser (up to 200 agents, keyed
+by host and agent). Search scores take precedence when a query is entered, with
+recent visits breaking ties. Results are grouped into Agents, Projects and
+Actions; the group with the strongest match comes first.
+
+- **↑ / ↓** or **Ctrl+P / Ctrl+N** moves through results.
+- **Enter** opens the selected result. Agent navigation updates the URL, so Back works.
+- **⌘Enter / Ctrl+Enter** starts a new-agent draft in the selected agent's project.
+- **Tab / Shift+Tab** jumps between result groups.
+- **Escape**, the close button, or a click outside the desktop panel closes it.
+
+Project results open project options or a new-agent draft. Actions open **New
+project** on a host, the host's **Usage** and **Instructions** tabs, or
+**Schedules on <host>** for the host’s Schedules tab. The existing settings
+dialogs retain their own keyboard focus and unsaved edit guards; close them before opening the launcher again. Theme continues to
+follow the system preference, so there is no separate toggle action.
+
 ## The sidebar
 
 Hosts, then their projects, then agents. Hosts are section headers (server

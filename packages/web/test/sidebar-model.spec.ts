@@ -1,6 +1,6 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "./fixtures.ts";
+import { test, expect, openNewAgent } from "./fixtures.ts";
 
 test("compact provider/model rows and remembered collapse preserve routed agent visibility", async ({ page }) => {
   await page.goto("/");
@@ -17,7 +17,7 @@ test("compact provider/model rows and remembered collapse preserve routed agent 
   await expect(page.getByRole("combobox", { name: "Model", exact: true }).locator("option:checked")).toHaveText("Default — Use the provider's default model");
   const toggle = page.getByRole("button", { name: "Toggle Test project", exact: true });
   await expect(toggle).toBeDisabled();
-  await page.getByRole("button", { name: "Test project ＋", exact: true }).click();
+  await openNewAgent(page);
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(row).toHaveCount(0);

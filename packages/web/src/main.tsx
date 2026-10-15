@@ -715,7 +715,7 @@ function App() {
             const working = h.agents.filter((a) => a.status !== "idle" && !a.archivedAt).length;
             return (
             <HostSection key={h.id} host={h.id} name={h.name} status={`${hostStateLabel(state)}${working ? ` · ${working} working` : ""}`}
-              identity={<HostIdentity name={h.name} state={state} detail={working ? `${working} working` : undefined} />}
+              identity={<HostIdentity name={h.name} state={state} detail={working ? `${working} working` : undefined} quiet />}
               menu={<HostActions host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
                   openAgent={(a) => choose({ host: h.id, project: a.projectId, id: a.id })}
                   openProject={project => {
@@ -738,7 +738,8 @@ function App() {
                   const agents = agentHierarchy(h.agents, p.id, h.serverId);
                   return (
                   <div key={p.id} className="project-group">
-                    <div className="project-row">
+                    {/* The whole row folds; new agents start from the project modal or the launcher. */}
+                    <div className={`project-row ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}>
                     <button className="project-toggle"
                       aria-label={`Toggle ${p.name}`}
                       aria-expanded={expanded}
@@ -746,16 +747,8 @@ function App() {
                       title={pinned ? "Current agent's project stays visible" : `${expanded ? "Collapse" : "Expand"} ${p.name}`}
                       onClick={() => toggleProject(h.id, p.id)}>
                       <ChevronGlyph />
-                    </button>
-                    <button
-                      className={`project ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}
-                      title={online ? `${p.name} · start a new agent` : offlineNote}
-                      disabled={!online}
-                      onClick={() => choose({ host: h.id, project: p.id })}
-                    >
                       <span className="project-name">{p.name}</span>
                       {!expanded && agents.length > 0 && <span className="project-count" aria-hidden="true">{agents.length}</span>}
-                      <span className="project-new">＋</span>
                     </button>
                     <ProjectOptions host={h.id} project={p} agentCount={h.agents.filter((a) => a.projectId === p.id && !a.archivedAt).length}
                       rpc={rpc.current} online={state === "online" || state === "slow"} newAgent={() => choose({ host: h.id, project: p.id })} />

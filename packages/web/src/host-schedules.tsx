@@ -11,6 +11,16 @@ export function schedulesChanged(host: string) {
   for (const listener of listeners) listener(host);
 }
 
+// The launcher opens a host's schedules modal with this window event
+// (see open-schedules.ts); detail.host is "" for this server, else the peer name.
+export const openSchedulesEvent = "casm:open-schedules";
+/** Calls `open` whenever something asks for `host`'s schedules; returns the cleanup. */
+export function onOpenSchedules(host: string, open: () => void) {
+  const listener = (e: Event) => { if ((e as CustomEvent<{ host: string }>).detail?.host === host) open(); };
+  window.addEventListener(openSchedulesEvent, listener);
+  return () => window.removeEventListener(openSchedulesEvent, listener);
+}
+
 type Names = { agents: Map<string, Agent>; projects: Map<string, string> };
 
 export function HostSchedules({ host, rpc, online, agents, projects, openAgent }: {

@@ -1,7 +1,7 @@
 import { useId, useState, type ReactNode } from "react";
 import { ChevronGlyph } from "./row-menu";
 
-/** A foldable host: the heading (chevron, identity) only folds; `menu` sits at the end of the row. */
+/** A foldable host, drawn as a section header: identity then chevron fold it; `menu` sits at the end of the row. */
 export function HostSection({ host, name, identity, status, menu, children }: {
   host: string; name: string; identity: ReactNode; status: string; menu: ReactNode; children: ReactNode;
 }) {
@@ -18,7 +18,7 @@ export function HostSection({ host, name, identity, status, menu, children }: {
           const next = !collapsed;
           setCollapsed(next);
           try { localStorage.setItem(storageKey, String(next)); } catch { /* Optional preference. */ }
-        }}><ChevronGlyph />{identity}</button>
+        }}>{identity}<ChevronGlyph /></button>
       {menu}
     </h2>
     <div id={id} hidden={collapsed}>{children}</div>

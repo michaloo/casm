@@ -3,7 +3,7 @@ import { testHome } from "./config.ts";
 // and no duplicates when actions or responses race.
 import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
-import { test, expect } from "./fixtures.ts";
+import { test, expect, openNewAgent } from "./fixtures.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -198,12 +198,12 @@ test("a new agent whose first send fails keeps the draft once, with the agent", 
     });
   });
   await open(page, "Agent 57");
-  await page.getByRole("button", { name: "Test project ＋", exact: true }).click();
+  await openNewAgent(page);
   await type(page, "draft that moves");
   await expect(page.locator("main header strong")).toHaveText("draft that moves");
   await expect(page.getByRole("alert")).toContainText("Test send failure");
   await expect(page.getByLabel("Message")).toHaveValue("draft that moves");
-  await page.getByRole("button", { name: "Test project ＋", exact: true }).click();
+  await openNewAgent(page);
   await expect(page.getByLabel("Message")).toHaveValue("");
   await page.reload();
   await expect(page.getByLabel("Message")).toHaveValue("");

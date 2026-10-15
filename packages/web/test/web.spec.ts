@@ -1,6 +1,6 @@
 import { testHome, testWS } from "./config.ts";
 import { readFileSync } from "node:fs";
-import { test, expect } from "./fixtures.ts";
+import { test, expect, openNewAgent } from "./fixtures.ts";
 async function login(page: any) {
   await page.goto("/");
   await page
@@ -105,7 +105,7 @@ test("streaming and history pagination keep reader position; reconnect and new a
   });
   await expect(page.getByText(/Message 1[0-9][0-9]/).first()).toBeVisible();
   await page.getByRole("button", { name: "Interrupt", exact: true }).click();
-  await page.getByRole("button", { name: "Test project ＋", exact: true }).click();
+  await openNewAgent(page);
   await send(page, "new conversation");
   await expect(page.locator("main header strong")).toHaveText(
     "new conversation",
@@ -185,7 +185,7 @@ test("new-agent draft restores its project URL, then clears on first successful 
   page,
 }) => {
   await login(page);
-  await page.getByRole("button", { name: "Test project ＋", exact: true }).click();
+  await openNewAgent(page);
   const draftURL = page.url();
   expect(new URL(draftURL).pathname).toMatch(/\/p\/[^/]+\/new$/);
   await page.getByLabel("Message").fill("A saved new agent draft");

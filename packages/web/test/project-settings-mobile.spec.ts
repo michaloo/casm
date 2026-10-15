@@ -85,7 +85,7 @@ for (const width of [1440, 375]) test(`project modal mobile view edit conflict c
   expect(writes.at(-1)!.params.expectedSha256).toBe(null);
   expect(routed.every((r) => r.host === (width === 375 ? hostName : undefined))).toBe(true);
   await panel.getByRole("button", { name: "Info", exact: true }).click();
-  await panel.getByRole("button", { name: "New agent here" }).click();
+  await panel.getByRole("button", { name: "New agent", exact: true }).click();
   await expect(panel).toHaveCount(0);
   await expect(page.getByLabel("Message", { exact: true })).toBeVisible();
   await expect(page.locator("main header strong")).toContainText("Test project");

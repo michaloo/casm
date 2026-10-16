@@ -196,6 +196,13 @@ test("from an agent's shell: run, wait, send, agents and history on a peer; pare
   const history = await beta.client.call("agent.history", { id: child.id });
   const sender = { serverId: alphaId, agentId: parentId, name: "lead", host: "alpha" };
   assert.deepEqual(history.items.filter((item) => item.kind === "user").map((item) => item.sender), [sender, sender]);
+  // Find goes to the peer like history; the index is the item's place in it.
+  const found = await agentJson("-H", "beta", "history", "child", "--find", "AGAIN", "--kind", "user", "--kind", "assistant");
+  assert.equal(found.total, 0);
+  const again = await agentJson("-H", "beta", "history", "child", "--find", "again");
+  assert.deepEqual(again.matches.map((m: { index: number; kind: string }) => [m.index, m.kind]), [[2, "user"], [3, "assistant"]]);
+  const printed = await agentCli("-H", "beta", "history", "child", "--find", "again", "-n", "1");
+  assert.equal(printed.stdout, "(2 matches; the latest 1)\n    3 · - · assistant   · echo: again\n");
 });
 
 test("from an agent's shell: run --cwd takes a folder inside the project, resolved on the peer", async () => {

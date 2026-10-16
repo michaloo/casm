@@ -215,6 +215,7 @@ export function createHandlers(
       return { ok: true };
     },
     "agent.history": (p) => agents.history(p.id, p.before, p.limit),
+    "agent.find": (p) => agents.find(p.id, p.query, { limit: p.limit, kinds: p.kinds }),
     "agent.subscribe": (p, conn) => {
       const state = agents.subscribeState(p.id);
       conn.subscriptions.add(p.id);

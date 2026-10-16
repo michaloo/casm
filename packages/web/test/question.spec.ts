@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import type { QuestionRequest } from "@casm/protocol";
+import { openAgents } from "./phone.ts";
 
 async function question(page: Page, prompts: QuestionRequest["prompts"]) {
   const submissions: Record<string, unknown>[] = [];
@@ -28,7 +29,7 @@ async function question(page: Page, prompts: QuestionRequest["prompts"]) {
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (await page.getByRole("button", { name: "Agents", exact: true }).isVisible()) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await openAgents(page);
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await expect(page.getByText("Answer shape", { exact: true })).toBeVisible();
   return submissions;

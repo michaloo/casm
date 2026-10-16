@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 // While the reader follows the end, rows that grow after they mount (Thinking,
 // a running tool's output, a streamed reply) must stay fully visible, and
@@ -22,7 +23,7 @@ for (const width of [1440, 375]) test(`following keeps the growing end fully vis
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width < 600) await openAgents(page);
   const row = page.getByRole("button", { name: width < 600 ? /Agent 3[0-9]/ : /Agent 2[0-9]/ }).first();
   if (test.info().project.use.hasTouch) {
     await row.scrollIntoViewIfNeeded();

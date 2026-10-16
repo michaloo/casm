@@ -2,6 +2,7 @@ import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 test.use({ isMobile: true, hasTouch: true });
 
@@ -33,7 +34,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 360, height: 780 }
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     const agents = page.getByRole("button", { name: "Agents", exact: true });
     expect((await agents.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    await agents.click();
+    await openAgents(page);
     await expect(page.getByRole("button", { name: /Agent 00/ })).toBeVisible();
     await expectFits(page, "sidebar");
     await page.getByRole("button", { name: "Project options for Test project", exact: true }).click();
@@ -103,7 +104,7 @@ test("composer follows visual viewport resizing and keyboard dismissal", async (
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await openAgents(page);
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await page.getByLabel("Message").focus();
   // Headless browsers do not show the OS keyboard; exercise its viewport contract.
@@ -124,7 +125,7 @@ test("text keeps its size across a landscape round trip", async ({ page, browser
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await openAgents(page);
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await expect(page.locator(".item p").first()).toBeVisible();
   const size = () => page.evaluate(() => {

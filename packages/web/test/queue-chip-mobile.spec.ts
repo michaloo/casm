@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as const)
   test(`queue chip mobile cohesion at ${width} ${colorScheme}`, async ({ page }, info) => {
@@ -41,7 +42,7 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
     const phone = width === 375;
     for (const [index, queued] of [0, 2, 6].entries()) {
       count = queued;
-      if (phone) await page.getByRole("button", { name: "Agents", exact: true }).click();
+      if (phone) await openAgents(page);
       await page.getByRole("button", { name: new RegExp(`Agent 0${index}`) }).click();
       if (count) {
         await expect(chip).toContainText(`${count} queued`);

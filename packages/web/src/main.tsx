@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { ImagePreviewContext, type ImageSelection } from "./image-preview";
-import { Launcher, LauncherDestination, SearchGlyph, type LauncherAction } from "./launcher";
+import { Launcher, LauncherDestination, SearchGlyph, CloseGlyph, type LauncherAction } from "./launcher";
 import { rememberAgent } from "./launcher-search";
 import "./register-service-worker";
 import "./input-modality";
@@ -812,16 +812,18 @@ function App() {
       {preview && rpc.current && online && <FilePreview key={`${preview.host}\n${preview.path}`} rpc={rpc.current} host={preview.host} path={preview.path}
         roots={previewRoots} close={closePreview} />}
       {mcp && rpc.current && <McpPanel {...mcp} rpc={rpc.current} close={() => { setMcp(undefined); document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus(); }} />}
-      <aside className={sidebar ? "open" : ""}>
+      <aside className={sidebar || (!selection && path === "/") ? "open" : ""}>
         <header>
           <strong className="brand">
             <span className="brand-glyph" aria-hidden="true" />
             casm
           </strong>
           <button type="button" className="launcher-trigger" aria-label="Open launcher" title="Launcher: Cmd/Ctrl+K" onClick={() => setLauncher(true)}><SearchGlyph /></button>
-          <button className="mobile" onClick={() => showSidebar(false)}>
-            Close
-          </button>
+          {selection && (
+            <button type="button" className="mobile icon-button" aria-label="Close" title="Close" onClick={() => showSidebar(false)}>
+              <CloseGlyph />
+            </button>
+          )}
         </header>
         <nav aria-label="Agents">
           {hosts.map((h) => {
@@ -910,9 +912,8 @@ function App() {
       </aside>
       <main className={`chat${starting ? " start" : ""}`}>
         <header>
-          <button className="mobile" onClick={() => showSidebar(true)}>
+          <button type="button" className="mobile icon-button" aria-label="Agents" title="Agents" onClick={() => showSidebar(true)}>
             <span className="menu-glyph" aria-hidden="true" />
-            Agents
           </button>
           <div>
             <strong>

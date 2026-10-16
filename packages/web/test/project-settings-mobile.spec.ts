@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) test(`project modal mobile view edit conflict create and memories at ${width}`, async ({ page }) => {
   const file = `${testHome}/AGENTS.md`;
@@ -24,7 +25,7 @@ for (const width of [1440, 375]) test(`project modal mobile view edit conflict c
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   if (width === 375) {
-    await page.getByRole("button", { name: "Agents", exact: true }).click();
+    await openAgents(page);
     await page.getByRole("button", { name: "Toggle Test host host", exact: true }).click();
   }
   const host = page.locator("section.host").filter({ has: page.getByRole("button", { name: `Host options for ${hostName}`, exact: true }) });

@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as const)
   test(`sidebar mobile status and aligned metadata at ${width} ${colorScheme}`, async ({ page }, info) => {
@@ -37,14 +38,14 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
     await page.goto("/");
     await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
     await page.getByRole("button", { name: "Connect", exact: true }).click();
-    if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+    if (width === 375) await openAgents(page);
     const row = (index: number) => page.locator("nav .agent").filter({ hasText: `Agent 0${index}` });
     await row(0).click();
     const header = page.locator(".chat > header");
     await expect(header.locator(".dot")).toHaveAttribute("aria-label", "Working");
     await expect(header.locator(".activity-spinner")).toHaveCount(0);
     expect(await header.innerText()).not.toContain("Working");
-    if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+    if (width === 375) await openAgents(page);
     // Status dots line up under the project's ⋯, the sidebar's right-hand column.
     const menuBox = (await page.getByRole("button", { name: "Project options for Test project", exact: true }).boundingBox())!;
     let height = 0;

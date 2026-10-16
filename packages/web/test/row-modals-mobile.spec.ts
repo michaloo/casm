@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import type { Locator } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 async function sheetFits(dialog: Locator, width: number) {
   const box = (await dialog.boundingBox())!;
@@ -17,7 +18,7 @@ for (const width of [1440, 375]) test(`host and project modals open from ⋯ at 
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   const nav = page.getByRole("navigation", { name: "Agents" });
 
   // Host: ⋯ opens the modal straight on Usage; tabs are Usage · Resources · AGENTS.md · System Prompt · Notifications.

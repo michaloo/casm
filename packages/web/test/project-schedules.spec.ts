@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) test(`project modal creates, edits, disables, runs and deletes schedules at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 812 });
@@ -22,7 +23,7 @@ for (const width of [1440, 375]) test(`project modal creates, edits, disables, r
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   const trigger = page.getByRole("button", { name: "Project options for Test project", exact: true });
   await trigger.click();
   const panel = page.getByRole("dialog", { name: "Test project project", exact: true });
@@ -113,7 +114,7 @@ for (const width of [1440, 375]) test(`project modal creates, edits, disables, r
   await fresh.getByRole("button", { name: "Started agent" }).click();
   await expect(panel).toBeHidden();
   await expect(page).toHaveURL(/\/a\//);
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
 
   // Another project's modal doesn't list it.
   await page.getByRole("button", { name: "Project options for Design review", exact: true }).click();

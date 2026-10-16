@@ -1,6 +1,7 @@
 import { testHome, testWS } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect, openNewAgent } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 async function login(page: any) {
   await page.goto("/");
   await page
@@ -125,7 +126,7 @@ test("mobile composer and pending stay inside viewport", async ({ page }) => {
     .getByLabel("Server token")
     .fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await openAgents(page);
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await send(page, "slow");
   await expect(
@@ -292,7 +293,7 @@ for (const scheme of ["light", "dark"] as const)
         .fill(readFileSync(`${testHome}/web-token`, "utf8"));
       await page.getByRole("button", { name: "Connect", exact: true }).click();
       if (device === "mobile")
-        await page.getByRole("button", { name: "Agents", exact: true }).click();
+        await openAgents(page);
       await page
         .getByRole("button", { name: /Claude Visual review .*Idle/, exact: true })
         .click();

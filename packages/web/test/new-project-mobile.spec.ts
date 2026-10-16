@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) test(`new project mobile suggestions create and missing-folder error at ${width}`, async ({ page }, info) => {
   const root = `${testHome}/new-project-${width}-${info.project.name}`;
@@ -42,7 +43,7 @@ for (const width of [1440, 375]) test(`new project mobile suggestions create and
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   if (width === 375) {
-    await page.getByRole("button", { name: "Agents", exact: true }).click();
+    await openAgents(page);
     await page.getByRole("button", { name: "Toggle Test host host", exact: true }).click();
   }
   await page.getByRole("button", { name: `New project on ${hostName}`, exact: true }).click();
@@ -82,7 +83,7 @@ for (const width of [1440, 375]) test(`new project mobile suggestions create and
   expect(statSync(nested).isDirectory()).toBe(true);
   expect(projects.at(-1)?.path).toBe(nested);
   await expect(page.locator(".chat > header strong")).toHaveText("nested");
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   await expect(page.getByRole("button", { name: /nested/ }).first()).toBeVisible();
   if (width === 375) await page.keyboard.press("Escape");
   await page.getByRole("button", { name: `New project on ${hostName}`, exact: true }).click();
@@ -106,7 +107,7 @@ for (const width of [1440, 375]) test(`new project mobile suggestions create and
   for (const call of calls) expect(call.host ?? "").toBe(peer ? hostName : "");
   await page.reload();
   await expect(page.locator(".chat > header strong")).toHaveText("sample-folder");
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   await page.getByRole("button", { name: `New project on ${hostName}`, exact: true }).click();
   await folder.fill(`${root}/second-folder`);
   disconnect!();

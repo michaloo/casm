@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 // Signing out deletes the token and the offline copy, so it always asks first.
 for (const width of [1440, 375]) test(`sign out asks first; Cancel and Escape keep the session at ${width}px mobile`, async ({ page }) => {
@@ -8,7 +9,7 @@ for (const width of [1440, 375]) test(`sign out asks first; Cancel and Escape ke
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  const sidebar = async () => { if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click(); };
+  const sidebar = async () => { if (width === 375) await openAgents(page); };
   await sidebar();
   await expect(page.getByRole("button", { name: "Token", exact: true })).toHaveCount(0);
   const signOut = page.getByRole("button", { name: "Sign out", exact: true });

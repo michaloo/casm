@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 // A row that Virtuoso unmounts before the toggle event reaches React must still
 // remount open: the click records the expansion, not the later event.
 test("an expanded tool row stays open after leaving and re-entering the virtual range", async ({ page }) => {
@@ -8,7 +9,7 @@ test("an expanded tool row stays open after leaving and re-entering the virtual 
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await openAgents(page);
   // Long enough that the row leaves even Virtuoso's overscan band.
   const row = page.getByRole("button", { name: /Long mixed/ }).first();
   await row.scrollIntoViewIfNeeded();

@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { testHome, testURL, testWS } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 const server = () => Number(readFileSync(`${testHome}/web-pid`, "utf8"));
 const signal = (name: NodeJS.Signals) => process.kill(server(), name);
@@ -14,8 +15,7 @@ async function login(page: any) {
 }
 // Phones keep the sidebar behind the Agents button.
 async function openAgent(page: any, name: string) {
-  const agents = page.getByRole("button", { name: "Agents", exact: true });
-  if (await agents.isVisible()) await agents.click();
+  await openAgents(page);
   await page.getByRole("button", { name: new RegExp(name) }).click();
   await expect(page.locator("main header strong")).toHaveText(name);
 }
@@ -55,8 +55,7 @@ test("offline mobile: losing the server shows the banner and makes the view read
   for (const name of ["Allow", "Deny", "Cancel", "Edit", "Send now", "Attach images"])
     await expect(page.getByRole("button", { name, exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Allow", exact: true })).toHaveAttribute("title", /^Offline: reconnect/);
-  const agents = page.getByRole("button", { name: "Agents", exact: true });
-  if (await agents.isVisible()) await agents.click();
+  await openAgents(page);
   await expect(page.getByRole("button", { name: "New project on Test host" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "New agent in Test project", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Project options for Test project", exact: true }).click();
@@ -176,8 +175,7 @@ test("offline mobile: plain remote HTTP keeps the saved copy without a service w
   expect(await page.evaluate(async () => "serviceWorker" in navigator ? (await navigator.serviceWorker.getRegistrations()).length : 0)).toBe(0);
   // No notice anywhere but one quiet line in the serving host's options.
   await expect(banner(page)).toHaveCount(0);
-  const agents = page.getByRole("button", { name: "Agents", exact: true });
-  if (await agents.isVisible()) await agents.click();
+  await openAgents(page);
   await page.getByRole("button", { name: "Host options for Test host" }).click();
   await expect(page.locator(".http-note")).toHaveText("Served over HTTP: cold offline start and notifications need HTTPS (everything else works).");
   await page.getByRole("button", { name: "Close host options" }).click();
@@ -193,8 +191,7 @@ test("offline mobile: plain remote HTTP keeps the saved copy without a service w
 
 test("offline mobile: a secure origin shows no HTTP note", async ({ page }) => {
   await login(page);
-  const agents = page.getByRole("button", { name: "Agents", exact: true });
-  if (await agents.isVisible()) await agents.click();
+  await openAgents(page);
   await page.getByRole("button", { name: "Host options for Test host" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.locator(".http-note")).toHaveCount(0);

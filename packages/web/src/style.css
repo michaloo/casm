@@ -2905,3 +2905,13 @@ nav .host-meter:focus-visible { outline: 2px solid var(--accent); outline-offset
 nav .host-meter:hover .host-meter-bar { background: color-mix(in srgb, var(--line-strong) 40%, transparent); }
 @media (max-width: 650px) { nav .host-meter { flex-basis: 18px; width: 18px; height: 44px; } .host-meter-bar { height: 14px; } }
 @media (prefers-reduced-motion: reduce) { .host-meter-bar > span { transition: none; } }
+/* Phone header icons (Agents, Close): the same 44px square as the launcher trigger. */
+@media (max-width: 650px) {
+  .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: 0 0 auto; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--muted); }
+  .icon-button:hover { color: var(--text); }
+  .icon-button:focus:not(:focus-visible) { outline: none; }
+  .chat > header > .icon-button { margin-left: -10px; }
+}
+@media (max-width: 650px) {
+  aside > header > .launcher-trigger { margin-left: auto; }
+}

@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 // iPhone composer: one scrolling line of pills, and exactly one bottom inset.
 for (const [width, height] of [[375, 812], [390, 844]]) test(`iPhone composer pills stay on one line and sit flush at ${width}x${height} mobile`, async ({ page }) => {
@@ -22,7 +23,7 @@ for (const [width, height] of [[375, 812], [390, 844]]) test(`iPhone composer pi
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await openAgents(page);
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await page.getByRole("combobox", { name: "Model", exact: true }).selectOption("big");
   const row = page.locator(".pickers");

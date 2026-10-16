@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect, openNewAgent } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 // The new-agent screen: a centered welcome, the composer near the middle, the keys below.
 for (const width of [1440, 375]) test(`new-agent screen welcomes, starts and settles at ${width}px`, async ({ page }) => {
@@ -9,7 +10,7 @@ for (const width of [1440, 375]) test(`new-agent screen welcomes, starts and set
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   await openNewAgent(page);
   const main = page.locator("main.chat");
   const welcome = main.locator(".start-welcome");

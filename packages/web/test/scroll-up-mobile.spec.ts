@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 // Scrolling up through a long mixed transcript (markdown, code, tools, images,
 // Thinking, casm rows) must never show the rows jumping: rows mounting above
@@ -12,7 +13,7 @@ async function open(page: Page, width: number) {
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width < 600) await openAgents(page);
   const row = page.getByRole("button", { name: /Long mixed/ }).first();
   await row.scrollIntoViewIfNeeded();
   if (test.info().project.use.hasTouch) {

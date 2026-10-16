@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) test(`sender provenance and held queue metadata fit at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 812 });
@@ -32,7 +33,7 @@ for (const width of [1440, 375]) test(`sender provenance and held queue metadata
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   const failed = page.getByRole("button", { name: /Agent 00/ });
   const limited = page.getByRole("button", { name: /Agent 01/ });
   await expect(failed).toContainText("3 queued");

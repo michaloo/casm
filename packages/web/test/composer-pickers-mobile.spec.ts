@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, openNewAgent } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 const providers = ["claude", "codex", "opencode", "pi"];
 const names = ["Claude", "Codex", "OpenCode", "pi"];
@@ -44,7 +45,7 @@ for (const width of [1440, 375]) test(`composer picker mobile snapshots and choi
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  const sidebar = async () => { if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click(); };
+  const sidebar = async () => { if (width === 375) await openAgents(page); };
   const pickers = page.locator(".pickers");
   const face = (name: string) => pickers.locator(".composer-picker").filter({ has: page.getByRole("combobox", { name, exact: true }) }).locator(".composer-picker-label");
   async function snapshot(name: string) {

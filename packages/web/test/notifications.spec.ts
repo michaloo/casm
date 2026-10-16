@@ -7,6 +7,7 @@ import { createECDH, randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import { testHome, testWS } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 const token = () => readFileSync(`${testHome}/web-token`, "utf8");
 const pushed = () => existsSync(`${testHome}/push-sent.jsonl`)
@@ -69,7 +70,7 @@ async function login(page: Page, width: number) {
 }
 
 async function openNotifications(page: Page, width: number) {
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   await page.getByRole("button", { name: "Host options for Test host", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "Test host host" });
   await panel.getByRole("button", { name: "Notifications", exact: true }).click();

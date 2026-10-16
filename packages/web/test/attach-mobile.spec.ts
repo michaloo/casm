@@ -2,6 +2,7 @@ import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { test, expect, openNewAgent } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 const thumbs = (page: Page) => page.locator("form.composer .image-attachments img");
@@ -11,7 +12,7 @@ async function login(page: Page, width: number) {
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
 }
 
 // Runs in the page: a File, optionally a large noisy photo that must be downscaled.

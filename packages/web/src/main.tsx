@@ -104,13 +104,6 @@ function App() {
       const keyboard = window.innerHeight - viewport.height > 120;
       if (keyboard) document.documentElement.dataset.keyboard = "open";
       else delete document.documentElement.dataset.keyboard;
-      // An installed iOS app with a translucent status bar starts under the
-      // status bar but reports a viewport that excludes it, leaving a band of that
-      // height at the bottom. Installed, the app owns the whole screen: size to it.
-      const standalone = matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-      const screenHeight = window.innerWidth > window.innerHeight ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
-      if (standalone && screenHeight > window.innerHeight) root.setProperty("--screen-height", `${screenHeight}px`);
-      else root.removeProperty("--screen-height");
     };
     update();
     viewport.addEventListener("resize", update);

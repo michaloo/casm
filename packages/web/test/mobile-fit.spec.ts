@@ -142,28 +142,3 @@ test("text keeps its size across a landscape round trip", async ({ page, browser
   await page.setViewportSize({ width: 375, height: 812 });
   expect(await size()).toEqual(before);
 });
-
-// iOS installed app with a translucent status bar: the reported viewport is the
-// status bar's height (here 47px) shorter than the screen. The app still fills the screen.
-test("installed on a phone, the app fills the whole screen height", async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 765 });
-  await page.addInitScript(() => {
-    const real = window.matchMedia.bind(window);
-    window.matchMedia = (query: string) => query.includes("display-mode: standalone")
-      ? ({ matches: true, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false } as MediaQueryList)
-      : real(query);
-    Object.defineProperty(screen, "height", { configurable: true, get: () => 812 });
-    Object.defineProperty(screen, "width", { configurable: true, get: () => 375 });
-  });
-  await page.goto("/");
-  await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  const sidebar = page.locator("aside");
-  await expect(sidebar).toBeVisible();
-  const box = (await sidebar.boundingBox())!;
-  expect(box.y).toBe(0);
-  expect(box.height).toBe(812);
-  // The footer sits at the end of the full-height sidebar.
-  const footer = (await page.locator("aside > footer").boundingBox())!;
-  expect(Math.round(footer.y + footer.height)).toBe(812);
-});

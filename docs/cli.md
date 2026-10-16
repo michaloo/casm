@@ -138,12 +138,14 @@ casm host list | host rm <name>
 
 ```text
 casm projects
-casm project create <dir> [--name n] [--group g] [--tag t]...
+casm project create <dir> [--mkdir] [--name n] [--group g] [--tag t]...
 casm project group <project> [group]       set or clear the group
 casm project rm <project>
 casm project agents-md <project> [--edit]  print <dir>/AGENTS.md; --edit opens $EDITOR
 casm project memories <project>            each provider's memories for the folder
 ```
+
+A missing `<dir>` is refused, which protects against typos. `--mkdir` creates it, with any missing parents, and then registers the project. A path that exists as a file is still refused.
 
 ```console
 $ casm project create /tmp/code/acme-api --name acme-api --group work --tag node

@@ -1,6 +1,6 @@
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import { realpathSync, statSync } from "node:fs";
+import { mkdirSync, realpathSync, statSync } from "node:fs";
 import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
@@ -139,9 +139,18 @@ export function createHandlers(
     "project.list": (p) => ({ projects: store.listProjects(p.includeArchived) }),
     "project.create": (p) => {
       if (!isAbsolute(p.path)) throw new RpcError(ErrorCode.InvalidParams, "path must be absolute");
-      if (!statSync(p.path, { throwIfNoEntry: false })?.isDirectory())
-        throw new RpcError(ErrorCode.InvalidParams, `no such directory on this host: ${p.path}`);
-      const project = store.createProject({ ...p, name: p.name ?? (basename(p.path) || p.path) });
+      const { createFolder, ...fields } = p;
+      const existing = statSync(p.path, { throwIfNoEntry: false });
+      if (existing && !existing.isDirectory()) throw new RpcError(ErrorCode.InvalidParams, `not a directory on this host: ${p.path}`);
+      if (!existing) {
+        if (!createFolder) throw new RpcError(ErrorCode.InvalidParams, `no such directory on this host: ${p.path}`);
+        try {
+          mkdirSync(p.path, { recursive: true });
+        } catch (error) {
+          throw new RpcError(ErrorCode.InvalidParams, `could not create ${p.path}: ${(error as Error).message}`);
+        }
+      }
+      const project = store.createProject({ ...fields, name: p.name ?? (basename(p.path) || p.path) });
       notify("project.changed", { project });
       return project;
     },

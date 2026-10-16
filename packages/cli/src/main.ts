@@ -69,7 +69,7 @@ hosts (only for a CLI on a machine without a server):
 
 projects:
   projects
-  project create <dir> [--name n] [--group g] [--tag t]...
+  project create <dir> [--mkdir] [--name n] [--group g] [--tag t]...
   project group <project> [group]     set the project's group; omit it to ungroup
   project rm <project>
   project agents-md <project> [--edit]  print <project>/AGENTS.md; --edit opens $EDITOR and saves
@@ -175,6 +175,7 @@ const options = {
   enable: { type: "boolean" },
   disable: { type: "boolean" },
   force: { type: "boolean" },
+  mkdir: { type: "boolean" },
   output: { type: "string", short: "o" },
   title: { type: "string" },
   url: { type: "string" },
@@ -531,7 +532,7 @@ async function run(c: CasmClient) {
     case "project": {
       const [sub, ref, value] = args;
       if (sub === "create" && ref) {
-        const p = await c.call("project.create", { path: resolve(ref), name: opt.name, group: opt.group, tags: opt.tag });
+        const p = await c.call("project.create", { path: resolve(ref), name: opt.name, group: opt.group, tags: opt.tag, createFolder: opt.mkdir ? true : undefined });
         return out(p, () => console.log(p.id));
       }
       if (sub === "group" && ref) {

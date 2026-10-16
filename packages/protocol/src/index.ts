@@ -654,6 +654,8 @@ export const methods = {
       name: z.string().min(1).optional(),
       group: z.string().nullish(),
       tags: z.array(z.string()).optional(),
+      // Create the folder (and any missing parents) when it does not exist.
+      createFolder: z.boolean().optional(),
     }),
     Project,
   ),

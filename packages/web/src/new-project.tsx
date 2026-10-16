@@ -21,6 +21,8 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
   const [error, setError] = useState("");
   const [searchError, setSearchError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [missing, setMissing] = useState(false);
+  const [mkdir, setMkdir] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [active, setActive] = useState(0);
@@ -50,7 +52,7 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
     return () => { current = false; clearTimeout(timer); };
   }, [folder, home, host, online, rpc, showSuggestions, busy]);
   useEffect(() => { document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: "nearest" }); }, [active, listId]);
-  const pick = (value: string) => { setPath(value); setSuggestions([]); setShowSuggestions(false); setError(""); folderInput.current?.focus(); };
+  const pick = (value: string) => { setPath(value); setSuggestions([]); setShowSuggestions(false); setError(""); setMissing(false); setMkdir(false); folderInput.current?.focus(); };
   const submit = async () => {
     if (!absolute || !online || !rpc || busy) return;
     setBusy(true); setError("");
@@ -58,10 +60,14 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
       const project = await rpc.call("project.create", {
         path: folder, ...(projectName.trim() ? { name: projectName.trim() } : {}),
         ...(group.trim() ? { group: group.trim() } : {}),
+        ...(mkdir ? { createFolder: true } : {}),
         ...(tags.trim() ? { tags: tags.split(",").map(tag => tag.trim()).filter(Boolean) } : {}),
       }, host);
       created(project);
-    } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!mkdir && message.startsWith("no such directory")) setMissing(true); else setError(message);
+    }
     finally { setBusy(false); }
   };
   const expanded = showSuggestions && suggestions.length > 0;
@@ -74,7 +80,7 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
         aria-controls={listId} aria-activedescendant={expanded ? `${listId}-${active}` : undefined} aria-describedby={hintId}
         required autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} disabled={busy}
         value={path} placeholder={home ? `${home}/Projects/app` : "/absolute/path/to/project"}
-        onChange={event => { setPath(event.target.value); setShowSuggestions(true); setError(""); }}
+        onChange={event => { setPath(event.target.value); setShowSuggestions(true); setError(""); setMissing(false); setMkdir(false); }}
         onKeyDown={event => {
           if (expanded && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
             event.preventDefault(); setActive(index => (index + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length);
@@ -88,6 +94,8 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
       </ul>}
       <p id={hintId} className="muted">A folder on {name}. It can't be changed later.</p>
       {folder && !absolute && <p className="muted">Choose a suggestion or enter an absolute path starting with /.</p>}
+      {missing && <p className="muted" role="status">This folder doesn't exist on {name}.</p>}
+      {missing && <label className="settings-toggle"><input type="checkbox" checked={mkdir} disabled={busy} onChange={event => setMkdir(event.target.checked)}/>Create folder</label>}
       {searchError && <p className="muted" role="status">Folder suggestions unavailable: {searchError}</p>}
       <label htmlFor={`${listId}-name`}>Name</label>
       <input id={`${listId}-name`} value={projectName} onChange={event => setName(event.target.value)} placeholder={defaultName || "Folder name"} disabled={busy} />
@@ -102,7 +110,7 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
       {!online && <p role="status">Host offline. Reconnect to create a project.</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <div className="settings-actions"><button type="button" disabled={busy} onClick={close}>Cancel</button>
-        <button className="primary" type="submit" disabled={!absolute || !online || !rpc || busy}>{busy ? "Creating…" : "Create project"}</button></div>
+        <button className="primary" type="submit" disabled={!absolute || !online || !rpc || busy}>{busy ? "Creating…" : mkdir ? "Create folder and project" : "Create project"}</button></div>
     </form>
   </dialog>, document.body);
 }

@@ -5,6 +5,7 @@ import type { Rpc } from "./state";
 import { HostSettings, type HostSection } from "./host-settings";
 import { MoreGlyph, PlusGlyph } from "./row-menu";
 import { offlineNote } from "./connection";
+import { gib, pctTone, ramPercent, useHostStats } from "./host-stats";
 
 export type HostState = "online" | "slow" | "offline" | "connecting";
 const stateLabels: Record<HostState, string> = { online: "Online", slow: "Slow", offline: "Offline", connecting: "Connecting" };
@@ -51,6 +52,7 @@ export function HostActions({ host, name, state, rpc, projects, openProject }: {
       aria-label={`Host options for ${name}`} title="Host options" onClick={() => setSettings({ section: "usage", back: options.current, opened: ++opened.current })}>
       <MoreGlyph />
     </button>
+    <HostMeter host={host} name={name} rpc={rpc} online={online} open={(back) => setSettings({ section: "resources", back, opened: ++opened.current })} />
     {newProject && <NewProject host={host} name={name} projects={projects} rpc={rpc} online={online}
       close={() => { setNewProject(false); plus.current?.focus(); }}
       created={project => { setNewProject(false); openProject(project); }} />}
@@ -62,3 +64,16 @@ export function HostActions({ host, name, state, rpc, projects, openProject }: {
   </>;
 }
 
+
+/** CPU and RAM as two small bars beside the fold chevron, read every 30 s. Its slot
+ * stays reserved while hidden (offline, or a host without host.stats), so the row never shifts. */
+function HostMeter({ host, name, rpc, online, open }: { host: string; name: string; rpc: Rpc | null; online: boolean; open: (back: HTMLElement) => void }) {
+  const stats = useHostStats(host, rpc, online, 30_000);
+  if (!stats) return <span className="host-meter" aria-hidden="true" />;
+  const cpu = stats.cpuPercent, ram = ramPercent(stats);
+  const summary = `CPU ${cpu === null ? "measuring" : `${Math.round(cpu)}%`} · RAM ${gib(stats.memory.used).replace(" GB", "")} of ${gib(stats.memory.total)}`;
+  const bar = (percent: number | null, kind: string) => <span className={`host-meter-bar ${kind} ${percent === null ? "" : pctTone(percent)}`}>
+    <span style={{ height: `${Math.min(100, Math.max(0, percent ?? 0))}%` }} /></span>;
+  return <button type="button" className="host-meter" title={summary} aria-label={`${name} resources: ${summary}`}
+    onClick={(event) => open(event.currentTarget)}>{bar(cpu, "cpu")}{bar(ram, "ram")}</button>;
+}

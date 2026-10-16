@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { HostStats, LimitWindow, ProviderLimits } from "@casm/protocol";
 import type { Rpc } from "./state";
+import { gib, pctTone, ramPercent, useHostStats } from "./host-stats";
 import { ProviderIcon, providerNames } from "./provider-icon";
 import { usageLabel, resetLabel, elapsedPercent } from "./usage-label";
 
@@ -22,10 +23,8 @@ export function HostUsage({ host, rpc, online }: { host: string; rpc: Rpc | null
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [online, rpc, host, refresh]);
-  const stats = useHostStats(host, rpc, online);
   return <>
     <div className="host-panel-toolbar"><button type="button" disabled={loading || !online} onClick={() => setRefresh((value) => value + 1)}>Refresh usage</button></div>
-    {online && stats && <HostCard stats={stats} />}
     {!online ? <p>Host offline.</p> : error ? <p role="status">{error}</p> : <>
       {loading && <p role="status">Loading usage…</p>}
       {!loading && !limits.length && <p>No provider usage reported.</p>}
@@ -56,26 +55,17 @@ export function HostUsage({ host, rpc, online }: { host: string; rpc: Rpc | null
   </>;
 }
 
-/** Host load, refreshed every 10 s while mounted. */
-function useHostStats(host: string, rpc: Rpc | null, online: boolean): HostStats | null {
-  const [stats, setStats] = useState<HostStats | null>(null);
-  useEffect(() => {
-    if (!online || !rpc) { setStats(null); return; }
-    let active = true;
-    const read = () => void rpc.call("host.stats", {}, host).then((value) => { if (active) setStats(value); }).catch(() => { if (active) setStats(null); });
-    read();
-    const timer = setInterval(read, 10_000);
-    return () => { active = false; clearInterval(timer); };
-  }, [online, rpc, host]);
-  return stats;
+/** The host's load, refreshed every 10 s while shown (shared with the sidebar's mini bars). */
+export function HostResources({ host, rpc, online }: { host: string; rpc: Rpc | null; online: boolean }) {
+  const stats = useHostStats(host, rpc, online, 10_000);
+  return !online ? <p>Host offline.</p> : stats ? <HostCard stats={stats} />
+    : <p role="status">{stats === null ? "Resources unavailable on this host." : "Loading resources…"}</p>;
 }
 
 const loadTone = (stats: HostStats) => stats.loadAverage && stats.loadAverage[0] > stats.cores ? "high" : "";
-const pctTone = (percent: number) => percent >= 95 ? "full" : percent >= 80 ? "high" : "";
-const gib = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 
 function HostCard({ stats }: { stats: HostStats }) {
-  const ram = stats.memory.total ? (stats.memory.used / stats.memory.total) * 100 : 0;
+  const ram = ramPercent(stats);
   const swap = stats.swap && stats.swap.total ? (stats.swap.used / stats.swap.total) * 100 : null;
   const row = (label: string, value: string, percent: number | null, tone: string, name: string) => <div className="usage-window" aria-label={name}>
     <div className="usage-window-values"><span>{label}</span><span>{value}</span></div>

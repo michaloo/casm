@@ -2,13 +2,13 @@ import { InstructionEditor, SettingsDialog, TextEditor } from "./settings-shared
 import { useEffect, useRef, useState } from "react";
 import type { AgentPromptInfo, HostAgentsMdFile } from "@casm/protocol";
 import { HostIdentity, type HostState } from "./host-menu";
-import { HostUsage } from "./host-usage";
+import { HostResources, HostUsage } from "./host-usage";
 import { HostNotifications } from "./host-notifications";
 import type { Rpc } from "./state";
 import { providerNames } from "./provider-icon";
 import { Prose } from "./transcript";
 
-export type HostSection = "usage" | "agents-md" | "system-prompt" | "notifications";
+export type HostSection = "usage" | "resources" | "agents-md" | "system-prompt" | "notifications";
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
 
 export function HostSettings({ host, name, state, rpc, online, initialSection = "usage", close }: {
@@ -18,11 +18,14 @@ export function HostSettings({ host, name, state, rpc, online, initialSection = 
   const [section, setSection] = useState<HostSection>(initialSection === "instructions" ? "agents-md" : initialSection);
   return <SettingsDialog label={`${name} host`} closeLabel="Close host options"
     title={<span className="settings-title-host"><HostIdentity name={name} state={state} /></span>}
-    sections={[["usage", "Usage"], ["agents-md", "AGENTS.md"], ["system-prompt", "System Prompt"], ["notifications", "Notifications"]] as const} section={section} setSection={setSection} close={close}>
-    {!online || !rpc ? <p role="status">Host offline. Reconnect to load its usage, AGENTS.md and System Prompt.</p> : <>
+    sections={[["usage", "Usage"], ["resources", "Resources"], ["agents-md", "AGENTS.md"], ["system-prompt", "System Prompt"], ["notifications", "Notifications"]] as const} section={section} setSection={setSection} close={close}>
+    {!online || !rpc ? <p role="status">Host offline. Reconnect to load its usage, resources, AGENTS.md and System Prompt.</p> : <>
       {section === "usage" && <section aria-label="Usage"><h3>Usage</h3>
         <p className="settings-lede">Subscription limit windows per provider, and when they reset.</p>
         <HostUsage host={host} rpc={rpc} online={online} /></section>}
+      {section === "resources" && <section aria-label="Resources"><h3>Resources</h3>
+        <p className="settings-lede">CPU, load and memory on this host, refreshed every 10 seconds while this tab is open.</p>
+        <HostResources host={host} rpc={rpc} online={online} /></section>}
       <div hidden={section !== "agents-md"}><Instructions host={host} rpc={rpc} /></div>
       <div hidden={section !== "system-prompt"}><HostPrompt host={host} rpc={rpc} /></div>
       {/* A browser subscribes on the host serving this page; a peer's agents notify the peer's own devices. */}

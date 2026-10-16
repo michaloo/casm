@@ -12,6 +12,8 @@ test("host usage is the host modal's first tab, with refresh and graceful missin
   await toggle.click();
   await expect(panel).toBeVisible();
   await expect(panel.getByRole("region", { name: "Usage" })).toBeVisible();
+  // Host load moved to its own Resources tab: Usage is provider limits only.
+  await expect(panel.getByRole("region", { name: "Host load" })).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "Refresh usage" })).toBeEnabled();
   await expect(panel).toContainText(/No provider usage reported|Usage unavailable|No usage windows reported/);
   await panel.getByRole("button", { name: "Refresh usage" }).click();
@@ -98,7 +100,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 }]) {
   for (const colorScheme of ["light", "dark"] as const) {
-    test(`host card shows CPU, load, RAM and swap with tones, polls only while open ${viewport.width} ${colorScheme}`, async ({ page }) => {
+    test(`resources tab shows CPU, load, RAM and swap with tones ${viewport.width} ${colorScheme}`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await page.emulateMedia({ colorScheme });
       let calls = 0;
@@ -125,7 +127,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       const trigger = page.getByRole("button", { name: /^Host options for / }).first();
       await trigger.click();
       const dialog = page.getByRole("dialog", { name: /host$/ });
-      const card = dialog.getByRole("region", { name: "Host load" });
+      await expect(dialog.getByRole("region", { name: "Host load" })).toHaveCount(0);
+      await dialog.getByRole("button", { name: "Resources", exact: true }).click();
+      const card = dialog.getByRole("region", { name: "Resources" }).getByRole("region", { name: "Host load" });
       await expect(card).toContainText("87%");
       await expect(card).toContainText("4 cores");
       await expect(card).toContainText("2 running");
@@ -133,26 +137,22 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       await expect(card).toContainText("15.5 GB of 16.0 GB");
       await expect(card).toContainText("0.5 GB of 2.0 GB");
       // Full width: the card spans the panel's content box.
-      const panelBox = await dialog.getByRole("region", { name: "Usage" }).evaluate((el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); });
+      const panelBox = await dialog.getByRole("region", { name: "Resources" }).evaluate((el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); });
       expect(Math.abs((await card.boundingBox())!.width - panelBox)).toBeLessThan(2);
       const tone = (name: string) => card.getByLabel(name, { exact: true }).locator(".usage-meter").getAttribute("class");
       expect(await tone("CPU")).toContain("high");
       expect(await tone("Load")).toContain("high"); // load1 6.5 > 4 cores
       expect(await tone("RAM")).toContain("full"); // 97%
       expect(await tone("Swap")).not.toMatch(/high|full/);
-      // The card sits above the provider cards, inside the dialog's bounds.
+      // Inside the dialog's bounds.
       const box = (await card.boundingBox())!;
       expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
       expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
       await card.screenshot({ path: test.info().outputPath(`host-card-${viewport.width}-${colorScheme}.png`) });
-      // Refreshes every 10 s while open, then stops.
-      const seen = calls;
-      await expect.poll(() => calls, { timeout: 14000 }).toBeGreaterThan(seen);
-      await page.keyboard.press("Escape");
-      await expect(dialog).toBeHidden();
-      const closed = calls;
-      await page.waitForTimeout(10500);
-      expect(calls).toBe(closed);
+      // Leaving the tab stops its reads (the 10 s cadence is covered in host-meter.spec.ts).
+      await dialog.getByRole("button", { name: "Usage", exact: true }).click();
+      await expect(card).toHaveCount(0);
+      expect(calls).toBeGreaterThan(0);
     });
   }
 }

@@ -11,7 +11,8 @@ for (const width of [1440, 375]) test(`host modal AGENTS.md and System Prompt ta
     const server = socket.connectToServer();
     socket.onMessage((raw) => {
       const request = JSON.parse(String(raw));
-      if (/^(host\.|server.(setAgentPrompt|agentPrompt))/.test(request.method)) routed.push(request.host);
+      // host.stats is the sidebar's mini bars, read for every host.
+      if (/^(host\.(?!stats)|server.(setAgentPrompt|agentPrompt))/.test(request.method)) routed.push(request.host);
       // Mobile exercises the peer UI against this disposable server; the server
       // unit test separately verifies real peer transport for the same methods.
       if (width === 375 && request.method === "peer.list") {

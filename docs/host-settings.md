@@ -1,13 +1,14 @@
 # Host settings
 
 The ⋯ button on a host row (Host options) opens the host modal: Usage,
-AGENTS.md, System Prompt and Notifications. The ⋯ on a project
+Resources, AGENTS.md, System Prompt and Notifications. The ⋯ on a project
 row (Project options) opens the project modal: AGENTS.md, Memories and
 Schedules (see [web client: schedules](web-client.md#schedules)), with
 the project's path (Copy), host and group under its title and **New agent** in
 its header. They share one layout (a tab rail on wide
 screens, scrolling tabs and a full-screen sheet on phones) and ask before
-closing with unsaved edits. The + on a host row adds a project. Every RPC
+closing with unsaved edits. The + on a host row adds a project; the two mini bars
+beside the host's chevron (CPU, RAM) open its Resources tab. Every RPC
 carries its host ID, so peer settings are read and saved on the selected peer.
 
 ## Global instructions

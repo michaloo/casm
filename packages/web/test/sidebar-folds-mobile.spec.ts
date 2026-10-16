@@ -64,7 +64,7 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
       hostStroke: getComputedStyle(hostChevron).strokeWidth, projectStroke: getComputedStyle(projectChevron).strokeWidth,
       hostBox: box(host), hostChevron: box(hostChevron), hostNameBox: box(hostName), projectChevron: box(projectChevron),
       projectRow: box(document.querySelector("nav .project-row")!),
-      hostMore: box(host.querySelector(".row-more:last-of-type")!), projectMore: box(document.querySelector("nav .project-row .row-more")!),
+      hostMore: box(host.querySelector(".row-more[data-host-menu-trigger]")!), projectMore: box(document.querySelector("nav .project-row .row-more")!),
       hostRotate: getComputedStyle(hostChevron).rotate, projectRotate: getComputedStyle(projectChevron).rotate,
     };
   });

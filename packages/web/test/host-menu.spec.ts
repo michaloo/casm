@@ -31,7 +31,7 @@ for (const width of [1440, 375]) test(`host row opens the host modal at ${width}
   const host = page.getByRole("dialog", { name: "Test host host" });
   await expect(host).toBeVisible();
   const tabs = host.getByRole("navigation");
-  await expect(tabs.getByRole("button")).toHaveText(["Usage", "AGENTS.md", "System Prompt", "Notifications"]);
+  await expect(tabs.getByRole("button")).toHaveText(["Usage", "Resources", "AGENTS.md", "System Prompt", "Notifications"]);
   await expect(tabs.getByRole("button", { name: "Usage" })).toHaveAttribute("aria-pressed", "true");
   if (width === 375) {
     const box = (await host.boundingBox())!;

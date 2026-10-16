@@ -86,7 +86,8 @@ export function targetLabel(
   return `New agent in ${names.projects.get(target.projectId) ?? "a removed project"}`;
 }
 
-/** A one-off that already ran and switched itself off. */
+/** A one-off that already ran and switched itself off. The server deletes those
+ * whose run went through, so what remains failed or was skipped. */
 export function isFinished(s: Schedule): boolean {
   return s.cadence.type === "once" && !s.enabled && !!s.lastRun;
 }

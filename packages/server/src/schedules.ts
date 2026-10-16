@@ -33,6 +33,12 @@ function validate(c: ScheduleCadence) {
   }
 }
 
+const succeeded = (run: ScheduleRun) => run.outcome === "sent" || run.outcome === "queued" || run.outcome === "created";
+
+// A one-off whose run went through has nothing left to do. A failed or skipped
+// one stays, paused with its last run, to be run again or deleted.
+const isDone = (x: StoredSchedule) => x.cadence.type === "once" && !x.enabled && !!x.lastRun && succeeded(x.lastRun);
+
 type CreateAgent = (p: Params<"agent.create">) => Promise<Agent>;
 
 export class Scheduler {
@@ -49,7 +55,8 @@ export class Scheduler {
     this.notify = notify;
     this.createAgent = createAgent;
     // Older servers kept a deleted project's schedules; they could only fail.
-    for (const x of store.listSchedules()) if (!this.projectOf(x.target)) store.deleteSchedule(x.id);
+    // Older servers also kept one-offs that had already run; they are done.
+    for (const x of store.listSchedules()) if (!this.projectOf(x.target) || isDone(x)) store.deleteSchedule(x.id);
     // A run missed while the server was down happens once on the next tick.
     this.timer = setInterval(() => void this.tick(), 5_000);
     this.timer.unref();
@@ -186,7 +193,9 @@ export class Scheduler {
       updated.nextRunAt = nextRun(fresh.cadence, now, true, x.nextRunAt ? new Date(x.nextRunAt) : undefined)?.toISOString() ?? null;
       if (fresh.cadence.type === "once") updated.enabled = false;
     }
-    this.save(updated);
+    // Run now on a one-off that is still due keeps it for its time.
+    if (isDone(updated)) this.delete(updated.id);
+    else this.save(updated);
     return run;
   }
 

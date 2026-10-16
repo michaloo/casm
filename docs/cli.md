@@ -402,7 +402,9 @@ agents start in (`--project`). `casm schedules` shows it after the ID;
 `schedule edit` changes a schedule's name, cadence or prompt; `schedule run`
 fires one now; `enable`/`disable` pause it; `rm` deletes it. Cron uses the
 server's local time; `--every` counts from each due time, not from when the
-previous run finished.
+previous run finished. An `--at` schedule leaves the list once its run goes through
+(the agent's transcript shows `from schedule <name>`); if the run fails it
+stays, disabled with the error, for `schedule run` or `rm`.
 
 ![schedules, limits, usage](media/cli-schedules.svg)
 

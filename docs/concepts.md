@@ -168,8 +168,10 @@ the project's agents or creates a new agent in the project from a preset:
 
 - `--cron "0 9 * * 1-5"`: five-field cron in the server's local time.
 - `--every 30m`: an interval.
-- `--at 18:30`, `--at "in 2h"` or an ISO time: once; the schedule disables
-  itself afterwards.
+- `--at 18:30`, `--at "in 2h"` or an ISO time: once. When the run goes
+  through (`sent`, `queued` or `created`), the schedule is deleted; the
+  message still says which schedule sent it. A failed or skipped run leaves it
+  disabled with its last outcome, to run again or delete.
 
 A run goes through the normal send path, so a message to a busy or limited
 agent becomes pending like any other; `--skip-if-busy` skips that run instead.

@@ -158,3 +158,68 @@ test("on start, schedules left by a project deleted on an older server are dropp
     await server.close(); store.close(); rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a one-off that went through is deleted; a failed one stays paused with its error", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-sched-once-"));
+  const store = new Store(join(dir, "db"));
+  const token = store.createToken("test");
+  const provider: Provider = {
+    id: "codex",
+    open() {
+      return { send() {}, shell() {}, async interrupt() {}, async close() {} };
+    },
+    async history() { return []; }, async usage() { return null; },
+    async commands() { return []; }, async catalog() { return { models: [], modes: [] }; },
+    async limits() { return null; },
+  };
+  const server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  const client = await CasmClient.connect(server.url, token);
+  const removed: string[] = [];
+  client.on("schedule.removed", (p) => removed.push(p.scheduleId));
+  try {
+    const p = await client.call("project.create", { path: dir });
+    const a = await client.call("agent.create", { projectId: p.id, provider: "codex" });
+    const at = new Date(Date.now() + 60_000).toISOString();
+    const ok = await client.call("schedule.create", { cadence: { type: "once", at }, target: { type: "agent", agentId: a.id }, prompt: "once" });
+    // Run now before its time keeps it for its time.
+    assert.equal((await client.call("schedule.runNow", { id: ok.id })).outcome, "sent");
+    assert.equal((await client.call("schedule.list", {})).schedules[0].enabled, true);
+
+    // A new agent in a provider that isn't installed fails to start.
+    const bad = await client.call("schedule.create", { cadence: { type: "once", at }, target: { type: "newAgent", projectId: p.id, provider: "pi" }, prompt: "once" });
+    await server.scheduler.tick(new Date(Date.now() + 120_000));
+    const left = (await client.call("schedule.list", {})).schedules;
+    assert.deepEqual(left.map((x) => x.id), [bad.id]);
+    assert.equal(left[0].enabled, false);
+    assert.equal(left[0].lastRun?.outcome, "failed");
+    assert.ok(left[0].lastRun?.error);
+    for (let i = 0; i < 50 && !removed.length; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(removed, [ok.id]);
+  } finally {
+    client.close(); await server.close(); store.close(); rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("on start, one-offs that already ran are dropped unless their run failed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-sched-once-start-"));
+  const store = new Store(join(dir, "db"));
+  const p = store.createProject({ name: "p", path: dir });
+  const at = new Date().toISOString();
+  const once = (id: string, enabled: boolean, outcome: "sent" | "queued" | "created" | "failed" | "skipped" | null) => store.saveSchedule({
+    id, name: id, enabled, cadence: { type: "once", at }, target: { type: "newAgent", projectId: p.id, provider: "codex" }, prompt: "x",
+    nextRunAt: enabled ? at : null, lastRun: outcome ? { at, outcome } : null, createdAt: at,
+  });
+  once("sent", false, "sent");
+  once("queued", false, "queued");
+  once("created", false, "created");
+  once("failed", false, "failed");
+  once("skipped", false, "skipped");
+  once("due", true, null);
+  once("paused", false, null);
+  const server = await startServer({ store, providers: [], host: "127.0.0.1", port: 0, version: "test" });
+  try {
+    assert.deepEqual(store.listSchedules().map((x) => x.id).sort(), ["due", "failed", "paused", "skipped"]);
+  } finally {
+    await server.close(); store.close(); rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -14,11 +14,13 @@ async function stop(child: ReturnType<typeof spawn>) {
   clearTimeout(killer);
 }
 
-export const test = base.extend<{ server: void }>({
+export const test = base.extend<{ server: void; scenario: string }>({
   baseURL: async ({}, use) => use(testURL),
+  // "memory": the heavy workspace of memory-fixture.ts besides the usual one.
+  scenario: ["", { option: true }],
   server: [
-    async ({}, use) => {
-      const env = { ...process.env, CASM_WEB_TEST_PORT: String(testPort), CASM_WEB_TEST_HOME: testHome };
+    async ({ scenario }, use) => {
+      const env = { ...process.env, CASM_WEB_TEST_PORT: String(testPort), CASM_WEB_TEST_HOME: testHome, CASM_WEB_TEST_SCENARIO: scenario };
       // The child applies the worker offset itself only if it sees an index.
       delete env.TEST_PARALLEL_INDEX;
       env.CASM_WEB_TEST_PORT = String(testPort);

@@ -10,6 +10,7 @@ import type {
 import type { Item } from "@casm/protocol";
 import { visualItems } from "./visual-fixture.ts";
 import { scrollItems } from "./scroll-fixture.ts";
+import { memoryWorkspace } from "./memory-fixture.ts";
 import { testHome as home, testPort } from "./config.ts";
 mkdirSync(home, { recursive: true });
 rmSync(`${home}/web-test.db`, { force: true });
@@ -112,6 +113,19 @@ const provider: Provider = {
             return;
           }
           if (text === "slow") return;
+          // A busy agent: tool rows with streamed output and replies, until interrupted.
+          if (text === "churn") {
+            let n = 0;
+            timer = setInterval(() => {
+              const id = `churn-${sessionId}-${n++}`;
+              o.emit({ type: "delta", kind: "reasoning", text: "Thinking about the next step. " });
+              o.emit({ type: "item", item: { kind: "tool", id: `${id}-tool`, name: "Bash", status: "running", input: { command: `step ${n}` }, output: "" } });
+              o.emit({ type: "toolOutput", itemId: `${id}-tool`, text: `output of step ${n}\n`.repeat(40) });
+              o.emit({ type: "item", item: { kind: "tool", id: `${id}-tool`, name: "Bash", status: "done", input: { command: `step ${n}` }, output: `output of step ${n}\n`.repeat(40) } });
+              o.emit({ type: "item", item: { kind: "assistant", id: `${id}-reply`, text: `Step ${n} finished. ` + "Details. ".repeat(30) } });
+            }, 250);
+            return;
+          }
           // A turn whose rows keep growing after they mount: Thinking, a
           // running tool with streaming output, then a streamed reply.
           if (text === "grow") {
@@ -199,6 +213,18 @@ const archived = store.createAgent({
 });
 store.updateAgent(archived.id, { archived: true });
 writeFileSync(`${home}/web-archived-id`, archived.id);
+// Opt-in heavy workspace for memory measurements (scripts/memory-session.ts).
+if (process.env.CASM_WEB_TEST_SCENARIO === "memory")
+  for (const [i, seeded] of memoryWorkspace().entries()) {
+    const path = `${home}/memory-${i}`;
+    mkdirSync(path, { recursive: true });
+    const project = store.createProject({ name: seeded.project, path });
+    for (const [j, a] of seeded.agents.entries()) {
+      const agent = store.createAgent({ projectId: project.id, name: a.name, provider: "claude", cwd: path, config: {} });
+      histories.set(`memory-${i}-${j}`, a.history);
+      store.updateAgent(agent.id, { nativeSessionId: `memory-${i}-${j}` });
+    }
+  }
 // Files agents "created", mentioned in prose, inline code and tool output.
 const exportsDir = `${home}/exports`;
 rmSync(exportsDir, { recursive: true, force: true });

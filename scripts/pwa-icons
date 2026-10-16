@@ -24,4 +24,9 @@ for size in 192 512; do
     -alpha remove -alpha off -strip -define png:exclude-chunks=date,time \
     "PNG24:$repo_root/packages/web/public/icon-${size}.png"
 done
+# The Apple touch icon (iOS Home Screen and the macOS Safari Dock app) is full
+# bleed and opaque too: transparent baked corners make macOS add a white plate.
+magick "$icon_tmp/full-bleed.png" -resize "180x180" \
+  -alpha remove -alpha off -strip -define png:exclude-chunks=date,time \
+  "PNG24:$repo_root/packages/web/public/apple-touch-icon.png"
 # Maskable icons deliberately keep their existing safe-zone padding.

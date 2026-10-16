@@ -105,7 +105,11 @@ test("a window of older history pages newer until it joins the live end", async 
   }
   await expect(newer).toHaveCount(0);
   // Joined with the live rows: the end is the live end again.
-  await page.locator("[data-virtuoso-scroller]").evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  // Scrolled to the end (again while rows below measure), Latest goes.
+  const latest = page.getByRole("button", { name: "Latest ↓" });
+  await expect.poll(async () => {
+    await page.locator("[data-virtuoso-scroller]").evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    return latest.count();
+  }).toBe(0);
   await expect(page.locator('[data-item-id="s-reply-44"]')).toBeVisible();
-  await expect(page.getByRole("button", { name: "Latest ↓" })).toHaveCount(0);
 });

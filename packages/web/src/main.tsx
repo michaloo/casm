@@ -102,7 +102,9 @@ function App() {
       root.setProperty("--viewport-top", `${viewport.offsetTop}px`);
       // The keyboard covers the home indicator: no bottom safe-area inset then,
       // and the app follows the visible viewport; otherwise it fills the screen.
-      const keyboard = window.innerHeight - viewport.height > 120;
+      // innerHeight can shrink with the keyboard too (iOS Home Screen apps);
+      // the root's client height is the layout viewport the fixed .app fills.
+      const keyboard = Math.max(window.innerHeight, document.documentElement.clientHeight) - viewport.height > 120;
       if (keyboard) document.documentElement.dataset.keyboard = "open";
       else delete document.documentElement.dataset.keyboard;
     };

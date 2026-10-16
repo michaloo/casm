@@ -1317,8 +1317,9 @@ function Transcript({
   const away = (el: HTMLElement) => {
     // A jump up whose scroll event has not arrived yet (scrollTo, focus,
     // find-in-page): content shrinking clamps to the end and appends never
-    // move scrollTop up, so neither looks like this.
-    if (el.scrollTop < lastTop.current - 2 && el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) nearEnd.current = false;
+    // move scrollTop up, so neither looks like this. Virtuoso's own size
+    // corrections move it a few pixels while rows below grow, which is not one.
+    if (el.scrollTop < lastTop.current - 80 && el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) nearEnd.current = false;
     return !nearEnd.current;
   };
   const pin = (el: HTMLElement) => { el.scrollTop = el.scrollHeight; lastTop.current = el.scrollTop; };
@@ -1357,10 +1358,16 @@ function Transcript({
       const el = scroller.current;
       if (!el) return;
       const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const up = lastTop.current - el.scrollTop;
       lastTop.current = el.scrollTop;
       if (gap <= 1) reached.current = true;
-      nearEnd.current = gap < (reached.current ? 80 : el.clientHeight);
-      if (gap < 80) stick();
+      // Rows below growing widen the gap without the reader moving; only a
+      // move up leaves the end.
+      nearEnd.current = gap < (reached.current ? 80 : el.clientHeight) || (nearEnd.current && up < 80);
+      if (nearEnd.current) stick();
+      // Virtuoso reports only changes of its at-bottom state, so a reader who
+      // leaves a view that never counted as at the bottom would get no Latest.
+      else if (!following.current) setBottom(false);
     };
     const el = scroller.current;
     // Capture on the wrapper runs before Virtuoso's own scroll handler, so

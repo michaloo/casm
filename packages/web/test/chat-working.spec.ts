@@ -1,6 +1,6 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import { openAgents } from "./phone.ts";
 
@@ -12,6 +12,17 @@ async function login(page: Page) {
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await expect(page.locator(".item").last()).toBeVisible();
 }
+// Wait until the scroller's position and height hold still for several frames.
+const settle = (scroller: Locator) => scroller.evaluate((el) => new Promise<void>((resolve) => {
+  let last = "", stable = 0;
+  const tick = () => {
+    const now = `${el.scrollTop}/${el.scrollHeight}`;
+    stable = now === last ? stable + 1 : 0;
+    last = now;
+    if (stable >= 5) resolve(); else requestAnimationFrame(tick);
+  };
+  tick();
+}));
 async function send(page: Page, text: string) {
   await page.getByLabel("Message").fill(text);
   await page.getByLabel("Message").press("Enter");
@@ -75,13 +86,17 @@ for (const width of [1440, 375]) {
     });
     await login(page);
     const scroller = page.locator("[data-virtuoso-scroller]");
+    // The chat opens at the true end, even when rows measure taller than
+    // estimated while Virtuoso corrects its position.
+    await settle(scroller);
+    expect(await scroller.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
     await scroller.hover();
     // A finger drag: touchmove, then the scroll it causes.
     if (isMobile) { await scroller.dispatchEvent("touchmove"); await scroller.evaluate((el) => el.scrollBy(0, -700)); }
     else await page.mouse.wheel(0, -700);
     await expect(page.getByRole("button", { name: "Latest ↓" })).toBeVisible();
     // Let scrolling settle before comparing exact reader coordinates.
-    await page.waitForTimeout(250);
+    await settle(scroller);
     const before = await scroller.evaluate((element) => element.scrollTop);
     const composer = (await page.locator(".composer").boundingBox())!;
     const working = page.locator(".chat-working");

@@ -137,6 +137,11 @@ a:hover {
   display: flex;
   overflow: hidden;
 }
+/* The desktop app's title bar takes the sidebar color (theme-color); the same
+   hairline as the sidebar's edge separates it from the content. */
+@media (display-mode: standalone) and (min-width: 651px) {
+  .app { border-top: 1px solid var(--line); }
+}
 .brand {
   display: flex;
   align-items: center;

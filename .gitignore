@@ -1,4 +1,5 @@
-node_modules/
+# No trailing slash: also matches a node_modules symlink, not just a folder.
+node_modules
 .env*.local
 .DS_Store
 .casm-dev/

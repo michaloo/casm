@@ -134,9 +134,9 @@ for (const width of [1440, 375]) {
     expect(Math.abs(pillBox.x - composer[0])).toBeLessThan(1);
     expect(pillBox.y + pillBox.height).toBeLessThanOrEqual((await page.locator(".composer").boundingBox())!.y - 4);
     expect(pillBox.height).toBe(width < 600 ? 32 : 28);
-    // The pill sits over the transcript's end, which still reaches the bottom area.
+    // The pill sits over the transcript's end, which runs 16px under the bottom area.
     const running = (await page.locator("[data-virtuoso-scroller]").boundingBox())!;
-    expect(Math.abs(running.y + running.height - (await page.locator(".pending-queue").boundingBox())!.y)).toBeLessThan(1);
+    expect(Math.abs(running.y + running.height - 16 - (await page.locator(".pending-queue").boundingBox())!.y)).toBeLessThan(1);
     expect(pillBox.y).toBeGreaterThan(running.y);
     expect(pillBox.y + pillBox.height).toBeLessThanOrEqual(running.y + running.height + 0.5);
     await expect(pill).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");

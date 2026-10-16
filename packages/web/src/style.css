@@ -610,7 +610,12 @@ footer > span:not(.error):before {
   flex: 1;
   min-height: 0;
   position: relative;
+  /* Whatever comes next (the queue list, request cards or the composer) overlaps
+     the transcript's last few pixels: nothing but those surfaces covers the chat,
+     and the transcript end leaves room for it. */
+  margin-bottom: calc(-1 * var(--composer-overlap));
 }
+.transcript ~ * { position: relative; z-index: 3; }
 .transcript [data-virtuoso-scroller] {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--line-strong) 40%, transparent) transparent;
@@ -1269,12 +1274,7 @@ details[open] > summary:before {
   color: var(--accent);
 }
 .composer {
-  /* Overlaps the transcript's last few pixels: nothing but the composer
-     itself covers the chat (the transcript end leaves room for it). */
-  position: relative;
-  z-index: 3;
   flex-shrink: 0;
-  margin-top: calc(-1 * var(--composer-overlap));
   margin-bottom: 18px;
   border: 1px solid var(--line);
   border-radius: 18px;

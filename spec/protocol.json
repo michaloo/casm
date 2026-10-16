@@ -187,6 +187,120 @@
         ]
       }
     },
+    "host.stats": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {}
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cpuPercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cores": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "loadAverage": {
+            "anyOf": [
+              {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 3,
+                "maxItems": 3
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memory": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "number"
+              },
+              "available": {
+                "type": "number"
+              },
+              "used": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "total",
+              "available",
+              "used"
+            ]
+          },
+          "swap": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "total": {
+                    "type": "number"
+                  },
+                  "used": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "total",
+                  "used"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "uptimeSeconds": {
+            "type": "number"
+          },
+          "processRss": {
+            "type": "number"
+          },
+          "runningAgents": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "sampledAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cpuPercent",
+          "cores",
+          "loadAverage",
+          "memory",
+          "swap",
+          "uptimeSeconds",
+          "processRss",
+          "runningAgents",
+          "sampledAt"
+        ]
+      }
+    },
     "server.info": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

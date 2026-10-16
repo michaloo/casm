@@ -2034,6 +2034,7 @@ textarea::placeholder {
   border-radius: 14px;
   background: var(--bg);
 }
+.usage-card.host-provider-usage.host-stats-card { margin: 8px 0 6px; }
 .usage-card-head {
   display: flex;
   flex-wrap: wrap;

@@ -95,3 +95,61 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
     });
   }
 }
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 }]) {
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`host card shows CPU, load, RAM and swap with tones, polls only while open ${viewport.width} ${colorScheme}`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme });
+      let calls = 0;
+      const GB = 2 ** 30;
+      await page.routeWebSocket("**", (socket) => {
+        const server = socket.connectToServer();
+        socket.onMessage((message) => {
+          const request = JSON.parse(String(message));
+          if (request.method !== "host.stats") { server.send(message); return; }
+          calls++;
+          socket.send(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {
+            cpuPercent: 87.4, cores: 4, loadAverage: [6.5, 3.2, 1.1],
+            memory: { total: 16 * GB, available: 0.5 * GB, used: 15.5 * GB }, swap: { total: 2 * GB, used: 0.5 * GB },
+            uptimeSeconds: 90000, processRss: 200 * 2 ** 20, runningAgents: 2, sampledAt: new Date().toISOString(),
+          } }));
+        });
+      });
+      await page.goto("/");
+      await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
+      await page.getByRole("button", { name: "Connect", exact: true }).click();
+      if (viewport.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
+      await page.getByRole("button", { name: /Agent 00/ }).click();
+      if (viewport.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
+      const trigger = page.getByRole("button", { name: /^Host options for / }).first();
+      await trigger.click();
+      const dialog = page.getByRole("dialog", { name: /host$/ });
+      const card = dialog.getByRole("region", { name: "Host load" });
+      await expect(card).toContainText("87%");
+      await expect(card).toContainText("4 cores");
+      await expect(card).toContainText("2 running");
+      await expect(card).toContainText("6.50 · 3.20 · 1.10");
+      await expect(card).toContainText("15.5 GB of 16.0 GB");
+      await expect(card).toContainText("0.5 GB of 2.0 GB");
+      const tone = (name: string) => card.getByLabel(name, { exact: true }).locator(".usage-meter").getAttribute("class");
+      expect(await tone("CPU")).toContain("high");
+      expect(await tone("Load")).toContain("high"); // load1 6.5 > 4 cores
+      expect(await tone("RAM")).toContain("full"); // 97%
+      expect(await tone("Swap")).not.toMatch(/high|full/);
+      // The card sits above the provider cards, inside the dialog's bounds.
+      const box = (await card.boundingBox())!;
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+      expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+      await card.screenshot({ path: test.info().outputPath(`host-card-${viewport.width}-${colorScheme}.png`) });
+      // Refreshes every 5 s while open, then stops.
+      const seen = calls;
+      await expect.poll(() => calls, { timeout: 8000 }).toBeGreaterThan(seen);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      const closed = calls;
+      await page.waitForTimeout(5500);
+      expect(calls).toBe(closed);
+    });
+  }
+}

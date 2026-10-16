@@ -64,6 +64,7 @@ server (this machine only; refused with -H):
   agent-prompt --enable | --disable  turn it on or off ("agentPrompt" in the host's config.json)
 
 hosts (only for a CLI on a machine without a server):
+  host stats                         same as stats
   host add <name> <ws-url> <token> [--default]
   host list | host rm <name>
 
@@ -120,6 +121,7 @@ schedules (each belongs to a project; messages to busy or limited agents become 
   answer <agent> <request> --dismiss
   models [--provider p] [--refresh]  models and modes each agent offers on the host
   limits [--provider p] [--refresh]  subscription limits per agent (used % per window)
+  stats                              CPU, load and memory of the host
   usage <agent>                      context-window usage and cost of one agent
   approve <agent> <request> [--always]
   deny <agent> <request> [--message text]
@@ -197,7 +199,10 @@ const { values: opt, positionals } = parseArgs({
   options,
 });
 
-const [cmd, ...args] = positionals;
+const [first, ...rest] = positionals;
+// `casm host stats` is `casm stats`; the other host subcommands edit the local host list.
+const [cmd, ...args] = first === "host" && rest[0] === "stats" ? ["stats", ...rest.slice(1)] : positionals;
+
 
 function fail(msg: string): never {
   console.error(`casm: ${msg}`);
@@ -752,6 +757,19 @@ async function run(c: CasmClient) {
       }
       await c.call("agent.answerQuestion", { id: a.id, requestId, answers });
       return;
+    }
+
+    case "stats": {
+      const s = await c.call("host.stats", {});
+      return out(s, () => {
+        const gb = (n: number) => `${(n / 2 ** 30).toFixed(1)} GB`;
+        const pct = (n: number) => `${Math.round(n)}%`;
+        console.log(`cpu     ${s.cpuPercent === null ? "?" : pct(s.cpuPercent)} of ${s.cores} cores`);
+        if (s.loadAverage) console.log(`load    ${s.loadAverage.map((n) => n.toFixed(2)).join(" ")}${s.loadAverage[0] > s.cores ? "  overloaded" : ""}`);
+        console.log(`memory  ${gb(s.memory.used)} of ${gb(s.memory.total)} used (${pct((s.memory.used / s.memory.total) * 100)}), ${gb(s.memory.available)} available`);
+        if (s.swap) console.log(`swap    ${gb(s.swap.used)} of ${gb(s.swap.total)}`);
+        console.log(`casm    ${Math.round(s.processRss / 2 ** 20)} MB rss, ${s.runningAgents} agent${s.runningAgents === 1 ? "" : "s"} running, host up ${Math.floor(s.uptimeSeconds / 3600)} h`);
+      });
     }
 
     case "limits": {

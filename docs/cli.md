@@ -423,7 +423,7 @@ swap    0.0 GB of 8.0 GB
 casm    182 MB rss, 2 agents running, host up 52 h
 ```
 
-CPU is the busy share since the server's previous 5-second sample; `load` is
+CPU is the busy share since the server's previous call (a call after a quiet minute samples over 250 ms; nothing runs between calls); `load` is
 flagged `overloaded` when the 1-minute load exceeds the cores. `-H peer stats`
 reads a peer; `--json` prints the raw `host.stats` result.
 

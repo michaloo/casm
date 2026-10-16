@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpuPercent, cpuTimes, parseMeminfo, parseVmStat } from "../src/host-stats.ts";
+import { HostSampler, cpuPercent, cpuTimes, parseMeminfo, parseVmStat } from "../src/host-stats.ts";
 
 const core = (user: number, sys: number, idle: number) => ({ times: { user, nice: 0, sys, idle, irq: 0 } });
 
@@ -37,6 +37,20 @@ Pages speculative:                         500.
 `;
   assert.equal(parseVmStat(text), 3500 * 16384);
   assert.equal(parseVmStat("nope"), null);
+});
+
+test("HostSampler samples twice on the first call, then reports the delta since the last one", async () => {
+  const sampler = new HostSampler();
+  const started = Date.now();
+  const first = await sampler.read(3);
+  assert.ok(Date.now() - started >= HostSampler.GAP_MS - 20, "first call waits for a second sample");
+  assert.ok(first.cpuPercent !== null && first.cpuPercent >= 0 && first.cpuPercent <= 100);
+  assert.equal(first.runningAgents, 3);
+  await new Promise((r) => setTimeout(r, 300));
+  const t = Date.now();
+  const second = await sampler.read(0);
+  assert.ok(Date.now() - t < HostSampler.GAP_MS, "a later call uses the stored snapshot and returns at once");
+  assert.ok(second.cpuPercent !== null);
 });
 
 test("host.stats over RPC and `casm stats` / `casm host stats` print it", async () => {

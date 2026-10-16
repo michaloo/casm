@@ -142,13 +142,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
       expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
       await card.screenshot({ path: test.info().outputPath(`host-card-${viewport.width}-${colorScheme}.png`) });
-      // Refreshes every 5 s while open, then stops.
+      // Refreshes every 10 s while open, then stops.
       const seen = calls;
-      await expect.poll(() => calls, { timeout: 8000 }).toBeGreaterThan(seen);
+      await expect.poll(() => calls, { timeout: 14000 }).toBeGreaterThan(seen);
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
       const closed = calls;
-      await page.waitForTimeout(5500);
+      await page.waitForTimeout(10500);
       expect(calls).toBe(closed);
     });
   }

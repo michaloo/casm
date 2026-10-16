@@ -56,7 +56,7 @@ export function HostUsage({ host, rpc, online }: { host: string; rpc: Rpc | null
   </>;
 }
 
-/** Host load, refreshed every 5 s while mounted. */
+/** Host load, refreshed every 10 s while mounted. */
 function useHostStats(host: string, rpc: Rpc | null, online: boolean): HostStats | null {
   const [stats, setStats] = useState<HostStats | null>(null);
   useEffect(() => {
@@ -64,7 +64,7 @@ function useHostStats(host: string, rpc: Rpc | null, online: boolean): HostStats
     let active = true;
     const read = () => void rpc.call("host.stats", {}, host).then((value) => { if (active) setStats(value); }).catch(() => { if (active) setStats(null); });
     read();
-    const timer = setInterval(read, 5000);
+    const timer = setInterval(read, 10_000);
     return () => { active = false; clearInterval(timer); };
   }, [online, rpc, host]);
   return stats;

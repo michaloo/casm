@@ -86,7 +86,7 @@ export function ProjectSchedules({ host, rpc, online, project, agents: hostAgent
   return <div ref={list} className="schedules">
     <div className="schedule-toolbar">
       <span className="schedule-summary" role="status">{mine?.length ? [
-        `${active.length} active`, paused.length && `${paused.length} paused`, finished.length && `${finished.length} finished`,
+        `${active.length} active`, paused.length && `${paused.length} paused`, finished.length && `${finished.length} to retry`,
       ].filter(Boolean).join(" · ") : ""}</span>
       <button type="button" className="primary schedule-new" onClick={() => { setError(""); setForm("new"); }}>New schedule</button>
     </div>
@@ -98,7 +98,7 @@ export function ProjectSchedules({ host, rpc, online, project, agents: hostAgent
       <ScheduleGroup title="Active" count={active.length}>{active.map(row)}</ScheduleGroup>
       <ScheduleGroup title="Paused" count={paused.length}>{paused.map(row)}</ScheduleGroup>
       {finished.length > 0 && <details className="schedule-finished">
-        <summary><span>Finished one-offs</span><span className="count">{finished.length}</span></summary>
+        <summary><span>One-offs that didn’t go through</span><span className="count">{finished.length}</span></summary>
         <ul className="schedule-list">{finished.map(row)}</ul>
       </details>}
     </>}
@@ -142,7 +142,7 @@ function ScheduleRow({ schedule: s, names, busy, toggle, runNow, edit, openAgent
       <span className="schedule-status">
         {s.enabled
           ? s.nextRunAt ? <span className="next">Next <time dateTime={s.nextRunAt} title={new Date(s.nextRunAt).toLocaleString()}>{resetLabel(s.nextRunAt)}</time></span> : "Not scheduled"
-          : finished ? "Done" : "Paused"}
+          : "Paused"}
         {s.lastRun && <> · <span className={`outcome ${s.lastRun.outcome}`}>{agentLink(ranAgent, `${outcomeLabels[s.lastRun.outcome]}`)} <time dateTime={s.lastRun.at} title={new Date(s.lastRun.at).toLocaleString()}>{agoLabel(s.lastRun.at)}</time></span></>}
       </span>
       {s.lastRun?.error && <span className="schedule-error" title={s.lastRun.error}>{s.lastRun.error}</span>}
@@ -202,7 +202,7 @@ function ScheduleForm({ agents, project, onSave, onCancel, onDelete, initial, bu
     if (kind === "once") {
       const at = new Date(once);
       if (!Number.isFinite(at.getTime())) return undefined;
-      return at.getTime() <= Date.now() ? "That time has passed; pick a time in the future." : `Runs ${dateLabel(at.toISOString())} (${resetLabel(at.toISOString())}), then pauses itself.`;
+      return at.getTime() <= Date.now() ? "That time has passed; pick a time in the future." : `Runs ${dateLabel(at.toISOString())} (${resetLabel(at.toISOString())}), then deletes itself once it goes through.`;
     }
     const runs = cronPreview(cron);
     if (typeof runs === "string") return cron.trim() ? runs : undefined;

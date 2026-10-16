@@ -166,7 +166,8 @@ export const ScheduleCadence = z.discriminatedUnion("type", [
   // 5-field cron in the server's local time.
   z.object({ type: z.literal("cron"), expr: z.string() }),
   z.object({ type: z.literal("every"), minutes: z.number().int().positive() }),
-  // One run at a time (ISO); the schedule disables itself afterwards.
+  // One run at a time (ISO). A run that goes through deletes the schedule; a
+  // failed or skipped one leaves it disabled with its last run.
   z.object({ type: z.literal("once"), at: z.string() }),
 ]);
 export type ScheduleCadence = z.infer<typeof ScheduleCadence>;

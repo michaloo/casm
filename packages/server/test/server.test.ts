@@ -926,7 +926,8 @@ test("schedules message an agent or create one, and busy agents get pending mess
   assert.equal((await client.call("schedule.runNow", { id: skip.id })).outcome, "sent");
   await client.call("agent.wait", { id: a.id });
 
-  // A once schedule creating a new agent from a preset disables itself after running.
+  // A once schedule creating a new agent from a preset is deleted once it has run;
+  // the new agent's prompt still says which schedule sent it.
   const at = new Date(Date.now() + 3600_000).toISOString();
   const once = await client.call("schedule.create", {
     name: "nightly",
@@ -935,11 +936,8 @@ test("schedules message an agent or create one, and busy agents get pending mess
     prompt: "do the nightly",
   });
   await server.scheduler.tick(new Date(Date.now() + 2 * 3600_000));
-  const ran = (await client.call("schedule.list", {})).schedules.find((x) => x.id === once.id)!;
-  assert.equal(ran.lastRun?.outcome, "created");
-  assert.equal(ran.enabled, false);
-  assert.equal(ran.nextRunAt, null);
-  const created = await client.call("agent.get", { id: ran.lastRun!.agentId! });
+  assert.equal((await client.call("schedule.list", {})).schedules.find((x) => x.id === once.id), undefined);
+  const created = (await client.call("agent.list", {})).agents.find((x) => x.name.startsWith("nightly · "))!;
   assert.match(created.name, /^nightly · /);
   assert.equal((await client.call("agent.wait", { id: created.id })).lastReply, "echo: do the nightly");
   const authored = store.db.prepare("SELECT sender FROM message_senders WHERE agent_id = ?").get(created.id)!;
@@ -1146,14 +1144,9 @@ test("messages queued and schedule runs missed while the server was down go out 
   try {
     // The left-over message is running; the missed run queued behind it.
     assert.deepEqual((await c.call("agent.pending", { id: agent.id })).messages.map((m) => m.text), ["missed run"]);
-    const fired = (await c.call("schedule.list", {})).schedules[0];
-    assert.equal(fired.lastRun?.outcome, "queued");
-    assert.equal(fired.enabled, false);
-    assert.equal(fired.nextRunAt, null);
-    // The project is derived, not stored.
-    const { projectId, ...stored } = fired;
-    assert.equal(projectId, project.id);
-    assert.deepEqual(s2.getSchedule("missed"), stored);
+    // The one-off went through, so it is gone.
+    assert.deepEqual((await c.call("schedule.list", {})).schedules, []);
+    assert.equal(s2.getSchedule("missed"), undefined);
     await srv.scheduler.tick(new Date(Date.now() + 60_000));
     assert.equal((await c.call("agent.pending", { id: agent.id })).messages.length, 1);
     fake.gate.resolve();

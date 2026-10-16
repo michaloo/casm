@@ -66,11 +66,13 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   const third = (await dialog.getByRole("option").nth(2).boundingBox())!;
   await page.mouse.move(third.x + 40, third.y + third.height / 2, { steps: 3 });
   await expect(dialog.getByRole("option").nth(2)).toHaveAttribute("aria-selected", "true");
+  // Actions start with Find in chat, for the open chat.
   await input.press("Shift+Tab");
-  await expect(dialog.getByRole("option", { selected: true })).toContainText("New project");
+  await expect(dialog.getByRole("option", { selected: true })).toContainText("Find in chat");
   await page.waitForTimeout(150);
-  await expect(dialog.getByRole("option", { selected: true })).toContainText("New project");
+  await expect(dialog.getByRole("option", { selected: true })).toContainText("Find in chat");
   const options = await dialog.getByRole("option").allTextContents();
+  expect(options.filter(text => text.startsWith("Find in chat"))).toHaveLength(1);
   expect(options.filter(text => text.startsWith("New project"))).toEqual(["New projectTest host"]);
   // Schedules are the open chat's project's.
   expect(options.filter(text => text.startsWith("Schedules"))).toEqual(["SchedulesTest projectTest host"]);
@@ -93,7 +95,7 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await input.press("Tab");
   await expect(dialog.getByRole("option", { selected: true })).toContainText("Test project");
   await input.press("Tab");
-  await expect(dialog.getByRole("option", { selected: true })).toContainText(/New project|Schedules/);
+  await expect(dialog.getByRole("option", { selected: true })).toContainText(/Find in chat|New project|Schedules/);
   await input.fill("Agent 02 Test host");
   await expect(dialog.getByRole("option", { selected: true })).toContainText("Agent 02");
   await input.press("Enter");

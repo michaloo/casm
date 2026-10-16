@@ -1,7 +1,7 @@
 // End-to-end over a real WebSocket, with a scripted fake provider.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, unlinkSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, statSync, unlinkSync, rmSync, symlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -314,6 +314,14 @@ test("projects are folders with an optional group", async () => {
   assert.equal(p.group, "Clients");
   await assert.rejects(client.call("project.create", { path: "relative/dir" }));
   await assert.rejects(client.call("project.create", { path: join(dir, "missing") }), /no such directory/);
+  const deep = join(dir, "a", "b");
+  const made = await client.call("project.create", { path: deep, createFolder: true });
+  assert.equal(made.path, deep);
+  assert.ok(statSync(deep).isDirectory());
+  writeFileSync(join(dir, "file.txt"), "x");
+  await assert.rejects(client.call("project.create", { path: join(dir, "file.txt"), createFolder: true }), /not a directory/);
+  await assert.rejects(client.call("project.create", { path: join(dir, "file.txt", "sub"), createFolder: true }), /could not create/);
+  await assert.rejects(client.call("project.create", { path: "relative/dir", createFolder: true }), /absolute/);
   const agent = await client.call("agent.create", { projectId: p.id, provider: "claude" });
   assert.equal(agent.cwd, dir);
   assert.equal((await client.call("project.update", { id: p.id, group: null })).group, null);

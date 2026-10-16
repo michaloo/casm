@@ -2616,6 +2616,8 @@ button.danger.quiet:hover { background: var(--attention-soft); }
 .new-project-form input { width: 100%; min-width: 0; min-height: 44px; }
 .new-project-form p { margin: 8px 0; font-size: 13px; overflow-wrap: anywhere; }
 .new-project-form [role="combobox"] { font-family: var(--mono); }
+.new-project-form .settings-toggle { margin: 4px 0 0; font-weight: 400; justify-content: flex-start; }
+.new-project-form .settings-toggle input { width: 20px; min-height: 20px; flex: none; }
 .project-group-fields { display: flex; flex-wrap: wrap; gap: 8px; }
 .project-group-fields input { flex: 1 1 160px; }
 .project-group-fields select { min-width: 0; max-width: 100%; min-height: 44px; }

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
 
@@ -64,8 +64,28 @@ for (const width of [1440, 375]) test(`new project mobile suggestions create and
   await expect(dialog).toContainText(`A folder on ${hostName}. It can't be changed later.`);
   await folder.fill(`${root}/does-not-exist`);
   await create.click();
-  await expect(dialog.getByRole("alert")).toContainText("no such directory");
+  await expect(dialog.getByRole("status").filter({ hasText: "doesn't exist" })).toContainText(`This folder doesn't exist on ${hostName}`);
   await expect(create).toBeEnabled();
+  expect(existsSync(`${root}/does-not-exist`)).toBe(false);
+  const nested = `${root}/brand-${Date.now()}/new/nested`;
+  await folder.fill(nested);
+  await create.click();
+  const mkdir = dialog.getByRole("checkbox", { name: "Create folder" });
+  await expect(mkdir).not.toBeChecked();
+  await mkdir.check();
+  const createDir = dialog.getByRole("button", { name: "Create folder and project", exact: true });
+  await expect(createDir).toBeVisible();
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath(`new-project-missing-${width}.png`) });
+  await createDir.click();
+  await expect(dialog).toBeHidden();
+  expect(statSync(nested).isDirectory()).toBe(true);
+  expect(projects.at(-1)?.path).toBe(nested);
+  await expect(page.locator(".chat > header strong")).toHaveText("nested");
+  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await expect(page.getByRole("button", { name: /nested/ }).first()).toBeVisible();
+  if (width === 375) await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: `New project on ${hostName}`, exact: true }).click();
   await folder.fill(`${root}/sam`);
   await suggestions.getByRole("option").click();
   await dialog.getByRole("combobox", { name: "Existing groups" }).selectOption("Existing group");

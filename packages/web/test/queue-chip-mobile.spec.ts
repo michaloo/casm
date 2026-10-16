@@ -85,6 +85,10 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
         const listBox = (await list.boundingBox())!;
         // The pills stay over the transcript's end; the list opens below them.
         expect((await pill.boundingBox())!.y + (await pill.boundingBox())!.height).toBeLessThanOrEqual(listBox.y);
+        // The composer sits below the list and never covers it.
+        expect(listBox.y + listBox.height).toBeLessThanOrEqual((await composer.boundingBox())!.y + 0.5);
+        // Its visible bottom edge is on top, not hidden under the composer.
+        expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest(".queue-list"), [listBox.x + 8, listBox.y + listBox.height - 3])).toBe(true);
         expect((await composer.boundingBox())!.y + (await composer.boundingBox())!.height).toBeLessThanOrEqual(812);
         // Rows: text and actions never overlap, nothing is clipped sideways.
         for (const row of await page.locator(".pending-row").all()) {

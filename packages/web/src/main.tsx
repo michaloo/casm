@@ -35,7 +35,7 @@ import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
 import { ProviderIcon } from "./provider-icon";
 import { HostSection } from "./host-section";
 import { HostActions, HostIdentity, hostStateLabel, type HostState } from "./host-menu";
-import { schedulesChanged } from "./host-schedules";
+import { schedulesChanged } from "./project-schedules";
 import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
 import { agentHierarchy } from "./agent-hierarchy";
@@ -801,7 +801,7 @@ function App() {
     );
   return (
     <div className="app">
-      {launcher && <Launcher hosts={hosts} models={rowModels} online={online} current={selection?.host} choose={chooseAgent} action={setLauncherAction} close={() => setLauncher(false)} />}
+      {launcher && <Launcher hosts={hosts} models={rowModels} online={online} current={selection} choose={chooseAgent} action={setLauncherAction} close={() => setLauncher(false)} />}
       {launcherAction && <LauncherDestination target={launcherAction} rpc={rpc.current} online={online} choose={chooseAgent} close={() => setLauncherAction(undefined)}
         created={(host, project) => {
           setHosts(list => list.map(item => item.id === host ? { ...item, projects: [...item.projects.filter(p => p.id !== project.id), project] } : item));
@@ -832,8 +832,7 @@ function App() {
             return (
             <HostSection key={h.id} host={h.id} name={h.name} status={`${hostStateLabel(state)}${working ? ` · ${working} working` : ""}`}
               identity={<HostIdentity name={h.name} state={state} bare />}
-              menu={<HostActions host={h.id} name={h.name} state={state} rpc={rpc.current} agents={h.agents} projects={h.projects}
-                  openAgent={(a) => choose({ host: h.id, project: a.projectId, id: a.id })}
+              menu={<HostActions host={h.id} name={h.name} state={state} rpc={rpc.current} projects={h.projects}
                   openProject={project => {
                     setHosts(list => list.map(item => item.id === h.id ? { ...item, projects: [...item.projects.filter(p => p.id !== project.id), project] } : item));
                     choose({ host: h.id, project: project.id });
@@ -871,8 +870,9 @@ function App() {
                       onClick={() => choose({ host: h.id, project: p.id })}>
                       <PlusGlyph />
                     </button>
-                    <ProjectOptions host={h.id} hostName={h.name} project={p}
-                      rpc={rpc.current} online={state === "online" || state === "slow"} newAgent={() => choose({ host: h.id, project: p.id })} />
+                    <ProjectOptions host={h.id} hostName={h.name} project={p} agents={h.agents}
+                      rpc={rpc.current} online={state === "online" || state === "slow"} newAgent={() => choose({ host: h.id, project: p.id })}
+                      openAgent={(a) => choose({ host: h.id, project: a.projectId, id: a.id })} />
                     </div>
                     {expanded && !agents.length && <p className="sidebar-empty project-empty">No agents yet</p>}
                     {expanded && agents.map(({ agent: a, depth }) => {

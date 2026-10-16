@@ -495,6 +495,9 @@
         "properties": {
           "agentId": {
             "type": "string"
+          },
+          "projectId": {
+            "type": "string"
           }
         }
       },
@@ -659,6 +662,9 @@
                     }
                   ]
                 },
+                "projectId": {
+                  "type": "string"
+                },
                 "prompt": {
                   "type": "string"
                 },
@@ -713,6 +719,7 @@
                 "enabled",
                 "cadence",
                 "target",
+                "projectId",
                 "prompt",
                 "nextRunAt",
                 "lastRun",
@@ -1048,6 +1055,9 @@
               }
             ]
           },
+          "projectId": {
+            "type": "string"
+          },
           "prompt": {
             "type": "string"
           },
@@ -1102,6 +1112,7 @@
           "enabled",
           "cadence",
           "target",
+          "projectId",
           "prompt",
           "nextRunAt",
           "lastRun",
@@ -1432,6 +1443,9 @@
               }
             ]
           },
+          "projectId": {
+            "type": "string"
+          },
           "prompt": {
             "type": "string"
           },
@@ -1486,6 +1500,7 @@
           "enabled",
           "cadence",
           "target",
+          "projectId",
           "prompt",
           "nextRunAt",
           "lastRun",
@@ -7602,6 +7617,9 @@
                 }
               ]
             },
+            "projectId": {
+              "type": "string"
+            },
             "prompt": {
               "type": "string"
             },
@@ -7656,6 +7674,7 @@
             "enabled",
             "cadence",
             "target",
+            "projectId",
             "prompt",
             "nextRunAt",
             "lastRun",

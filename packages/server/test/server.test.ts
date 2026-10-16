@@ -1150,7 +1150,10 @@ test("messages queued and schedule runs missed while the server was down go out 
     assert.equal(fired.lastRun?.outcome, "queued");
     assert.equal(fired.enabled, false);
     assert.equal(fired.nextRunAt, null);
-    assert.deepEqual(s2.getSchedule("missed"), fired);
+    // The project is derived, not stored.
+    const { projectId, ...stored } = fired;
+    assert.equal(projectId, project.id);
+    assert.deepEqual(s2.getSchedule("missed"), stored);
     await srv.scheduler.tick(new Date(Date.now() + 60_000));
     assert.equal((await c.call("agent.pending", { id: agent.id })).messages.length, 1);
     fake.gate.resolve();

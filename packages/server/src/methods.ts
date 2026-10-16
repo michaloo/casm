@@ -162,6 +162,7 @@ export function createHandlers(
     },
     "project.delete": async (p) => {
       getProject(p.id);
+      schedules().projectRemoved(p.id);
       for (const a of store.listAgents({ projectId: p.id, includeArchived: true })) await agents.remove(a.id);
       store.deleteProject(p.id);
       notify("project.removed", { projectId: p.id });
@@ -222,7 +223,7 @@ export function createHandlers(
     },
     "agent.send": (p) =>
       agents.send(p.id, { text: p.text, images: p.images, sender: sender(p.sender), ...(p.messageId ? { id: p.messageId } : {}) }, p.whenBusy, p.whenLimited),
-    "schedule.list": (p) => ({ schedules: schedules().list(p.agentId) }),
+    "schedule.list": (p) => ({ schedules: schedules().list(p) }),
     "schedule.create": (p) => schedules().create(p),
     "schedule.update": (p) => schedules().update(p),
     "schedule.delete": (p) => {

@@ -418,7 +418,7 @@ studio.store.setPeer({ name: "buildbox", url: `ws://127.0.0.1:${port + 1}`, toke
 
 // Schedules (through the scheduler, so next runs are computed).
 const sched = studio.server.scheduler;
-await sched.create({ name: "nightly triage", cadence: { type: "cron", expr: "0 7 * * 1-5" }, target: { type: "newAgent", projectId: studio.projectIds.get("infra")!, provider: "claude", config: { model: "haiku" }, name: "nightly triage" }, prompt: "Summarize yesterday's commits and open issues in three bullets." });
+await sched.create({ name: "nightly triage", cadence: { type: "cron", expr: "0 7 * * 1-5" }, target: { type: "newAgent", projectId: studio.projectIds.get("acme-api")!, provider: "claude", config: { model: "haiku" }, name: "nightly triage" }, prompt: "Summarize yesterday's commits and open issues in three bullets." });
 await sched.create({ name: "review pass", cadence: { type: "every", minutes: 30 }, target: { type: "agent", agentId: studio.byName.get("api review")!, whenBusy: "skip" }, prompt: "Re-run the review on anything that changed since your last pass." });
 await sched.create({ name: "release reminder", cadence: { type: "once", at: new Date(Date.now() + 2 * 3_600_000).toISOString() }, target: { type: "agent", agentId: studio.byName.get("release lead")! }, prompt: "Check whether the storefront build finished and post the release note." });
 

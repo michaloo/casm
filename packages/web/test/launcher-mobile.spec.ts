@@ -71,7 +71,8 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await expect(dialog.getByRole("option", { selected: true })).toContainText("New project");
   const options = await dialog.getByRole("option").allTextContents();
   expect(options.filter(text => text.startsWith("New project"))).toEqual(["New projectTest host"]);
-  expect(options.filter(text => text.startsWith("Schedules"))).toEqual(["SchedulesTest host"]);
+  // Schedules are the open chat's project's.
+  expect(options.filter(text => text.startsWith("Schedules"))).toEqual(["SchedulesTest projectTest host"]);
   expect(options.some(text => /^(Project options|Host usage|Host AGENTS\.md|System Prompt)/.test(text))).toBe(false);
   await input.press("Tab");
   await expect(dialog.getByRole("option", { selected: true })).toContainText(/Agent 01|Agent 03/);
@@ -128,14 +129,23 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   const host = page.getByRole("dialog", { name: "Remote lab host" });
   await expect(host).toBeVisible(); await expect(host.getByRole("button", { name: "AGENTS.md", exact: true })).toHaveAttribute("aria-pressed", "true");
   await host.getByRole("button", { name: "Close host options" }).click();
-  await page.evaluate(() => window.addEventListener("casm:open-schedules", event => { (window as any).__scheduleHost = (event as CustomEvent).detail.host; }));
-  await page.keyboard.press("Control+k"); await input.fill("Schedules Remote lab"); await input.press("Enter");
+  // From the new-agent draft, Schedules opens that project's Schedules tab.
+  await page.keyboard.press("Control+k"); await input.fill("Schedules");
+  await expect.poll(async () => (await dialog.getByRole("option").filter({ hasText: /^Schedules/ }).allTextContents()).sort())
+    .toEqual(["Schedules: Design reviewDesign reviewRemote lab", "Schedules: Test projectTest projectRemote lab", "SchedulesTest projectTest host"]);
+  await input.fill("Schedules Test host"); await input.press("Enter");
   await expect(dialog).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).__scheduleHost)).toBe("Remote lab");
-  const schedules = page.getByRole("dialog", { name: "Remote lab host" });
+  const schedules = page.getByRole("dialog", { name: "Test project project", exact: true });
   await expect(schedules).toBeVisible();
   await expect(schedules.getByRole("button", { name: "Schedules", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await schedules.getByRole("button", { name: "Close host options" }).click();
+  await expect(schedules.getByRole("region", { name: "Schedules" })).toContainText("No schedules in this project yet");
+  await schedules.getByRole("button", { name: "Close project options" }).click();
+  // Another host has no current project: one entry per project.
+  await page.keyboard.press("Control+k"); await input.fill("Schedules: Design review Remote lab"); await input.press("Enter");
+  const remote = page.getByRole("dialog", { name: "Design review project", exact: true });
+  await expect(remote).toBeVisible();
+  await expect(remote.getByRole("button", { name: "Schedules", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await remote.getByRole("button", { name: "Close project options" }).click();
   await page.keyboard.press("Control+k"); await input.fill("New project Remote lab"); await input.press("Enter");
   const newProject = page.getByRole("dialog", { name: "New project on Remote lab" });
   await expect(newProject).toBeVisible();

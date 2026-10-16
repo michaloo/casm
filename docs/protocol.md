@@ -75,7 +75,8 @@ Errors use the standard codes plus casm's own:
 | Messages | `agent.send`, `agent.pending`, `agent.retryPending`, `agent.steerPending`, `agent.editPending`, `agent.cancelPending`, `agent.interrupt`, `agent.reload`, `agent.restart` |
 | Requests | `agent.respondPermission`, `agent.answerQuestion` |
 | MCP | `agent.mcpStatus`, `agent.mcpReconnect`, `agent.mcpToggle` |
-| Host-wide | `pending.list`, `provider.limits`, `provider.catalog`, `schedule.list`, `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.runNow` |
+| Host-wide | `pending.list`, `provider.limits`, `provider.catalog` |
+| Schedules | `schedule.list` (`projectId?`, `agentId?` filters), `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.runNow`; each schedule carries its derived `projectId` |
 | Files | `fs.read`, `fs.search`, `fs.downloadLink` |
 | Notifications | `push.list`, `push.subscribe`, `push.unsubscribe`, `push.test`, `push.notify` |
 

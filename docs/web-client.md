@@ -43,8 +43,9 @@ requiring a server explain that they need a connection.
 
 With an empty search the launcher is a short start page: agents needing
 attention (waiting, failed, or a held queue), then running agents, then recently
-opened ones; the most active projects; and **New project** and **Schedules** for
-the current host. Every other action appears once you type. Recent visits are
+opened ones; the most active projects; **New project** for the current host;
+and **Schedules** for the current project (the open chat's or new-agent
+draft's). Every other action appears once you type. Recent visits are
 saved in this browser (up to 200 agents, keyed by host and agent). Search scores
 take precedence when a query is entered, with recent visits breaking ties.
 Results are grouped into Agents, Projects and Actions; the group with the
@@ -59,7 +60,8 @@ strongest match comes first.
 
 Enter on a project starts a new-agent draft there. Actions (each with its host
 as secondary text) open **New project**, **Schedules**, **Host usage**, **Host
-AGENTS.md**, **System Prompt** and **Project options**. The existing settings dialogs retain
+AGENTS.md**, **System Prompt** and **Project options**. With no current project
+on a host, its projects get one **Schedules: ‹project›** entry each. The existing settings dialogs retain
 their own keyboard focus and unsaved edit guards; close them before opening the
 launcher again. Theme continues to follow the system preference, so there is no
 separate toggle action.
@@ -76,10 +78,10 @@ other agents created are nested under their parent, also across hosts.
 ![an agent that split its work across agents on two hosts](media/web-orchestration.png)
 
 - **Host options** (⋯ next to a host) opens the host's window: Usage,
-  Schedules, AGENTS.md, System Prompt and Notifications.
+  AGENTS.md, System Prompt and Notifications.
 - **New project** (+ next to a host) registers a folder on that host.
 - **Project options** (⋯ next to a project) opens the project's window:
-  AGENTS.md and Memories, with the path (Copy), host and group under the
+  AGENTS.md, Memories and Schedules, with the path (Copy), host and group under the
   title and **New agent** in its header.
 - **+** next to a project starts a new agent in it.
 - A project row folds or unfolds when clicked anywhere (› folded, ⌄ open); a
@@ -149,12 +151,13 @@ is used and when they reset. Per-agent context use and cost are in the CLI
 
 ## Schedules
 
-**Host options → Schedules** lists the host's schedules with their cadence,
-target and next run. Each can be paused, run now or edited; **New schedule**
-creates one: cron, every N minutes, or once, sent to an existing agent (queue
-or skip when busy) or to a new agent made from a preset.
+**Project options → Schedules** lists the project's schedules with their
+cadence, target and next run. Each can be paused, run now or edited; **New
+schedule** creates one: cron, every N minutes, or once, sent to one of the
+project's agents (queue or skip when busy) or to a new agent started in the
+project. **Schedules** in the launcher opens this tab for the current project.
 
-![a host's schedules](media/web-schedules.png)
+![a project's schedules](media/web-schedules.png)
 
 ![creating a weekday schedule for an existing agent](media/web-schedule-create.gif)
 
@@ -169,7 +172,8 @@ Details: [host settings](host-settings.md).
 ![host settings: the System Prompt and its preview](media/web-host-settings.png)
 
 **Project options** does the same for one project: its `AGENTS.md`, its
-providers' memories (read-only), and its path, group and agent count.
+providers' memories (read-only), its [schedules](#schedules), and its path,
+group and agent count.
 
 ## Notifications
 

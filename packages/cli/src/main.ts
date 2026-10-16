@@ -100,8 +100,8 @@ notifications:
                                      (or the one named). From an agent it is titled
                                      "<agent> · <project>" and opens the agent
 
-schedules (run on the host; messages to busy or limited agents become pending):
-  schedules [--agent a]
+schedules (each belongs to a project; messages to busy or limited agents become pending):
+  schedules [--project p] [--agent a]
   schedule add (--cron "0 9 * * 1-5" | --every 30m | --at 18:30|"in 2h"|ISO) <prompt>
                (--agent a [--skip-if-busy] | --project p --provider claude [--model m] [--mode m] [--env K=V]... [--name n])
   schedule edit <schedule> [--name n] [--cron e | --every d | --at t] [new prompt]
@@ -771,8 +771,12 @@ async function run(c: CasmClient) {
 
     case "schedules": {
       const agentId = opt.agent ? (await agentRef(c, opt.agent)).id : undefined;
-      const { schedules } = await c.call("schedule.list", { agentId });
+      const all = await projects(c);
+      const projectId = opt.project ? pick(all, opt.project, "project").id : undefined;
+      const { schedules } = await c.call("schedule.list", { agentId, projectId });
       const names = new Map((await c.call("agent.list", { includeArchived: true })).agents.map((x) => [x.id, x.name]));
+      const projectNames = new Map(all.map((p) => [p.id, p.name]));
+      const width = Math.max(0, ...schedules.map((x) => (projectNames.get(x.projectId) ?? "").length));
       return out(schedules, () => {
         if (!schedules.length) console.log("no schedules");
         for (const x of schedules) {
@@ -781,7 +785,7 @@ async function run(c: CasmClient) {
           const next = x.enabled && x.nextRunAt ? `next ${new Date(x.nextRunAt).toLocaleString()}` : "disabled";
           const last = x.lastRun ? `  last ${x.lastRun.outcome}${x.lastRun.error ? `: ${x.lastRun.error}` : ""}` : "";
           // The default name is the target; don't print it twice.
-          console.log(`${shortId(x.id)}  ${x.name === tgt ? "" : `${x.name}  `}${cad}  ${tgt}  ${next}${last}`);
+          console.log(`${shortId(x.id)}  ${(projectNames.get(x.projectId) ?? shortId(x.projectId)).padEnd(width)}  ${x.name === tgt ? "" : `${x.name}  `}${cad}  ${tgt}  ${next}${last}`);
         }
       });
     }

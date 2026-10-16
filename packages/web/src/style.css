@@ -2917,4 +2917,4 @@ nav .host-meter:hover .host-meter-bar { background: color-mix(in srgb, var(--lin
 }
 
 /* Temporary viewport diagnostics (viewport-debug.tsx). */
-.viewport-debug { position: fixed; top: calc(env(safe-area-inset-top) + 8px); left: 8px; right: 8px; z-index: 100; margin: 0; padding: 10px; border-radius: 10px; background: rgba(0,0,0,.85); color: #fff; font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; }
+.viewport-debug { position: fixed; top: calc(var(--viewport-top, 0px) + env(safe-area-inset-top) + 8px); left: 8px; right: 8px; z-index: 100; margin: 0; padding: 10px; border-radius: 10px; background: rgba(0,0,0,.85); color: #fff; font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; }

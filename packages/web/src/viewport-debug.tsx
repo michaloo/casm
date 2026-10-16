@@ -1,6 +1,7 @@
 // Temporary: viewport measurements for an installed iPhone app, where the test
 // browsers can't reproduce the layout. Tap the connection status to toggle.
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 function measure(): string {
   const probe = document.createElement("div");
@@ -20,7 +21,8 @@ function measure(): string {
     `body ${document.body.clientHeight}  .app ${app ? `${Math.round(app.top)}..${Math.round(app.bottom)}` : "none"}`,
     `safe-area t r b l: ${safe}`,
     `standalone mq ${matchMedia("(display-mode: standalone)").matches}  navigator ${nav.standalone}`,
-    `keyboard attr ${document.documentElement.dataset.keyboard ?? "-"}`,
+    `keyboard attr ${document.documentElement.dataset.keyboard ?? "-"}  scrollY ${Math.round(scrollY)}  --vt ${document.documentElement.style.getPropertyValue("--viewport-top")} --vh ${document.documentElement.style.getPropertyValue("--viewport-height")}`,
+    `header ${(() => { const h = document.querySelector(".app header, main header")?.getBoundingClientRect(); return h ? `${Math.round(h.top)}..${Math.round(h.bottom)}` : "none"; })()}  composer ${(() => { const c = document.querySelector(".composer")?.getBoundingClientRect(); return c ? `${Math.round(c.top)}..${Math.round(c.bottom)}` : "none"; })()}`,
     `ua ${navigator.userAgent.replace(/^Mozilla\/5\.0 /, "").slice(0, 90)}`,
   ].join("\n");
 }
@@ -34,5 +36,5 @@ export function ViewportDebug({ close }: { close: () => void }) {
     const timer = setInterval(update, 1000);
     return () => { window.removeEventListener("resize", update); window.visualViewport?.removeEventListener("resize", update); clearInterval(timer); };
   }, []);
-  return <pre className="viewport-debug" onClick={close} role="status">{text}</pre>;
+  return createPortal(<pre className="viewport-debug" onClick={close} role="status">{text}</pre>, document.body);
 }

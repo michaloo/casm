@@ -1224,9 +1224,9 @@ function TranscriptHeader({ context }: { context?: TranscriptContext }) {
     </div>
   ) : null;
 }
-// Room at the end so the last line scrolls clear of the pill row over it.
+// Room at the end so the last line scrolls clear of the composer's overlap and the pill row.
 const TranscriptEnd = ({ context }: { context?: TranscriptContext }) =>
-  context?.pills ? <div className="transcript-end" aria-hidden="true" /> : null;
+  <div className={context?.pills ? "transcript-end pills" : "transcript-end"} aria-hidden="true" />;
 const transcriptComponents = { Header: TranscriptHeader, Footer: TranscriptEnd };
 // `earlier`: before a /restart divider, so not in the agent's context.
 function Entry({ item, time, expansion, earlier }: { item: Item; time?: ToolTime; expansion: Record<string, boolean>; earlier?: boolean }) {

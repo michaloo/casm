@@ -582,6 +582,7 @@ footer > span:not(.error):before {
   margin-right: 7px;
 }
 .chat {
+  --composer-overlap: 16px;
   /* One column for transcript rows, the status row and the composer: the
      same measure (70ch of the 15px transcript text) and the same gutters. */
   --chat-measure: 630px;
@@ -1268,8 +1269,12 @@ details[open] > summary:before {
   color: var(--accent);
 }
 .composer {
+  /* Overlaps the transcript's last few pixels: nothing but the composer
+     itself covers the chat (the transcript end leaves room for it). */
+  position: relative;
+  z-index: 3;
   flex-shrink: 0;
-  margin-top: 8px;
+  margin-top: calc(-1 * var(--composer-overlap));
   margin-bottom: 18px;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -1868,7 +1873,6 @@ textarea::placeholder {
   .chat { --chat-gutters: calc(24px + env(safe-area-inset-left) + env(safe-area-inset-right)); }
   .composer {
     /* Exactly one bottom inset: the composer sits just above the home indicator. */
-    margin-top: 6px;
     margin-bottom: max(8px, env(safe-area-inset-bottom));
     padding: 8px 10px;
     border-radius: 14px;
@@ -2202,7 +2206,7 @@ button.pending-more:hover { background: none; text-decoration: underline; }
    transparent and lets clicks through; only the pills are surfaces. */
 .pill-row {
   position: absolute;
-  bottom: 0;
+  bottom: var(--composer-overlap);
   z-index: 2;
   height: 28px;
   display: flex;
@@ -2213,7 +2217,8 @@ button.pending-more:hover { background: none; text-decoration: underline; }
 .pill-row button, .pill-row .working-pill { pointer-events: auto; }
 .composer-status { display: flex; align-items: center; gap: 6px; min-width: 0; }
 /* The transcript's end clears the pill row, so its last line scrolls above it. */
-.transcript-end { height: 40px; }
+.transcript-end { height: var(--composer-overlap); }
+.transcript-end.pills { height: calc(40px + var(--composer-overlap)); }
 .latest {
   display: inline-flex;
   align-items: center;
@@ -2301,8 +2306,8 @@ button.pending-more:hover { background: none; text-decoration: underline; }
   .queue-toggle { height: 44px; min-height: 44px; font-size: 13px; }
   .queue-pill { height: 32px; border-radius: 16px; }
   /* 44px tap targets around 32px pills; the pills sit 6px above the composer. */
-  .pill-row { bottom: -6px; height: 44px; }
-  .transcript-end { height: 44px; }
+  .pill-row { bottom: calc(var(--composer-overlap) - 6px); height: 44px; }
+  .transcript-end.pills { height: calc(44px + var(--composer-overlap)); }
   .latest { height: 44px; min-height: 44px; font-size: 13px; }
   .latest-pill { height: 32px; padding: 0 13px; border-radius: 16px; }
   .card button { min-height: 44px; min-width: 44px; }

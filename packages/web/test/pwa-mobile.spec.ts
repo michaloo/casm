@@ -12,7 +12,7 @@ test("PWA mobile manifest, Apple metadata and opaque install icons", async ({ pa
     await page.emulateMedia({ colorScheme: scheme as "light" | "dark" });
     await expect(page.locator(`meta[name="theme-color"][media="(prefers-color-scheme: ${scheme})"]`)).toHaveAttribute("content", color);
     await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
-    await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/apple-touch-icon.png");
+    await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/apple-touch-icon.png?v=2");
   }
   const response = await request.get("/manifest.webmanifest");
   expect(response.headers()["content-type"]).toContain("application/manifest+json");

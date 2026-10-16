@@ -132,6 +132,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       await expect(card).toContainText("6.50 · 3.20 · 1.10");
       await expect(card).toContainText("15.5 GB of 16.0 GB");
       await expect(card).toContainText("0.5 GB of 2.0 GB");
+      // Full width: the card spans the panel's content box.
+      const panelBox = await dialog.getByRole("region", { name: "Usage" }).evaluate((el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); });
+      expect(Math.abs((await card.boundingBox())!.width - panelBox)).toBeLessThan(2);
       const tone = (name: string) => card.getByLabel(name, { exact: true }).locator(".usage-meter").getAttribute("class");
       expect(await tone("CPU")).toContain("high");
       expect(await tone("Load")).toContain("high"); // load1 6.5 > 4 cores

@@ -2655,6 +2655,8 @@ nav .row-add:disabled { opacity: 0.35; }
 .settings-dialog .schedule-toolbar { padding-top: 0; }
 .settings-dialog .host-panel-toolbar { justify-content: flex-start; margin-bottom: 8px; }
 .settings-dialog .host-provider-usage { max-width: 560px; }
+/* The host card spans the row above the provider cards. */
+.settings-dialog .host-provider-usage.host-stats-card { max-width: none; }
 .memory-list { display: grid; }
 @media (max-width: 650px) {
   .settings-dialog .schedule-form-actions { margin: 0 -14px; padding: 10px 14px max(10px, env(safe-area-inset-bottom)); }

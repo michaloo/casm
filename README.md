@@ -33,16 +33,17 @@ machine and its peers. It does not impose a workflow.
 
 | Primitive | CLI | What it does |
 |---|---|---|
-| Projects | `casm project create <dir>` | Registers a folder on a host. Agents run in it or in a sub-folder (`--cwd`). |
+| Projects | `casm project create <dir> [--mkdir]` | Registers a folder on a host (`--mkdir` creates it first). Agents run in it or in a sub-folder (`--cwd`). |
 | Agents | `casm run --project p --provider claude "<prompt>"` | Starts a provider session with a model, mode, working folder and env. |
 | Messages | `casm send <agent> "<text>"` | Queued in FIFO order while the agent is busy. `--steer` puts it into the running turn. |
 | Queue control | `casm pending`, `cancel`, `retry`, `send-now`, `interrupt` | Inspect and reorder waiting messages; stop a turn and keep the queue. |
 | Wait and read | `casm wait`, `history`, `watch` | Block until a turn ends (exit 3 busy, 4 limit-deferred, 5 failed); read or stream the transcript. |
-| Schedules | `casm schedule add --cron\|--every\|--at` | Messages an existing agent or starts a new one. |
+| Schedules | `casm schedule add --cron\|--every\|--at`, `casm schedules [--project p]` | Per project: message one of its agents or start a new one there. A one-off deletes itself after a successful run. |
 | Permissions | `casm permissions`, `approve`, `deny` | List and answer an agent's tool permission requests. |
 | Questions | `casm questions`, `answer` | List and answer an agent's questions. |
 | Peers | `casm peer add`, `casm -H <peer> …` | Run any command on another host. |
 | Limits and usage | `casm limits`, `casm usage <agent>` | Subscription windows per provider; context and cost per agent. A message that hits a limit waits for the reset. |
+| Host resources | `casm stats` | CPU, load, memory and swap of a host, sampled on demand. |
 | Notifications | `casm notify "<message>"` | Web Push to the devices subscribed on the host. |
 | Files | `casm cat`, `casm get` | Read or download files inside project folders. Read-only. |
 | Shell | `casm shell <agent> "<cmd>"` | Run a command in the agent's folder. |

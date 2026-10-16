@@ -25,7 +25,7 @@ for (const scheme of ["light", "dark"] as const) {
     const entry = page.locator(".entry:has(> .item.assistant)").last();
     const time = entry.locator(".entry-time");
     // Message 319: 08:00:00 + 319 × 37s.
-    await expect(time).toHaveText("11:16:43");
+    await expect(time).toHaveText(/^14 Oct( 2026)?11:16:43$/);
     await expect(time).toHaveCSS("opacity", "0");
     const before = await entry.boundingBox();
     await entry.hover();
@@ -39,8 +39,13 @@ for (const scheme of ["light", "dark"] as const) {
     expect(item.x - (t.x + t.width)).toBeLessThan(20);
     expect(Math.abs(t.y + t.height / 2 - (role.y + role.height / 2))).toBeLessThan(2.5);
     await expect(time).toHaveCSS("font-variant-numeric", "tabular-nums");
-    // Not today: the full date in the tooltip.
+    // Not today: the date just above the time, and the full date in the tooltip.
     await expect(time).toHaveAttribute("title", "Wed 14 Oct 2026, 11:16:43");
+    const date = time.locator(".entry-date");
+    await expect(date).toHaveText(new Date().getFullYear() === 2026 ? "14 Oct" : "14 Oct 2026");
+    const d = (await date.boundingBox())!;
+    expect(d.y + d.height).toBeLessThanOrEqual(t.y + 1);
+    expect(Math.abs(d.x + d.width - (t.x + t.width))).toBeLessThan(1);
     await page.screenshot({ path: info.outputPath(`hover-${scheme}.png`) });
     await page.screenshot({ path: `/tmp/cb-shots/entry-hover-${scheme}.png` });
 

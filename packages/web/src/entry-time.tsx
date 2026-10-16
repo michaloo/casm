@@ -11,6 +11,10 @@ export const clock = (t: Date) => `${pad(t.getHours())}:${pad(t.getMinutes())}:$
 const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 export const fullDate = (t: Date) => `${day.format(t).replace(",", "")}, ${clock(t)}`;
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+const shortDay = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+const shortDayYear = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
+/** "14 Oct" (with the year when it isn't this year's), for entries before today. */
+export const dateLabel = (t: Date, now: Date) => (t.getFullYear() === now.getFullYear() ? shortDay : shortDayYear).format(t);
 export function took(ms: number) {
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -35,5 +39,7 @@ export function EntryTime({ start, end, inline, now = new Date() }: { start: num
   const title = end !== undefined
     ? `started ${label(from)} · finished ${label(new Date(end))} · took ${took(end - start)}`
     : sameDay(from, now) ? undefined : fullDate(from);
-  return <time className={`entry-time${inline ? " inline" : ""}`} dateTime={from.toISOString()} title={title}>{clock(from)}</time>;
+  // Today: just the time. Earlier: the date too, stacked above it in the gutter.
+  return <time className={`entry-time${inline ? " inline" : ""}`} dateTime={from.toISOString()} title={title}>
+    {!sameDay(from, now) && <span className="entry-date">{dateLabel(from, now)}</span>}{clock(from)}</time>;
 }

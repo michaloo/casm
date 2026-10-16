@@ -71,7 +71,7 @@ Errors use the standard codes plus casm's own:
 | --- | --- |
 | Server | `server.info`, `server.agentPrompt`, `server.setAgentPrompt`, `peer.list`, `host.agentsMd`, `host.setAgentsMd` |
 | Projects | `project.list`, `project.create`, `project.update`, `project.delete`, `project.agentsMd`, `project.setAgentsMd`, `project.memories` |
-| Agents | `agent.list`, `agent.get`, `agent.create`, `agent.update`, `agent.delete`, `agent.history`, `agent.subscribe`, `agent.unsubscribe`, `agent.wait`, `agent.usage`, `agent.subagents`, `agent.subagentHistory`, `agent.commands`, `agent.shell` |
+| Agents | `agent.list`, `agent.get`, `agent.create`, `agent.update`, `agent.delete`, `agent.history`, `agent.find`, `agent.subscribe`, `agent.unsubscribe`, `agent.wait`, `agent.usage`, `agent.subagents`, `agent.subagentHistory`, `agent.commands`, `agent.shell` |
 | Messages | `agent.send`, `agent.pending`, `agent.retryPending`, `agent.steerPending`, `agent.editPending`, `agent.cancelPending`, `agent.interrupt`, `agent.reload`, `agent.restart` |
 | Requests | `agent.respondPermission`, `agent.answerQuestion` |
 | MCP | `agent.mcpStatus`, `agent.mcpReconnect`, `agent.mcpToggle` |
@@ -108,6 +108,17 @@ connection to a peer is lost or is back: reload that host's lists then.
 | `subagent` | `title`, `status`, `activity?`, `summary?`, `usage?` |
 | `notice` | `text`, `level?`; upserted by ID (e.g. a retry countdown) |
 | `plan` | `entries[]` of `{text, status}`; each update replaces the list |
+
+`agent.find` (`id`, `query`, `limit?` default 500, `kinds?`) searches the
+whole history the same pages come from, sessions before a `/restart`
+included. It is a substring match, case-insensitive unless the query has a
+capital letter, over message text, reasoning, tool `input` (as pretty JSON) and
+`output`, subagent `title` and `summary`, notices and plan entries. The result
+has `total` and up to `limit` **matches**, oldest first (the newest ones when
+there are more): `index` (the item's position: `agent.history` with
+`before: index + 1` ends with it), `itemId`, `kind`, `field`, `offset` in that
+field, `at?`, and a one-line `snippet` `{text, start, end}` with the match at
+`[start, end)`. Like every request it can name a peer `host`.
 
 `agent.subscribe` returns the agent's status, the **in-flight turn** so far,
 and open permission/question requests, so a client that connects mid-turn can

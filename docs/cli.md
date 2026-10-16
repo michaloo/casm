@@ -254,6 +254,7 @@ answer, `4` deferred by a usage limit, `5` the turn failed.
 
 ```text
 casm history <agent> [-n count] [--subagent id]
+casm history <agent> --find <text> [-n count] [--kind k]...
 ```
 
 ```console
@@ -269,6 +270,23 @@ This file defines an in-memory order database with a static array of three order
 `>` marks prompts, `✓`/`…`/`✗` tool calls (done, running, failed), and a
 `from <agent> · <host>` line prompts that another agent sent (`from schedule
 <name>` for a schedule). It shows the last 50 entries; `-n` changes that.
+
+`--find <text>` searches the agent's whole transcript instead, sessions before
+a `/restart` included: message text, Thinking, tool inputs and outputs,
+subagents, plans and notices. It is case-insensitive unless the text has a
+capital letter; `--kind` (repeatable: `user`, `assistant`, `reasoning`, `tool`,
+`subagent`, `notice`, `plan`) keeps only those entries, and `-n` (default 50)
+caps how many of the newest matches print. Each line is the entry's index (the
+same index `agent.history` pages by), its time, its kind (and field for tools
+and subagents) and a snippet with the match in bold:
+
+```console
+$ casm history reviewer --find orders.js
+(4 matches; the latest 3)
+   12 · Oct 14, 09:02 · tool input  · {   "file_path": "/tmp/code/acme-api/src/orders.js" }
+   12 · Oct 14, 09:02 · tool output · …ode/acme-api/src/orders.js  1  const orders = [ …
+   14 · Oct 14, 09:03 · assistant   · This file (orders.js) defines an in-memory order database with a static…
+```
 
 ### casm watch
 

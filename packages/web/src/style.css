@@ -2950,3 +2950,76 @@ nav .host-meter:hover .host-meter-bar { background: color-mix(in srgb, var(--lin
 footer .device-settings { margin-left: auto; margin-right: 6px; padding: 4px 8px; }
 footer .device-settings .exit-glyph { width: 16px; height: 16px; }
 @media (max-width: 650px) { footer .device-settings { min-width: 44px; justify-content: center; } }
+/* Find in chat: a bar over the transcript's top edge, in the chat column (on
+   phones above the composer, clear of the keyboard). Matches are painted with
+   the CSS Custom Highlight API: amber, the current one solid. */
+:root {
+  --find-match: color-mix(in srgb, #f5b030 34%, transparent);
+  --find-current: #f5a524;
+  --on-find-current: #1d1a2b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --find-match: color-mix(in srgb, #f2b85b 30%, transparent);
+    --find-current: #f2b85b;
+    --on-find-current: #0b141a;
+  }
+}
+::highlight(casm-find) { background-color: var(--find-match); }
+::highlight(casm-find-current) { background-color: var(--find-current); color: var(--on-find-current); }
+.find-trigger { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: 0 0 auto; margin-left: auto; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--muted); }
+.find-trigger:hover { background: transparent; color: var(--text); }
+.find-trigger[aria-pressed="true"] { color: var(--accent); }
+.find-trigger:focus:not(:focus-visible) { outline: none; }
+.chat > header > .find-trigger + .launcher-trigger { margin-left: 0; }
+.find-bar {
+  position: absolute;
+  top: 8px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--overlay);
+  box-shadow: var(--shadow-pop);
+  animation: find-in .14s var(--ease);
+}
+@keyframes find-in { from { opacity: 0; transform: translateY(-4px); } }
+.find-bar > svg { flex: none; color: var(--faint); }
+.find-bar input { flex: 1; min-width: 0; height: 100%; padding: 0 4px; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: 14px; }
+.find-bar input:focus, .find-bar input:focus-visible { outline: none; box-shadow: none; }
+.find-bar input::placeholder { color: var(--faint); }
+.find-bar input::-webkit-search-cancel-button { display: none; }
+.find-count { flex: none; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.find-count.error { color: var(--attention); }
+.find-bar select { flex: none; height: 28px; padding: 0 6px; border-color: transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 12.5px; -webkit-appearance: none; appearance: none; cursor: pointer; }
+.find-bar select:focus:not(:focus-visible) { outline: none; }
+.find-bar select:hover { color: var(--text); background: var(--raised); }
+.find-bar button { display: inline-grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); }
+.find-bar button:hover:not(:disabled) { background: var(--raised); color: var(--text); }
+.find-bar button:disabled { opacity: .45; }
+.find-bar button:focus:not(:focus-visible) { outline: none; }
+.find-bar .chevron-glyph { width: 14px; height: 14px; }
+.find-step.older .chevron-glyph { rotate: 180deg; }
+.find-close svg { width: 16px; height: 16px; }
+@media (prefers-reduced-motion: reduce) { .find-bar { animation: none; } }
+@media (max-width: 650px) {
+  .find-trigger { width: 44px; height: 44px; }
+  .find-bar {
+    top: auto;
+    bottom: calc(var(--composer-overlap) + 50px);
+    left: 8px; right: 8px;
+    width: auto; margin: 0;
+    height: 48px;
+    padding: 0 2px 0 12px;
+    gap: 0;
+  }
+  .find-bar > svg { display: none; }
+  .find-bar input { font-size: 16px; }
+  .find-count { font-size: 13px; padding: 0 4px; }
+  .find-bar select { height: 44px; padding: 0 6px; font-size: 14px; }
+  .find-bar button { width: 44px; height: 44px; }
+}

@@ -2206,7 +2206,8 @@ button.pending-more:hover { background: none; text-decoration: underline; }
    transparent and lets clicks through; only the pills are surfaces. */
 .pill-row {
   position: absolute;
-  bottom: var(--composer-overlap);
+  /* A small gap between the pills and the composer's top edge. */
+  bottom: calc(var(--composer-overlap) + 6px);
   z-index: 2;
   height: 28px;
   display: flex;
@@ -2306,7 +2307,7 @@ button.pending-more:hover { background: none; text-decoration: underline; }
   .queue-toggle { height: 44px; min-height: 44px; font-size: 13px; }
   .queue-pill { height: 32px; border-radius: 16px; }
   /* 44px tap targets around 32px pills; the pills sit 6px above the composer. */
-  .pill-row { bottom: calc(var(--composer-overlap) - 6px); height: 44px; }
+  .pill-row { bottom: var(--composer-overlap); height: 44px; }
   .transcript-end.pills { height: calc(44px + var(--composer-overlap)); }
   .latest { height: 44px; min-height: 44px; font-size: 13px; }
   .latest-pill { height: 32px; padding: 0 13px; border-radius: 16px; }

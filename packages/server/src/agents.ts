@@ -29,6 +29,7 @@ import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from 
 import { AgentPrompt, type PromptVars } from "./agent-prompt.ts";
 import { limitFromText, mergeWindows, retryAt, transientRateLimit, type LimitHit } from "./limits.ts";
 import { seen, timed, type Seen } from "./item-times.ts";
+import { findInItems } from "./find.ts";
 
 // What sessions are told about the server that runs them.
 export type SessionContext = { serverId: string; serverName: string };
@@ -1064,6 +1065,17 @@ export class AgentManager {
   // by a divider, then the current one. Their item ids get a `past<n>:` prefix
   // so they can't collide with the current session's.
   async history(id: string, before?: number, limit = 200): Promise<{ items: Item[]; start: number; total: number }> {
+    const all = await this.fullHistory(id);
+    const end = Math.min(before ?? all.length, all.length);
+    const start = Math.max(0, end - limit);
+    return { items: all.slice(start, end), start, total: all.length };
+  }
+
+  async find(id: string, query: string, opts: { limit?: number; kinds?: Item["kind"][] } = {}) {
+    return findInItems(await this.fullHistory(id), query, opts);
+  }
+
+  private async fullHistory(id: string): Promise<Item[]> {
     const a = this.agent(id);
     const past = this.store.pastSessions(id);
     const all: Item[] = [];
@@ -1075,9 +1087,7 @@ export class AgentManager {
       });
     }
     if (a.nativeSessionId) all.push(...await this.sessionHistory(a, a.nativeSessionId));
-    const end = Math.min(before ?? all.length, all.length);
-    const start = Math.max(0, end - limit);
-    return { items: all.slice(start, end), start, total: all.length };
+    return all;
   }
 
   private async sessionHistory(a: StoredAgent, nativeSessionId: string): Promise<Item[]> {

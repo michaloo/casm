@@ -4280,6 +4280,127 @@
         ]
       }
     },
+    "agent.find": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "user",
+                "assistant",
+                "reasoning",
+                "tool",
+                "subagent",
+                "notice",
+                "plan"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "query"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "number"
+                },
+                "itemId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "assistant",
+                    "reasoning",
+                    "tool",
+                    "subagent",
+                    "notice",
+                    "plan"
+                  ]
+                },
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "input",
+                    "output",
+                    "title",
+                    "summary"
+                  ]
+                },
+                "offset": {
+                  "type": "number"
+                },
+                "snippet": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "start": {
+                      "type": "number"
+                    },
+                    "end": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "start",
+                    "end"
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "index",
+                "itemId",
+                "kind",
+                "field",
+                "offset",
+                "snippet"
+              ]
+            }
+          }
+        },
+        "required": [
+          "total",
+          "matches"
+        ]
+      }
+    },
     "agent.subscribe": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -274,6 +274,21 @@ export const Item = z.discriminatedUnion("kind", [
 ]);
 export type Item = z.infer<typeof Item>;
 
+// One occurrence agent.find found. `index`: the item's place in the agent's
+// history (agent.history's `start`/`before` count the same way); `offset`: where
+// the match starts in that field's text. `snippet` is the text around it, on
+// one line, with the match at [start, end).
+export const FindMatch = z.object({
+  index: z.number(),
+  itemId: z.string(),
+  kind: z.enum(["user", "assistant", "reasoning", "tool", "subagent", "notice", "plan"]),
+  field: z.enum(["text", "input", "output", "title", "summary"]),
+  offset: z.number(),
+  snippet: z.object({ text: z.string(), start: z.number(), end: z.number() }),
+  at: z.string().optional(),
+});
+export type FindMatch = z.infer<typeof FindMatch>;
+
 export const PermissionRequest = z.object({
   id: z.string(),
   // When the server received it (ISO).
@@ -752,6 +767,21 @@ export const methods = {
   "agent.history": method(
     z.object({ id: z.string(), before: z.number().optional(), limit: z.number().optional() }),
     z.object({ items: z.array(Item), start: z.number(), total: z.number() }),
+  ),
+  // Searches the agent's whole history (sessions left by /restart included):
+  // message text, Thinking, tool inputs and outputs, subagents, notices and
+  // plans. Substring match, case-insensitive unless the query has a capital
+  // letter. Matches come oldest first; past `limit` (default 500) only the
+  // latest are returned, and `total` counts them all. `kinds` keeps only those
+  // item kinds.
+  "agent.find": method(
+    z.object({
+      id: z.string(),
+      query: z.string().min(1),
+      limit: z.number().int().nonnegative().optional(),
+      kinds: z.array(FindMatch.shape.kind).optional(),
+    }),
+    z.object({ total: z.number(), matches: z.array(FindMatch) }),
   ),
   // Subscribe to live events. Returns the in-flight turn so a client that
   // connects mid-turn can catch up.

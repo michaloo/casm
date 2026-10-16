@@ -12,7 +12,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { parseArgs } from "node:util";
 import { CasmClient } from "@casm/client";
-import type { Agent, AgentEvent, Item, Project, ProviderId, Usage } from "@casm/protocol";
+import type { Agent, AgentEvent, FindMatch, Item, Project, ProviderId, Usage } from "@casm/protocol";
 
 const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");
 const hostsFile = join(home, "hosts.json");
@@ -114,6 +114,10 @@ schedules (each belongs to a project; messages to busy or limited agents become 
                                      into the running turn, or as a new turn if idle
   wait <agent> [--timeout seconds]   exit 3: still busy, 4: deferred by a limit, 5: the turn failed
   history <agent> [-n count] [--subagent id]   --subagent: that subagent's own transcript
+  history <agent> --find <text> [-n count] [--kind k]...
+                                     search the whole transcript (past sessions too); case-insensitive
+                                     unless <text> has a capital; prints index, time, kind and snippet;
+                                     --kind: user, assistant, reasoning, tool, subagent, notice, plan
   watch <agent>                      stream live events
   permissions <agent>                list pending permission requests
   questions <agent>                  list pending questions
@@ -172,6 +176,8 @@ const options = {
   edit: { type: "boolean" },
   probe: { type: "boolean" },
   subagent: { type: "string" },
+  find: { type: "string" },
+  kind: { type: "string", multiple: true },
   cwd: { type: "string" },
   reset: { type: "boolean" },
   enable: { type: "boolean" },
@@ -684,6 +690,22 @@ async function run(c: CasmClient) {
         return out(items, () => {
           if (!items.length) console.log("no transcript for that subagent (see casm subagents)");
           for (const i of items) console.log(renderItem(i));
+        });
+      }
+      if (opt.find !== undefined) {
+        if (!opt.find) fail("--find needs some text");
+        const kinds = opt.kind as FindMatch["kind"][] | undefined;
+        const r = await c.call("agent.find", { id: a.id, query: opt.find, limit: opt.n ? Number(opt.n) : 50, kinds });
+        return out(r, () => {
+          if (!r.total) return console.log("no matches");
+          if (r.total > r.matches.length) console.log(`(${r.total} matches; the latest ${r.matches.length})`);
+          const bold = process.stdout.isTTY ? (t: string) => `\x1b[1m${t}\x1b[22m` : (t: string) => t;
+          for (const m of r.matches) {
+            const { text, start, end } = m.snippet;
+            const time = m.at ? new Date(m.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
+            const kind = m.kind === "tool" || m.kind === "subagent" ? `${m.kind} ${m.field}` : m.kind;
+            console.log(`${String(m.index).padStart(5)} · ${time} · ${kind.padEnd(11)} · ${text.slice(0, start)}${bold(text.slice(start, end))}${text.slice(end)}`);
+          }
         });
       }
       const h = await c.call("agent.history", { id: a.id, limit: opt.n ? Number(opt.n) : 50 });

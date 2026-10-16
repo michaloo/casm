@@ -21,6 +21,19 @@ export type Call = <M extends MethodName>(method: M, params: Params<M>) => Promi
 // notifications for that agent, and `lost` once if the connection drops.
 export type Sink = { notify: (method: string, params: unknown) => void; lost: () => void };
 
+// Host-level notifications of the peers (agents, projects, schedules…), for
+// every local client. Only a peer's own ones: anything it relays from its own
+// peers carries a `host` and is dropped, so events travel one hop and mutual
+// peers don't echo. `wanted` says whether anyone listens; while so, a lost or
+// unreachable peer is retried and `status` reports it back up (or lost).
+export type HostEvents = {
+  notify: (peer: string, method: string, params: unknown) => void;
+  status: (peer: string, connected: boolean) => void;
+  wanted: () => boolean;
+};
+
+const RETRY_MAX_MS = 60_000;
+
 // Connects, asks for the peer's identity and disconnects. Used by `casm peer add`.
 export async function verifyPeer(url: string, token: string, timeoutMs = PEER_CONNECT_TIMEOUT_MS) {
   const c = await CasmClient.connect(url, token, { timeoutMs });
@@ -48,12 +61,43 @@ export class PeerPool {
   private timeoutMs: number;
   private callTimeoutMs: number;
   private slowMs: number;
+  private events?: HostEvents;
+  private retryMs = 2000;
+  // Peers lost or never reached while watched, and their next retry delay.
+  private down = new Map<string, number>();
+  private retries = new Map<string, NodeJS.Timeout>();
+  private closed = false;
 
   constructor(store: Store, timeoutMs = PEER_CONNECT_TIMEOUT_MS, slowMs = PEER_SLOW_MS) {
     this.store = store;
     this.timeoutMs = timeoutMs;
     this.callTimeoutMs = Math.max(PEER_CALL_TIMEOUT_MS, timeoutMs);
     this.slowMs = slowMs;
+  }
+
+  // Relays the peers' host-level notifications to `events` (see HostEvents).
+  listen(events: HostEvents, retryMs = this.retryMs) {
+    this.events = events;
+    this.retryMs = retryMs;
+  }
+
+  // Connects to every peer not connected yet, so its notifications flow.
+  watch() {
+    for (const peer of this.list()) if (!this.conns.has(peer.name) && !this.retries.has(peer.name)) void this.client(peer).catch(() => {});
+  }
+
+  private retry(name: string) {
+    if (this.closed || !this.events?.wanted() || this.retries.has(name)) return;
+    const delay = this.down.get(name) ?? this.retryMs;
+    this.down.set(name, Math.min(delay * 2, RETRY_MAX_MS));
+    const timer = setTimeout(() => {
+      this.retries.delete(name);
+      const peer = this.list().find((p) => p.name === name);
+      if (!peer) this.down.delete(name);
+      else if (!this.conns.has(name) && this.events?.wanted()) void this.client(peer).catch(() => {});
+    }, delay);
+    timer.unref();
+    this.retries.set(name, timer);
   }
 
   list(): StoredPeer[] {
@@ -73,9 +117,14 @@ export class PeerPool {
     }
     if (cached) this.drop(peer.name);
     const client = CasmClient.connect(peer.url, peer.token, { timeoutMs: this.timeoutMs }).then(
-      (c) => this.relay(c),
+      (c) => {
+        if (this.down.delete(peer.name)) this.events?.status(peer.name, true);
+        return this.relay(c, peer.name);
+      },
       (e: Error) => {
-        this.conns.delete(peer.name);
+        if (this.conns.get(peer.name)?.client === client) this.conns.delete(peer.name);
+        if (!this.down.has(peer.name)) this.down.set(peer.name, this.retryMs);
+        this.retry(peer.name);
         throw new Error(`host "${peer.name}" is unreachable (${e.message})`);
       },
     );
@@ -90,16 +139,25 @@ export class PeerPool {
     else void cached?.client.then((x) => x.close(), () => {});
   }
 
-  private relay(c: CasmClient): CasmClient {
+  private relay(c: CasmClient, name: string): CasmClient {
     const subs = new Map<string, Set<Sink>>();
     this.subs.set(c, subs);
-    for (const method of ["agent.event", "agent.status"] as const)
-      c.on(method, (p) => {
-        for (const sink of subs.get(p.agentId) ?? []) sink.notify(method, p);
-      });
+    c.onNotification((method, params, host) => {
+      if (host !== undefined) return;
+      if (method === "agent.event" || method === "agent.status")
+        for (const sink of subs.get((params as { agentId: string }).agentId) ?? []) sink.notify(method, params);
+      if (method !== "agent.event") this.events?.notify(name, method, params);
+    });
     c.onClose(() => {
       this.subs.delete(c);
       for (const sinks of subs.values()) for (const sink of sinks) sink.lost();
+      if (this.closed) return;
+      if (this.conns.get(name)?.client) void this.conns.get(name)!.client.then((x) => x === c && this.conns.delete(name), () => {});
+      if (!this.down.has(name)) {
+        this.down.set(name, this.retryMs);
+        this.events?.status(name, false);
+      }
+      this.retry(name);
     });
     return c;
   }
@@ -162,6 +220,9 @@ export class PeerPool {
   }
 
   close() {
+    this.closed = true;
+    for (const t of this.retries.values()) clearTimeout(t);
+    this.retries.clear();
     for (const name of [...this.conns.keys()]) this.drop(name);
   }
 }

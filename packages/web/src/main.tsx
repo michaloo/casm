@@ -412,7 +412,9 @@ function App() {
         if (
           n.method === "project.changed" ||
           n.method === "project.removed" ||
-          n.method === "agent.removed"
+          n.method === "agent.removed" ||
+          // Back after a loss: whatever changed on the peer meanwhile was missed.
+          (n.method === "peer.status" && p.connected)
         )
           void run(refresh);
         if (n.method === "peer.disconnected") {

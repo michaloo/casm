@@ -83,7 +83,16 @@ Errors use the standard codes plus casm's own:
 Notifications: `agent.event` (for subscribed agents), `agent.status`,
 `agent.changed`, `agent.removed`, `project.changed`, `project.removed`,
 `schedule.changed`, `schedule.removed`, `provider.limits`,
-`peer.disconnected`.
+`peer.disconnected`, `peer.status`.
+
+A peer's host-level notifications (all but `agent.event`) reach every client
+of this server with `host` set to the peer's name, as if the client had
+subscribed to that host's changes. Only the peer's own ones are passed on,
+never ones it relays from its peers. `agent.event` still needs
+`agent.subscribe` with that `host`, and carries the `host` the client named.
+`peer.disconnected` goes to clients with a subscription through the lost peer;
+`peer.status` (`{host, connected}`) goes to everyone when the server's
+connection to a peer is lost or is back: reload that host's lists then.
 
 ## Transcripts and live events
 

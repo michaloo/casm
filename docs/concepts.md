@@ -52,6 +52,15 @@ Forwarding is coordination, not migration: an agent started with
 never copies files, sessions or credentials between machines. Peer tokens stay
 on the server; clients never see them.
 
+While a client is connected, the server keeps a connection to each peer and
+passes on the peer's own changes (agents created, renamed, archived or removed,
+status changes, projects and schedules) to every client, tagged with the
+peer's name, so a peer's host section stays current like the local one. Only
+the peer's own changes travel, one hop: what a peer relays from its own peers
+is not passed on, so two servers that peer each other don't echo. A lost peer
+is retried (backing off to once a minute); clients get `peer.status` when it
+goes and when it is back, and the web client then reloads that host.
+
 A machine without a server can still use the CLI against a remote host with
 `casm host add` (a client-side `hosts.json`). On a machine that runs a server,
 `-H` always names one of that server's peers.

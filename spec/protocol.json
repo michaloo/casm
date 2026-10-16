@@ -1,6 +1,6 @@
 {
   "protocol": 1,
-  "transport": "JSON-RPC 2.0 over WebSocket; authenticate with Authorization: Bearer <token> on the upgrade request, or (browsers) with an auth request as the first message, within 10 s; never put the token in the URL; GET /health is unauthenticated; a request's optional top-level \"host\" (a peer name or server id) forwards it to that peer, and notifications relayed from the peer carry the same \"host\"",
+  "transport": "JSON-RPC 2.0 over WebSocket; authenticate with Authorization: Bearer <token> on the upgrade request, or (browsers) with an auth request as the first message, within 10 s; never put the token in the URL; GET /health is unauthenticated; a request's optional top-level \"host\" (a peer name or server id) forwards it to that peer, and notifications relayed from the peer carry the same \"host\"; a peer's host-level notifications (agent.status, agent.changed, project.changed…) reach every client with \"host\" set to the peer's name",
   "errors": {
     "ParseError": -32700,
     "InvalidRequest": -32600,
@@ -7834,6 +7834,22 @@
       },
       "required": [
         "host"
+      ]
+    },
+    "peer.status": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "connected": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "host",
+        "connected"
       ]
     }
   }

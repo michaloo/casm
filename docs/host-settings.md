@@ -1,9 +1,9 @@
 # Host settings
 
-The ⋯ button on a host row (Host options) opens the host modal: Usage, Schedules,
-AGENTS.md, System Prompt and Notifications; **Schedules** in the launcher opens it on Schedules.
-The ⋯ on a project
-row (Project options) opens the project modal: AGENTS.md and Memories, with
+The ⋯ button on a host row (Host options) opens the host modal: Usage,
+AGENTS.md, System Prompt and Notifications. The ⋯ on a project
+row (Project options) opens the project modal: AGENTS.md, Memories and
+Schedules (see [web client: schedules](web-client.md#schedules)), with
 the project's path (Copy), host and group under its title and **New agent** in
 its header. They share one layout (a tab rail on wide
 screens, scrolling tabs and a full-screen sheet on phones) and ask before

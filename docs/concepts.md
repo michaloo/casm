@@ -163,8 +163,8 @@ sandbox.
 
 ## Schedules
 
-A **schedule** is a host-level job that, on a cadence, either messages an
-existing agent or creates a new agent from a preset:
+A **schedule** belongs to a project. On a cadence it either messages one of
+the project's agents or creates a new agent in the project from a preset:
 
 - `--cron "0 9 * * 1-5"`: five-field cron in the server's local time.
 - `--every 30m`: an interval.
@@ -175,7 +175,8 @@ A run goes through the normal send path, so a message to a busy or limited
 agent becomes pending like any other; `--skip-if-busy` skips that run instead.
 Each schedule keeps its next run and last outcome (`sent`, `queued`, `skipped`,
 `created`, `failed`). A run missed while the server was down happens once on
-the next tick.
+the next tick. Deleting an agent deletes the schedules that message it;
+deleting a project deletes all of its schedules.
 
 ## Limits and usage
 

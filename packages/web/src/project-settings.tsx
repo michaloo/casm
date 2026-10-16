@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import type { Project } from "@casm/protocol";
+import type { Agent, Project } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { InstructionEditor, ProjectMemories, SettingsDialog, type InstructionFile } from "./settings-shared";
 import { MoreGlyph } from "./row-menu";
 import { ServerGlyph } from "./host-menu";
 import { copy } from "./transcript";
 import { offlineNote } from "./connection";
+import { ProjectSchedules } from "./project-schedules";
 
-type Section = "instructions" | "memories";
+export type ProjectSection = "instructions" | "memories" | "schedules";
 
 /** The project row's ⋯ button: opens the project modal. */
-export function ProjectOptions({ host, hostName, project, rpc, online, newAgent }: {
-  host: string; hostName: string; project: Project; rpc: Rpc | null; online: boolean; newAgent: () => void;
+export function ProjectOptions({ host, hostName, project, agents, rpc, online, newAgent, openAgent }: {
+  host: string; hostName: string; project: Project; agents: Agent[]; rpc: Rpc | null; online: boolean; newAgent: () => void;
+  openAgent: (agent: Agent) => void;
 }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -20,24 +22,30 @@ export function ProjectOptions({ host, hostName, project, rpc, online, newAgent 
       aria-label={`Project options for ${project.name}`} title="Project options" onClick={() => setOpen(true)}>
       <MoreGlyph />
     </button>
-    {open && <ProjectSettings host={host} hostName={hostName} project={project} rpc={rpc} online={online}
-      close={() => { setOpen(false); trigger.current?.focus(); }} newAgent={() => { setOpen(false); newAgent(); }} />}
+    {open && <ProjectSettings host={host} hostName={hostName} project={project} agents={agents} rpc={rpc} online={online}
+      close={() => { setOpen(false); trigger.current?.focus(); }} newAgent={() => { setOpen(false); newAgent(); }}
+      openAgent={(agent) => { setOpen(false); openAgent(agent); }} />}
   </>;
 }
 
-export function ProjectSettings({ host, hostName, project, rpc, online, close, newAgent }: {
-  host: string; hostName: string; project: Project; rpc: Rpc | null; online: boolean; close: () => void; newAgent: () => void;
+/** `agents` are the host's; the Schedules tab targets this project's. */
+export function ProjectSettings({ host, hostName, project, agents, rpc, online, initialSection = "instructions", close, newAgent, openAgent }: {
+  host: string; hostName: string; project: Project; agents: Agent[]; rpc: Rpc | null; online: boolean; initialSection?: ProjectSection;
+  close: () => void; newAgent: () => void; openAgent: (agent: Agent) => void;
 }) {
-  const [section, setSection] = useState<Section>("instructions");
+  const [section, setSection] = useState<ProjectSection>(initialSection);
   return <SettingsDialog label={`${project.name} project`} title={<>{project.name} <span className="settings-kind">project</span></>} closeLabel="Close project options"
     subtitle={<ProjectContext project={project} hostName={hostName} />}
-    sections={[["instructions", "AGENTS.md"], ["memories", "Memories"]] as const} section={section} setSection={setSection} close={close}
+    sections={[["instructions", "AGENTS.md"], ["memories", "Memories"], ["schedules", "Schedules"]] as const} section={section} setSection={setSection} close={close}
     actions={<button type="button" className="primary compact" disabled={!online} title={online ? "Start a new agent in this project" : offlineNote} onClick={newAgent}>New agent</button>}>
     {!online || !rpc ? <p role="status">Host offline. Reconnect to load project settings.</p> : <>
       <div hidden={section !== "instructions"}><ProjectInstructions host={host} project={project} rpc={rpc} /></div>
       {section === "memories" && <section aria-label="Project memories"><h3>Memories</h3><p className="settings-lede">Read-only provider memories for this project.</p>
         <ProjectMemories host={host} project={project} rpc={rpc} />
       </section>}
+      {section === "schedules" && <section aria-label="Schedules" className="settings-schedules"><h3>Schedules</h3>
+        <p className="settings-lede">Prompts sent on a cadence to an agent in this project, or to a new one started here.</p>
+        <ProjectSchedules host={host} rpc={rpc} online={online} project={project} agents={agents} openAgent={openAgent} /></section>}
     </>}
   </SettingsDialog>;
 }

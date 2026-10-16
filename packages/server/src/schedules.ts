@@ -1,10 +1,10 @@
-// Host-level schedules: on a cadence, message an existing agent or create a
+// Project schedules: on a cadence, message an existing agent or create a
 // new one from a preset. Runs go through the normal agent paths, so a message
 // to a busy or limited agent simply becomes a pending message.
 import { randomUUID } from "node:crypto";
 import type { Agent, Params, Schedule, ScheduleCadence, ScheduleRun } from "@casm/protocol";
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
-import type { Store } from "./db.ts";
+import type { Store, StoredSchedule } from "./db.ts";
 import { nextCron, parseCron } from "./cron.ts";
 
 // `scheduled` is when the run that just fired was due: an interval counts from
@@ -48,6 +48,8 @@ export class Scheduler {
     this.agents = agents;
     this.notify = notify;
     this.createAgent = createAgent;
+    // Older servers kept a deleted project's schedules; they could only fail.
+    for (const x of store.listSchedules()) if (!this.projectOf(x.target)) store.deleteSchedule(x.id);
     // A run missed while the server was down happens once on the next tick.
     this.timer = setInterval(() => void this.tick(), 5_000);
     this.timer.unref();
@@ -57,12 +59,28 @@ export class Scheduler {
     clearInterval(this.timer);
   }
 
-  list(agentId?: string): Schedule[] {
-    const all = this.store.listSchedules();
-    return agentId ? all.filter((x) => x.target.type === "agent" && x.target.agentId === agentId) : all;
+  // The project a schedule belongs to: its agent's, or the one it creates agents in.
+  private projectOf(t: Schedule["target"]): string | undefined {
+    const id = t.type === "agent" ? this.store.getAgent(t.agentId)?.projectId : t.projectId;
+    return id && this.store.getProject(id) ? id : undefined;
   }
 
-  private get(id: string): Schedule {
+  private withProject(x: StoredSchedule): Schedule | undefined {
+    const projectId = this.projectOf(x.target);
+    return projectId ? { ...x, projectId } : undefined;
+  }
+
+  list(filter: { agentId?: string; projectId?: string } = {}): Schedule[] {
+    return this.store.listSchedules().flatMap((stored) => {
+      const x = this.withProject(stored);
+      if (!x) return [];
+      if (filter.agentId && !(x.target.type === "agent" && x.target.agentId === filter.agentId)) return [];
+      if (filter.projectId && x.projectId !== filter.projectId) return [];
+      return [x];
+    });
+  }
+
+  private get(id: string): StoredSchedule {
     const x = this.store.getSchedule(id);
     if (!x) throw new RpcError(1001, `schedule ${id} not found`);
     return x;
@@ -73,8 +91,10 @@ export class Scheduler {
     if (t.type === "newAgent" && !this.store.getProject(t.projectId)) throw new RpcError(1001, `project ${t.projectId} not found`);
   }
 
-  private save(x: Schedule): Schedule {
-    this.store.saveSchedule(x);
+  private save(stored: StoredSchedule): Schedule {
+    this.store.saveSchedule(stored);
+    const x = this.withProject(stored);
+    if (!x) throw new RpcError(1001, `schedule ${stored.id} has no project`);
     this.notify("schedule.changed", { schedule: x });
     return x;
   }
@@ -104,7 +124,7 @@ export class Scheduler {
     const x = this.get(p.id);
     if (p.cadence) validate(p.cadence);
     if (p.target) this.checkTarget(p.target);
-    const next: Schedule = {
+    const next: StoredSchedule = {
       ...x,
       ...(p.name !== undefined ? { name: p.name } : {}),
       ...(p.cadence ? { cadence: p.cadence } : {}),
@@ -128,7 +148,13 @@ export class Scheduler {
 
   // Schedules whose agent is deleted go too.
   agentRemoved(agentId: string) {
-    for (const x of this.list(agentId)) this.delete(x.id);
+    for (const x of this.list({ agentId })) this.delete(x.id);
+  }
+
+  // So do a deleted project's, including those that create new agents there.
+  // Call before the project and its agents leave the store.
+  projectRemoved(projectId: string) {
+    for (const x of this.list({ projectId })) this.delete(x.id);
   }
 
   async runNow(id: string): Promise<ScheduleRun> {
@@ -142,7 +168,7 @@ export class Scheduler {
     }
   }
 
-  private async run(x: Schedule, advance: boolean, now = new Date()): Promise<ScheduleRun> {
+  private async run(x: StoredSchedule, advance: boolean, now = new Date()): Promise<ScheduleRun> {
     if (this.running.has(x.id)) return { at: now.toISOString(), outcome: "skipped", error: "previous run still starting" };
     this.running.add(x.id);
     let run: ScheduleRun;
@@ -155,7 +181,7 @@ export class Scheduler {
     }
     const fresh = this.store.getSchedule(x.id);
     if (!fresh) return run;
-    const updated: Schedule = { ...fresh, lastRun: run };
+    const updated: StoredSchedule = { ...fresh, lastRun: run };
     if (advance) {
       updated.nextRunAt = nextRun(fresh.cadence, now, true, x.nextRunAt ? new Date(x.nextRunAt) : undefined)?.toISOString() ?? null;
       if (fresh.cadence.type === "once") updated.enabled = false;
@@ -164,7 +190,7 @@ export class Scheduler {
     return run;
   }
 
-  private async fire(x: Schedule, now: Date): Promise<ScheduleRun> {
+  private async fire(x: StoredSchedule, now: Date): Promise<ScheduleRun> {
     const at = now.toISOString();
     const t = x.target;
     const sender = this.agents.scheduleSender(x.id, x.name);

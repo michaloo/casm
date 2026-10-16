@@ -160,7 +160,7 @@ export const PendingMessage = z.object({
 });
 export type PendingMessage = z.infer<typeof PendingMessage>;
 
-// A host-level job: on a cadence, message an existing agent or start a new
+// A project's job: on a cadence, message an existing agent or start a new
 // agent from a preset. A message to a busy or limited agent becomes pending.
 export const ScheduleCadence = z.discriminatedUnion("type", [
   // 5-field cron in the server's local time.
@@ -203,6 +203,9 @@ export const Schedule = z.object({
   enabled: z.boolean(),
   cadence: ScheduleCadence,
   target: ScheduleTarget,
+  // The project the schedule belongs to, derived by the server from the target
+  // (the agent's project, or the new agent's).
+  projectId: z.string(),
   prompt: z.string(),
   nextRunAt: z.string().nullable(),
   lastRun: ScheduleRun.nullable(),
@@ -548,7 +551,7 @@ export const methods = {
 
   // Models and modes the agent offers on this host. Cached; `refresh` re-reads.
   "provider.catalog": method(z.object({ provider: ProviderId, refresh: z.boolean().optional() }), Catalog),
-  "schedule.list": method(z.object({ agentId: z.string().optional() }), z.object({ schedules: z.array(Schedule) })),
+  "schedule.list": method(z.object({ agentId: z.string().optional(), projectId: z.string().optional() }), z.object({ schedules: z.array(Schedule) })),
   "schedule.create": method(
     z.object({ name: z.string().min(1).optional(), cadence: ScheduleCadence, target: ScheduleTarget, prompt: z.string().min(1), enabled: z.boolean().optional() }),
     Schedule,

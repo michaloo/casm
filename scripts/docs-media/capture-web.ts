@@ -149,9 +149,14 @@ async function gif(page: Page, name: string, act: () => Promise<void>, { clip, w
   console.log(`${name}.gif  ${frames.length} frames  ${seconds.toFixed(1)} s  ${(statSync(file).size / 1024).toFixed(0)} KB`);
 }
 
-// ⋯ on a host row opens the host window; its tabs are Usage, Schedules and Instructions.
+// ⋯ on a host row opens the host window; its tabs are Usage, AGENTS.md, System Prompt and Notifications.
 const hostTab = async (page: Page, tab: string) => {
   await page.getByTitle("Host options").first().click();
+  await page.getByRole("dialog").getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
+};
+// ⋯ on a project row opens the project window: AGENTS.md, Memories and Schedules.
+const projectTab = async (page: Page, project: string, tab: string) => {
+  await page.getByRole("button", { name: `Project options for ${project}`, exact: true }).first().click();
   await page.getByRole("dialog").getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
 };
 // The chat column: transcript and composer, without the sidebar.
@@ -192,7 +197,7 @@ const scenes: Record<string, (b: Browser) => Promise<void>> = {
 
     ctx = await context(b, { height: 1000 });
     page = await login(ctx);
-    for (const [tab, name] of [["Usage", "web-usage"], ["Schedules", "web-schedules"], ["Instructions", "web-host-settings"]] as const) {
+    for (const [tab, name] of [["Usage", "web-usage"], ["Instructions", "web-host-settings"]] as const) {
       await hostTab(page, tab);
       const dialog = page.getByRole("dialog").last();
       await dialog.waitFor();
@@ -200,6 +205,16 @@ const scenes: Record<string, (b: Browser) => Promise<void>> = {
       await shot(page, name, await around(page, [dialog], 0));
       await page.keyboard.press("Escape");
     }
+    await ctx.close();
+  },
+
+  async schedules(b) {
+    const ctx = await context(b, { height: 1000 });
+    const page = await login(ctx);
+    await projectTab(page, "acme-api", "Schedules");
+    const dialog = page.getByRole("dialog").last();
+    await dialog.getByText("review pass").waitFor();
+    await shot(page, "web-schedules", await around(page, [dialog], 0));
     await ctx.close();
   },
 
@@ -245,7 +260,7 @@ const scenes: Record<string, (b: Browser) => Promise<void>> = {
   async "gif-schedule"(b) {
     const ctx = await context(b, { width: 1280, height: 860 });
     const page = await login(ctx);
-    await hostTab(page, "Schedules");
+    await projectTab(page, "acme-api", "Schedules");
     const panel = page.getByRole("dialog").last();
     await panel.waitFor();
     await page.waitForTimeout(300);

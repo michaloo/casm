@@ -3,7 +3,6 @@ import type { Agent, Project, ProviderId, Schedule, ScheduleTarget } from "@casm
 import type { Rpc } from "./state";
 import { providerNames } from "./provider-icon";
 import { resetLabel } from "./usage-label";
-import { openSchedulesEvent } from "./open-schedules";
 import { agoLabel, cadenceLabel, cronPreview, dateLabel, describeCron, everyLabel, isFinished, localInput, outcomeLabels, parseCadence } from "./schedule-label";
 
 // schedule.changed/removed notifications, by host, for open schedule lists.
@@ -12,18 +11,15 @@ export function schedulesChanged(host: string) {
   for (const listener of listeners) listener(host);
 }
 
-/** Calls `open` whenever openSchedules() asks for `host`'s schedules (the launcher); returns the cleanup. */
-export function onOpenSchedules(host: string, open: () => void) {
-  const listener = (e: Event) => { if ((e as CustomEvent<{ host: string }>).detail?.host === host) open(); };
-  window.addEventListener(openSchedulesEvent, listener);
-  return () => window.removeEventListener(openSchedulesEvent, listener);
-}
+// The project a schedule belongs to. Older servers don't send `projectId`.
+const projectOf = (s: Schedule, agents: Map<string, Agent>) =>
+  s.projectId ?? (s.target.type === "agent" ? agents.get(s.target.agentId)?.projectId : s.target.projectId);
 
-type Names = { agents: Map<string, Agent>; projects: Map<string, string> };
-
-export function HostSchedules({ host, rpc, online, agents, projects, openAgent }: {
-  host: string; rpc: Rpc | null; online: boolean; agents: Agent[]; projects: Project[]; openAgent?: (agent: Agent) => void;
+/** A project's schedules: its agents, or new agents started in it. `agents` are the host's. */
+export function ProjectSchedules({ host, rpc, online, project, agents: hostAgents, openAgent }: {
+  host: string; rpc: Rpc | null; online: boolean; project: Project; agents: Agent[]; openAgent?: (agent: Agent) => void;
 }) {
+  const agents = useMemo(() => hostAgents.filter((a) => a.projectId === project.id), [hostAgents, project.id]);
   const [schedules, setSchedules] = useState<Schedule[]>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
@@ -39,15 +35,14 @@ export function HostSchedules({ host, rpc, online, agents, projects, openAgent }
   useEffect(() => {
     if (!online || !rpc) return;
     let active = true;
-    void rpc.call("schedule.list", {}, host).then((value) => {
+    void rpc.call("schedule.list", { projectId: project.id }, host).then((value) => {
       if (active) { setSchedules(value.schedules); setError(""); }
     }).catch((e) => { if (active) setError((e as Error).message || "Schedules unavailable on this host."); });
     return () => { active = false; };
-  }, [online, rpc, host, version]);
-  const names: Names = useMemo(() => ({
-    agents: new Map(agents.map((a) => [a.id, a])),
-    projects: new Map(projects.map((p) => [p.id, p.name])),
-  }), [agents, projects]);
+  }, [online, rpc, host, project.id, version]);
+  // Agents the schedules name, archived ones included; an older server lists every project's schedules.
+  const names = useMemo(() => new Map(hostAgents.map((a) => [a.id, a])), [hostAgents]);
+  const mine = useMemo(() => schedules?.filter((s) => projectOf(s, names) === project.id), [schedules, names, project.id]);
   const act = async (id: string, fn: () => Promise<unknown>) => {
     setBusy(id);
     setError("");
@@ -70,8 +65,8 @@ export function HostSchedules({ host, rpc, online, agents, projects, openAgent }
   };
   if (!online) return <p>Host offline.</p>;
   if (form) {
-    const initial = schedules?.find((s) => s.id === form);
-    return <ScheduleForm key={form} initial={initial} agents={agents} projects={projects} busy={busy === form} error={error}
+    const initial = mine?.find((s) => s.id === form);
+    return <ScheduleForm key={form} initial={initial} agents={agents} project={project} busy={busy === form} error={error}
       onCancel={() => { setError(""); closeForm(initial?.id); }}
       onDelete={initial && (async () => { if (await act(form, () => rpc!.call("schedule.delete", { id: form }, host))) closeForm(); })}
       onSave={async (params) => {
@@ -81,24 +76,24 @@ export function HostSchedules({ host, rpc, online, agents, projects, openAgent }
         if (ok) closeForm(initial?.id);
       }} />;
   }
-  const active = schedules?.filter((s) => s.enabled) ?? [];
-  const paused = schedules?.filter((s) => !s.enabled && !isFinished(s)) ?? [];
-  const finished = schedules?.filter(isFinished) ?? [];
+  const active = mine?.filter((s) => s.enabled) ?? [];
+  const paused = mine?.filter((s) => !s.enabled && !isFinished(s)) ?? [];
+  const finished = mine?.filter(isFinished) ?? [];
   const row = (s: Schedule) => <ScheduleRow key={s.id} schedule={s} names={names} busy={busy === s.id} openAgent={openAgent}
     toggle={() => act(s.id, () => rpc!.call("schedule.update", { id: s.id, enabled: !s.enabled }, host))}
     runNow={() => act(s.id, () => rpc!.call("schedule.runNow", { id: s.id }, host))}
     edit={() => { setError(""); setForm(s.id); }} />;
   return <div ref={list} className="schedules">
     <div className="schedule-toolbar">
-      <span className="schedule-summary" role="status">{schedules?.length ? [
+      <span className="schedule-summary" role="status">{mine?.length ? [
         `${active.length} active`, paused.length && `${paused.length} paused`, finished.length && `${finished.length} finished`,
       ].filter(Boolean).join(" · ") : ""}</span>
       <button type="button" className="primary schedule-new" onClick={() => { setError(""); setForm("new"); }}>New schedule</button>
     </div>
     {error && <p role="alert" className="error">{error}</p>}
-    {!schedules ? !error && <p role="status">Loading schedules…</p> : !schedules.length ? <div className="schedule-empty">
-      <strong>No schedules on this host yet</strong>
-      <p>A schedule sends a prompt on a cadence: check in on an agent every 90 minutes, or start a fresh agent every weekday at 09:00.</p>
+    {!mine ? !error && <p role="status">Loading schedules…</p> : !mine.length ? <div className="schedule-empty">
+      <strong>No schedules in this project yet</strong>
+      <p>A schedule sends a prompt on a cadence: check in on one of its agents every 90 minutes, or start a fresh agent here every weekday at 09:00.</p>
     </div> : <>
       <ScheduleGroup title="Active" count={active.length}>{active.map(row)}</ScheduleGroup>
       <ScheduleGroup title="Paused" count={paused.length}>{paused.map(row)}</ScheduleGroup>
@@ -120,12 +115,12 @@ function ScheduleGroup({ title, count, children }: { title: string; count: numbe
 }
 
 function ScheduleRow({ schedule: s, names, busy, toggle, runNow, edit, openAgent }: {
-  schedule: Schedule; names: Names; busy: boolean; toggle: () => void; runNow: () => void; edit: () => void; openAgent?: (agent: Agent) => void;
+  schedule: Schedule; names: Map<string, Agent>; busy: boolean; toggle: () => void; runNow: () => void; edit: () => void; openAgent?: (agent: Agent) => void;
 }) {
   const finished = isFinished(s);
   const target = s.target;
-  const targetAgent = target.type === "agent" ? names.agents.get(target.agentId) : undefined;
-  const ranAgent = s.lastRun?.agentId ? names.agents.get(s.lastRun.agentId) : s.lastRun ? targetAgent : undefined;
+  const targetAgent = target.type === "agent" ? names.get(target.agentId) : undefined;
+  const ranAgent = s.lastRun?.agentId ? names.get(s.lastRun.agentId) : s.lastRun ? targetAgent : undefined;
   // Default names just repeat the target ("→ Reviewer"); the prompt says more.
   const autoName = s.name.startsWith("→ ") || /^new \w+ agent$/.test(s.name);
   const agentLink = (agent: Agent | undefined, label: ReactNode) => agent && !agent.archivedAt && openAgent
@@ -141,7 +136,7 @@ function ScheduleRow({ schedule: s, names, busy, toggle, runNow, edit, openAgent
         <span aria-hidden="true" className="arrow"> → </span>
         {target.type === "agent"
           ? <span className={targetAgent ? "" : "missing"}>{agentLink(targetAgent, targetAgent?.name ?? "removed agent")}{target.whenBusy === "skip" ? " · skips when busy" : ""}</span>
-          : <span className={names.projects.has(target.projectId) ? "" : "missing"}>new {providerNames[target.provider] ?? target.provider} agent in {names.projects.get(target.projectId) ?? "a removed project"}</span>}
+          : <span>new {providerNames[target.provider] ?? target.provider} agent</span>}
       </span>
       {!autoName && <span className="schedule-prompt" title={s.prompt}>{s.prompt}</span>}
       <span className="schedule-status">
@@ -169,8 +164,8 @@ type Unit = 1 | 60 | 1440;
 const units: [Unit, string][] = [[1, "minutes"], [60, "hours"], [1440, "days"]];
 const presets: [string, string][] = [["0 9 * * 1-5", "Weekdays 09:00"], ["0 9 * * *", "Daily 09:00"], ["0 * * * *", "Hourly"], ["0 9 * * 1", "Mondays 09:00"], ["30 17 * * 1-5", "Weekdays 17:30"]];
 
-function ScheduleForm({ agents, projects, onSave, onCancel, onDelete, initial, busy, error }: {
-  agents: Agent[]; projects: Project[]; onSave: (p: SaveParams) => void; onCancel: () => void; onDelete?: () => void;
+function ScheduleForm({ agents, project, onSave, onCancel, onDelete, initial, busy, error }: {
+  agents: Agent[]; project: Project; onSave: (p: SaveParams) => void; onCancel: () => void; onDelete?: () => void;
   initial?: Schedule; busy?: boolean; error?: string;
 }) {
   const id = useId();
@@ -192,7 +187,6 @@ function ScheduleForm({ agents, projects, onSave, onCancel, onDelete, initial, b
   const [targetKind, setTargetKind] = useState<ScheduleTarget["type"]>(target?.type ?? (live.length ? "agent" : "newAgent"));
   const [agentId, setAgentId] = useState(target?.type === "agent" ? target.agentId : live[0]?.id ?? "");
   const [whenBusy, setWhenBusy] = useState(target?.type === "agent" ? target.whenBusy ?? "queue" : "queue");
-  const [projectId, setProjectId] = useState(target?.type === "newAgent" ? target.projectId : projects[0]?.id ?? "");
   const [provider, setProvider] = useState<ProviderId>(target?.type === "newAgent" ? target.provider : "claude");
   const [prompt, setPrompt] = useState(initial?.prompt ?? "");
   const [problems, setProblems] = useState<Partial<Record<"when" | "target" | "prompt", string>>>({});
@@ -219,7 +213,7 @@ function ScheduleForm({ agents, projects, onSave, onCancel, onDelete, initial, b
     const parsed = parseCadence(kind, whenValue);
     const next = {
       when: typeof parsed === "string" ? (kind === "every" ? "Enter a whole number greater than 0." : parsed) : undefined,
-      target: (targetKind === "agent" ? !agentId || missingAgent : !projectId) ? targetKind === "agent" ? "Choose an agent." : "Choose a project." : undefined,
+      target: targetKind === "agent" && (!agentId || missingAgent) ? live.length ? "Choose an agent." : `${project.name} has no agents yet: send to a new agent.` : undefined,
       prompt: prompt.trim() ? undefined : "Write the prompt to send.",
     };
     setProblems(next);
@@ -230,7 +224,7 @@ function ScheduleForm({ agents, projects, onSave, onCancel, onDelete, initial, b
       cadence: parsed as Schedule["cadence"],
       target: targetKind === "agent"
         ? { ...(target?.type === "agent" ? target : {}), type: "agent", agentId, whenBusy }
-        : { ...(target?.type === "newAgent" ? target : {}), type: "newAgent", projectId, provider },
+        : { ...(target?.type === "newAgent" ? target : {}), type: "newAgent", projectId: project.id, provider },
       prompt,
     });
   };
@@ -257,12 +251,14 @@ function ScheduleForm({ agents, projects, onSave, onCancel, onDelete, initial, b
         <label><span>If it is busy</span><select aria-label="If it is busy" value={whenBusy} onChange={(e) => setWhenBusy(e.target.value as "queue" | "skip")}>
           <option value="queue">Queue the message</option><option value="skip">Skip this run</option>
         </select></label>
-      </div> : <div className="field-row">
-        <label><span>Project</span><select aria-label="Project" value={projectId} {...invalid("target")} onChange={(e) => setProjectId(e.target.value)}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-        <label><span>Provider</span><select aria-label="Provider" value={provider} onChange={(e) => setProvider(e.target.value as ProviderId)}>
-          {(Object.keys(providerNames) as ProviderId[]).map((p) => <option key={p} value={p}>{providerNames[p]}</option>)}
-        </select></label>
-      </div>}
+      </div> : <>
+        <div className="field-row">
+          <label><span>Provider</span><select aria-label="Provider" value={provider} onChange={(e) => setProvider(e.target.value as ProviderId)}>
+            {(Object.keys(providerNames) as ProviderId[]).map((p) => <option key={p} value={p}>{providerNames[p]}</option>)}
+          </select></label>
+        </div>
+        <p className="field-hint">Each run starts a new agent in {project.name}.</p>
+      </>}
       {problem("target")}
     </fieldset>
 

@@ -375,7 +375,7 @@ agent why.
 ## Schedules
 
 ```text
-casm schedules [--agent a]
+casm schedules [--project p] [--agent a]
 casm schedule add (--cron "0 9 * * 1-5" | --every 30m | --at 18:30|"in 2h"|ISO) <prompt>
                   (--agent a [--skip-if-busy] | --project p --provider claude [--model m] [--mode m] [--env K=V]... [--name n])
 casm schedule edit <schedule> [--name n] [--cron e | --every d | --at t] [new prompt]
@@ -390,10 +390,14 @@ cad7af3b-341b-4138-a30c-9fbbc0e834a9  next 10/15/2026, 9:00:00 AM
 $ casm schedule add --at "in 2h" --agent reviewer "Check whether the order total rounding is fixed."
 39a696c5-99be-47b1-b2d3-f55e81c196a5  next 10/14/2026, 11:07:50 PM
 $ casm schedules
-f96acc72  every 30m  → reviewer  next 10/14/2026, 9:59:19 PM
-cad7af3b  triage  cron 0 9 * * 1-5  new claude agent  next 10/15/2026, 9:00:00 AM
-39a696c5  once 10/14/2026, 11:07:50 PM  → reviewer  next 10/14/2026, 11:07:50 PM
+f96acc72  acme-api  every 30m  → reviewer  next 10/14/2026, 9:59:19 PM
+cad7af3b  acme-api  triage  cron 0 9 * * 1-5  new claude agent  next 10/15/2026, 9:00:00 AM
+39a696c5  acme-api  once 10/14/2026, 11:07:50 PM  → reviewer  next 10/14/2026, 11:07:50 PM
 ```
+
+Every schedule belongs to a project: the agent's (`--agent`) or the one new
+agents start in (`--project`). `casm schedules` shows it after the ID;
+`--project` and `--agent` filter the list.
 
 `schedule edit` changes a schedule's name, cadence or prompt; `schedule run`
 fires one now; `enable`/`disable` pause it; `rm` deletes it. Cron uses the

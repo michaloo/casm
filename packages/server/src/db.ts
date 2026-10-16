@@ -24,7 +24,10 @@ export type Pending = {
   createdAt: string;
 };
 
-function toSchedule(r: Row): Schedule {
+// The project is derived from the target, not stored.
+export type StoredSchedule = Omit<Schedule, "projectId">;
+
+function toSchedule(r: Row): StoredSchedule {
   return {
     id: r.id as string,
     name: r.name as string,
@@ -349,16 +352,16 @@ export class Store {
 
   // --- schedules
 
-  listSchedules(): Schedule[] {
+  listSchedules(): StoredSchedule[] {
     return (this.db.prepare("SELECT * FROM schedules ORDER BY created_at").all() as Row[]).map(toSchedule);
   }
 
-  getSchedule(id: string): Schedule | undefined {
+  getSchedule(id: string): StoredSchedule | undefined {
     const r = this.db.prepare("SELECT * FROM schedules WHERE id = ?").get(id) as Row | undefined;
     return r && toSchedule(r);
   }
 
-  saveSchedule(x: Schedule) {
+  saveSchedule(x: StoredSchedule) {
     this.db
       .prepare(
         `INSERT OR REPLACE INTO schedules (id, name, enabled, cadence, target, prompt, next_run_at, last_run, created_at)

@@ -65,8 +65,8 @@ can instead configure direct connections through `hosts.json`.
   enters that turn. Pending messages survive server restarts. Client message
   IDs support retry reconciliation. Sender metadata records agent provenance;
   trusted-client declarations are not a separate authorization boundary.
-- **Schedule:** a persisted cron, interval or one-time job targeting an existing
-  agent or creating one from a preset. Existing-agent jobs queue or skip when
+- **Schedule:** a project's persisted cron, interval or one-time job messaging one of its
+  agents or creating one there from a preset. Existing-agent jobs queue or skip when
   busy. The schedule keeps its next run and last result; the conversation stays
   in the agent's native store.
 

@@ -1,6 +1,5 @@
-import { openSchedules } from "./open-schedules";
 import { HostSettings } from "./host-settings";
-import { ProjectSettings } from "./project-settings";
+import { ProjectSettings, type ProjectSection } from "./project-settings";
 import { NewProject } from "./new-project";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
@@ -12,11 +11,14 @@ import { AgentActivity } from "./agent-activity-view";
 import { modelLabels } from "./model-label";
 import { agentRecentKey, rankEntries, readRecent, type SearchEntry, type LauncherGroup } from "./launcher-search";
 
-export type LauncherAction = { kind: "project" | "new-project" | "host"; host: Host; project?: Project; section?: "usage" | "agents-md" | "system-prompt" };
+export type LauncherAction =
+  | { kind: "project"; host: Host; project: Project; section?: ProjectSection }
+  | { kind: "new-project"; host: Host }
+  | { kind: "host"; host: Host; section?: "usage" | "agents-md" | "system-prompt" };
 type Icon = "folder" | "plus" | "schedules" | "usage" | "instructions" | "options";
 type Entry = SearchEntry & {
   host: Host; icon?: Icon; parts: string[]; agent?: Agent; project?: Project; status?: string;
-  schedules?: boolean; action?: LauncherAction; selection?: Selection; alternate?: LauncherAction | Selection; empty?: boolean;
+  action?: LauncherAction; selection?: Selection; alternate?: LauncherAction | Selection; empty?: boolean;
 };
 export function SearchGlyph() {
   return <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></svg>;
@@ -44,7 +46,7 @@ const touch = typeof matchMedia === "function" ? matchMedia("(max-width: 600px),
 const groupOrder: LauncherGroup[] = ["Agents", "Projects", "Actions"];
 
 export function Launcher({ hosts, models, online, current, choose, action, close }: {
-  hosts: Host[]; models: Record<string, ModelInfo[]>; online: boolean; current?: string; choose: (selection: Selection) => void;
+  hosts: Host[]; models: Record<string, ModelInfo[]>; online: boolean; current?: Selection; choose: (selection: Selection) => void;
   action: (action: LauncherAction) => void; close: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -70,7 +72,7 @@ export function Launcher({ hosts, models, online, current, choose, action, close
   const entries = useMemo(() => {
     const result: Entry[] = [];
     // Host actions are listed once, for the current host, until the user types.
-    const home = hosts.find(host => host.id === current) ?? hosts[0];
+    const home = hosts.find(host => host.id === current?.host) ?? hosts[0];
     for (const host of hosts) {
       const projects = new Map(host.projects.filter(project => !project.archivedAt).map(project => [project.id, project]));
       const latest = new Map<string, number>();
@@ -98,10 +100,16 @@ export function Launcher({ hosts, models, online, current, choose, action, close
         result.push({ id: `options:${base}`, group: "Actions", title: "Project options", parts: options, subtitle: options.join(" · "), icon: "options", host, project,
           action: { kind: "project", host, project } });
       }
+      // Schedules belong to a project: the open chat's or draft's, else one entry per project.
+      const here = host.id === current?.host ? projects.get(current.project) : undefined;
+      for (const project of here ? [here] : projects.values()) {
+        const parts = [project.name, host.name];
+        result.push({ id: `schedules:${host.id}\n${project.id}`, group: "Actions", title: here ? "Schedules" : `Schedules: ${project.name}`, parts, subtitle: parts.join(" · "),
+          icon: "schedules", host, project, empty: !!here, action: { kind: "project", host, project, section: "schedules" } });
+      }
       const hostParts = [host.name];
       const empty = host === home;
       result.push({ id: `new-project:${host.id}`, group: "Actions", title: "New project", parts: hostParts, subtitle: host.name, icon: "plus", host, empty, action: { kind: "new-project", host } });
-      result.push({ id: `schedules:${host.id}`, group: "Actions", title: "Schedules", parts: hostParts, subtitle: host.name, icon: "schedules", host, empty, schedules: true });
       for (const [section, title, icon] of [["usage", "Host usage", "usage"], ["agents-md", "Host AGENTS.md", "instructions"], ["system-prompt", "System Prompt", "instructions"]] as const)
         result.push({ id: `${section}:${host.id}`, group: "Actions", title, parts: hostParts, subtitle: host.name, icon, host, action: { kind: "host", host, section } });
     }
@@ -169,11 +177,10 @@ export function Launcher({ hosts, models, online, current, choose, action, close
   };
   const open = (entry: Entry, alternate = false) => {
     const target = alternate ? entry.alternate : entry.selection ?? entry.action;
-    if (!target && !entry.schedules) return;
+    if (!target) return;
     close();
-    if (entry.schedules && !alternate) openSchedules(entry.host.id);
-    else if (target && "kind" in target) action(target);
-    else if (target) choose(target);
+    if ("kind" in target) action(target);
+    else choose(target);
   };
   const current_ = results[selected]?.entry;
   const hint = current_?.agent ? "New agent in project" : current_?.group === "Projects" ? "Project options" : "";
@@ -252,9 +259,10 @@ export function LauncherDestination({ target, rpc, online, choose, created, clos
   const available = online && !host.error && !host.loading;
   if (target.kind === "new-project") return <NewProject host={host.id} name={host.name} projects={host.projects} rpc={rpc} online={available} close={close}
     created={project => { close(); created(host.id, project); }} />;
-  if (target.kind === "project" && target.project) return <ProjectSettings host={host.id} hostName={host.name} project={target.project} rpc={rpc} online={available} close={close}
-    newAgent={() => { close(); choose({ host: host.id, project: target.project!.id }); }} />;
-  return <HostSettings host={host.id} name={host.name} state={available ? "online" : "offline"} online={available} rpc={rpc}
-    agents={host.agents} projects={host.projects} initialSection={target.section} close={close}
+  if (target.kind === "project") return <ProjectSettings host={host.id} hostName={host.name} project={target.project} agents={host.agents} rpc={rpc} online={available}
+    initialSection={target.section} close={close}
+    newAgent={() => { close(); choose({ host: host.id, project: target.project.id }); }}
     openAgent={agent => { close(); choose({ host: host.id, project: agent.projectId, id: agent.id }); }} />;
+  return <HostSettings host={host.id} name={host.name} state={available ? "online" : "offline"} online={available} rpc={rpc}
+    initialSection={target.section} close={close} />;
 }

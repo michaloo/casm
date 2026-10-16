@@ -1,10 +1,9 @@
 import { NewProject } from "./new-project";
-import { useEffect, useRef, useState } from "react";
-import type { Agent, Project } from "@casm/protocol";
+import { useRef, useState } from "react";
+import type { Project } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { HostSettings, type HostSection } from "./host-settings";
 import { MoreGlyph, PlusGlyph } from "./row-menu";
-import { onOpenSchedules } from "./host-schedules";
 import { offlineNote } from "./connection";
 
 export type HostState = "online" | "slow" | "offline" | "connecting";
@@ -32,10 +31,9 @@ export function HostIdentity({ name, state, detail, bare = false }: { name: stri
   </>;
 }
 
-/** The host row's actions: + adds a project, ⋯ opens the host modal (the launcher opens it on Schedules). */
-export function HostActions({ host, name, state, rpc, agents, projects, openAgent, openProject }: {
-  host: string; name: string; state: HostState; rpc: Rpc | null; agents: Agent[]; projects: Project[];
-  openAgent?: (agent: Agent) => void; openProject: (project: Project) => void;
+/** The host row's actions: + adds a project, ⋯ opens the host modal. */
+export function HostActions({ host, name, state, rpc, projects, openProject }: {
+  host: string; name: string; state: HostState; rpc: Rpc | null; projects: Project[]; openProject: (project: Project) => void;
 }) {
   const options = useRef<HTMLButtonElement>(null);
   const plus = useRef<HTMLButtonElement>(null);
@@ -43,7 +41,6 @@ export function HostActions({ host, name, state, rpc, agents, projects, openAgen
   const [settings, setSettings] = useState<{ section: HostSection; back: HTMLElement | null; opened: number }>();
   const opened = useRef(0);
   const [newProject, setNewProject] = useState(false);
-  useEffect(() => onOpenSchedules(host, () => setSettings({ section: "schedules", back: document.activeElement instanceof HTMLElement ? document.activeElement : null, opened: ++opened.current })), [host]);
   const online = state === "online" || state === "slow";
   return <>
     <button ref={plus} type="button" className="row-more row-add" disabled={!online} aria-haspopup="dialog" aria-expanded={newProject}
@@ -57,9 +54,9 @@ export function HostActions({ host, name, state, rpc, agents, projects, openAgen
     {newProject && <NewProject host={host} name={name} projects={projects} rpc={rpc} online={online}
       close={() => { setNewProject(false); plus.current?.focus(); }}
       created={project => { setNewProject(false); openProject(project); }} />}
-    {settings && <HostSettings key={settings.opened} host={host} name={name} state={state} rpc={rpc} online={online} agents={agents} projects={projects}
-      initialSection={settings.section} openAgent={openAgent && ((agent) => { setSettings(undefined); openAgent(agent); })}
-      // The dialog's close event is async: a reopen (the launcher's Schedules) may already have replaced this one.
+    {settings && <HostSettings key={settings.opened} host={host} name={name} state={state} rpc={rpc} online={online}
+      initialSection={settings.section}
+      // The dialog's close event is async: a reopen may already have replaced this one.
       close={() => { const back = settings.back; setSettings(current => current === settings ? undefined : current);
         if (!document.querySelector("dialog[open]")) (back?.isConnected ? back : options.current)?.focus(); }} />}
   </>;

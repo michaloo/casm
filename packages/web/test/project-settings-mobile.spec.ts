@@ -33,7 +33,7 @@ for (const width of [1440, 375]) test(`project modal mobile view edit conflict c
   await expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
   await trigger.focus(); await trigger.press("Enter");
   const panel = page.getByRole("dialog", { name: "Test project project" });
-  await expect(panel.getByRole("navigation").getByRole("button")).toHaveText(["AGENTS.md", "Memories"]);
+  await expect(panel.getByRole("navigation").getByRole("button")).toHaveText(["AGENTS.md", "Memories", "Schedules"]);
   // Where it lives sits under the title: the path (whole in its tooltip), Copy, the host; no group set.
   const context = panel.locator(".settings-context");
   await expect(context.locator(".middle-path")).toHaveAttribute("title", testHome);

@@ -1,7 +1,6 @@
 import { InstructionEditor, SettingsDialog, TextEditor } from "./settings-shared";
 import { useEffect, useRef, useState } from "react";
-import type { Agent, AgentPromptInfo, HostAgentsMdFile, Project } from "@casm/protocol";
-import { HostSchedules } from "./host-schedules";
+import type { AgentPromptInfo, HostAgentsMdFile } from "@casm/protocol";
 import { HostIdentity, type HostState } from "./host-menu";
 import { HostUsage } from "./host-usage";
 import { HostNotifications } from "./host-notifications";
@@ -9,25 +8,21 @@ import type { Rpc } from "./state";
 import { providerNames } from "./provider-icon";
 import { Prose } from "./transcript";
 
-export type HostSection = "usage" | "schedules" | "agents-md" | "system-prompt" | "notifications";
+export type HostSection = "usage" | "agents-md" | "system-prompt" | "notifications";
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
 
-export function HostSettings({ host, name, state, rpc, online, agents, projects, openAgent, initialSection = "usage", close }: {
-  host: string; name: string; state: HostState; rpc: Rpc | null; online: boolean; agents: Agent[]; projects: Project[];
-  openAgent?: (agent: Agent) => void; initialSection?: HostSection | "instructions"; close: () => void;
+export function HostSettings({ host, name, state, rpc, online, initialSection = "usage", close }: {
+  host: string; name: string; state: HostState; rpc: Rpc | null; online: boolean; initialSection?: HostSection | "instructions"; close: () => void;
 }) {
   // "instructions" was one tab for both; it now opens AGENTS.md.
   const [section, setSection] = useState<HostSection>(initialSection === "instructions" ? "agents-md" : initialSection);
   return <SettingsDialog label={`${name} host`} closeLabel="Close host options"
     title={<span className="settings-title-host"><HostIdentity name={name} state={state} /></span>}
-    sections={[["usage", "Usage"], ["schedules", "Schedules"], ["agents-md", "AGENTS.md"], ["system-prompt", "System Prompt"], ["notifications", "Notifications"]] as const} section={section} setSection={setSection} close={close}>
-    {!online || !rpc ? <p role="status">Host offline. Reconnect to load its usage, schedules, AGENTS.md and System Prompt.</p> : <>
+    sections={[["usage", "Usage"], ["agents-md", "AGENTS.md"], ["system-prompt", "System Prompt"], ["notifications", "Notifications"]] as const} section={section} setSection={setSection} close={close}>
+    {!online || !rpc ? <p role="status">Host offline. Reconnect to load its usage, AGENTS.md and System Prompt.</p> : <>
       {section === "usage" && <section aria-label="Usage"><h3>Usage</h3>
         <p className="settings-lede">Subscription limit windows per provider, and when they reset.</p>
         <HostUsage host={host} rpc={rpc} online={online} /></section>}
-      {section === "schedules" && <section aria-label="Schedules" className="settings-schedules"><h3>Schedules</h3>
-        <p className="settings-lede">Prompts sent on a cadence to an agent on this host, or to a new one.</p>
-        <HostSchedules host={host} rpc={rpc} online={online} agents={agents} projects={projects} openAgent={openAgent} /></section>}
       <div hidden={section !== "agents-md"}><Instructions host={host} rpc={rpc} /></div>
       <div hidden={section !== "system-prompt"}><HostPrompt host={host} rpc={rpc} /></div>
       {/* A browser subscribes on the host serving this page; a peer's agents notify the peer's own devices. */}

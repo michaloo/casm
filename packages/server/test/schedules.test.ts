@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CasmClient } from "@casm/client";
@@ -90,5 +90,71 @@ test("a schedule firing at a limited agent leaves a pending message with its sen
     assert.deepEqual((await client.call("schedule.list", {})).schedules, []);
   } finally {
     client.close(); await server.close(); store.close(); rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a schedule carries its project; list filters by project; deleting a project deletes its schedules", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-sched-project-"));
+  const store = new Store(join(dir, "db"));
+  const token = store.createToken("test");
+  const provider: Provider = {
+    id: "codex",
+    open() {
+      return { send() {}, shell() {}, async interrupt() {}, async close() {} };
+    },
+    async history() { return []; }, async usage() { return null; },
+    async commands() { return []; }, async catalog() { return { models: [], modes: [] }; },
+    async limits() { return null; },
+  };
+  const server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  const client = await CasmClient.connect(server.url, token);
+  const removed: string[] = [];
+  client.on("schedule.removed", (p) => removed.push(p.scheduleId));
+  try {
+    mkdirSync(join(dir, "a"));
+    mkdirSync(join(dir, "b"));
+    const pa = await client.call("project.create", { path: join(dir, "a") });
+    const pb = await client.call("project.create", { path: join(dir, "b") });
+    const agent = await client.call("agent.create", { projectId: pa.id, provider: "codex" });
+    const every = { type: "every", minutes: 60 } as const;
+    const toAgent = await client.call("schedule.create", { cadence: every, target: { type: "agent", agentId: agent.id }, prompt: "hi" });
+    const fresh = await client.call("schedule.create", { cadence: every, target: { type: "newAgent", projectId: pa.id, provider: "codex" }, prompt: "go" });
+    const other = await client.call("schedule.create", { cadence: every, target: { type: "newAgent", projectId: pb.id, provider: "codex" }, prompt: "go" });
+    assert.equal(toAgent.projectId, pa.id);
+    assert.equal(fresh.projectId, pa.id);
+    assert.equal(other.projectId, pb.id);
+    assert.equal((await client.call("schedule.update", { id: toAgent.id, name: "renamed" })).projectId, pa.id);
+
+    const ids = async (p: { projectId?: string; agentId?: string }) => (await client.call("schedule.list", p)).schedules.map((x) => x.id);
+    assert.deepEqual(await ids({ projectId: pa.id }), [toAgent.id, fresh.id]);
+    assert.deepEqual(await ids({ projectId: pb.id }), [other.id]);
+    assert.deepEqual(await ids({ agentId: agent.id }), [toAgent.id]);
+    assert.deepEqual(await ids({ projectId: pb.id, agentId: agent.id }), []);
+
+    await client.call("project.delete", { id: pa.id });
+    assert.deepEqual(await ids({}), [other.id]);
+    assert.deepEqual(removed.sort(), [toAgent.id, fresh.id].sort());
+    // Nothing of the deleted project fires later.
+    await server.scheduler.tick(new Date(Date.now() + 2 * 3600_000));
+    assert.deepEqual((await client.call("agent.list", {})).agents.filter((a) => a.projectId === pa.id), []);
+  } finally {
+    client.close(); await server.close(); store.close(); rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("on start, schedules left by a project deleted on an older server are dropped", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-sched-orphan-"));
+  const store = new Store(join(dir, "db"));
+  const p = store.createProject({ name: "p", path: dir });
+  const base = { enabled: true, cadence: { type: "every", minutes: 5 } as const, prompt: "x", nextRunAt: null, lastRun: null, createdAt: new Date().toISOString() };
+  store.saveSchedule({ ...base, id: "kept", name: "kept", target: { type: "newAgent", projectId: p.id, provider: "codex" } });
+  store.saveSchedule({ ...base, id: "gone", name: "gone", target: { type: "newAgent", projectId: "deleted", provider: "codex" } });
+  store.saveSchedule({ ...base, id: "gone-agent", name: "gone-agent", target: { type: "agent", agentId: "deleted" } });
+  const server = await startServer({ store, providers: [], host: "127.0.0.1", port: 0, version: "test" });
+  try {
+    assert.deepEqual(server.scheduler.list().map((x) => [x.id, x.projectId]), [["kept", p.id]]);
+    assert.deepEqual(store.listSchedules().map((x) => x.id), ["kept"]);
+  } finally {
+    await server.close(); store.close(); rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -1697,6 +1697,20 @@ textarea::placeholder {
     width: 100%;
     height: auto;
   }
+  /* Installed with the translucent status bar, iOS starts the page under the
+     status bar but sizes the layout viewport (and 100%) a status bar short, and
+     paints nothing below it: a band at the bottom. A root that much taller makes
+     WebKit grow the viewport to the screen, so the fixed .app reaches the bottom.
+     (Not 100lvh: an app installed with another status bar style starts below the
+     bar, inset 0, yet its lvh is still the whole screen.) */
+  @media (display-mode: standalone) {
+    html {
+      height: calc(100% + env(safe-area-inset-top));
+    }
+    body {
+      height: 100%;
+    }
+  }
   html[data-keyboard] .app {
     top: var(--viewport-top, 0px);
     bottom: auto;

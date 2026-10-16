@@ -418,8 +418,9 @@ test("Claude replays saved background notifications as the same completed card, 
   n.entry({ type: "system", subtype: "task_started", task_id: "child", tool_use_id: "t", run_id: "run-1", description: "Background" });
   n.entry(launch);
   const live = n.entry({ type: "system", subtype: "task_notification", task_id: "child", run_id: "run-1", status: "completed", summary: "All good", usage: { total_tokens: 150, tool_uses: 1, duration_ms: 25 } });
-  assert.deepEqual(stored, live);
-  assert.equal(stored.length, 1);
+  // The notification opened a turn: history shows the notice the live wake-up does.
+  assert.deepEqual(stored.filter((i) => i.kind !== "notice"), live);
+  assert.deepEqual(stored.filter((i) => i.kind === "notice"), [{ kind: "notice", id: "wake:done", level: "info", text: "Woken by a background task: Agent finished" }]);
   // An actual user's pasted markup must remain user text.
   assert.equal(new Normalizer().entry({ ...notification, origin: undefined })[0]?.kind, "user");
 });

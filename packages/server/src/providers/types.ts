@@ -33,6 +33,11 @@ export type ProviderEvent =
   | { type: "usage"; usage: Usage }
   // Account/subscription limits as the agent last reported them (provider-wide).
   | { type: "limits"; limits: Omit<ProviderLimits, "provider" | "updatedAt"> }
+  // The provider started a turn nobody sent (a background job finished, a
+  // monitor fired, an extension woke it). While idle the manager runs it as a
+  // turn of its own, shown with `notice` if given; it ends with a turnEnded
+  // carrying no turnId. Ignored while a turn the manager started is running.
+  | { type: "turnStarted"; notice?: string }
   // Echo the manager token, captured when dispatching work. A late completion
   // must never finish a subsequent turn on the same native session.
   | { type: "turnEnded"; outcome: TurnOutcome; error?: string; turnId?: string; recycleSession?: boolean }

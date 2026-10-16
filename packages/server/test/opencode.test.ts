@@ -712,3 +712,38 @@ test("mid-turn, agent.history shows an OpenCode prompt with the live turn's id",
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("OpenCode: a background task reporting back to an idle session starts a turn of its own", async () => {
+  class Server extends FakeOpencodeServer {
+    override async request<T>(method: string, path: string, directory?: string, body?: unknown): Promise<T> {
+      if (path.endsWith("/prompt_async")) return {} as T;
+      return super.request(method, path, directory, body);
+    }
+  }
+  const server = new Server();
+  const events: ProviderEvent[] = [];
+  const session = opencodeProvider(server).open({ cwd: "/tmp", config: {}, resumeId: null, emit: (e) => events.push(e), askPermission: async () => ({ decision: "allow" }), askQuestion: async () => null });
+  await new Promise((r) => setImmediate(r));
+  session.send("scan in the background", "user-1", undefined, "t1");
+  await new Promise((r) => setImmediate(r));
+  server.event("session.status", { sessionID: ids.sessionID, status: { type: "busy" } });
+  server.event("message.updated", { info: { id: ids.messageID, sessionID: ids.sessionID, role: "assistant" } });
+  server.event("message.part.updated", { part: backgroundTask("running") });
+  server.event("message.part.updated", { part: backgroundTask("completed") });
+  server.event("session.status", { sessionID: ids.sessionID, status: { type: "idle" } });
+  // Idle; OpenCode injects the task's result and runs the session again.
+  server.event("message.updated", { info: { id: "msg_u2", sessionID: ids.sessionID, role: "user" } });
+  server.event("message.part.updated", { part: { id: "p2", sessionID: ids.sessionID, messageID: "msg_u2", type: "text", text: backgroundResult("completed", "3 files"), synthetic: true } });
+  server.event("session.status", { sessionID: ids.sessionID, status: { type: "busy" } });
+  server.event("message.updated", { info: { id: "msg_a2", sessionID: ids.sessionID, role: "assistant" } });
+  server.event("message.part.updated", { part: { id: "p3", sessionID: ids.sessionID, messageID: "msg_a2", type: "text", text: "The scan found 3 files.", time: { start: 1, end: 2 } } });
+  server.event("session.status", { sessionID: ids.sessionID, status: { type: "idle" } });
+  const turns = events.filter((e) => e.type === "turnStarted" || e.type === "turnEnded" || (e.type === "item" && e.item.kind === "assistant"));
+  assert.deepEqual(turns, [
+    { type: "turnEnded", outcome: "completed", error: undefined, turnId: "t1" },
+    { type: "turnStarted", notice: "Woken by a background task: Scan repo finished" },
+    { type: "item", item: { kind: "assistant", id: "p3", text: "The scan found 3 files." } },
+    { type: "turnEnded", outcome: "completed", error: undefined },
+  ]);
+  await session.close();
+});

@@ -36,6 +36,7 @@ below are relative to the source roots in the table; casm paths to
 | Local models | **partial** | **gap** | ✓ | ✓ |
 | Images in / out | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ |
 | Plan mode | **partial** | ✓ | ✓ (plan agent) | ✗ |
+| Background jobs wake the agent | ✓ | **partial** | ✓ | ✓ (extensions) |
 
 OpenCode was also verified end to end on an isolated dev server with
 OpenCode's free `opencode/big-pickle` model (no API key) and the local
@@ -247,6 +248,55 @@ model's `limit.context`; pi `get_session_stats`.
 - Codex ✓: `collaborationMode: plan` per turn, plan items and `turn/plan/updated`.
 - OpenCode ✓: the `plan` agent as the agent's mode; todo lists become plan items.
 - pi ✗: only an example extension.
+
+### Background jobs
+
+An agent can start work, end its turn and expect to be woken when the work
+finishes. When a provider starts such a turn itself, its adapter emits a
+`turnStarted` provider event and the manager runs it as a turn of its own
+(`agents.ts` `startOwnTurn`): status `running`, a `wake:` notice saying why,
+the reply, then `turnEnded`. Messages sent meanwhile queue behind it. The
+adapters tell these turns from casm's own by whether casm dispatched one
+(`send`/`shell`) that hasn't ended. Live events were checked against Claude
+Code 2.1.292, codex-cli 0.160.1, OpenCode 1.19.0 and pi 1.1.0.
+
+- Claude ✓: background Bash (`run_in_background`), Monitor and background
+  subagents (`Agent` with `run_in_background`) report back as harness-made user
+  messages (`origin.kind: "task-notification"` in the transcript), and Claude
+  Code runs a turn for each. The SDK stream doesn't carry that message. casm
+  sets `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`, so a turn opens with
+  `system/session_state_changed` `running`; after a background subagent the
+  session stays running and the next turn opens with `system/init` alone. The
+  `task_notification` just before names the task in the notice ("Woken by a
+  background task: Background command "…" completed"); a Monitor event has
+  none live, so it shows "Woken by a background task" (history shows the
+  event's summary from the transcript). A message steered in too late for a
+  turn runs as the next native turn and shows without a notice.
+- Codex **partial**: a command left running in a background terminal (unified
+  exec) never wakes Codex: when it exits, Codex completes its `commandExecution`
+  item under the finished turn and starts nothing (`core/src/unified_exec/
+  async_watcher.rs`). casm shows the card as running until then, not "Did not
+  finish". Subagent completion doesn't trigger a turn either
+  (`agent/control/completion.rs`, `trigger_turn: false`); the model has to
+  poll or wait. Turns Codex does start itself (an active goal continuing,
+  queued input, another agent's message with `trigger_turn`) arrive as
+  `turn/started` without a `turn/start` and run as "Codex started a turn on
+  its own". casm doesn't inject a message when a background terminal exits:
+  Codex's own clients don't either, and the model can't tell that from a user
+  prompt.
+- OpenCode ✓: background subagents (`task` with `background: true`, behind
+  `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true` in the server's
+  environment) report back with a synthetic user message
+  (`<task … state="completed|error">`) and OpenCode runs the session again
+  (`tool/task.ts` `inject`, `session/prompt.ts`). casm sees `session.status`
+  busy without a prompt of its own and adopts the turn, named after the task.
+  The bash tool has no background option.
+- pi ✓ (extensions): pi has no background jobs of its own. An extension can
+  start a run while idle (`pi.sendMessage(…, { triggerTurn: true })`,
+  `pi.sendUserMessage`, e.g. `examples/extensions/file-trigger.ts`); RPC mode
+  emits `agent_start` with no prompt pending, and casm adopts the run as "A pi
+  extension started a turn". A displayed custom message shows as a notice and
+  an extension's user message as a user item.
 
 ## OpenCode authentication
 

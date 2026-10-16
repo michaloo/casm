@@ -769,6 +769,13 @@ class CodexSession implements ProviderSession {
   private model = "";
   // A thread/shellCommand was sent and its turn has not started yet.
   private shellPending = false;
+  // casm asked for a turn (turn/start, review, compact, shell) that has not
+  // started yet. A turn/started without one is Codex's own (a goal continuing,
+  // queued input, another agent's message).
+  private expecting = false;
+  // Commands in a background terminal (unified exec): their process can
+  // outlive the turn, and Codex completes the item when it exits.
+  private terminals = new Set<string>();
 
   constructor(opts: OpenOptions) {
     this.opts = opts;
@@ -918,9 +925,12 @@ class CodexSession implements ProviderSession {
       case "turn/started": {
         const id = str(rec(p.turn).id);
         if (!this.ended.has(id)) {
+          const own = !this.expecting && !this.turnId;
           this.turnId = id;
-          this.turnOwners.set(id, this.casmTurnId);
+          this.turnOwners.set(id, own ? undefined : this.casmTurnId);
+          if (own) emit({ type: "turnStarted", notice: "Codex started a turn on its own" });
         }
+        this.expecting = false;
         this.shellPending = false;
         return;
       }
@@ -937,6 +947,8 @@ class CodexSession implements ProviderSession {
         if (raw.type === "userMessage") return; // the manager emits our prompts
         if (raw.type === "commandExecution" && typeof raw.processId === "string" && raw.processId && typeof raw.command === "string") {
           this.terminalCommands.set(raw.processId, unwrapShell(raw.command));
+          this.terminals.add(str(raw.id));
+          if (this.terminals.size > 256) this.terminals.delete(this.terminals.keys().next().value!);
           if (this.terminalCommands.size > 256) this.terminalCommands.delete(this.terminalCommands.keys().next().value!);
         }
         for (const item of normalizeItems(raw, this.subagents, method === "item/started")) {
@@ -955,14 +967,14 @@ class CodexSession implements ProviderSession {
         if (this.ended.has(id)) return;
         this.ended.add(id);
         if (this.turnId && this.turnId !== id) return;
-        const owner = this.turnOwners.get(id) ?? this.casmTurnId;
+        const owner = this.turnOwners.has(id) ? this.turnOwners.get(id) : this.casmTurnId;
         this.turnOwners.delete(id);
         if (this.turnId === id) this.turnId = null;
         this.shellPending = false;
         this.abortApprovals();
         const status = str(turn.status);
         for (const t of this.tools.values())
-          if (t.kind === "tool" && t.status === "running")
+          if (t.kind === "tool" && t.status === "running" && !(status !== "interrupted" && this.terminals.has(t.id)))
             emit({ type: "item", item: { ...t, status: "error", output: status === "interrupted" ? "Interrupted." : "Did not finish." } });
         this.tools.clear();
         const outcome = status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : "completed";
@@ -1077,6 +1089,7 @@ class CodexSession implements ProviderSession {
 
   private enqueue(fn: () => Promise<void>, turnId = this.casmTurnId) {
     this.chain = this.chain.then(fn).catch((e: unknown) => {
+      this.expecting = false;
       this.opts.emit({ type: "turnEnded", outcome: "failed", error: e instanceof Error ? e.message : String(e), ...(turnId ? { turnId } : {}) });
     });
     return this.chain;
@@ -1097,6 +1110,7 @@ class CodexSession implements ProviderSession {
           // The turn ended in between: start a new one instead.
         }
       }
+      this.expecting = true;
       if (routed.kind === "compact") {
         // Runs as its own turn (turn/started, contextCompaction, turn/completed).
         await this.rpc.request("thread/compact/start", { threadId: this.threadId });
@@ -1131,6 +1145,7 @@ class CodexSession implements ProviderSession {
     void this.enqueue(async () => {
       if (!this.threadId) return;
       this.shellPending = true;
+      this.expecting = true;
       try {
         await this.rpc.request("thread/shellCommand", { threadId: this.threadId, command });
       } catch (e) {

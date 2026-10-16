@@ -207,7 +207,11 @@ export class Normalizer {
       return this.assistant(uuid, blocks(m.content));
     }
     if (e.type === "user" && e.origin?.kind === "task-notification") {
-      return this.backgroundTasks.notification(blocks(m.content).filter((b) => b.type === "text").map((b) => String(b.text)).join("\n"), e.origin.runId);
+      const text = blocks(m.content).filter((b) => b.type === "text").map((b) => String(b.text)).join("\n");
+      // It opened a turn of its own: the live session shows the same notice.
+      const summary = /<summary>([\s\S]*?)<\/summary>/.exec(text)?.[1]?.trim();
+      const notice: Item = { kind: "notice", id: `wake:${uuid}`, level: "info", text: summary ? `Woken by a background task: ${summary}` : "Woken by a background task" };
+      return [notice, ...this.backgroundTasks.notification(text, e.origin.runId)];
     }
     if (e.type !== "user" || e.isMeta || e.isCompactSummary) return [];
     return this.user(e, uuid, blocks(m.content));
@@ -817,6 +821,12 @@ class ClaudeSession implements ProviderSession {
   private rateNotices = new Set<string>();
   private seen = new Set<string>();
   private casmTurnId?: string;
+  // A turn is running that casm started (send/shell) or adopted. Claude also
+  // starts turns itself, e.g. when a background Bash, Monitor or subagent
+  // reports back: those start while this is false.
+  private owned = false;
+  // What the last task_notification outside a turn said, for the wake notice.
+  private wakeReason: string | null = null;
   // The running user shell command, then the end of its turn: the result of
   // the transcript append (or a fallback timer if none comes).
   private shellRun: { proc: ChildProcess; interrupted: boolean } | null = null;
@@ -850,7 +860,9 @@ class ClaudeSession implements ProviderSession {
       thinking: { type: "adaptive", display: "summarized" },
       systemPrompt: { type: "preset", preset: "claude_code", append: config.systemPrompt },
       mcpServers: config.mcpServers as Options["mcpServers"],
-      env: providerEnv(config.env),
+      // system/session_state_changed running/idle tells turns Claude starts
+      // itself (background job notifications) from silence.
+      env: providerEnv({ CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1", ...config.env }),
       includePartialMessages: true,
       pathToClaudeCodeExecutable: executable,
       canUseTool: this.canUseTool,
@@ -989,6 +1001,7 @@ class ClaudeSession implements ProviderSession {
         }
         const interrupted = this.interrupted;
         this.interrupted = false;
+        this.owned = false;
         for (const item of this.n.endTurn()) this.item(item);
         this.resultUsage(m.total_cost_usd, m.modelUsage);
         if (m.subtype === "success") emit({ type: "turnEnded", outcome: m.is_error ? "failed" : "completed", error: m.is_error ? m.result : undefined, ...(turnId ? { turnId } : {}) });
@@ -998,9 +1011,29 @@ class ClaudeSession implements ProviderSession {
     }
   }
 
+  // Claude began a turn casm didn't send: adopt it, so it ends without a
+  // turnId. A task_notification just before says which task woke it; a
+  // Monitor event only shows as the session going running; a turn that starts
+  // with neither runs a message steered in too late for the previous turn.
+  private ownTurn(running: boolean) {
+    if (this.owned) return;
+    this.owned = true;
+    this.casmTurnId = undefined;
+    const reason = this.wakeReason;
+    this.wakeReason = null;
+    const notice = reason ? `Woken by a background task: ${reason}` : running ? "Woken by a background task" : undefined;
+    this.opts.emit({ type: "turnStarted", ...(notice ? { notice } : {}) });
+  }
+
   private system(m: Extract<SDKMessage, { type: "system" }>) {
     switch (m.subtype) {
+      case "session_state_changed":
+        if (m.state === "running") this.ownTurn(true);
+        return;
       case "init":
+        // A turn after a background subagent reports back starts with init
+        // alone: the session stays running while background agents do.
+        this.ownTurn(false);
         this.opts.emit({ type: "sessionId", id: m.session_id });
         if (m.permissionMode) this.opts.emit({ type: "mode", mode: m.permissionMode });
         if (m.model) {
@@ -1041,6 +1074,7 @@ class ClaudeSession implements ProviderSession {
       case "task_updated":
       case "task_progress":
       case "task_notification":
+        if (m.subtype === "task_notification" && !this.owned && !m.ambient && m.summary) this.wakeReason = m.summary;
         for (const item of this.n.entry(m as Entry)) this.item(item);
         return;
       case "local_command_output":
@@ -1092,6 +1126,8 @@ class ClaudeSession implements ProviderSession {
 
   send(text: string, itemId: string, images?: ImageData[], turnId?: string) {
     this.casmTurnId = turnId;
+    this.owned = true;
+    this.wakeReason = null;
     this.input.push({
       type: "user",
       message: { role: "user", content: promptContent(text, images) },
@@ -1107,6 +1143,7 @@ class ClaudeSession implements ProviderSession {
   // the turn. The record's uuid is the item id, so history matches.
   shell(command: string, itemId: string, turnId?: string) {
     this.casmTurnId = turnId;
+    this.owned = true;
     const { cwd, config, emit } = this.opts;
     const item: ToolItem = { kind: "tool", id: itemId, name: "shell", origin: "user", input: { command }, status: "running" };
     this.item(item);
@@ -1157,6 +1194,7 @@ class ClaudeSession implements ProviderSession {
     const { outcome, turnId } = this.shellEnd;
     this.shellEnd = null;
     this.interrupted = false;
+    this.owned = false;
     // If the native acknowledgement never arrived, resume with a fresh process.
     // Otherwise its late result could masquerade as the next prompt's result.
     this.opts.emit({ type: "turnEnded", outcome, ...(turnId ? { turnId } : {}), ...(recycleSession ? { recycleSession: true } : {}) });

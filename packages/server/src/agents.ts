@@ -537,6 +537,22 @@ export class AgentManager {
     this.sendToSession(a.id, l, prompt);
   }
 
+  // A turn the agent started itself, e.g. woken by a background job it left
+  // running: it runs like a sent one (status, interrupt, messages queue behind
+  // it), with the provider's notice where a prompt would be.
+  private startOwnTurn(id: string, l: Live, notice?: string) {
+    l.turnId = randomUUID();
+    l.turn = [];
+    l.answers = 0;
+    l.steered = [];
+    l.lastReply = null;
+    l.prompt = null;
+    l.turnStartedAt = Date.now();
+    this.emit(id, { type: "turnStarted", turnId: l.turnId });
+    if (notice) this.emit(id, { type: "item", item: { kind: "notice", id: `wake:${l.turnId}`, level: "info", text: notice } });
+    this.statusChanged(id);
+  }
+
   private openSession(a: StoredAgent, l: Live) {
     if (!l.session) {
       // Providers fail asynchronously (and silently) in a missing cwd; refuse up front.
@@ -615,6 +631,9 @@ export class AgentManager {
       case "usage":
         l.lastUsage = { ...l.lastUsage, ...e.usage };
         this.emit(id, { type: "usage", usage: l.lastUsage });
+        return;
+      case "turnStarted":
+        if (!l.turnId) this.startOwnTurn(id, l, e.notice);
         return;
       case "turnEnded":
         if (e.turnId !== undefined && e.turnId !== l.turnId) return;

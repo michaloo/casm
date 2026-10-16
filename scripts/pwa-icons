@@ -29,4 +29,13 @@ done
 magick "$icon_tmp/full-bleed.png" -resize "180x180" \
   -alpha remove -alpha off -strip -define png:exclude-chunks=date,time \
   "PNG24:$repo_root/packages/web/public/apple-touch-icon.png"
-# Maskable icons deliberately keep their existing safe-zone padding.
+# Maskable icons (macOS Safari uses them for Dock apps from secure origins):
+# the same full-bleed background, with the artwork scaled into the central 80%
+# safe zone. No baked inner tile: that showed as a margin in the Dock.
+for size in 192 512; do
+  inner=$((size * 80 / 100))
+  magick "$icon_tmp/full-bleed.png" -resize "${inner}x${inner}" \
+    -background '#fffaf4' -gravity center -extent "${size}x${size}" \
+    -alpha remove -alpha off -strip -define png:exclude-chunks=date,time \
+    "PNG24:$repo_root/packages/web/public/icon-maskable-${size}.png"
+done

@@ -20,7 +20,7 @@ test("PWA mobile manifest, Apple metadata and opaque install icons", async ({ pa
   const manifest = await response.json();
   expect(manifest).toMatchObject({ id: "/", name: "casm", short_name: "casm", display: "standalone", start_url: "/", scope: "/", theme_color: "#fffaf4", background_color: "#fffaf4" });
   for (const purpose of ["any", "maskable"]) for (const size of [192, 512]) expect(manifest.icons).toContainEqual(expect.objectContaining({ purpose, sizes: `${size}x${size}`, type: "image/png" }));
-  for (const icon of [{ src: "/apple-touch-icon.png", sizes: "180x180" }, ...manifest.icons]) {
+  for (const icon of [{ src: "/apple-touch-icon.png?v=2", sizes: "180x180" }, ...manifest.icons]) {
     const result = await page.evaluate(async src => {
       const image = new Image(); image.src = src; await image.decode();
       const canvas = document.createElement("canvas"); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
@@ -31,10 +31,15 @@ test("PWA mobile manifest, Apple metadata and opaque install icons", async ({ pa
       const w = canvas.width - 1, h = canvas.height - 1;
       const corners = [[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => pixel(x, y));
       const edges = [[w / 2, 0], [0, h / 2], [w, h / 2], [w / 2, h]].map(([x, y]) => pixel(x, y));
-      return { sizes: `${canvas.width}x${canvas.height}`, opaque, corners, edges };
+      // Just inside the edges, where a baked inner tile's border would be.
+      const inset = [[0.12, 0.12], [0.88, 0.12], [0.12, 0.88], [0.88, 0.88], [0.5, 0.12]].map(([x, y]) => pixel(Math.round(w * x), Math.round(h * y)));
+      return { sizes: `${canvas.width}x${canvas.height}`, opaque, corners, edges, inset };
     }, icon.src);
     expect(result).toMatchObject({ sizes: icon.sizes, opaque: true });
-    if (icon.purpose === "any") {
+    {
+      // Every icon is full bleed, maskable and Apple touch included (macOS Safari
+      // uses maskable icons for Dock apps): no baked tile shows as a margin.
+      expect(result.inset).toEqual(Array(5).fill([255, 250, 244, 255]));
       // Check edges too: the old rounded gradient tile already had cream corners.
       expect(result.corners).toEqual(Array(4).fill([255, 250, 244, 255]));
       expect(result.edges).toEqual(Array(4).fill([255, 250, 244, 255]));

@@ -1,10 +1,22 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import { openAgents } from "./phone.ts";
 
 test.use({ isMobile: true, hasTouch: true });
+
+// Wait until the scroller's position and height hold still for several frames (virtualised rows mount late under load).
+const settle = (scroller: Locator) => scroller.evaluate((el) => new Promise<void>((resolve) => {
+  let last = "", stable = 0;
+  const tick = () => {
+    const now = `${el.scrollTop}/${el.scrollHeight}/${document.querySelectorAll(".item").length}`;
+    stable = now === last ? stable + 1 : 0;
+    last = now;
+    if (stable >= 5) resolve(); else requestAnimationFrame(tick);
+  };
+  tick();
+}));
 
 // Nothing may widen the page: wide content scrolls inside its own box.
 async function expectFits(page: Page, view: string) {
@@ -53,7 +65,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 360, height: 780 }
     }).toBe(true);
     let expanded = false;
     for (let step = 0; step < 40; step++) {
-      await page.waitForTimeout(60);
+      await settle(scroller);
       const tool = page.locator(".tool summary").first();
       const toolBox = !expanded && await tool.isVisible() ? await tool.boundingBox() : null;
       const scrollBox = (await scroller.boundingBox())!;

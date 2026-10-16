@@ -20,14 +20,14 @@ for (const width of [1440, 375]) test(`host and project modals open from ⋯ at 
   if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
   const nav = page.getByRole("navigation", { name: "Agents" });
 
-  // Host: ⋯ opens the modal straight on Usage; tabs are Usage · AGENTS.md · System Prompt · Notifications.
+  // Host: ⋯ opens the modal straight on Usage; tabs are Usage · Resources · AGENTS.md · System Prompt · Notifications.
   const hostOptions = nav.getByRole("button", { name: "Host options for Test host", exact: true });
   await hostOptions.click();
   await expect(page.getByRole("menu")).toHaveCount(0);
   const host = page.getByRole("dialog", { name: "Test host host" });
   await expect(host).toBeVisible();
   const hostTabs = host.getByRole("navigation").getByRole("button");
-  await expect(hostTabs).toHaveText(["Usage", "AGENTS.md", "System Prompt", "Notifications"]);
+  await expect(hostTabs).toHaveText(["Usage", "Resources", "AGENTS.md", "System Prompt", "Notifications"]);
   await expect(host.getByRole("region", { name: "Usage" })).toBeVisible();
   await sheetFits(host, width);
   await hostTabs.filter({ hasText: "AGENTS.md" }).click();

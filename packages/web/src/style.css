@@ -2888,3 +2888,15 @@ footer .sign-out:hover { color: var(--text); }
   .host-settings .settings-context .copy-path { min-height: 44px; padding: 0 12px; }
   .host-settings .settings-head-actions button.compact { min-height: 44px; }
 }
+
+/* Host row: CPU and RAM mini bars beside the fold chevron (amber from 80%, red from 95%).
+   The slot is always reserved so the row never shifts when they appear. */
+nav .host-meter { flex: 0 0 14px; display: flex; align-items: center; justify-content: center; gap: 2px; width: 14px; height: 28px; padding: 0; border: 0; border-radius: 5px; background: none; }
+nav .host-meter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.host-meter-bar { position: relative; display: flex; align-items: flex-end; width: 3px; height: 12px; border-radius: 1.5px; background: color-mix(in srgb, var(--line-strong) 24%, transparent); overflow: hidden; }
+.host-meter-bar > span { display: block; width: 100%; min-height: 1px; border-radius: inherit; background: color-mix(in srgb, var(--accent-bright) 80%, var(--muted)); transition: height 0.3s var(--ease); }
+.host-meter-bar.high > span { background: var(--warning); }
+.host-meter-bar.full > span { background: var(--attention-bright); }
+nav .host-meter:hover .host-meter-bar { background: color-mix(in srgb, var(--line-strong) 40%, transparent); }
+@media (max-width: 650px) { nav .host-meter { flex-basis: 18px; width: 18px; height: 44px; } .host-meter-bar { height: 14px; } }
+@media (prefers-reduced-motion: reduce) { .host-meter-bar > span { transition: none; } }

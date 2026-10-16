@@ -14,8 +14,8 @@ import { agentRecentKey, rankEntries, readRecent, type SearchEntry, type Launche
 export type LauncherAction =
   | { kind: "project"; host: Host; project: Project; section?: ProjectSection }
   | { kind: "new-project"; host: Host }
-  | { kind: "host"; host: Host; section?: "usage" | "agents-md" | "system-prompt" };
-type Icon = "folder" | "plus" | "schedules" | "usage" | "instructions" | "options";
+  | { kind: "host"; host: Host; section?: "usage" | "resources" | "agents-md" | "system-prompt" };
+type Icon = "folder" | "plus" | "schedules" | "usage" | "resources" | "instructions" | "options";
 type Entry = SearchEntry & {
   host: Host; icon?: Icon; parts: string[]; agent?: Agent; project?: Project; status?: string;
   action?: LauncherAction; selection?: Selection; alternate?: LauncherAction | Selection; empty?: boolean;
@@ -30,6 +30,7 @@ function LauncherGlyph({ icon }: { icon: Icon }) {
     {icon === "plus" && <path d="M10 4.5v11M4.5 10h11" />}
     {icon === "schedules" && <><circle cx="10" cy="10" r="7" /><path d="M10 6v4l2.75 1.75" /></>}
     {icon === "usage" && <path d="M3.5 16.25h13M5.75 13v-2.5M10 13V6.5M14.25 13V9" />}
+    {icon === "resources" && <path d="M2.75 10.5h3l2-5 4 9.5 2-4.5h3.5" />}
     {icon === "instructions" && <><path d="M5.25 2.75h6.5l3 3v11.5h-9.5Z" /><path d="M8 9.5h4.5M8 12.5h4.5" /></>}
     {icon === "options" && <><circle cx="10" cy="10" r="2.25" /><path d="M10 2.75v2M10 15.25v2M2.75 10h2M15.25 10h2M4.9 4.9l1.4 1.4M13.7 13.7l1.4 1.4M4.9 15.1l1.4-1.4M13.7 6.3l1.4-1.4" /></>}
   </svg>;
@@ -110,7 +111,7 @@ export function Launcher({ hosts, models, online, current, choose, action, close
       const hostParts = [host.name];
       const empty = host === home;
       result.push({ id: `new-project:${host.id}`, group: "Actions", title: "New project", parts: hostParts, subtitle: host.name, icon: "plus", host, empty, action: { kind: "new-project", host } });
-      for (const [section, title, icon] of [["usage", "Host usage", "usage"], ["agents-md", "Host AGENTS.md", "instructions"], ["system-prompt", "System Prompt", "instructions"]] as const)
+      for (const [section, title, icon] of [["usage", "Host usage", "usage"], ["resources", "Host resources", "resources"], ["agents-md", "Host AGENTS.md", "instructions"], ["system-prompt", "System Prompt", "instructions"]] as const)
         result.push({ id: `${section}:${host.id}`, group: "Actions", title, parts: hostParts, subtitle: host.name, icon, host, action: { kind: "host", host, section } });
     }
     return result;

@@ -73,7 +73,7 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   expect(options.filter(text => text.startsWith("New project"))).toEqual(["New projectTest host"]);
   // Schedules are the open chat's project's.
   expect(options.filter(text => text.startsWith("Schedules"))).toEqual(["SchedulesTest projectTest host"]);
-  expect(options.some(text => /^(Project options|Host usage|Host AGENTS\.md|System Prompt)/.test(text))).toBe(false);
+  expect(options.some(text => /^(Project options|Host usage|Host resources|Host AGENTS\.md|System Prompt)/.test(text))).toBe(false);
   await input.press("Tab");
   await expect(dialog.getByRole("option", { selected: true })).toContainText(/Agent 01|Agent 03/);
   await page.waitForTimeout(150);

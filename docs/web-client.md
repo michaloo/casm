@@ -60,7 +60,7 @@ strongest match comes first.
 
 Enter on a project starts a new-agent draft there. Actions (each with its host
 as secondary text) open **New project**, **Schedules**, **Host usage**, **Host
-AGENTS.md**, **System Prompt** and **Project options**. With no current project
+resources**, **Host AGENTS.md**, **System Prompt** and **Project options**. With no current project
 on a host, its projects get one **Schedules: ‹project›** entry each. The existing settings dialogs retain
 their own keyboard focus and unsaved edit guards; close them before opening the
 launcher again. Theme continues to follow the system preference, so there is no
@@ -78,7 +78,13 @@ other agents created are nested under their parent, also across hosts.
 ![an agent that split its work across agents on two hosts](media/web-orchestration.png)
 
 - **Host options** (⋯ next to a host) opens the host's window: Usage,
-  AGENTS.md, System Prompt and Notifications.
+  Resources, AGENTS.md, System Prompt and Notifications.
+- **Mini bars** (two thin bars before a host's chevron) show its CPU and RAM,
+  filling from the bottom: amber from 80%, red from 95%. Hover for the numbers
+  (`CPU 42% · RAM 6.5 of 16.0 GB`); click to open **Resources**. Every online
+  host is read every 30 s (peers through their forwarding), paused while the
+  page is hidden. Offline hosts and older hosts without `host.stats` show
+  none; their space stays reserved, so the row never shifts.
 - **New project** (+ next to a host) registers a folder on that host.
 - **Project options** (⋯ next to a project) opens the project's window:
   AGENTS.md, Memories and Schedules, with the path (Copy), host and group under the
@@ -143,12 +149,15 @@ Both also work from the CLI and MCP; whichever answers first wins.
 
 ## Usage and limits
 
-**Host options → Usage** opens with a Host card: CPU %, load (1/5/15 min, amber
-when the 1-minute load exceeds the core count), RAM and swap, refreshed every 10 s
-while the tab is open. RAM is what is in use beyond what could be freed without
-swapping (Linux `MemAvailable`; macOS free + inactive + speculative pages). Below
-it, each provider's subscription windows, how much
-is used and when they reset. Per-agent context use and cost are in the CLI
+**Host options → Usage** lists each provider's subscription windows, how much
+is used and when they reset.
+
+**Host options → Resources** (or a click on the host's mini bars) shows the
+host's CPU %, load (1/5/15 min, amber when the 1-minute load exceeds the core
+count), RAM and swap, refreshed every 10 s while the tab is open; it shares its
+readings with the mini bars, so nothing is read twice. RAM is what is in use
+beyond what could be freed without swapping (Linux `MemAvailable`; macOS free +
+inactive + speculative pages). Per-agent context use and cost are in the CLI
 (`casm usage`, `casm agents --usage`).
 
 ![provider limits per host](media/web-usage.png)

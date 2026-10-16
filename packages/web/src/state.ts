@@ -11,6 +11,7 @@ import type {
   QuestionRequest,
   Project,
 } from "@casm/protocol";
+import { holdImage } from "./image-preview";
 export type Chat = {
   expanded?: Record<string, boolean>;
   failed?: boolean;
@@ -41,6 +42,9 @@ export type Chat = {
   cachedAt?: number;
   // The offline copy was looked up (whether or not it had this chat).
   cacheRead?: boolean;
+  // Its transcript was dropped from memory (see leave()); live rows are
+  // ignored until it is loaded again.
+  evicted?: boolean;
 };
 export type Host = {
   id: string;
@@ -83,6 +87,44 @@ export async function syncPending(c: Chat, read: () => Promise<{ messages: Pendi
   c.pending = result.messages;
   return true;
 }
+// Transcripts kept in memory besides the open one: switching back to these is
+// instant. Older ones are dropped and read again (offline copy, then server)
+// when reopened, so a long session with many chats stays bounded.
+export const RECENT_CHATS = 4;
+const recent: string[] = [];
+// Opens `k`; returns the chats that fell out of the recent ones, to drop with
+// evict(). One that is loading or sending stays until it is done.
+export function leave(k: string, keep = RECENT_CHATS): string[] {
+  const at = recent.indexOf(k);
+  if (at >= 0) recent.splice(at, 1);
+  recent.unshift(k);
+  const out: string[] = [];
+  for (let i = keep + 1; i < recent.length; i++) {
+    const c = chats.get(recent[i]);
+    if (c && (c.loading || c.inFlight?.size || c.outbox?.length)) continue;
+    out.push(...recent.splice(i--, 1));
+  }
+  return out;
+}
+export function evict(c: Chat) {
+  c.items = [];
+  c.start = 0;
+  c.loaded = false;
+  c.evicted = true;
+  c.draft = "";
+  c.reasoning = "";
+  c.scroll = undefined;
+  c.atBottom = undefined;
+  c.cachedAt = undefined;
+  c.cacheRead = false;
+  // Kept for rows reloaded later; only the newest are worth keeping.
+  if (c.toolTimes) c.toolTimes = Object.fromEntries(Object.entries(c.toolTimes).slice(-200));
+}
+// Items as kept in memory: inline image data moves into Blobs.
+export function hold<T extends Item>(item: T): T {
+  if ((item.kind !== "user" && item.kind !== "tool") || !item.images?.some((i) => i.data)) return item;
+  return { ...item, images: item.images.map(holdImage) };
+}
 // Keep unconfirmed immediate sends across a reconnect snapshot. History and
 // pending rows take precedence; confirmed live events are replayed afterwards.
 export function replaceHistory(c: Chat, items: Item[]) {
@@ -93,18 +135,21 @@ export function replaceHistory(c: Chat, items: Item[]) {
 export function event(c: Chat, e: AgentEvent, replay = false) {
   if (e.type === "turnStarted") c.failed = false;
   if (e.type === "turnEnded") c.failed = e.outcome === "failed";
+  // A dropped transcript reads its history again when reopened.
+  if (c.evicted && (e.type === "item" || e.type === "delta" || e.type === "toolOutput")) return;
   if (e.type === "item") {
-    if (e.item.kind === "tool" && !replay) {
+    const item = hold(e.item);
+    if (item.kind === "tool" && !replay) {
       const times = (c.toolTimes ??= {});
-      if (e.item.status === "running")
-        times[e.item.id] ??= { start: Date.now() };
-      else if (times[e.item.id]) times[e.item.id].end ??= Date.now();
+      if (item.status === "running")
+        times[item.id] ??= { start: Date.now() };
+      else if (times[item.id]) times[item.id].end ??= Date.now();
     }
-    const i = c.items.findIndex((x) => x.id === e.item.id);
-    if (i < 0) c.items.push(e.item);
-    else c.items[i] = e.item;
-    if (e.item.kind === "assistant") c.draft = "";
-    if (e.item.kind === "reasoning") c.reasoning = "";
+    const i = c.items.findIndex((x) => x.id === item.id);
+    if (i < 0) c.items.push(item);
+    else c.items[i] = item;
+    if (item.kind === "assistant") c.draft = "";
+    if (item.kind === "reasoning") c.reasoning = "";
   }
   if (e.type === "delta") {
     if (e.kind === "assistant") c.draft += e.text;

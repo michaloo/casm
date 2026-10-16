@@ -32,7 +32,12 @@ test("pasted image draft follows its agent, reloads and sends without text", asy
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.locator("form img")).toHaveCount(0);
   await expect(page.locator(".item.user img").last()).toBeVisible();
-  expect(await page.locator(".item.user img").last().getAttribute("src")).toBe(`data:image/png;base64,${png}`);
+  // Shown from a Blob holding the same bytes, not a base64 data URL.
+  await expect(page.locator(".item.user img").last()).toHaveAttribute("src", /^blob:/);
+  expect(await page.locator(".item.user img").last().evaluate(async (img: HTMLImageElement) => {
+    const bytes = new Uint8Array(await (await fetch(img.src)).arrayBuffer());
+    return btoa(String.fromCharCode(...bytes));
+  })).toBe(png);
 });
 test("failed image send retains draft and removable preview", async ({ page }) => {
   await login(page);

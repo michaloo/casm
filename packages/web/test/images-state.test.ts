@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 // Load the state reducer without the browser WebSocket client.
 const source = readFileSync(new URL("../src/state.ts", import.meta.url), "utf8");
-const output = stripTypeScriptTypes(source.slice(0, source.indexOf("export class Rpc")));
+// Its one local import resolves to the source file.
+const output = stripTypeScriptTypes(source.slice(0, source.indexOf("export class Rpc")))
+  .replace('"./image-preview"', JSON.stringify(new URL("../src/image-preview.ts", import.meta.url).href));
 const { chat, chats, event } = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
 test("snapshot replay does not fabricate completed tool durations", () => {
   chats.delete("image-timing");

@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 // State-only module, without the browser RPC client's Vite environment.
 const source = readFileSync(new URL("../src/state.ts", import.meta.url), "utf8");
-const output = stripTypeScriptTypes(source.slice(0, source.indexOf("export class Rpc")));
+// Its one local import resolves to the source file.
+const output = stripTypeScriptTypes(source.slice(0, source.indexOf("export class Rpc")))
+  .replace('"./image-preview"', JSON.stringify(new URL("../src/image-preview.ts", import.meta.url).href));
 const { chat, syncPending, replaceHistory, event } = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
 
 test("an older history/notification snapshot cannot erase a newer pending queue", async () => {

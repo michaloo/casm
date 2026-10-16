@@ -467,7 +467,7 @@ export function Images({ images, remove, name = "message", rendered }: { images:
   const sources = images.map(imageSource);
   const show = (index: number) => {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const valid = sources.flatMap((src, i) => src && !failed.has(i) ? [{ src, name: `${name.replace(/[^a-z0-9_-]/gi, "-")}-${stamp}-${i + 1}.${images[i].mediaType.split("/")[1].toLowerCase()}` }] : []);
+    const valid = sources.flatMap((src, i) => src && !failed.has(i) ? [{ src, image: images[i], name: `${name.replace(/[^a-z0-9_-]/gi, "-")}-${stamp}-${i + 1}.${images[i].mediaType.split("/")[1].toLowerCase()}` }] : []);
     open?.({ images: valid, index: sources.slice(0, index).filter((src, i) => src && !failed.has(i)).length });
   };
   return <div className="image-attachments">

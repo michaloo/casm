@@ -153,6 +153,18 @@ A pending message has a **reason**:
   and holds the queue until you **retry** or **cancel** it, so nothing is
   silently lost or reordered.
 
+**Turns the agent starts itself.** An agent can leave work running in the
+background and end its turn: a background Bash or Monitor in Claude, a
+background subagent in Claude or OpenCode, an extension's trigger in pi. When
+that work reports back, the provider starts a turn on its own. casm runs it as
+a normal turn: the status goes to `running`, a notice such as "Woken by a
+background task: …" stands where a prompt would be, the reply streams into the
+chat, and permissions, questions and interrupt work as usual. A message sent
+meanwhile queues behind it (or steers in with `--steer`), and goes next.
+A message sent the moment before such a turn starts may share a turn with it:
+the provider decides. See [Background jobs](providers.md#background-jobs) for
+what each provider supports.
+
 Pending messages are stored in SQLite and survive a server restart. A running
 turn does not: the provider process ends with the server.
 

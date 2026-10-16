@@ -683,6 +683,11 @@ class OpencodeSession implements ProviderSession {
   // Bumped when a turn ends, so a late HTTP failure of a finished turn is ignored.
   private turnSeq = 0;
   private casmTurnId?: string;
+  // casm sent the running (or starting) turn. OpenCode also runs the session
+  // itself, when a background task reports back: that goes busy without it.
+  private owned = false;
+  // The background task end reported just before such a turn, for its notice.
+  private wakeReason: string | null = null;
   private sawBusy = false;
   // The running turn is a user shell command (its tool part is the command).
   private shellTurn = false;
@@ -812,6 +817,7 @@ class OpencodeSession implements ProviderSession {
         if (end && task?.status === "running") {
           const done = backgroundEnd(task, end);
           this.tasks.set(task.id, done);
+          if (!this.owned) this.wakeReason = `${done.title} ${end.state === "error" ? "failed" : "finished"}`;
           this.emit({ type: "item", item: done });
           return;
         }
@@ -860,7 +866,11 @@ class OpencodeSession implements ProviderSession {
       }
       case "session.status": {
         const status = p.status as { type: string; attempt?: number; message?: string; next?: number };
-        if (status.type === "busy") (this.busy = true), (this.sawBusy = true);
+        if (status.type === "busy") {
+          if (!this.busy && !this.owned) this.ownTurn();
+          this.busy = true;
+          this.sawBusy = true;
+        }
         else if (status.type === "idle" && this.busy) this.endTurn();
         else if (status.type === "retry") {
           this.sawBusy = true;
@@ -917,8 +927,18 @@ class OpencodeSession implements ProviderSession {
     }
   }
 
+  // A turn OpenCode started itself: adopt it, so it ends without a turnId.
+  private ownTurn() {
+    this.owned = true;
+    this.casmTurnId = undefined;
+    const reason = this.wakeReason;
+    this.wakeReason = null;
+    this.emit({ type: "turnStarted", notice: reason ? `Woken by a background task: ${reason}` : "OpenCode started a turn on its own" });
+  }
+
   private endTurn() {
     const turnId = this.casmTurnId;
+    this.owned = false;
     const interrupted = this.interrupted;
     const error = this.error;
     this.busy = false;
@@ -941,6 +961,8 @@ class OpencodeSession implements ProviderSession {
 
   send(text: string, itemId: string, images?: ImageData[], turnId?: string) {
     this.casmTurnId = turnId;
+    this.owned = true;
+    this.wakeReason = null;
     const { config, cwd } = this.opts;
     const seq = this.turnSeq;
     const files = imageParts(images);
@@ -982,6 +1004,7 @@ class OpencodeSession implements ProviderSession {
   private sendFailed(seq: number, e: unknown, turnId?: string) {
     if (this.closed || seq !== this.turnSeq || this.sawBusy) return;
     this.busy = false;
+    this.owned = false;
     this.shellTurn = false;
     this.turnSeq++;
     this.emit({ type: "turnEnded", outcome: "failed", error: e instanceof Error ? e.message : String(e), ...(turnId ? { turnId } : {}) });
@@ -993,6 +1016,7 @@ class OpencodeSession implements ProviderSession {
   // item id is the tool part's.
   shell(command: string, _itemId: string, turnId?: string) {
     this.casmTurnId = turnId;
+    this.owned = true;
     const { config, cwd } = this.opts;
     const seq = this.turnSeq;
     this.shellTurn = true;

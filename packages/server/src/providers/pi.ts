@@ -689,6 +689,8 @@ class PiSession implements ProviderSession {
         if (m.role === "user") {
           const itemId = this.sentUserIds.shift();
           if (itemId && m.timestamp !== undefined) emit({ type: "userMessageId", itemId, nativeId: `pi:${m.timestamp}` });
+          // An extension's sendUserMessage: nobody else shows it.
+          if (!itemId && this.running && !this.casmTurnId) for (const item of normalize(m, this.tools)) emit({ type: "item", item });
           return;
         }
         if (m.role === "assistant") {
@@ -773,6 +775,16 @@ class PiSession implements ProviderSession {
         else if (ev.type === "thinking_delta") emit({ type: "delta", kind: "reasoning", text: ev.delta ?? "" });
         return;
       }
+      case "agent_start":
+        // A run nobody sent: an extension started it (sendMessage with
+        // triggerTurn, sendUserMessage) while idle. Adopt it.
+        if (!this.running) {
+          this.running = true;
+          this.casmTurnId = undefined;
+          this.turnAbort = new AbortController();
+          emit({ type: "turnStarted", notice: "A pi extension started a turn" });
+        }
+        return;
       case "agent_settled":
         this.endTurn(r.aborted === true || this.interrupted ? "interrupted" : this.lastError ? "failed" : "completed", this.lastError);
         return;

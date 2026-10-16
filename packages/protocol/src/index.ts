@@ -362,7 +362,7 @@ export type ProviderLimits = z.infer<typeof ProviderLimits>;
 
 // A light read of this host's load, for spotting an overloaded, slow host.
 export const HostStats = z.object({
-  // Busy share of all cores since the previous sample (0-100); null until two samples exist.
+  // Busy share of all cores (0-100) since the previous call, or over a ~250 ms sample when there was none in the last minute.
   cpuPercent: z.number().nullable(),
   cores: z.number().int(),
   // 1/5/15-minute load average; null on Windows.
@@ -546,7 +546,7 @@ export const methods = {
     HostAgentsMdFile,
   ),
 
-  // Read-only CPU, load and memory of this host, sampled in the background.
+  // Read-only CPU, load and memory of this host, read on demand (nothing runs between calls).
   "host.stats": method(Empty, HostStats),
 
   "server.info": method(

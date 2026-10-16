@@ -1,4 +1,4 @@
-// CPU, load and memory of this host, sampled in the background so a call returns at once.
+// CPU, load and memory of this host, read on demand.
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { availableParallelism, cpus, freemem, loadavg, platform, totalmem, uptime, type CpuInfo } from "node:os";
@@ -63,30 +63,34 @@ async function readMemory(): Promise<Memory> {
   return { total, available: freemem(), swap: null };
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Reads everything on demand, so nothing runs while nobody asks. CPU is the delta since the previous call. */
 export class HostSampler {
-  private prev: Times = cpuTimes(cpus());
+  // Without a snapshot from the last minute, a call samples twice, this far apart.
+  static readonly STALE_MS = 60_000;
+  static readonly GAP_MS = 250;
+  private prev: { times: Times; at: number } | null = null;
   private cpu: number | null = null;
-  private memory: Memory = { total: totalmem(), available: freemem(), swap: null };
-  private at = Date.now();
 
-  constructor(intervalMs = 5000) {
-    void this.sample();
-    setInterval(() => void this.sample(), intervalMs).unref();
+  private async measureCpu(): Promise<number | null> {
+    const now = Date.now();
+    let prev = this.prev;
+    if (!prev || now - prev.at > HostSampler.STALE_MS) {
+      prev = { times: cpuTimes(cpus()), at: Date.now() };
+      await sleep(HostSampler.GAP_MS);
+    } else if (now - prev.at < HostSampler.GAP_MS) return this.cpu; // too short a window to mean anything
+    const times = cpuTimes(cpus());
+    this.cpu = cpuPercent(prev.times, times) ?? this.cpu;
+    this.prev = { times, at: Date.now() };
+    return this.cpu;
   }
 
-  private async sample() {
-    const next = cpuTimes(cpus());
-    this.cpu = cpuPercent(this.prev, next) ?? this.cpu;
-    this.prev = next;
-    this.memory = await readMemory();
-    this.at = Date.now();
-  }
-
-  read(runningAgents: number): HostStats {
-    const { total, available, swap } = this.memory;
+  async read(runningAgents: number): Promise<HostStats> {
+    const [cpu, { total, available, swap }] = await Promise.all([this.measureCpu(), readMemory()]);
     const load = loadavg();
     return {
-      cpuPercent: this.cpu,
+      cpuPercent: cpu,
       cores: availableParallelism(),
       loadAverage: platform() === "win32" ? null : [load[0]!, load[1]!, load[2]!],
       memory: { total, available, used: Math.max(0, total - available) },
@@ -94,7 +98,7 @@ export class HostSampler {
       uptimeSeconds: Math.round(uptime()),
       processRss: process.memoryUsage.rss(),
       runningAgents,
-      sampledAt: new Date(this.at).toISOString(),
+      sampledAt: new Date().toISOString(),
     };
   }
 }

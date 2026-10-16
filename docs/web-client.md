@@ -144,7 +144,7 @@ Both also work from the CLI and MCP; whichever answers first wins.
 ## Usage and limits
 
 **Host options → Usage** opens with a Host card: CPU %, load (1/5/15 min, amber
-when the 1-minute load exceeds the core count), RAM and swap, refreshed every 5 s
+when the 1-minute load exceeds the core count), RAM and swap, refreshed every 10 s
 while the tab is open. RAM is what is in use beyond what could be freed without
 swapping (Linux `MemAvailable`; macOS free + inactive + speculative pages). Below
 it, each provider's subscription windows, how much

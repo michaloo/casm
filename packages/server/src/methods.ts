@@ -103,7 +103,7 @@ export function createHandlers(
 
   const sampler = new HostSampler();
   return {
-    "host.stats": () => sampler.read(agents.runningCount()),
+    "host.stats": async () => await sampler.read(agents.runningCount()),
     "host.agentsMd": async () => ({ files: await hostAgentsMd() }),
     "host.setAgentsMd": (p) => setHostAgentsMd(p.path, p.content, p.expectedSha256),
     "server.agentPrompt": (p) => agentPromptInfo(agents.agentPrompt.state(), p.agentId),

@@ -14,8 +14,9 @@ import { agentRecentKey, rankEntries, readRecent, type SearchEntry, type Launche
 export type LauncherAction =
   | { kind: "project"; host: Host; project: Project; section?: ProjectSection }
   | { kind: "new-project"; host: Host }
-  | { kind: "host"; host: Host; section?: "usage" | "resources" | "agents-md" | "system-prompt" };
-type Icon = "folder" | "plus" | "schedules" | "usage" | "resources" | "instructions" | "options";
+  | { kind: "host"; host: Host; section?: "usage" | "resources" | "agents-md" | "system-prompt" }
+  | { kind: "find"; host: Host };
+type Icon = "find" | "folder" | "plus" | "schedules" | "usage" | "resources" | "instructions" | "options";
 type Entry = SearchEntry & {
   host: Host; icon?: Icon; parts: string[]; agent?: Agent; project?: Project; status?: string;
   action?: LauncherAction; selection?: Selection; alternate?: LauncherAction | Selection; empty?: boolean;
@@ -29,6 +30,7 @@ export function CloseGlyph() {
 /** Line glyphs drawn like the sidebar's server glyph: 20px box, 1.5 stroke. */
 function LauncherGlyph({ icon }: { icon: Icon }) {
   return <svg className="launcher-glyph" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+    {icon === "find" && <><path d="M3.5 5h13M3.5 9h6M3.5 13h4" /><circle cx="13.25" cy="12.75" r="3" /><path d="m15.5 15 2 2" /></>}
     {icon === "folder" && <path d="M2.75 5.5c0-.97.78-1.75 1.75-1.75h3.2l1.8 2h6c.97 0 1.75.78 1.75 1.75v6.75c0 .97-.78 1.75-1.75 1.75H4.5c-.97 0-1.75-.78-1.75-1.75Z" />}
     {icon === "plus" && <path d="M10 4.5v11M4.5 10h11" />}
     {icon === "schedules" && <><circle cx="10" cy="10" r="7" /><path d="M10 6v4l2.75 1.75" /></>}
@@ -104,6 +106,10 @@ export function Launcher({ hosts, models, online, current, choose, action, close
         result.push({ id: `options:${base}`, group: "Actions", title: "Project options", parts: options, subtitle: options.join(" · "), icon: "options", host, project,
           action: { kind: "project", host, project } });
       }
+      // Find in the open chat: first among its actions (the only way in without ⌘F).
+      const open = host.id === current?.host && current.id ? host.agents.find(agent => agent.id === current.id) : undefined;
+      if (open) result.push({ id: `find:${host.id}\n${open.id}`, group: "Actions", title: "Find in chat", parts: [open.name], subtitle: open.name, icon: "find", host,
+        empty: true, action: { kind: "find", host } });
       // Schedules belong to a project: the open chat's or draft's, else one entry per project.
       const here = host.id === current?.host ? projects.get(current.project) : undefined;
       for (const project of here ? [here] : projects.values()) {
@@ -267,6 +273,8 @@ export function LauncherDestination({ target, rpc, online, choose, created, clos
     initialSection={target.section} close={close}
     newAgent={() => { close(); choose({ host: host.id, project: target.project.id }); }}
     openAgent={agent => { close(); choose({ host: host.id, project: agent.projectId, id: agent.id }); }} />;
+  // The app opens its find bar itself.
+  if (target.kind === "find") return null;
   return <HostSettings host={host.id} name={host.name} state={available ? "online" : "offline"} online={available} rpc={rpc}
     initialSection={target.section} close={close} />;
 }

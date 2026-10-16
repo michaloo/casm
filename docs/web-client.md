@@ -59,7 +59,7 @@ strongest match comes first.
 - **Escape**, **Cancel** on phones, or a click outside the desktop panel closes it.
 
 Enter on a project starts a new-agent draft there. Actions (each with its host
-as secondary text) open **New project**, **Schedules**, **Host usage**, **Host
+as secondary text) open **Find in chat** (with a chat open), **New project**, **Schedules**, **Host usage**, **Host
 resources**, **Host AGENTS.md**, **System Prompt** and **Project options**. With no current project
 on a host, its projects get one **Schedules: ‹project›** entry each. The existing settings dialogs retain
 their own keyboard focus and unsaved edit guards; close them before opening the
@@ -128,6 +128,36 @@ While a turn runs, the composer offers three buttons:
 | **Interrupt** | | Stops the turn; the queue continues with its next message. |
 
 ![sending a message, then steering the running turn](media/web-send-steer.gif)
+
+## Find in chat
+
+**⌘F / Ctrl+F** in an open chat opens a find bar over the top of the
+transcript (on phones: the **Find in chat** button in the chat header, or
+**Find in chat** in the launcher; there it sits above the composer, clear of
+the keyboard). The browser's own find can't do this: the transcript loads in
+pages and renders only the rows near the screen.
+
+The search runs on the agent's host (`agent.find`) over the **whole**
+history: sessions before a `/restart`, message text, Thinking, tool inputs and
+outputs, subagents, plans and notices. It is a substring match, case-insensitive
+unless the query has a capital letter. A filter narrows it to messages, tools
+or Thinking.
+
+- The bar counts **N of M** in time order and starts at the newest match.
+  **Enter** (or ↑) goes to the next older match, **Shift+Enter** (or ↓) to the
+  next newer one; both wrap around. Past 500 matches, the newest 500 can be
+  stepped through.
+- **Escape** or ✕ closes it and puts the focus back where it was.
+- Matches are highlighted in place (amber; the current one solid), without
+  changing the rows. A match inside a collapsed tool call, Thinking row,
+  clamped text or long output opens it.
+- A match in a part of the history that isn't loaded yet shows a **window**
+  of about 100 entries around it, instead of loading everything in between.
+  Scrolling up loads older pages there; scrolling down (or **Load newer
+  messages**) loads newer ones until the window joins the live end. Meanwhile
+  the chat doesn't follow new output: **Latest ↓** goes back to the end.
+
+![find in chat: a match in Thinking from a page not loaded yet](media/web-find-light.png)
 
 ## The queue
 

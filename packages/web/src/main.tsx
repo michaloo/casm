@@ -53,6 +53,8 @@ import { NewAgentKeys, NewAgentWelcome } from "./new-agent";
 import { SignOut } from "./sign-out";
 import { DeviceSettings } from "./device-settings";
 import { readChatMemory, recentChats, writeChatMemory, type ChatMemory } from "./chat-memory";
+import { FindBar, FindGlyph, findPattern, revealMatch, useFindHighlights, type FindState } from "./find-in-chat";
+import { pageAround, shownIndex, showPage, windowNewer, windowOlder, WINDOW_PAGE } from "./find-window";
 import "./fonts/fonts.css";
 import "./style.css";
 // Same threshold the server uses for a slow peer probe.
@@ -82,6 +84,9 @@ function App() {
   const [entry, setEntry] = useState("");
   const [launcher, setLauncher] = useState(false);
   const [launcherAction, setLauncherAction] = useState<LauncherAction>();
+  // Find in chat, for the chat `key`; `focus` changes to focus its input again.
+  const [find, setFind] = useState<{ key: string; focus: number; state: FindState }>();
+  const findReturn = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "k") return;
@@ -494,6 +499,31 @@ function App() {
     ? key(selection.host, selection.id ?? `new:${selection.project}`)
     : "";
   const c = chat(ckey);
+  const finding = find?.key === ckey && !!selection?.id ? find : undefined;
+  const openFind = () => {
+    if (!selection?.id) return;
+    if (!finding) findReturn.current = document.activeElement as HTMLElement | null;
+    setFind((f) => ({ key: ckey, focus: (f?.focus ?? 0) + 1, state: f?.key === ckey ? f.state : { query: "" } }));
+  };
+  const closeFind = () => {
+    setFind(undefined);
+    const back = findReturn.current;
+    findReturn.current = null;
+    (back?.isConnected && back !== document.body ? back : document.querySelector<HTMLElement>('textarea[aria-label="Message"]'))?.focus();
+  };
+  const openFindRef = useRef(openFind);
+  openFindRef.current = openFind;
+  useEffect(() => {
+    // The browser's own find misses history not loaded yet and rows Virtuoso has not rendered.
+    const shortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "f") return;
+      if (!selected.current?.id || document.querySelector("dialog[open]")) return;
+      event.preventDefault();
+      openFindRef.current();
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, []);
   const slash = useSlashCommands({ rpc: rpc.current, host: selection?.host ?? "", agentId: agent?.id,
     value: c.input, setValue: (text) => { c.input = text; saveDraft(c); redraw(); },
     action: composerAction, enabled: online && !commandBusy.has(ckey) });
@@ -823,7 +853,8 @@ function App() {
     );
   return (
     <div className="app">
-      {launcher && <Launcher hosts={hosts} models={rowModels} online={online} current={selection} choose={chooseAgent} action={setLauncherAction} close={() => setLauncher(false)} />}
+      {launcher && <Launcher hosts={hosts} models={rowModels} online={online} current={selection} choose={chooseAgent}
+        action={(a) => a.kind === "find" ? requestAnimationFrame(openFind) : setLauncherAction(a)} close={() => setLauncher(false)} />}
       {launcherAction && <LauncherDestination target={launcherAction} rpc={rpc.current} online={online} choose={chooseAgent} close={() => setLauncherAction(undefined)}
         created={(host, project) => {
           setHosts(list => list.map(item => item.id === host ? { ...item, projects: [...item.projects.filter(p => p.id !== project.id), project] } : item));
@@ -951,6 +982,8 @@ function App() {
                   : "Choose a project to start a conversation"}
             </small>
           </div>
+          {agent && <button type="button" className="find-trigger" aria-label="Find in chat" aria-pressed={!!finding} title={`Find in chat: ${mac ? "⌘" : "Ctrl+"}F`}
+            onClick={() => finding ? closeFind() : openFind()}><FindGlyph /></button>}
           <button type="button" className="launcher-trigger" aria-label="Open launcher" title="Launcher: Cmd/Ctrl+K" onClick={() => setLauncher(true)}><SearchGlyph /></button>
           {!online && <span className="error">Offline</span>}
         </header>
@@ -984,6 +1017,9 @@ function App() {
               ckey={ckey}
               pillRow={pillRow}
               pills={(online && agent?.status === "running") || rows.length > 0}
+              find={finding?.state}
+              history={(before, limit) => rpc.current!.call("agent.history", { id: selection.id!, before, limit }, selection.host)
+                .then((page) => ({ ...page, items: page.items.map(hold) }))}
               older={() =>
                 run(async () => {
                   if (!selection.id || c.loading || !c.start) return;
@@ -1010,6 +1046,9 @@ function App() {
             </CasmAgentsContext.Provider>
             </FileLinksContext.Provider></ImagePreviewContext.Provider>
           )}
+          {finding && selection?.id && <FindBar key={ckey} focusKey={finding.focus} close={closeFind}
+            search={(query, kinds) => rpc.current!.call("agent.find", { id: selection.id!, query, kinds: kinds && [...kinds] }, selection.host)}
+            change={(state) => setFind((f) => f && f.key === ckey ? { ...f, state } : f)} />}
           <div ref={setPillRow} className="pill-row chat-column" />
         </div>
         {selection && project && (
@@ -1235,6 +1274,8 @@ type TranscriptContext = {
   older: () => Promise<void>;
   // Working or queue pills float over the end: leave room for them.
   pills: boolean;
+  // Showing a window of older history (find-window.ts): it pages newer too.
+  newer?: () => void;
 };
 function TranscriptHeader({ context }: { context?: TranscriptContext }) {
   if (!context) return null;
@@ -1249,13 +1290,15 @@ function TranscriptHeader({ context }: { context?: TranscriptContext }) {
   ) : null;
 }
 // Room at the end so the last line scrolls clear of the composer's overlap and the pill row.
-const TranscriptEnd = ({ context }: { context?: TranscriptContext }) =>
-  <div className={context?.pills ? "transcript-end pills" : "transcript-end"} aria-hidden="true" />;
+const TranscriptEnd = ({ context }: { context?: TranscriptContext }) => <>
+  {context?.newer && <button className="older newer" onClick={context.newer}>Load newer messages</button>}
+  <div className={context?.pills ? "transcript-end pills" : "transcript-end"} aria-hidden="true" />
+</>;
 const transcriptComponents = { Header: TranscriptHeader, Footer: TranscriptEnd };
 // `earlier`: before a /restart divider, so not in the agent's context.
 function Entry({ item, time, expansion, earlier }: { item: Item; time?: ToolTime; expansion: Record<string, boolean>; earlier?: boolean }) {
   const when = entryTimes(item, time);
-  return <div className={earlier ? "entry earlier" : "entry"}>
+  return <div className={earlier ? "entry earlier" : "entry"} data-item-id={item.id}>
     <Row item={item} time={time} expansion={expansion} />
     {when && <EntryTime start={when.start} end={when.end} />}
   </div>;
@@ -1265,11 +1308,15 @@ function Transcript({
   older,
   pillRow,
   pills,
+  find,
+  history,
 }: {
   ckey: string;
   older: () => Promise<void>;
   pillRow: HTMLElement | null;
   pills: boolean;
+  find?: FindState;
+  history: (before: number, limit: number) => Promise<{ items: Item[]; start: number }>;
 }) {
   const c = chat(ckey);
 
@@ -1291,7 +1338,10 @@ function Transcript({
       ? [{ kind: "assistant" as const, id: "draft-assistant", text: c.draft }]
       : []),
   ];
-  const restartAt = c.items.findLastIndex((i) => i.kind === "notice" && !!i.restart);
+  const isRestart = (i: Item) => i.kind === "notice" && !!i.restart;
+  // The latest /restart divider's place in the history.
+  const restartAt = c.items.some(isRestart) ? c.start + c.items.findLastIndex(isRestart)
+    : c.window?.items.some(isRestart) ? c.window.start + c.window.items.findLastIndex(isRestart) : -1;
   // A pending-strip resize must keep a reader who was at the end at the end.
   useLayoutEffect(() => {
     // Checked again in the frame: a scroll-up in between wins.
@@ -1390,7 +1440,66 @@ function Transcript({
     if (list) resized.current?.observe(list, { box: "border-box" });
     requestAnimationFrame(stick);
   }, [items.length]);
-  const first = 100000 + c.start;
+  // Find in chat. A match outside what is loaded shows a window of history
+  // around it, under its own Virtuoso (`view` remounts it at the match).
+  const [view, setView] = useState(0);
+  const [scrollerEl, setScrollerEl] = useState<HTMLElement | null>(null);
+  useFindHighlights(scrollerEl, find);
+  const shown = c.window?.items ?? items;
+  const shownStart = c.window?.start ?? c.start;
+  const opening = useRef<number>(undefined);
+  const paging = useRef(false);
+  const target = find?.target;
+  useEffect(() => {
+    if (!target || !find) return;
+    const seq = target.seq;
+    const live = () => find.target?.seq === seq && targetSeq.current === seq;
+    targetSeq.current = seq;
+    // Reading matches is not following the end.
+    following.current = false;
+    nearEnd.current = false;
+    void (async () => {
+      const { match } = target;
+      let at = shownIndex(c, match.itemId, match.index);
+      let remount = false;
+      if (at < 0 && c.window && match.index >= c.start) {
+        // Back in the live transcript.
+        c.window = undefined;
+        at = shownIndex(c, match.itemId, match.index);
+        remount = true;
+      } else if (at < 0) {
+        const { before, limit } = pageAround(match.index);
+        const page = await history(before, limit);
+        if (!live()) return;
+        remount = showPage(c, page) === "window";
+        at = shownIndex(c, match.itemId, match.index);
+        if (!remount) render((n) => n + 1);
+      }
+      if (at < 0) return;
+      if (remount) {
+        opening.current = at;
+        setView((v) => v + 1);
+      } else ref.current?.scrollToIndex({ index: at, align: "center" });
+      await revealMatch(() => scroller.current, target, findPattern(find.query), live);
+    })().catch(() => {});
+  }, [target?.seq]);
+  const targetSeq = useRef(0);
+  const [, render] = useState(0);
+  const page = async (direction: "older" | "newer") => {
+    const w = c.window;
+    if (!w || paging.current) return;
+    paging.current = true;
+    try {
+      const end = w.start + w.items.length;
+      const p = direction === "older" ? await history(w.start, WINDOW_PAGE) : await history(end + WINDOW_PAGE, WINDOW_PAGE);
+      if (c.window !== w) return;
+      if (direction === "older") windowOlder(c, p); else windowNewer(c, p);
+      render((n) => n + 1);
+    } finally {
+      paging.current = false;
+    }
+  };
+  const first = 100000 + shownStart;
   return (
     <div
       ref={box}
@@ -1411,11 +1520,14 @@ function Transcript({
       }}
     >
       <Virtuoso
+        key={view}
         ref={ref}
-        data={items}
+        data={shown}
         firstItemIndex={first}
         initialTopMostItemIndex={
-          c.scroll !== undefined
+          opening.current !== undefined
+            ? { index: opening.current, align: "center" }
+            : c.scroll !== undefined
             ? { index: Math.max(first, c.scroll) }
             : { index: "LAST" }
         }
@@ -1428,10 +1540,12 @@ function Transcript({
         skipAnimationFrameInResizeObserver
         overscan={{ main: 1200, reverse: 1200 }}
         defaultItemHeight={120}
-        followOutput={() => (following.current ? "auto" : false)}
+        followOutput={() => (following.current && !c.window ? "auto" : false)}
         totalListHeightChanged={stick}
-        scrollerRef={(el) => { scroller.current = el as HTMLElement | null; }}
+        scrollerRef={(el) => { scroller.current = el as HTMLElement | null; setScrollerEl(el as HTMLElement | null); }}
         atBottomStateChange={(v) => {
+          // The end of a window of older history is not the live end.
+          if (c.window) v = false;
           if (v) following.current = true;
           setBottom(v);
           c.atBottom = v;
@@ -1440,26 +1554,35 @@ function Transcript({
           c.scroll = r.startIndex;
         }}
         startReached={() => {
-          if (c.loaded && c.start > 0) void older();
+          if (c.window) { if (c.window.start > 0) void page("older"); }
+          else if (c.loaded && c.start > 0) void older();
         }}
+        endReached={() => { if (c.window) void page("newer"); }}
         itemContent={(i, item) => (
-          <Entry item={item} time={c.toolTimes?.[item.id]} expansion={(c.expanded ??= {})} earlier={i - first < restartAt} />
+          <Entry item={item} time={c.toolTimes?.[item.id]} expansion={(c.expanded ??= {})} earlier={i - 100000 < restartAt} />
         )}
         context={{
-          start: c.start,
+          start: shownStart,
           loading: c.loading,
-          empty: !items.length,
-          older,
+          empty: !shown.length,
+          older: c.window ? () => page("older") : older,
           pills,
+          newer: c.window ? () => void page("newer") : undefined,
         }}
         components={transcriptComponents}
       />
       {/* Only after the reader scrolled up, never while following lags a growing end. */}
-      {!bottom && !following.current && pillRow && createPortal(
+      {(c.window || (!bottom && !following.current)) && pillRow && createPortal(
         <button
           type="button"
           className="latest"
           onClick={() => {
+            if (c.window) {
+              c.window = undefined;
+              opening.current = undefined;
+              c.scroll = undefined;
+              setView((v) => v + 1);
+            }
             following.current = true;
             nearEnd.current = true;
             ref.current?.scrollToIndex({ index: "LAST", align: "end" });

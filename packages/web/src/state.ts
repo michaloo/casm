@@ -38,6 +38,8 @@ export type Chat = {
   draftStorageKey?: string;
   scroll?: number;
   atBottom?: boolean;
+  // A stretch of older history shown instead of the live end (find-window.ts).
+  window?: { items: Item[]; start: number };
   // Shown from the offline copy saved at this time, until a fresh load.
   cachedAt?: number;
   // The offline copy was looked up (whether or not it had this chat).
@@ -115,6 +117,7 @@ export function evict(c: Chat) {
   c.reasoning = "";
   c.scroll = undefined;
   c.atBottom = undefined;
+  c.window = undefined;
   c.cachedAt = undefined;
   c.cacheRead = false;
   // Kept for rows reloaded later; only the newest are worth keeping.

@@ -2172,7 +2172,8 @@ button.danger:hover {
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  margin: 8px 0 4px;
+  /* The pill row already sits 6px above; the same 6px separates the list from the composer. */
+  margin: 0 0 6px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface);

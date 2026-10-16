@@ -85,8 +85,16 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
         const listBox = (await list.boundingBox())!;
         // The pills stay over the transcript's end; the list opens below them.
         expect((await pill.boundingBox())!.y + (await pill.boundingBox())!.height).toBeLessThanOrEqual(listBox.y);
-        // The composer sits below the list and never covers it.
-        expect(listBox.y + listBox.height).toBeLessThanOrEqual((await composer.boundingBox())!.y + 0.5);
+        // The composer sits below the list and never covers it, with equal gaps
+        // around the list: pill to list, list to composer (the pill's visible box,
+        // not its 44px touch target).
+        await list.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
+        const settled = (await list.boundingBox())!;
+        const composerTop = (await composer.boundingBox())!.y;
+        expect(settled.y + settled.height).toBeLessThanOrEqual(composerTop + 0.5);
+        const visiblePill = (await chip.locator(".queue-pill").evaluate((el) => { const r = el.getBoundingClientRect(); return { y: r.y, h: r.height }; }));
+        const above = settled.y - (visiblePill.y + visiblePill.h), below = composerTop - (settled.y + settled.height);
+        expect(Math.abs(above - below)).toBeLessThan(1.5);
         // Its visible bottom edge is on top, not hidden under the composer.
         expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest(".queue-list"), [listBox.x + 8, listBox.y + listBox.height - 3])).toBe(true);
         expect((await composer.boundingBox())!.y + (await composer.boundingBox())!.height).toBeLessThanOrEqual(812);

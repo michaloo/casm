@@ -501,7 +501,7 @@ test("skill invocations read back as the slash command that was typed", () => {
     clientId: "casm-1",
     content: [
       { type: "text", text: "$openai-docs what is the name of this skill? one line", text_elements: [] },
-      { type: "skill", name: "openai-docs", path: "/home/michaloo/.codex/skills/.system/openai-docs/SKILL.md" },
+      { type: "skill", name: "openai-docs", path: "/home/user/.codex/skills/.system/openai-docs/SKILL.md" },
     ],
   };
   assert.deepEqual(normalize(item), { kind: "user", id: "casm-1", text: "/openai-docs what is the name of this skill? one line" });

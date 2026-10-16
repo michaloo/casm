@@ -39,7 +39,8 @@ async function connect(page: Page) {
 
 const meter = (page: Page) => page.getByRole("button", { name: /^Test host resources: / });
 const slot = (page: Page) => page.locator("nav .host-heading .host-meter").first();
-const shots = "/home/michaloo/Explorations/screenshots";
+// Review screenshots go to CASM_SHOTS_DIR when set, else Playwright's output folder.
+const shots = process.env.CASM_SHOTS_DIR ?? "test-results/shots";
 // Crisp copies for review.
 test.use({ deviceScaleFactor: 2 });
 

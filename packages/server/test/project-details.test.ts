@@ -75,7 +75,7 @@ function codexFixture() {
 }
 
 test("claude: project dir encoding matches Claude Code", () => {
-  assert.equal(encodeProjectPath("/home/michaloo/Explorations"), "-home-michaloo-Explorations");
+  assert.equal(encodeProjectPath("/home/user/projects"), "-home-user-projects");
   assert.equal(encodeProjectPath("/a/my_app.v2"), "-a-my-app-v2");
   const long = `/${"x".repeat(250)}`;
   assert.match(encodeProjectPath(long), /^-x{199}-[0-9a-z]+$/);

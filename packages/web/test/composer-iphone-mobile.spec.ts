@@ -80,4 +80,13 @@ for (const [width, height] of [[375, 812], [390, 844]]) test(`iPhone composer pi
   }, height);
   await expect(page.locator("html")).not.toHaveAttribute("data-keyboard", "open");
   await expect.poll(() => gap(height)).toBe(Math.max(8, Math.round(inset)));
+
+  // Installed on the Home Screen, iOS shrinks innerHeight with the keyboard too.
+  await page.evaluate(() => {
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 480 });
+    Object.defineProperty(visualViewport, "height", { configurable: true, value: 480 });
+    visualViewport!.dispatchEvent(new Event("resize"));
+  });
+  await expect(page.locator("html")).toHaveAttribute("data-keyboard", "open");
+  await expect.poll(() => gap(480)).toBe(8);
 });

@@ -64,9 +64,21 @@ test("switching through many heavy chats keeps heap, DOM and listeners bounded",
 
 test("This device keeps the chosen chat memory", async ({ page }) => {
   await login(page);
+  // A gap between the device button and Sign out.
+  const device = (await page.getByRole("button", { name: "This device" }).boundingBox())!;
+  const signOut = (await page.locator("aside > footer").getByRole("button", { name: /Sign out/ }).boundingBox())!;
+  expect(signOut.x - (device.x + device.width)).toBeGreaterThanOrEqual(4);
   await page.getByRole("button", { name: "This device" }).click();
   const dialog = page.getByRole("dialog", { name: "This device" });
   await expect(dialog.getByRole("radio", { name: /Recent 20/ })).toBeChecked();
+  // Opens on Done, with no option outlined; radios are drawn, not native.
+  await expect(dialog.getByRole("button", { name: "Done" })).toBeFocused();
+  for (const label of await dialog.locator("label").all()) await expect(label).toHaveCSS("outline-style", "none");
+  await expect(dialog.getByRole("radio", { name: /Recent 5/ })).toHaveCSS("appearance", "none");
+  const radio = (await dialog.getByRole("radio", { name: /Recent 5/ }).boundingBox())!;
+  expect(radio.width).toBe(16);
+  expect(radio.height).toBe(16);
+  await page.screenshot({ path: test.info().outputPath("device-dialog.png") });
   await dialog.getByRole("radio", { name: /Recent 5/ }).check();
   await dialog.getByRole("button", { name: "Done" }).click();
   await expect(dialog).toHaveCount(0);

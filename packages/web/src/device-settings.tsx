@@ -24,7 +24,9 @@ export function DeviceSettings({ memory, change }: { memory: ChatMemory; change:
 function DeviceDialog({ memory, change, close }: { memory: ChatMemory; change: (value: ChatMemory) => void; close: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
-  useEffect(() => { dialog.current?.showModal(); }, []);
+  const done = useRef<HTMLButtonElement>(null);
+  // showModal() focuses the first radio; start on Done instead, so nothing opens outlined.
+  useEffect(() => { dialog.current?.showModal(); done.current?.focus(); }, []);
   return createPortal(<dialog ref={dialog} className="confirm-dialog device-dialog" aria-labelledby={title} onClose={close}>
     <h2 id={title}>This device</h2>
     <fieldset>
@@ -35,7 +37,7 @@ function DeviceDialog({ memory, change, close }: { memory: ChatMemory; change: (
       </label>)}
     </fieldset>
     <div className="confirm-actions">
-      <button type="button" autoFocus onClick={() => dialog.current?.close()}>Done</button>
+      <button ref={done} type="button" onClick={() => dialog.current?.close()}>Done</button>
     </div>
   </dialog>, document.body);
 }

@@ -8,7 +8,7 @@ import { ComposerPickers } from "./composer-pickers";
 import { ProjectOptions } from "./project-settings";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
-import { replaceHistory } from "./state";
+import { evict, hold, leave, replaceHistory } from "./state";
 import { offlineCache } from "./offline-idb";
 import { reconcile, type OfflineCache } from "./offline-cache";
 import { ConnectionBanner, offlineNote } from "./connection";
@@ -51,6 +51,8 @@ import { AttachGlyph, ChevronGlyph, PlusGlyph } from "./row-menu";
 import { MAX_IMAGES, imageFiles, prepareImage } from "./attach";
 import { NewAgentKeys, NewAgentWelcome } from "./new-agent";
 import { SignOut } from "./sign-out";
+import { DeviceSettings } from "./device-settings";
+import { readChatMemory, recentChats, writeChatMemory, type ChatMemory } from "./chat-memory";
 import "./fonts/fonts.css";
 import "./style.css";
 // Same threshold the server uses for a slow peer probe.
@@ -150,11 +152,14 @@ function App() {
   // Saves a freshly loaded transcript to the offline copy, debounced.
   function persistChat(k: string, delay = 2000) {
     clearTimeout(saveTimers.get(k));
-    saveTimers.set(k, setTimeout(() => {
-      saveTimers.delete(k);
-      const c = chats.get(k);
-      if (c?.loaded) void cache.current?.saveChat(k, c).catch(() => {});
-    }, delay));
+    saveTimers.set(k, setTimeout(() => saveChat(k), delay));
+  }
+  function saveChat(k: string) {
+    clearTimeout(saveTimers.get(k));
+    saveTimers.delete(k);
+    const c = chats.get(k);
+    // As of now: the save runs later, maybe after the chat was dropped.
+    if (c?.loaded) void cache.current?.saveChat(k, { items: c.items, start: c.start, pending: c.pending }).catch(() => {});
   }
   const [hosts, setHosts] = useState<Host[]>([]);
   const hostsRef = useRef(hosts);
@@ -206,6 +211,7 @@ function App() {
   // Status text of pending rows with an action in flight, by key(host, id).
   const rowNotes = useRef(new Map<string, string>()).current;
   const [sidebar, showSidebar] = useState(false);
+  const [chatMemory, setChatMemory] = useState<ChatMemory>(() => readChatMemory(localStorage));
   const [viewportDebug, setViewportDebug] = useState(false);
   const [collapsed, setCollapsed] = useState<CollapsedProjects>(() => readCollapsed(localStorage));
   const toggleProject = (host: string, project: string) => {
@@ -267,7 +273,7 @@ function App() {
         host,
       );
       await refreshPending(host, id);
-      const merged = reconcile(c.items, c.start, history.items, history.start);
+      const merged = reconcile(c.items, c.start, history.items.map(hold), history.start);
       replaceHistory(c, merged.items);
       c.start = merged.start;
       c.cachedAt = undefined;
@@ -275,6 +281,7 @@ function App() {
       c.reasoning = "";
       c.permissions = sub.permissions;
       c.questions = sub.questions;
+      c.evicted = false;
       sub.turn.forEach((e) => event(c, e, true));
       buffered.forEach((e) => event(c, e));
       c.loaded = true;
@@ -540,6 +547,15 @@ function App() {
       host.name,
       selection.id ? `agent:${selection.id}` : `project:${selection.project}`,
     );
+  useEffect(() => {
+    // Only a few transcripts stay in memory: the ones left longest ago are
+    // dropped (saved offline first) and read again when reopened.
+    if (!selection?.id) return;
+    for (const k of leave(ckey, recentChats(chatMemory))) {
+      if (saveTimers.has(k)) saveChat(k);
+      evict(chat(k));
+    }
+  }, [ckey, chatMemory]);
   useEffect(() => {
     // The saved copy of this transcript, until (or instead of) a fresh load.
     if (!selection?.id || !cacheReady || c.cacheRead) return;
@@ -910,6 +926,7 @@ function App() {
             {online ? fresh ? "Connected" : "Syncing…" : "Offline · reconnecting…"}
           </span>
           {viewportDebug && <ViewportDebug close={() => setViewportDebug(false)} />}
+          <DeviceSettings memory={chatMemory} change={(value) => { writeChatMemory(localStorage, value); setChatMemory(value); }} />
           <SignOut host={hosts.find((h) => !h.id)?.name ?? ""} signOut={() => {
             localStorage.removeItem("casm.token");
             void cache.current?.clear();
@@ -977,10 +994,9 @@ function App() {
                       { id: selection.id, before: c.start, limit: 100 },
                       selection.host,
                     );
+                    const known = new Set(c.items.map((x) => x.id));
                     c.items = [
-                      ...page.items.filter(
-                        (i) => !c.items.some((x) => x.id === i.id),
-                      ),
+                      ...page.items.filter((i) => !known.has(i.id)).map(hold),
                       ...c.items,
                     ];
                     c.start = page.start;

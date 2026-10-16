@@ -2918,3 +2918,15 @@ nav .host-meter:hover .host-meter-bar { background: color-mix(in srgb, var(--lin
 
 /* Temporary viewport diagnostics (viewport-debug.tsx). */
 .viewport-debug { position: fixed; top: calc(env(safe-area-inset-top) + 8px); left: 8px; right: 8px; z-index: 100; margin: 0; padding: 10px; border-radius: 10px; background: rgba(0,0,0,.85); color: #fff; font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; }
+/* This device: per-browser settings, next to Sign out. */
+.device-dialog fieldset { display: grid; gap: 6px; margin: 4px 0 18px; padding: 0; border: 0; }
+.device-dialog legend { margin-bottom: 8px; padding: 0; font-weight: 600; }
+.device-dialog label { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.device-dialog label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.device-dialog input { margin: 3px 0 0; accent-color: var(--accent); }
+.device-dialog label span { display: grid; gap: 2px; }
+.device-dialog small { color: var(--muted); line-height: 1.4; }
+@media (max-width: 650px) { .device-dialog label { min-height: 44px; } }
+footer .device-settings { margin-left: auto; padding: 4px 8px; }
+footer .device-settings .exit-glyph { width: 16px; height: 16px; }
+@media (max-width: 650px) { footer .device-settings { min-width: 44px; justify-content: center; } }

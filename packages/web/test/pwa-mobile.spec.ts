@@ -119,3 +119,20 @@ test("PWA mobile Vite serves install assets without a development worker", async
     await vite.close();
   }
 });
+
+// The title bar (theme-color) matches what sits under it: the sidebar on wide
+// windows such as the Dock app, the chat background on phones.
+test("theme color follows the sidebar on wide windows and the chat on narrow ones", async ({ page }) => {
+  for (const scheme of ["light", "dark"] as const) {
+    for (const [width, surface] of [[1440, "--panel"], [375, "--bg"]] as const) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto("/");
+      const { effective, expected } = await page.evaluate((surface) => {
+        const meta = [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].find((m) => !m.media || matchMedia(m.media).matches);
+        return { effective: meta?.content.toLowerCase(), expected: getComputedStyle(document.documentElement).getPropertyValue(surface).trim().toLowerCase() };
+      }, surface);
+      expect(effective, `${scheme} ${width}`).toBe(expected);
+    }
+  }
+});

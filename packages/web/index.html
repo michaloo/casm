@@ -3,6 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content" />
+    <!-- Wide windows (the Dock/desktop app) tint the title bar like the sidebar
+         under it; narrow ones (phones) like the chat header. First match wins. -->
+    <meta
+      name="theme-color"
+      content="#faf0e5"
+      media="(prefers-color-scheme: light) and (min-width: 651px)"
+    />
+    <meta
+      name="theme-color"
+      content="#081016"
+      media="(prefers-color-scheme: dark) and (min-width: 651px)"
+    />
     <meta
       name="theme-color"
       content="#fffaf4"

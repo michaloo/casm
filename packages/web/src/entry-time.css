@@ -16,6 +16,12 @@
   pointer-events: none;
   transition: opacity 0.12s var(--ease);
 }
+/* Before today the date sits just above the time, so the time stays level with
+   the entry's first line; inside the row (narrow windows, queued rows) it goes
+   in front of the time on the same line. */
+.entry-date { position: absolute; right: 0; bottom: 100%; }
+.chat[data-gutter="narrow"] .entry-time:not(.inline) .entry-date,
+.entry-time.inline .entry-date { position: static; margin-right: 0.5ch; }
 .entry:hover .entry-time,
 .entry:focus-within .entry-time { opacity: 1; pointer-events: auto; }
 /* First lines: the role label inside a message bubble, a tool summary. */

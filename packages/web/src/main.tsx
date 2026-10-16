@@ -41,6 +41,7 @@ import { AgentSummary } from "./agent-summary";
 import { agentHierarchy } from "./agent-hierarchy";
 import { modelLabels } from "./model-label";
 import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type CollapsedProjects } from "./project-collapse";
+import { ViewportDebug } from "./viewport-debug";
 import { PendingQueue } from "./pending-queue";
 import { Question } from "./question";
 import { ChatWorking } from "./chat-working";
@@ -203,6 +204,7 @@ function App() {
   // Status text of pending rows with an action in flight, by key(host, id).
   const rowNotes = useRef(new Map<string, string>()).current;
   const [sidebar, showSidebar] = useState(false);
+  const [viewportDebug, setViewportDebug] = useState(false);
   const [collapsed, setCollapsed] = useState<CollapsedProjects>(() => readCollapsed(localStorage));
   const toggleProject = (host: string, project: string) => {
     setCollapsed((previous) => {
@@ -900,9 +902,10 @@ function App() {
           })}
         </nav>
         <footer>
-          <span className={online ? "" : "error"}>
+          <span className={online ? "" : "error"} onClick={() => setViewportDebug((v) => !v)}>
             {online ? fresh ? "Connected" : "Syncing…" : "Offline · reconnecting…"}
           </span>
+          {viewportDebug && <ViewportDebug close={() => setViewportDebug(false)} />}
           <SignOut host={hosts.find((h) => !h.id)?.name ?? ""} signOut={() => {
             localStorage.removeItem("casm.token");
             void cache.current?.clear();

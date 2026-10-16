@@ -2915,3 +2915,6 @@ nav .host-meter:hover .host-meter-bar { background: color-mix(in srgb, var(--lin
 @media (max-width: 650px) {
   aside > header > .launcher-trigger { margin-left: auto; }
 }
+
+/* Temporary viewport diagnostics (viewport-debug.tsx). */
+.viewport-debug { position: fixed; top: calc(env(safe-area-inset-top) + 8px); left: 8px; right: 8px; z-index: 100; margin: 0; padding: 10px; border-radius: 10px; background: rgba(0,0,0,.85); color: #fff; font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; }

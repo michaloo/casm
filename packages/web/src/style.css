@@ -1697,6 +1697,11 @@ textarea::placeholder {
     width: 100%;
     height: auto;
   }
+  /* Installed on iOS: the screen's full height (see main.tsx). */
+  html:not([data-keyboard]) .app {
+    bottom: auto;
+    height: var(--screen-height, 100%);
+  }
   html[data-keyboard] .app {
     top: var(--viewport-top, 0px);
     bottom: auto;

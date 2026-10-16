@@ -34,7 +34,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="casm" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- "default", not "black-translucent": with the translucent bar, iOS 18 Home
+         Screen apps start the page under the status bar but size it a status bar
+         short, leaving a band at the bottom. With "default" the page starts below
+         the status bar and reaches the bottom; the bar takes the theme color. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" id="app-manifest" />
     <title>casm</title>

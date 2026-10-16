@@ -1,5 +1,5 @@
 {
-  "name": "casm-ng",
+  "name": "casm",
   "private": true,
   "type": "module",
   "workspaces": [

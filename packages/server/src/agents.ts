@@ -191,6 +191,12 @@ export class AgentManager {
     return [...this.providers.values()];
   }
 
+  runningCount(): number {
+    let n = 0;
+    for (const l of this.live.values()) if (l.turnId) n++;
+    return n;
+  }
+
   status(id: string): AgentStatus {
     const l = this.live.get(id);
     if (!l?.turnId) return "idle";

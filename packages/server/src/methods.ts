@@ -7,6 +7,7 @@ import type { Store } from "./db.ts";
 import type { Scheduler } from "./schedules.ts";
 import { searchFiles } from "./fs-search.ts";
 import type { Files } from "./files.ts";
+import { HostSampler } from "./host-stats.ts";
 import { hostAgentsMd, setHostAgentsMd } from "./host-details.ts";
 import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts";
 import type { PeerPool } from "./peers.ts";
@@ -100,7 +101,9 @@ export function createHandlers(
     return { enabled, content, custom, path, default: DEFAULT_AGENT_PROMPT, placeholders: [...PLACEHOLDERS], rendered: agents.agentPrompt.render(vars, state) };
   };
 
+  const sampler = new HostSampler();
   return {
+    "host.stats": () => sampler.read(agents.runningCount()),
     "host.agentsMd": async () => ({ files: await hostAgentsMd() }),
     "host.setAgentsMd": (p) => setHostAgentsMd(p.path, p.content, p.expectedSha256),
     "server.agentPrompt": (p) => agentPromptInfo(agents.agentPrompt.state(), p.agentId),

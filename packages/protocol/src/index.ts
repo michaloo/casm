@@ -360,6 +360,25 @@ export const ProviderLimits = z.object({
 });
 export type ProviderLimits = z.infer<typeof ProviderLimits>;
 
+// A light read of this host's load, for spotting an overloaded, slow host.
+export const HostStats = z.object({
+  // Busy share of all cores since the previous sample (0-100); null until two samples exist.
+  cpuPercent: z.number().nullable(),
+  cores: z.number().int(),
+  // 1/5/15-minute load average; null on Windows.
+  loadAverage: z.tuple([z.number(), z.number(), z.number()]).nullable(),
+  // Bytes. `available` is memory that can be given out without swapping
+  // (MemAvailable on Linux; free + inactive + speculative on macOS).
+  memory: z.object({ total: z.number(), available: z.number(), used: z.number() }),
+  swap: z.object({ total: z.number(), used: z.number() }).nullable(),
+  uptimeSeconds: z.number(),
+  // Resident set size of the casm server process, bytes.
+  processRss: z.number(),
+  runningAgents: z.number().int(),
+  sampledAt: z.string(),
+});
+export type HostStats = z.infer<typeof HostStats>;
+
 export const McpServer = z.object({
   name: z.string(),
   status: z.enum(["connected", "failed", "pending", "disabled", "needs-auth"]),
@@ -526,6 +545,9 @@ export const methods = {
     z.object({ path: z.string(), content: z.string(), expectedSha256: z.string().nullable() }),
     HostAgentsMdFile,
   ),
+
+  // Read-only CPU, load and memory of this host, sampled in the background.
+  "host.stats": method(Empty, HostStats),
 
   "server.info": method(
     Empty,

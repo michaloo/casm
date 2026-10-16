@@ -408,6 +408,25 @@ stays, disabled with the error, for `schedule run` or `rm`.
 
 ![schedules, limits, usage](media/cli-schedules.svg)
 
+## Host load
+
+```text
+casm stats          (also: casm host stats)
+```
+
+```console
+$ casm stats
+cpu     23% of 8 cores
+load    1.92 1.40 1.10
+memory  9.1 GB of 31.3 GB used (29%), 22.2 GB available
+swap    0.0 GB of 8.0 GB
+casm    182 MB rss, 2 agents running, host up 52 h
+```
+
+CPU is the busy share since the server's previous 5-second sample; `load` is
+flagged `overloaded` when the 1-minute load exceeds the cores. `-H peer stats`
+reads a peer; `--json` prints the raw `host.stats` result.
+
 ## Limits, usage and models
 
 ```text

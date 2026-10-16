@@ -3,7 +3,7 @@ import { testHome, testURL } from "./config.ts";
 
 test("PWA mobile manifest, Apple metadata and opaque install icons", async ({ page, request }) => {
   await page.goto("/");
-  for (const [name, value] of [["apple-mobile-web-app-capable", "yes"], ["mobile-web-app-capable", "yes"], ["apple-mobile-web-app-title", "casm"], ["apple-mobile-web-app-status-bar-style", "default"]])
+  for (const [name, value] of [["apple-mobile-web-app-capable", "yes"], ["mobile-web-app-capable", "yes"], ["apple-mobile-web-app-title", "casm"], ["apple-mobile-web-app-status-bar-style", "black-translucent"]])
     await expect(page.locator(`meta[name="${name}"]`)).toHaveAttribute("content", value);
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /viewport-fit=cover/);
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveCount(1);

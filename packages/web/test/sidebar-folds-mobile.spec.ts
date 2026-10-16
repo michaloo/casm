@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 // Hosts are section headers; projects are lighter rows whose whole width folds.
 for (const width of [1440, 375]) test(`project rows fold and hosts read as headers at ${width}px`, async ({ page }) => {
@@ -16,7 +17,7 @@ for (const width of [1440, 375]) test(`project rows fold and hosts read as heade
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   const nav = page.getByRole("navigation", { name: "Agents" });
   const project = nav.getByRole("button", { name: "Toggle Test project", exact: true });
   await expect(project).toHaveAttribute("aria-expanded", "true");

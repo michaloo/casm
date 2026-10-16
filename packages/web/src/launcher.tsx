@@ -23,6 +23,9 @@ type Entry = SearchEntry & {
 export function SearchGlyph() {
   return <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></svg>;
 }
+export function CloseGlyph() {
+  return <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>;
+}
 /** Line glyphs drawn like the sidebar's server glyph: 20px box, 1.5 stroke. */
 function LauncherGlyph({ icon }: { icon: Icon }) {
   return <svg className="launcher-glyph" viewBox="0 0 20 20" aria-hidden="true" focusable="false">

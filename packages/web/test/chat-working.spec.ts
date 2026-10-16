@@ -2,12 +2,13 @@ import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 async function login(page: Page) {
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (page.viewportSize()!.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (page.viewportSize()!.width < 600) await openAgents(page);
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await expect(page.locator(".item").last()).toBeVisible();
 }

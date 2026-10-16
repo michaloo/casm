@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect, openNewAgent } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 test("compact provider/model rows and remembered collapse preserve routed agent visibility", async ({ page }) => {
   await page.goto("/");
@@ -44,7 +45,7 @@ for (const width of [1440, 375]) test(`host collapse brings peers above the fold
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   const open = async () => {
-    if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+    if (width === 375) await openAgents(page);
   };
   await open();
   const toggle = page.getByRole("button", { name: "Toggle Test host host", exact: true });

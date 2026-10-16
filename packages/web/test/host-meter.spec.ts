@@ -2,6 +2,7 @@ import { testHome } from "./config.ts";
 import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 const GB = 2 ** 30;
 const stats = (cpuPercent: number, usedGb: number) => ({
@@ -32,9 +33,7 @@ async function connect(page: Page) {
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  const agents = page.getByRole("button", { name: "Agents", exact: true });
-  await expect(page.getByRole("button", { name: "Toggle Test host host" }).or(agents).first()).toBeVisible();
-  if (await agents.isVisible()) await agents.click();
+  await openAgents(page);
 }
 
 const meter = (page: Page) => page.getByRole("button", { name: /^Test host resources: / });

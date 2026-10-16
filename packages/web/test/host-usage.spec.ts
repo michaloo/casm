@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 test("host usage is the host modal's first tab, with refresh and graceful missing-provider data", async ({ page }) => {
   await page.goto("/");
@@ -49,9 +50,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       await page.goto("/");
       await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
       await page.getByRole("button", { name: "Connect", exact: true }).click();
-      if (viewport.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
+      if (viewport.width < 600) await openAgents(page);
       await page.getByRole("button", { name: /Agent 00/ }).click();
-      if (viewport.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
+      if (viewport.width < 600) await openAgents(page);
       const trigger = page.getByRole("button", { name: /^Host options for / }).first();
       const row = page.getByRole("button", { name: /Agent 00/ });
       const before = await row.boundingBox();
@@ -121,9 +122,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       await page.goto("/");
       await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
       await page.getByRole("button", { name: "Connect", exact: true }).click();
-      if (viewport.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
+      if (viewport.width < 600) await openAgents(page);
       await page.getByRole("button", { name: /Agent 00/ }).click();
-      if (viewport.width < 600) await page.getByRole("button", { name: "Agents", exact: true }).click();
+      if (viewport.width < 600) await openAgents(page);
       const trigger = page.getByRole("button", { name: /^Host options for / }).first();
       await trigger.click();
       const dialog = page.getByRole("dialog", { name: /host$/ });

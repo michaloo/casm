@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 // Opus 5.5 is natively 1M, so Claude's catalog has no 1M rows.
 const models = [{ id: "opus", name: "Opus 5.5", isDefault: true }, { id: "sonnet", name: "Sonnet 5.5" }];
@@ -28,7 +29,7 @@ async function openAgent(page: Page, width: number, config: Record<string, strin
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   await page.getByRole("button", { name: /Agent 00/ }).click();
   return page.locator(".composer-picker").filter({ has: page.getByRole("combobox", { name: "Model", exact: true }) });
 }

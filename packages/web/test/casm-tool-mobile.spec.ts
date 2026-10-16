@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 // Agent ids as the server reports them, so the seeded calls can use id prefixes.
 function collectAgents(value: unknown, into: Map<string, string>) {
@@ -54,7 +55,7 @@ for (const width of [1440, 375]) test(`casm CLI calls read as casm rows at ${wid
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   await page.getByRole("button", { name: /Agent 00/ }).click();
 
   const rows = page.locator(".casm-tool");

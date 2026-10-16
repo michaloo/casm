@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) test(`host modal AGENTS.md and System Prompt tabs: mobile-safe editing at ${width}`, async ({ page }) => {
   writeFileSync(`${testHome}/host-settings/AGENTS.md`, "# Shared host instructions\n\nUse isolated fixtures.");
@@ -26,7 +27,7 @@ for (const width of [1440, 375]) test(`host modal AGENTS.md and System Prompt ta
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   if (width === 375) await page.getByRole("button", { name: "Toggle Test host host", exact: true }).click();
   const trigger = page.getByRole("button", { name: `Host options for ${hostName}`, exact: true });
   await trigger.click();

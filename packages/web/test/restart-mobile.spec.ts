@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) test(`/restart marks the old session and leaves other composers alone at ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 812 });
@@ -8,7 +9,7 @@ for (const width of [1440, 375]) test(`/restart marks the old session and leaves
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   const open = async (name: string) => {
-    if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+    if (width === 375) await openAgents(page);
     await page.getByRole("button", { name: new RegExp(name) }).click();
     await expect(page.locator(".item.user").last()).toBeVisible();
   };

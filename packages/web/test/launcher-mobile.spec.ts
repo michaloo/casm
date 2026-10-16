@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { testHome } from "./config.ts";
+import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) test(`global launcher mobile shortcuts search navigation and project actions at ${width}`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 812 });
@@ -37,7 +38,7 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.locator("aside")).toContainText("Remote lab");
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   await page.locator("aside .agent").filter({ hasText: "Agent 00" }).first().click();
   await expect(page.locator("main header strong")).toHaveText("Agent 00");
   const initial = page.url();
@@ -156,7 +157,7 @@ for (const width of [1440, 375]) test(`global launcher mobile shortcuts search n
   await expect(page.locator("main header strong")).toHaveText("Agent 04");
   expect(await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("casm.launcher.recent") ?? "{}")).length)).toBeGreaterThan(2);
   await page.reload(); await expect(page.locator("main header strong")).toHaveText("Agent 04");
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   await page.locator("aside > header").getByRole("button", { name: "Open launcher" }).click();
   const bounds = (await dialog.boundingBox())!;
   expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);

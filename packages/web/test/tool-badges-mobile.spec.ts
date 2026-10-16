@@ -1,6 +1,7 @@
 import { testHome } from "./config.ts";
 import { readFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
+import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) test(`mobile tool badges stay on one line with long titles at ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 812 });
@@ -25,7 +26,7 @@ for (const width of [1440, 375]) test(`mobile tool badges stay on one line with 
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  if (width === 375) await page.getByRole("button", { name: "Agents", exact: true }).click();
+  if (width === 375) await openAgents(page);
   await page.getByRole("button", { name: /Agent 00/ }).click();
   for (const selector of [".subagent .row-kind", ".subagent .status", ".tool .status"]) {
     const badge = page.locator(selector);

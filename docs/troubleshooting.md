@@ -108,7 +108,9 @@ casm: host "worker" is unreachable (cannot connect to ws://127.0.0.1:7482: conne
   ```
 
 - After a peer disconnects, clients get `peer.disconnected` and reload; the web
-  client does this by itself.
+  client does this by itself. The server retries the peer, and when it is back
+  every client gets `peer.status` and the web client reloads that host's
+  projects and agents.
 
 ## An agent doesn't answer
 

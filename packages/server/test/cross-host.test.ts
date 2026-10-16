@@ -349,8 +349,9 @@ test("relayed notifications carry the host the client named, a server id include
     await beta.client.call("agent.send", { id: agent.id, text: "hi" });
     await beta.client.call("agent.wait", { id: agent.id });
     await new Promise((r) => setTimeout(r, 50));
-    const relayed = got.filter((m) => m.method);
-    assert.ok(relayed.length > 0);
+    // The subscription's notifications; beta's host-level ones reach every client under its name.
+    const relayed = got.filter((m) => m.method && m.host !== "beta");
+    assert.ok(relayed.some((m) => m.method === "agent.event") && relayed.some((m) => m.method === "agent.status"));
     assert.deepEqual([...new Set(relayed.map((m) => m.host))], [betaId]);
   } finally {
     ws.close();
@@ -453,4 +454,113 @@ test("the CLI on a server machine reaches peers through its server; hosts.json i
   await casm(["host", "add", "beta", beta.url, beta.token]);
   assert.equal(JSON.parse((await casm(["--json", "info"])).stdout).name, "beta");
   await assert.rejects(casm(["-H", "alpha", "info"]), /unknown host "alpha" \(known: beta\)/);
+});
+
+// A raw connection to `h` that records every notification with its host.
+async function listener(h: Host) {
+  const ws = new WebSocket(h.url, { headers: { authorization: `Bearer ${h.token}` } });
+  const got: { method: string; params: any; host?: string }[] = [];
+  ws.on("message", (d) => {
+    const m = JSON.parse(d.toString());
+    if (m.method) got.push(m);
+  });
+  await new Promise((r) => ws.once("open", r));
+  return { got, close: () => ws.close() };
+}
+
+async function until(cond: () => boolean, what: string) {
+  for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.ok(cond(), `timed out waiting for ${what}`);
+}
+
+test("a peer's agent and project changes reach every client, tagged with the peer's name, once", async () => {
+  const l = await listener(alpha);
+  // Mutual peers: beta forwards alpha's events too, and must not send ours back.
+  beta.store.setPeer({ name: "alpha", url: alpha.url, token: alpha.token, serverId: null });
+  const lb = await listener(beta);
+  try {
+    await until(() => (alpha.server.peers as any).conns.has("beta") && (beta.server.peers as any).conns.has("alpha"), "both peer connections");
+    const project = await beta.client.call("project.create", { name: "LiveProj", path: "/tmp" });
+    const agent = await beta.client.call("agent.create", { projectId: project.id, provider: "claude", name: "fresh" });
+    await beta.client.call("agent.update", { id: agent.id, name: "renamed" });
+    await beta.client.call("agent.update", { id: agent.id, archived: true });
+    await beta.client.call("agent.delete", { id: agent.id });
+    await beta.client.call("project.delete", { id: project.id });
+    const fromBeta = () => l.got.filter((m) => m.host === "beta");
+    await until(() => fromBeta().some((m) => m.method === "project.removed"), "project.removed from beta");
+    await new Promise((r) => setTimeout(r, 100));
+    const names = fromBeta().filter((m) => m.method === "agent.changed" && m.params.agent.id === agent.id).map((m) => m.params.agent);
+    assert.ok(names.some((a) => a.name === "fresh"), "the created agent");
+    assert.ok(names.some((a) => a.name === "renamed" && !a.archivedAt), "the rename");
+    assert.ok(names.some((a) => a.archivedAt), "the archive");
+    assert.ok(fromBeta().some((m) => m.method === "project.changed" && m.params.project.id === project.id));
+    // Each of beta's events arrives once: alpha's local copy of the stream equals beta's own.
+    const own = lb.got.filter((m) => !m.host && /^(agent\.(changed|removed)|project\.)/.test(m.method)).map((m) => m.method);
+    const relayed = fromBeta().filter((m) => /^(agent\.(changed|removed)|project\.)/.test(m.method)).map((m) => m.method);
+    assert.deepEqual(relayed, own);
+    // Nothing comes back around: alpha's clients never see an event tagged as alpha's own.
+    assert.deepEqual(l.got.filter((m) => m.host && m.host !== "beta").map((m) => m.host), []);
+    // And alpha's own changes reach beta's clients as alpha's, once.
+    const p = await alpha.client.call("project.create", { name: "AlphaLive", path: "/tmp" });
+    await until(() => lb.got.some((m) => m.host === "alpha" && m.method === "project.changed"), "alpha's project on beta");
+    await alpha.client.call("project.delete", { id: p.id });
+    await until(() => lb.got.some((m) => m.host === "alpha" && m.method === "project.removed"), "alpha's project removal on beta");
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(lb.got.filter((m) => m.host === "alpha" && m.method === "project.changed" && m.params.project.id === p.id).length, 1);
+    assert.equal(l.got.filter((m) => m.method === "project.changed" && m.params.project.id === p.id).length, 1);
+  } finally {
+    l.close();
+    lb.close();
+    beta.store.removePeer("alpha");
+  }
+});
+
+test("a subscribed client gets a peer agent's status once", async () => {
+  const project = (await beta.client.call("project.list", {})).projects.find((p) => p.name === "BetaProj")!;
+  const agent = await beta.client.call("agent.create", { projectId: project.id, provider: "claude" });
+  const ws = new WebSocket(alpha.url, { headers: { authorization: `Bearer ${alpha.token}` } });
+  const got: { id?: number; method?: string; params?: any; host?: string }[] = [];
+  ws.on("message", (d) => got.push(JSON.parse(d.toString())));
+  await new Promise((r) => ws.once("open", r));
+  try {
+    ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "agent.subscribe", params: { id: agent.id }, host: "beta" }));
+    await until(() => got.some((m) => m.id === 1), "the subscription");
+    await beta.client.call("agent.send", { id: agent.id, text: "hi" });
+    await beta.client.call("agent.wait", { id: agent.id });
+    await new Promise((r) => setTimeout(r, 100));
+    const statuses = got.filter((m) => m.method === "agent.status" && m.params.agentId === agent.id).map((m) => `${m.host}:${m.params.status}`);
+    assert.ok(statuses.length > 0);
+    assert.equal(new Set(statuses).size, statuses.length, statuses.join(", "));
+    assert.ok(got.some((m) => m.method === "agent.event" && m.host === "beta"));
+  } finally {
+    ws.close();
+  }
+});
+
+test("a lost peer is retried; clients hear it go and come back", async () => {
+  const store = new Store(join(mkdtempSync(join(tmpdir(), "casm-delta-")), "casm.db"));
+  const token = store.createToken("test");
+  let server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test", name: "delta" });
+  const port = server.port;
+  (alpha.server.peers as any).retryMs = 50;
+  alpha.store.setPeer({ name: "delta", url: `ws://127.0.0.1:${port}`, token, serverId: null });
+  const l = await listener(alpha);
+  try {
+    await until(() => (alpha.server.peers as any).conns.has("delta"), "the connection to delta");
+    await new Promise((r) => setTimeout(r, 50));
+    await server.close();
+    await until(() => l.got.some((m) => m.method === "peer.status" && m.host === "delta" && !m.params.connected), "delta lost");
+    server = await startServer({ store, providers: [provider], host: "127.0.0.1", port, version: "test", name: "delta" });
+    await until(() => l.got.some((m) => m.method === "peer.status" && m.host === "delta" && m.params.connected), "delta back");
+    // And its changes flow again.
+    const c = await CasmClient.connect(`ws://127.0.0.1:${port}`, token);
+    await c.call("project.create", { name: "DeltaProj", path: "/tmp" });
+    c.close();
+    await until(() => l.got.some((m) => m.method === "project.changed" && m.host === "delta"), "delta's project");
+  } finally {
+    l.close();
+    alpha.store.removePeer("delta");
+    await server.close();
+    store.close();
+  }
 });

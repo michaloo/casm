@@ -42,6 +42,8 @@ export type ServerOptions = {
   log?: (msg: string) => void;
   // Connect timeout for peer servers (tests use a short one).
   peerTimeoutMs?: number;
+  // First retry delay for a lost peer, doubling up to a minute (tests use a short one).
+  peerRetryMs?: number;
   // The state directory ($CASM_HOME): agent-prompt.md, config.json and the
   // download-link secret. Without it agents get the default agent prompt, which
   // can't be changed, and download links last until the server restarts.
@@ -90,6 +92,20 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const agents = new AgentManager(opts.store, new Map(opts.providers.map((p) => [p.id, p])), notify, new AgentPrompt(opts.home ?? null));
   const identity = { id: opts.store.serverId(), name: opts.name ?? hostname(), version: opts.version };
   const peers = new PeerPool(opts.store, opts.peerTimeoutMs);
+  // A peer's own agent, project and schedule changes reach every client here,
+  // tagged with the peer's name, as this server's own do (see peers.ts).
+  const broadcast = (msg: object) => {
+    const raw = JSON.stringify({ jsonrpc: "2.0", ...msg });
+    for (const c of clients) c.ws.send(raw);
+  };
+  peers.listen(
+    {
+      notify: (host, method, params) => broadcast({ method, params, host }),
+      status: (host, connected) => broadcast({ method: "peer.status", params: { host, connected }, host }),
+      wanted: () => clients.size > 0,
+    },
+    opts.peerRetryMs,
+  );
   const files = new Files({ store: opts.store, peers, home: opts.home });
   const push = new PushService({ store: opts.store, home: opts.home, log, send: opts.pushSend });
   let scheduler: Scheduler | undefined;
@@ -162,6 +178,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     client.token = token;
     clients.add(client);
     log(`client connected: ${name}`);
+    peers.watch();
   }
 
   // `casm token revoke` runs in another process, so look for revoked tokens now and then.
@@ -226,7 +243,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         const { id } = params as Params<"agent.subscribe">;
         client.remote.get(key)?.stop();
         const { state, unsubscribe } = await peers.subscribe(peer, id, {
-          notify: (m, p) => send({ method: m, params: p }),
+          // agent.status already reaches every client under the peer's name.
+          notify: (m, p) => (m !== "agent.status" || ref !== peer.name) && send({ method: m, params: p }),
           lost: () => {
             const gone = [...client.remote].filter(([k]) => k.startsWith(`${peer.name}\n`));
             for (const [k] of gone) client.remote.delete(k);

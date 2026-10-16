@@ -2,7 +2,8 @@
 // JSON-RPC 2.0 over one WebSocket. Requests are listed in `methods`; server
 // notifications in `notifications`. A request with a `host` (a peer's name or
 // server id) is forwarded to that peer server; notifications relayed from it
-// carry the same `host`.
+// carry the same `host`. A peer's host-level notifications (agent.status,
+// agent.changed, project.changed…) reach every client, with `host` its name.
 import { z } from "zod";
 
 export const PROTOCOL_VERSION = 1;
@@ -878,6 +879,10 @@ export const notifications = {
   "project.removed": z.object({ projectId: z.string() }),
   // The connection to a peer dropped; subscriptions made through it are gone.
   "peer.disconnected": z.object({ host: z.string() }),
+  // The server's own connection to a peer was lost, or is back (after a loss
+  // or a failed first connect): a client reloads that host's lists then, as
+  // changes made meanwhile were missed. To every client.
+  "peer.status": z.object({ host: z.string(), connected: z.boolean() }),
 } as const;
 
 export type Notifications = typeof notifications;

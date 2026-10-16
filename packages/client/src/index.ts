@@ -24,6 +24,7 @@ export class CasmClient {
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private listeners = new Map<string, Set<Listener>>();
   private closeListeners = new Set<() => void>();
+  private anyListeners = new Set<(method: string, params: unknown, host?: string) => void>();
 
   private ws: WebSocket;
   private host: string | undefined;
@@ -75,6 +76,12 @@ export class CasmClient {
     return () => set.delete(fn as Listener);
   }
 
+  // Every notification, with the `host` a server put on ones it relays from a peer.
+  onNotification(fn: (method: string, params: unknown, host?: string) => void): () => void {
+    this.anyListeners.add(fn);
+    return () => this.anyListeners.delete(fn);
+  }
+
   onClose(fn: () => void): () => void {
     this.closeListeners.add(fn);
     return () => this.closeListeners.delete(fn);
@@ -89,8 +96,9 @@ export class CasmClient {
   }
 
   private onMessage(raw: string) {
-    const msg = JSON.parse(raw) as RpcResponse | { method: string; params: unknown };
+    const msg = JSON.parse(raw) as RpcResponse | { method: string; params: unknown; host?: string };
     if ("method" in msg) {
+      for (const fn of this.anyListeners) fn(msg.method, msg.params, msg.host);
       for (const fn of this.listeners.get(msg.method) ?? []) fn(msg.params);
       return;
     }

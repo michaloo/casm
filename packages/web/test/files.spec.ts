@@ -44,6 +44,15 @@ for (const width of [1440, 375]) {
     await expect(dialog).toBeVisible();
     await expect(dialog.locator("pre")).toContainText('"merged": [\n    {\n      "id": 1,');
     await expect(dialog.locator("pre .hljs-attr").first()).toBeVisible();
+    // Phones keep the path and meta behind the name until asked.
+    if (width === 375) {
+      await expect(dialog.locator(".file-meta")).toBeHidden();
+      const head = (await dialog.locator("header").boundingBox())!;
+      expect(head.height).toBeLessThanOrEqual(64);
+      expect((await dialog.locator(".file-preview-body").boundingBox())!.y).toBeLessThanOrEqual(70);
+      await dialog.getByRole("button", { name: "File details" }).click();
+    }
+    await expect(dialog.locator(".file-meta")).toBeVisible();
     await expect(dialog.locator(".file-meta")).toContainText("application/json");
     await expect(dialog.locator(".settings-path")).toHaveText(json);
     await expect(page).toHaveURL(new RegExp(`/a/${agentId}$`));

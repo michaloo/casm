@@ -75,14 +75,17 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
   const [download, setDownload] = useState<Link>();
   const [image, setImage] = useState<string>();
   const [copied, setCopied] = useState("");
+  const [info, setInfo] = useState(false);
+  const [view, setView] = useState<"rendered" | "source">("rendered");
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     dialog.current?.showModal();
+    dialog.current?.querySelector<HTMLElement>('header > button[aria-label^="Close"]')?.focus();
     return () => { if (previous?.isConnected) previous.focus(); };
   }, []);
   useEffect(() => {
     let active = true;
-    setFile(undefined); setError(""); setDownload(undefined); setImage(undefined);
+    setFile(undefined); setError(""); setDownload(undefined); setImage(undefined); setView("rendered");
     if (memory || !rpc) return;
     void rpc.call("fs.read", { path }, host).then(async (f) => {
       if (!active) return;
@@ -110,40 +113,46 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
   };
   const name = memory?.name ?? baseName(path);
   const source = memory?.src ?? image;
+  const html = !!file && isHtmlPage(file) && !source;
   const navigate = (delta: number) => setIndex(i => Math.max(0, Math.min((images?.length ?? 1) - 1, i + delta)));
   return createPortal(<dialog ref={dialog} className="host-settings file-preview" aria-label={`File ${name}`}
     onKeyDown={event => { if (images && !/INPUT|TEXTAREA/.test((event.target as HTMLElement).tagName) && ["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); navigate(event.key === "ArrowLeft" ? -1 : 1); } }}
     // React passes "close" up through portals: it must not also close a settings dialog this one opened from.
     onClose={(e) => { e.stopPropagation(); close(); }}>
-    <header>
-      <h2 title={path || name}>{name}</h2>
-      <button type="button" aria-label="Close file preview" onClick={() => dialog.current?.close()}>×</button>
-    </header>
-    <div className="file-preview-bar">
-      {!memory && <code className="settings-path">{path}</code>}
-      {file && <small className="file-meta">{file.type === "dir" ? "Folder" : `${formatSize(file.size)} · ${file.mime}`} · modified {formatTime(file.mtime)}</small>}
-      <div className="settings-actions">
-        {trail.length > 1 && <button type="button" onClick={() => setTrail((t) => t.slice(0, -1))}>Back</button>}
-        {memory && <a className="button" href={memory.src} download={name}>Download</a>}
+    <header className="file-preview-head">
+      {trail.length > 1 && <button type="button" className="file-icon" aria-label="Back" title="Back" onClick={() => setTrail((t) => t.slice(0, -1))}><Glyph d="M10 3 5 8l5 5" /></button>}
+      <h2 title={path || name} onClick={() => setInfo(v => !v)}>{name}</h2>
+      {!memory && <button type="button" className="file-icon file-info-toggle" aria-label="File details" title="File details" aria-expanded={info} onClick={() => setInfo(v => !v)}>
+        <Glyph d="M8 7.2v4M8 4.8v.1" circle /></button>}
+      <div className="file-head-actions">
+        {html && <div className="file-view-toggle" role="group" aria-label="HTML view">
+          {(["rendered", "source"] as const).map(v => <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>{v === "rendered" ? "Rendered" : "Source"}</button>)}
+        </div>}
+        {memory && <a className="button file-icon" href={memory.src} download={name} aria-label="Download" title="Download"><Glyph d={DOWNLOAD} /><span>Download</span></a>}
         {file?.type === "file" && (download
-          ? <a className="button" href={download.href} download={name} onClick={fresh}>Download</a>
-          : <button type="button" disabled>Download</button>)}
-        {!memory && <button type="button" onClick={() => void copy(path).then(() => setCopied("Copied ✓"), () => setCopied("Select to copy"))
-          .finally(() => setTimeout(() => setCopied(""), 1800))}>{copied || "Copy path"}</button>}
-        {source && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write && <button type="button" onClick={() => {
+          ? <a className="button file-icon" href={download.href} download={name} onClick={fresh} aria-label="Download" title="Download"><Glyph d={DOWNLOAD} /><span>Download</span></a>
+          : <button type="button" className="file-icon" disabled aria-label="Download" title="Download"><Glyph d={DOWNLOAD} /><span>Download</span></button>)}
+        {!memory && <button type="button" className="file-icon" aria-label={copied || "Copy path"} title={copied || "Copy path"} onClick={() => void copy(path).then(() => setCopied("Copied ✓"), () => setCopied("Select to copy"))
+          .finally(() => setTimeout(() => setCopied(""), 1800))}><Glyph d={copied === "Copied ✓" ? "m3 8.5 3.2 3.2L13 4.8" : COPY} /><span>{copied || "Copy path"}</span></button>}
+        {source && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write && <button type="button" className="file-icon" aria-label={copied || "Copy image"} title={copied || "Copy image"} onClick={() => {
           const blob = clipboardPng(source);
           void navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(() => setCopied("Image copied ✓"), err => setError(message(err)));
-        }}>{copied || "Copy image"}</button>}
+        }}><Glyph d={copied === "Image copied ✓" ? "m3 8.5 3.2 3.2L13 4.8" : COPY} /><span>{copied || "Copy image"}</span></button>}
       </div>
-    </div>
-    <div className={`settings-content file-preview-body${source ? " has-image" : ""}`}>
+      <button type="button" aria-label="Close file preview" onClick={() => dialog.current?.close()}>×</button>
+    </header>
+    {!memory && <div className="file-preview-bar" data-open={info}>
+      <code className="settings-path" title={path}>{path}</code>
+      {file && <small className="file-meta">{file.type === "dir" ? "Folder" : `${formatSize(file.size)} · ${file.mime}`} · modified {formatTime(file.mtime)}</small>}
+    </div>}
+    <div className={`settings-content file-preview-body${source ? " has-image" : ""}${html && view === "rendered" ? " bleed" : ""}`}>
       {error && <p role="alert" className="error">{error}</p>}
       {!memory && !file && !error && <p role="status">Loading…</p>}
       {source && <ImageCanvas key={`${index}:${path || name}`} src={source} name={name} close={() => dialog.current?.close()}>
         {images && images.length > 1 && <ImageSteps index={index} count={images.length} step={navigate} />}
       </ImageCanvas>}
       {!source && file && <FileLinksContext.Provider value={links}>
-        <FileBody file={file} line={line} />
+        <FileBody file={file} line={line} view={view} />
       </FileLinksContext.Provider>}
     </div>
   </dialog>, document.body);
@@ -157,22 +166,24 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
 const HTML_SANDBOX = "allow-scripts";
 const RELATIVE_ASSET = /\b(?:src|href)\s*=\s*["']?(?!(?:[a-z][a-z0-9+.-]*:|\/\/|#|data:|mailto:))[^"'\s>]+/i;
 
-function HtmlView({ html, line }: { html: string; line?: number }) {
-  const [view, setView] = useState<"rendered" | "source">("rendered");
+function HtmlView({ html, line, view }: { html: string; line?: number; view: "rendered" | "source" }) {
   const doc = useMemo(() => /<head[\s>]/i.test(html) ? html : `<meta charset="utf-8">${html}`, [html]);
   const assets = RELATIVE_ASSET.test(html);
-  return <>
-    <div className="file-view-toggle" role="group" aria-label="HTML view">
-      {(["rendered", "source"] as const).map(v => <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>{v === "rendered" ? "Rendered" : "Source"}</button>)}
-    </div>
-    {view === "rendered" ? <>
-      <iframe className="file-html-frame" title="Rendered HTML" sandbox={HTML_SANDBOX} referrerPolicy="no-referrer" srcDoc={doc} />
-      {assets && <p className="file-note muted">This page refers to files next to it (images, styles, scripts). Only the HTML file itself is shown, so those won't load.</p>}
-    </> : <CodeBlock text={html} language="html" line={line} />}
-  </>;
+  return view === "rendered" ? <>
+    <iframe className="file-html-frame" title="Rendered HTML" sandbox={HTML_SANDBOX} referrerPolicy="no-referrer" srcDoc={doc} />
+    {assets && <p className="file-note muted">This page refers to files next to it (images, styles, scripts). Only the HTML file itself is shown, so those won't load.</p>}
+  </> : <CodeBlock text={html} language="html" line={line} />;
 }
 
-function FileBody({ file, line }: { file: FileContent; line?: number }) {
+const isHtmlPage = (file: FileContent) => file.type === "file" && !!file.content && /^html?$/.test(extension(file.path)) && !file.truncated;
+const DOWNLOAD = "M8 2.5v8m-3.5-3.5L8 10.5 11.5 7M3 13h10";
+const COPY = "M5.5 5.5h7v7h-7zM3.5 10.5v-7h7";
+function Glyph({ d, circle }: { d: string; circle?: boolean }) {
+  return <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    {circle && <circle cx="8" cy="8" r="6.2" />}<path d={d} /></svg>;
+}
+
+function FileBody({ file, line, view }: { file: FileContent; line?: number; view: "rendered" | "source" }) {
   const ext = extension(file.path);
   if (file.type === "dir") return <p className="file-note">This is a folder. Open a file inside it from the transcript to preview or download it.</p>;
   if (file.type !== "file") return <p>This is not a regular file, so there is nothing to preview.</p>;
@@ -182,7 +193,7 @@ function FileBody({ file, line }: { file: FileContent; line?: number }) {
   if (file.content === null)
     return <p className="file-note">{file.binary ? "Binary file" : "No preview"} · {formatSize(file.size)} · {file.mime}. Use Download to open it on this device.</p>;
   if (!file.content) return <p className="file-note">This file is empty.</p>;
-  if ((ext === "html" || ext === "htm") && !file.truncated) return <HtmlView html={file.content} line={line} />;
+  if (isHtmlPage(file)) return <HtmlView html={file.content} line={line} view={view} />;
   if (file.mime === "text/markdown") return <>{truncated}<Prose text={file.content} /></>;
   let text = file.content;
   if (ext === "json" && !file.truncated) {

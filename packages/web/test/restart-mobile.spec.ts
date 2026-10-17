@@ -35,12 +35,14 @@ for (const width of [1440, 375]) test(`/restart marks the old session and leaves
   await expect(composer.locator(".command-notice")).toHaveCount(0);
   await page.screenshot({ path: `/tmp/casm-restart-${width}-${test.info().project.name}.png` });
 
-  // Another command's notice stays with its own agent.
+  // Another command's outcome lands in its own agent's transcript, not the composer.
   await input.fill("/reload");
   await list.getByRole("option").filter({ hasText: "casm action" }).click();
-  await expect(composer.locator(".command-notice")).toContainText("Agent 03");
+  await expect(page.locator(".transcript").getByText("/reload completed")).toBeVisible();
+  await expect(composer.getByText("/reload completed")).toHaveCount(0);
 
   await open("Agent 02");
+  await expect(page.locator(".transcript").getByText("/reload completed")).toHaveCount(0);
   await expect(divider).toHaveCount(0);
   await expect(page.locator(".entry.earlier")).toHaveCount(0);
   expect(await look()).toEqual(other);

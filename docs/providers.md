@@ -33,6 +33,7 @@ below are relative to the source roots in the table; casm paths to
 | Effective model | ✓ | ✓ | ✓ | ✓ |
 | Account limits | ✓ | ✓ | ✗ | ✗ |
 | Context usage | ✓ | ✓ | ✓ | ✓ |
+| Cost per day (estimated) | ✗ | ✗ | ✓ | ✓ |
 | Local models | **partial** | **gap** | ✓ | ✓ |
 | Images in / out | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ |
 | Plan mode | **partial** | ✓ | ✓ (plan agent) | ✗ |
@@ -214,6 +215,34 @@ attributes to the agent.
 Claude from per-call usage and `modelUsage.contextWindow`; Codex
 `thread/tokenUsage/updated`; OpenCode from assistant message tokens and the
 model's `limit.context`; pi `get_session_stats`.
+
+### Cost per day
+
+`provider.costs` (the Usage tab's cost cards, `casm costs`) sums what the agent
+itself recorded for each model call, per local day of the host, over the host's
+casm agents. Only the agents' own data is read: no provider APIs, no keys. The
+amount is the agent's estimate, its catalog price × tokens, not a bill: it can
+differ from the invoice (routing, BYOK fees, price changes), subscription
+logins report list prices nobody pays, and free, local or unpriced models count
+as 0.
+
+- OpenCode ✓: each assistant message's `cost`, timed by `time.completed`, in the
+  agent's session and its subagents' child sessions (`/session/:id/children`).
+  Read through `opencode serve`; a session is read again only when its tree's
+  `time.updated` changes, and those are checked only after OpenCode's database
+  (`opencode.db`, `-wal`) changed, so a repeat call starts no server.
+- pi ✓: `usage.cost.total` of every assistant and tool-result message and of
+  usage, compaction and branch-summary entries in the session file (what
+  `get_session_stats` totals), timed by the message's timestamp. Re-read when the
+  file's size or mtime changes.
+- Claude ✗: its transcript records tokens but no per-call cost (only a
+  cumulative `cost-state` line, with no per-call times).
+- Codex ✗: reports no cost.
+
+Computed on demand, not recorded as turns run: the agents' stores already hold
+every call with its time and cost, so this covers turns from before casm
+watched and turns run outside it, needs no second copy or backfill, and can't
+count a resumed session twice. Agents deleted from casm drop out.
 
 ### Local models
 

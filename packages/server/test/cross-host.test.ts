@@ -203,6 +203,11 @@ test("from an agent's shell: run, wait, send, agents and history on a peer; pare
   assert.deepEqual(again.matches.map((m: { index: number; kind: string }) => [m.index, m.kind]), [[2, "user"], [3, "assistant"]]);
   const printed = await agentCli("-H", "beta", "history", "child", "--find", "again", "-n", "1");
   assert.equal(printed.stdout, "(2 matches; the latest 1)\n    3 · - · assistant   · echo: again\n");
+  // Costs go to the peer too (its fake agent records none).
+  const costs = await agentJson("-H", "beta", "costs", "--days", "3");
+  assert.deepEqual(costs.costs, []);
+  assert.match(costs.today, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match((await agentCli("-H", "beta", "costs")).stdout, /^no estimated cost in the last 7 days/);
 });
 
 test("from an agent's shell: run --cwd takes a folder inside the project, resolved on the peer", async () => {

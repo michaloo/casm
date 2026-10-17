@@ -16,13 +16,13 @@ import { toolImages } from "./tool-images.ts";
 // MCP servers belong to the whole server.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomInt } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Answers, Catalog, Command, ImageData, Item, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
-import type { OpenOptions, Provider, ProviderEvent, ProviderSession } from "./types.ts";
+import type { CostEntry, OpenOptions, Provider, ProviderEvent, ProviderSession } from "./types.ts";
 import { isoTime, seen, timed } from "../item-times.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -325,6 +325,26 @@ export function sessionUsage(infos: OcMessageInfo[], contextWindow?: (model: str
     outputTokens: output,
     ...(cost > 0 ? { costUsd: cost } : {}),
   };
+}
+
+// --- cost
+
+type OcSession = { id: string; time?: { updated?: number } };
+
+// Every priced assistant message, timed by its completion (else its start).
+export function messageCosts(infos: OcMessageInfo[]): CostEntry[] {
+  return infos.flatMap((i) => {
+    const at = i.time?.completed ?? i.time?.created;
+    return i.role === "assistant" && (i.cost ?? 0) > 0 && at !== undefined ? [{ at, costUsd: i.cost! }] : [];
+  });
+}
+
+// OpenCode's data directory: its database there changes with every session write.
+export const opencodeDataDir = () => join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "opencode");
+
+function fileStamp(dir: string): string | null {
+  const parts = ["opencode.db", "opencode.db-wal"].map((f) => statSync(join(dir, f), { throwIfNoEntry: false }));
+  return parts[0] ? parts.map((p) => (p ? `${p.size}:${p.mtimeMs}` : "-")).join("/") : null;
 }
 
 // --- commands
@@ -1081,7 +1101,19 @@ class OpencodeSession implements ProviderSession {
   }
 }
 
-export function opencodeProvider(server = new OpencodeServer()): Provider {
+export function opencodeProvider(server = new OpencodeServer(), dataDir = opencodeDataDir()): Provider {
+  // A session and its subagents' sessions (tasks run in child sessions), parent first.
+  const tree = async (id: string, cwd: string): Promise<OcSession[]> => {
+    const [own, children] = await Promise.all([
+      server.request<OcSession>("GET", `/session/${id}`, cwd),
+      server.request<OcSession[]>("GET", `/session/${id}/children`, cwd).catch(() => []),
+    ]);
+    const nested = await Promise.all(children.map((c) => tree(c.id, cwd)));
+    return [own, ...nested.flat()];
+  };
+  // costStamp by session, with the database stamp it was read at: while the
+  // database is unchanged it holds without starting `opencode serve`.
+  const stamps = new Map<string, { db: string; stamp: string }>();
   return {
     id: "opencode",
     open: (opts) => new OpencodeSession(opts, server),
@@ -1118,6 +1150,29 @@ export function opencodeProvider(server = new OpencodeServer()): Provider {
           messages.map((m) => m.info),
           (m) => windows.get(m),
         );
+      } finally {
+        release();
+      }
+    },
+    async costs(sessionId, cwd) {
+      const release = await server.acquire();
+      try {
+        const sessions = await tree(sessionId, cwd);
+        const messages = await Promise.all(sessions.map((x) => server.request<OcMessage[]>("GET", `/session/${x.id}/message`, cwd)));
+        return messageCosts(messages.flat().map((m) => m.info));
+      } finally {
+        release();
+      }
+    },
+    async costStamp(sessionId, cwd) {
+      const db = fileStamp(dataDir);
+      const known = stamps.get(sessionId);
+      if (db && known?.db === db) return known.stamp;
+      const release = await server.acquire();
+      try {
+        const stamp = (await tree(sessionId, cwd)).map((x) => `${x.id}@${x.time?.updated ?? "?"}`).join(",");
+        if (db) stamps.set(sessionId, { db, stamp });
+        return stamp;
       } finally {
         release();
       }

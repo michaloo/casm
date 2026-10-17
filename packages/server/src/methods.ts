@@ -8,6 +8,7 @@ import type { Scheduler } from "./schedules.ts";
 import { searchFiles } from "./fs-search.ts";
 import type { Files } from "./files.ts";
 import { HostSampler } from "./host-stats.ts";
+import { CostReader } from "./costs.ts";
 import { hostAgentsMd, setHostAgentsMd } from "./host-details.ts";
 import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts";
 import type { PeerPool } from "./peers.ts";
@@ -102,6 +103,7 @@ export function createHandlers(
   };
 
   const sampler = new HostSampler();
+  const costs = new CostReader(store, () => agents.installedProviders());
   return {
     "host.stats": async () => await sampler.read(agents.runningCount()),
     "host.agentsMd": async () => ({ files: await hostAgentsMd() }),
@@ -138,6 +140,7 @@ export function createHandlers(
 
     "provider.catalog": (p) => agents.catalog(p.provider, p.refresh),
     "provider.limits": async (p) => ({ limits: await agents.limits(p.provider, p.refresh) }),
+    "provider.costs": (p) => costs.costs(p.days),
 
     "project.list": (p) => ({ projects: store.listProjects(p.includeArchived) }),
     "project.create": (p) => {

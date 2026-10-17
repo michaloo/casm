@@ -84,6 +84,13 @@ export interface Provider {
   catalog(): Promise<Catalog>;
   // Last known context/cost from the provider's store (for agents not running now).
   usage(sessionId: string, cwd: string): Promise<Usage | null>;
+  // Estimated cost of each model call the session recorded (subagents' included),
+  // as the agent itself priced it, for per-day totals (provider.costs). Agents
+  // that don't record a per-call cost leave these out.
+  costs?(sessionId: string, cwd: string): Promise<CostEntry[]>;
+  // Cheap to read, and changes whenever costs() might: costs are read again
+  // only then. Null when unknown (read every time).
+  costStamp?(sessionId: string, cwd: string): Promise<string | null>;
   // Slash commands and skills available in `cwd`.
   commands(cwd: string): Promise<Command[]>;
   // Queries account limits directly when the agent can (e.g. Codex). Others
@@ -95,6 +102,9 @@ export interface Provider {
   // a memory store leave these out.
   memories?(cwd: string): Promise<ProviderMemories | null>;
 }
+
+// `at`: epoch ms of the call (its completion when known).
+export type CostEntry = { at: number; costUsd: number };
 
 export type ProviderMemories = {
   scope: "project" | "global";

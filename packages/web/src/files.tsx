@@ -80,7 +80,8 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     dialog.current?.showModal();
-    dialog.current?.querySelector<HTMLElement>('header > button[aria-label^="Close"]')?.focus();
+    // Focus the dialog itself: Escape and Tab work, and no button opens highlighted.
+    dialog.current?.focus({ preventScroll: true });
     return () => { if (previous?.isConnected) previous.focus(); };
   }, []);
   useEffect(() => {
@@ -115,7 +116,7 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
   const source = memory?.src ?? image;
   const html = !!file && isHtmlPage(file) && !source;
   const navigate = (delta: number) => setIndex(i => Math.max(0, Math.min((images?.length ?? 1) - 1, i + delta)));
-  return createPortal(<dialog ref={dialog} className="host-settings file-preview" aria-label={`File ${name}`}
+  return createPortal(<dialog ref={dialog} tabIndex={-1} className="host-settings file-preview" aria-label={`File ${name}`}
     onKeyDown={event => { if (images && !/INPUT|TEXTAREA/.test((event.target as HTMLElement).tagName) && ["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); navigate(event.key === "ArrowLeft" ? -1 : 1); } }}
     // React passes "close" up through portals: it must not also close a settings dialog this one opened from.
     onClose={(e) => { e.stopPropagation(); close(); }}>
@@ -126,7 +127,8 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
         <Glyph d="M8 7.2v4M8 4.8v.1" circle /></button>}
       <div className="file-head-actions">
         {html && <div className="file-view-toggle" role="group" aria-label="HTML view">
-          {(["rendered", "source"] as const).map(v => <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>{v === "rendered" ? "Rendered" : "Source"}</button>)}
+          {(["rendered", "source"] as const).map(v => <button key={v} type="button" className="file-icon" aria-pressed={view === v} aria-label={v === "rendered" ? "Rendered" : "Source"}
+            title={v === "rendered" ? "Rendered page" : "Source"} onClick={() => setView(v)}><Glyph d={v === "rendered" ? PLAY : CODE} /><span>{v === "rendered" ? "Rendered" : "Source"}</span></button>)}
         </div>}
         {memory && <a className="button file-icon" href={memory.src} download={name} aria-label="Download" title="Download"><Glyph d={DOWNLOAD} /><span>Download</span></a>}
         {file?.type === "file" && (download
@@ -178,6 +180,8 @@ function HtmlView({ html, line, view }: { html: string; line?: number; view: "re
 const isHtmlPage = (file: FileContent) => file.type === "file" && !!file.content && /^html?$/.test(extension(file.path)) && !file.truncated;
 const DOWNLOAD = "M8 2.5v8m-3.5-3.5L8 10.5 11.5 7M3 13h10";
 const COPY = "M5.5 5.5h7v7h-7zM3.5 10.5v-7h7";
+const PLAY = "M5.5 3.8v8.4L12.5 8z";
+const CODE = "M5.5 4.5 2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5M9 3.5 7 12.5";
 function Glyph({ d, circle }: { d: string; circle?: boolean }) {
   return <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
     {circle && <circle cx="8" cy="8" r="6.2" />}<path d={d} /></svg>;

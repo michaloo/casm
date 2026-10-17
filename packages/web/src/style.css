@@ -2559,6 +2559,8 @@ a.file-link code { color: inherit; }
 .file-view-toggle button:first-child { border-radius: 8px 0 0 8px; }
 .file-view-toggle button:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
 .file-view-toggle button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); position: relative; }
+.file-view-toggle .file-icon span { margin-left: 6px; }
+.file-preview:focus { outline: none; }
 .file-html-frame { display: block; width: 100%; height: min(70dvh, 640px); border: 1px solid var(--line); border-radius: 10px; background: #fff; margin-top: 10px; }
 .file-preview-body .file-note.muted { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
 .file-preview-body .code-block { margin: 0; }
@@ -2567,7 +2569,10 @@ a.file-link code { color: inherit; }
 @media (max-width: 650px) {
   .file-preview { width: 100%; height: var(--viewport-height, 100dvh); max-width: none; max-height: none; border-radius: 0; border-width: 0; }
   .file-preview > header { padding: env(safe-area-inset-top) max(4px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left)); gap: 2px; }
-  .file-preview > header h2 { font-size: 15px; padding-left: 8px; }
+  /* Phones: no file name in the header (it's in File details), icons only. */
+  .file-preview > header h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .file-preview > header .file-head-actions { margin-left: auto; }
+  .file-view-toggle .file-icon span { display: none; }
   .file-head-actions { gap: 2px; margin-left: 0; }
   .file-head-actions .file-icon span { display: none; }
   .file-icon { padding: 0; min-width: 38px; }

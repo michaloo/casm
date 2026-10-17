@@ -211,7 +211,6 @@ function App() {
   const [mcp, setMcp] = useState<{ host: string; id: string; name: string }>();
   // Per chat key: a slash action's result belongs to the agent it ran for.
   const [commandBusy, setCommandBusy] = useState<ReadonlySet<string>>(new Set());
-  const [commandNotices, setCommandNotices] = useState<Readonly<Record<string, string>>>({});
   const deferredSteers = useRef(new Map<string, string>()).current;
   // Status text of pending rows with an action in flight, by key(host, id).
   const rowNotes = useRef(new Map<string, string>()).current;
@@ -530,12 +529,15 @@ function App() {
   async function composerAction(name: CasmCommand) {
     if (!agent || !selection || !rpc.current || commandBusy.has(ckey)) return;
     const target = c; const draft = c.input; const k = ckey;
-    const notice = (text: string) => setCommandNotices(({ [k]: _, ...rest }) => text ? { ...rest, [k]: text } : rest);
-    setCommandBusy((b) => new Set(b).add(k)); notice("");
+    setCommandBusy((b) => new Set(b).add(k));
     try {
       if (name === "mcp") setMcp({ host: selection.host, id: agent.id, name: agent.name });
       // The transcript shows a restart as its divider.
-      else { await rpc.current.call(`agent.${name}`, { id: agent.id }, selection.host); if (name !== "restart") notice(`/${name} completed for ${agent.name}.`); }
+      else {
+        await rpc.current.call(`agent.${name}`, { id: agent.id }, selection.host);
+        // The outcome goes into the transcript, where the work happened (a restart shows as its divider).
+        if (name !== "restart") { target.items = [...target.items, { kind: "notice", id: `local:${name}:${Date.now()}`, at: new Date().toISOString(), text: `/${name} completed` }]; redraw(); }
+      }
       if (target.input === draft) { target.input = ""; saveDraft(target); redraw(); }
     } catch (e) { setError(String(e)); }
     finally { setCommandBusy((b) => { const next = new Set(b); next.delete(k); return next; }); }
@@ -1158,7 +1160,6 @@ function App() {
               }}
             >
               {slash.palette}
-              {commandNotices[ckey] && <p role="status" className="command-notice">{commandNotices[ckey]}</p>}
               <ComposerPickers provider={provider} fixedProvider={!!agent} catalog={catalog}
                 model={model} configuredModel={agent?.config.model} effectiveModel={agent?.effectiveModel} mode={mode} effort={effort}
                 setProvider={value => { setProvider(value); setModel(""); setMode(""); setEffort(""); }}

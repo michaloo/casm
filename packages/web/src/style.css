@@ -2531,7 +2531,7 @@ nav .row-more:hover, nav .row-more:focus-visible, nav .row-more[aria-expanded="t
 .slash-palette small { color: var(--agent); margin-left: auto; font-size: 12px; }
 .slash-palette code { color: var(--muted); font-size: 13px; }
 .slash-description { display: block; color: var(--muted); font-size: 14px; line-height: 1.4; margin-top: 4px; }
-.slash-palette p, .command-notice { font-size: 13px; margin: 8px; overflow-wrap: anywhere; }
+.slash-palette p { font-size: 13px; margin: 8px; overflow-wrap: anywhere; }
 .mcp-panel h3, .mcp-panel p { overflow-wrap: anywhere; }
 
 /* Project files: links in transcripts, the preview dialog and the browser. */

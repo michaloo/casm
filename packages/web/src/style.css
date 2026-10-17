@@ -2132,7 +2132,7 @@ textarea::placeholder {
   font-size: 11px;
 }
 /* Usage tab: an agent's estimated cost per day, a bar per day. */
-.cost-card .cost-readout { margin-bottom: -8px; color: var(--muted); }
+.cost-card .cost-readout { margin-bottom: -8px; color: var(--muted); white-space: nowrap; }
 .cost-card .cost-readout > :last-child { color: var(--text); font-size: 15px; }
 .cost-chart { display: grid; gap: 6px; }
 .cost-chart > svg { display: block; overflow: visible; }

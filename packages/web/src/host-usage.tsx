@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
-import type { HostStats, LimitWindow, ProviderLimits } from "@casm/protocol";
+import type { HostStats, LimitWindow, ProviderCosts, ProviderLimits } from "@casm/protocol";
 import type { Rpc } from "./state";
 import { gib, pctTone, ramPercent, useHostStats } from "./host-stats";
 import { ProviderIcon, providerNames } from "./provider-icon";
 import { usageLabel, resetLabel, elapsedPercent } from "./usage-label";
+import { CostCard } from "./cost-chart";
 
-/** Provider limit windows for one host, read when shown. */
+/** Provider limit windows and the agents' estimated cost per day for one host, read when shown. */
 export function HostUsage({ host, rpc, online }: { host: string; rpc: Rpc | null; online: boolean }) {
   const [refresh, setRefresh] = useState(0);
   const [limits, setLimits] = useState<ProviderLimits[]>([]);
+  // Only providers with any cost in the window get a card.
+  const [costs, setCosts] = useState<{ today: string; costs: ProviderCosts[] }>({ today: "", costs: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -21,14 +24,18 @@ export function HostUsage({ host, rpc, online }: { host: string; rpc: Rpc | null
     }).catch(() => {
       if (active) setError("Usage unavailable on this host.");
     }).finally(() => { if (active) setLoading(false); });
+    // Servers without provider.costs (older ones) just show no cost cards.
+    void rpc.call("provider.costs", {}, host).then((value) => {
+      if (active) setCosts({ today: value.today, costs: value.costs.filter((c) => c.totalUsd > 0) });
+    }).catch(() => { if (active) setCosts({ today: "", costs: [] }); });
     return () => { active = false; };
   }, [online, rpc, host, refresh]);
   return <>
     <div className="host-panel-toolbar"><button type="button" disabled={loading || !online} onClick={() => setRefresh((value) => value + 1)}>Refresh usage</button></div>
     {!online ? <p>Host offline.</p> : error ? <p role="status">{error}</p> : <>
       {loading && <p role="status">Loading usage…</p>}
-      {!loading && !limits.length && <p>No provider usage reported.</p>}
-      {limits.length > 0 && <div className="usage-grid">
+      {!loading && !limits.length && !costs.costs.length && <p>No provider usage reported.</p>}
+      {(limits.length > 0 || costs.costs.length > 0) && <div className="usage-grid">
         {limits.slice().sort((a, b) => a.provider.localeCompare(b.provider)).map((limit) => {
           const state = providerState(limit);
           return <section key={limit.provider} className="host-provider-usage usage-card" aria-label={providerNames[limit.provider]}>
@@ -50,6 +57,7 @@ export function HostUsage({ host, rpc, online }: { host: string; rpc: Rpc | null
             <small className="usage-reported">Reported <time dateTime={limit.updatedAt} title={new Date(limit.updatedAt).toLocaleString()}>{agoLabel(limit.updatedAt)}</time></small>
           </section>;
         })}
+        {costs.costs.slice().sort((a, b) => a.provider.localeCompare(b.provider)).map((c) => <CostCard key={`cost-${c.provider}`} costs={c} today={costs.today} />)}
       </div>}
     </>}
   </>;

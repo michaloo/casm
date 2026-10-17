@@ -2131,6 +2131,35 @@ textarea::placeholder {
   color: var(--muted);
   font-size: 11px;
 }
+/* Usage tab: an agent's estimated cost per day, a bar per day. */
+.cost-card .cost-readout { margin-bottom: -8px; color: var(--muted); }
+.cost-card .cost-readout > :last-child { color: var(--text); font-size: 15px; }
+.cost-chart { display: grid; gap: 6px; }
+.cost-chart > svg { display: block; overflow: visible; }
+.cost-base { stroke: var(--line); stroke-width: 1; }
+.cost-bar { fill: color-mix(in srgb, var(--accent-bright) 45%, var(--raised)); transition: fill .12s var(--ease); }
+.cost-bar.today { fill: var(--accent-bright); }
+.cost-bar.picked { fill: var(--accent-bright); }
+.cost-band { fill: color-mix(in srgb, var(--text) 7%, transparent); }
+.cost-hit { fill: transparent; cursor: pointer; }
+.cost-days {
+  display: grid;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.cost-days > span { overflow: hidden; white-space: nowrap; }
+.cost-days > .today { color: var(--text); font-weight: 650; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 button.danger {
   color: var(--attention);
   border-color: color-mix(in srgb, var(--attention-bright) 40%, var(--line));

@@ -1902,6 +1902,86 @@
         ]
       }
     },
+    "provider.costs": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "costs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "enum": [
+                    "claude",
+                    "codex",
+                    "pi",
+                    "opencode"
+                  ]
+                },
+                "days": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "date": {
+                        "type": "string"
+                      },
+                      "costUsd": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "date",
+                      "costUsd"
+                    ]
+                  }
+                },
+                "totalUsd": {
+                  "type": "number"
+                },
+                "agents": {
+                  "type": "number"
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider",
+                "days",
+                "totalUsd",
+                "agents"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "timeZone",
+          "costs"
+        ]
+      }
+    },
     "fs.search": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

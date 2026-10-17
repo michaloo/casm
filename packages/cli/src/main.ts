@@ -125,6 +125,7 @@ schedules (each belongs to a project; messages to busy or limited agents become 
   answer <agent> <request> --dismiss
   models [--provider p] [--refresh]  models and modes each agent offers on the host
   limits [--provider p] [--refresh]  subscription limits per agent (used % per window)
+  costs [--days n]                   estimated cost per day per agent (OpenCode, pi), as they report it
   stats                              CPU, load and memory of the host
   usage <agent>                      context-window usage and cost of one agent
   approve <agent> <request> [--always]
@@ -151,6 +152,7 @@ const options = {
   project: { type: "string", short: "p" },
   all: { type: "boolean" },
   provider: { type: "string" },
+  days: { type: "string" },
   name: { type: "string" },
   model: { type: "string" },
   mode: { type: "string" },
@@ -806,6 +808,29 @@ async function run(c: CasmClient) {
             console.log(`  ${(w.label ?? w.id).padEnd(16)} ${used.padStart(4)} used${w.status && w.status !== "ok" ? `  ${w.status}` : ""}${reset}`);
           }
         }
+      });
+    }
+
+    case "costs": {
+      const days = opt.days === undefined ? undefined : Number(opt.days);
+      if (days !== undefined && !(Number.isInteger(days) && days >= 1 && days <= 90)) fail("--days takes a whole number from 1 to 90");
+      const result = await c.call("provider.costs", { days });
+      return out(result, () => {
+        const shown = result.costs.filter((x) => x.totalUsd > 0 || x.error);
+        if (!shown.length) {
+          console.log(`no estimated cost in the last ${days ?? 7} days (OpenCode and pi report one per call; Claude and Codex don't)`);
+          return;
+        }
+        const usd = (n: number) => (n === 0 ? "-" : n < 0.01 ? n.toFixed(4) : n.toFixed(2));
+        const width = Math.max(...shown.map((x) => x.provider.length), 8);
+        const row = (label: string, cells: string[]) => console.log(`${label.padEnd(12)}${cells.map((x) => x.padStart(width + 2)).join("")}`);
+        console.log(`estimated USD per day (${result.timeZone}), as each agent reports it: its catalog price × tokens, not a bill`);
+        row("", shown.map((x) => x.provider));
+        for (const [i, { date }] of shown[0].days.entries())
+          row(date === result.today ? `${date.slice(5)} today` : date.slice(5), shown.map((x) => usd(x.days[i].costUsd)));
+        row("total", shown.map((x) => usd(x.totalUsd)));
+        row("agents", shown.map((x) => String(x.agents)));
+        for (const x of shown) if (x.error) console.log(`${x.provider}: ${x.error}`);
       });
     }
 

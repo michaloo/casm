@@ -449,6 +449,7 @@ reads a peer; `--json` prints the raw `host.stats` result.
 
 ```text
 casm limits [--provider p] [--refresh]
+casm costs [--days n]
 casm usage <agent>
 casm models [--provider p] [--refresh]
 ```
@@ -460,6 +461,18 @@ claude  (max)  as of 2026-10-14T21:29:21.212Z
   weekly             6% used  resets 2026-10-21T18:59:59.993191+00:00
 codex  (prolite)  as of 2026-10-14T21:29:22.123Z
   weekly            60% used  resets 2026-10-21T11:23:53.000Z
+$ casm costs
+estimated USD per day (Europe/Warsaw), as each agent reports it: its catalog price × tokens, not a bill
+                    pi  opencode
+10-11                -         -
+10-12                -    0.0026
+10-13                -         -
+10-14                -         -
+10-15                -         -
+10-16           0.0001         -
+10-17 today     0.0004    0.0014
+total           0.0005    0.0040
+agents               1         2
 $ casm usage reviewer
 ctx 30k/200k (15%)  $0.06  claude-haiku-4-5-20251001
 $ casm models --provider claude
@@ -472,6 +485,13 @@ claude
     …
     modes: plan, default, acceptEdits, auto, bypassPermissions
 ```
+
+`casm costs` sums the cost OpenCode and pi record for each call over this
+host's casm agents (archived ones and sessions left by `/restart` included),
+per local day of the host, days without cost included (`--days`, 1–90, default
+7). It is the agent's estimate, not a bill; Claude and Codex record no per-call
+cost, so they don't appear. `-H peer costs` reads a peer; `--json` prints the
+raw `provider.costs` result.
 
 Limits appear once a provider has reported them (Codex can be asked directly;
 Claude reports them from its sessions). `--refresh` queries providers that

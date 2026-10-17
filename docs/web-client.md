@@ -180,7 +180,15 @@ Both also work from the CLI and MCP; whichever answers first wins.
 ## Usage and limits
 
 **Host options → Usage** lists each provider's subscription windows, how much
-is used and when they reset.
+is used and when they reset. Beside them, every agent that prices its own calls
+(OpenCode and pi) gets a card with its estimated cost per day for the last 7
+days, summed over the host's casm agents: one bar per day, today highlighted,
+the day's value above the chart on hover (or tap on a phone), and the 7-day
+total. It is the agent's own estimate (its catalog price × tokens, not a bill;
+free and local models count as $0), labelled "Estimated, as reported by
+OpenCode". An agent with no cost in the window gets no card. The cards reload
+with the tab and its Refresh button; screen readers get a summary and a table
+of the days.
 
 **Host options → Resources** (or a click on the host's mini bars) shows the
 host's CPU %, load (1/5/15 min, amber when the 1-minute load exceeds the core

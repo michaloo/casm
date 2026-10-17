@@ -376,6 +376,20 @@ export const ProviderLimits = z.object({
 });
 export type ProviderLimits = z.infer<typeof ProviderLimits>;
 
+// Estimated cost an agent provider reported, summed per day (see provider.costs).
+export const ProviderCosts = z.object({
+  provider: ProviderId,
+  // One per day of the window, oldest first, days without cost included.
+  // `date`: the server's local calendar day, YYYY-MM-DD.
+  days: z.array(z.object({ date: z.string(), costUsd: z.number() })),
+  totalUsd: z.number(),
+  // casm agents of this provider with any cost in the window.
+  agents: z.number(),
+  // Set when some sessions could not be read; the totals leave them out.
+  error: z.string().optional(),
+});
+export type ProviderCosts = z.infer<typeof ProviderCosts>;
+
 // A light read of this host's load, for spotting an overloaded, slow host.
 export const HostStats = z.object({
   // Busy share of all cores (0-100) since the previous call, or over a ~250 ms sample when there was none in the last minute.
@@ -625,6 +639,16 @@ export const methods = {
   "provider.limits": method(
     z.object({ provider: ProviderId.optional(), refresh: z.boolean().optional() }),
     z.object({ limits: z.array(ProviderLimits) }),
+  ),
+
+  // Estimated cost per day over the last `days` (default 7, today included) for
+  // each installed provider whose agent records a per-call cost (OpenCode, pi),
+  // summed over this host's casm agents from the agents' own session data: the
+  // agent's catalog price × tokens, not a bill. Free, local and unpriced models
+  // count as 0. Days are the server's local days (`timeZone`).
+  "provider.costs": method(
+    z.object({ days: z.number().int().min(1).max(90).optional() }),
+    z.object({ today: z.string(), timeZone: z.string(), costs: z.array(ProviderCosts) }),
   ),
 
   // Files and directories under `cwd` (or the agent's cwd) matching `query`,

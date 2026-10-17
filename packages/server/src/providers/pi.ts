@@ -19,12 +19,12 @@ import { toolImages } from "./tool-images.ts";
 // with `details.todos` (examples/extensions/todo.ts) or a custom entry with
 // `data.todos` (examples/extensions/plan-mode).
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Answers, Catalog, Command, ImageData, Item, McpServer, ModelInfo, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
 import { COMMAND as CASM_MCP_COMMAND, ENV as CASM_MCP_ENV } from "./pi-extension.ts";
-import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
+import type { CostEntry, OpenOptions, Provider, ProviderSession } from "./types.ts";
 import { isoTime, TimedItems } from "../item-times.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -317,6 +317,22 @@ export function sessionUsage(jsonl: string, contextWindow?: (provider: string, m
     outputTokens: output,
     ...(cost > 0 ? { costUsd: cost } : {}),
   };
+}
+
+// The cost of every call a session file records (the entries sessionUsage
+// totals), timed by the message or else the entry. Free and unpriced ones are left out.
+export function sessionCosts(jsonl: string): CostEntry[] {
+  const out: CostEntry[] = [];
+  const add = (u: PiUsage | undefined, ...times: (string | number | undefined)[]) => {
+    const cost = u?.cost?.total ?? 0;
+    const at = times.map((t) => (t === undefined ? NaN : new Date(t).getTime())).find((t) => Number.isFinite(t));
+    if (cost > 0 && at !== undefined) out.push({ at, costUsd: cost });
+  };
+  for (const e of entriesOf(jsonl)) {
+    if (e.type === "usage" || e.type === "compaction" || e.type === "branch_summary") add(e.usage, e.timestamp);
+    else if (e.type === "message" && (e.message?.role === "assistant" || e.message?.role === "toolResult")) add(e.message.usage, e.message.timestamp, e.timestamp);
+  }
+  return out;
 }
 
 // The part of a cumulative tool output snapshot not yet streamed. Snapshots
@@ -1038,6 +1054,19 @@ export function piProvider(): Provider {
       }
       const known = await contextWindows().catch(() => new Map<string, number>());
       return sessionUsage(jsonl, (provider, model) => known.get(`${provider}/${model}`));
+    },
+    async costs(sessionId) {
+      try {
+        return sessionCosts(await readFile(sessionId, "utf8"));
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw e;
+      }
+    },
+    // pi appends to the session file, so its size and mtime say when it changed.
+    async costStamp(sessionId) {
+      const s = await stat(sessionId).catch(() => null);
+      return s ? `${s.size}:${s.mtimeMs}` : "missing";
     },
     commands: fetchCommands,
   };

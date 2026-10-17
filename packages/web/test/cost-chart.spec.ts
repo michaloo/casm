@@ -76,6 +76,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 
       else await hit.hover();
       await expect(readout).toContainText("$0.01");
       await expect(readout).not.toContainText("Today");
+      // A picked day's date stays on one line, so the card doesn't grow.
+      const label = (await readout.locator(":scope > :first-child").boundingBox())!;
+      expect(label.height).toBeLessThan(32);
       await expect(bars.nth(4)).toHaveClass(/picked/);
       await card.screenshot({ path: `${SHOTS}/cost-chart-${viewport.width}-${colorScheme}${touch ? "-webkit" : ""}.png` });
       if (touch) await hit.tap();

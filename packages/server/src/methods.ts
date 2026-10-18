@@ -160,9 +160,12 @@ export function createHandlers(
       notify("project.changed", { project });
       return project;
     },
-    "project.update": (p) => {
-      getProject(p.id);
+    "project.update": async (p) => {
+      const current = getProject(p.id);
       const project = store.updateProject(p.id, p)!;
+      // Like archiving an agent: its agents' provider processes stop.
+      if (p.archived && !current.archivedAt)
+        await Promise.all(store.listAgents({ projectId: p.id, includeArchived: true }).map((a) => agents.close(a.id)));
       notify("project.changed", { project });
       return project;
     },

@@ -175,6 +175,27 @@ test("claude: restart stops the old process; project.delete stops every agent's"
   }
 });
 
+test("claude: archiving a project stops its agents' processes; sending resumes them", { timeout: 30000 }, async () => {
+  const t = await setup("claude");
+  try {
+    const a = await t.create();
+    const b = await t.create();
+    await t.turn(a, "one");
+    await t.turn(b, "one");
+    await t.settle(2);
+    await t.client.call("project.update", { id: t.project.id, archived: true });
+    await t.settle(0);
+    const native = (await t.client.call("agent.get", { id: a })).nativeSessionId;
+    assert.ok(native);
+    await t.client.call("project.update", { id: t.project.id, archived: false });
+    await t.turn(a, "two");
+    const [resumed] = await t.settle(1);
+    assert.ok(resumed.log.includes(native), `${native} not in ${resumed.log}`);
+  } finally {
+    await t.cleanup();
+  }
+});
+
 test("archiving mid-turn interrupts the turn, then closes; queued messages wait", { timeout: 10000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "casm-archive-turn-"));
   const store = new Store(join(dir, "state.db"));

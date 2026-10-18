@@ -101,9 +101,9 @@ An agent's status is `idle`, `running` or `waiting` (blocked on a permission or
 a question). **Reload** reopens the provider process on the same session;
 **restart** starts a fresh native session on the next turn; **archive** hides
 an agent but keeps it; **rm** deletes the record (not the provider's files).
-Archiving and removing an agent (or deleting its project) stop its provider
-process; a running turn is interrupted first, and queued messages stay queued.
-After unarchiving, the next message resumes the same native session. A shared
+Archiving and removing an agent (or archiving or deleting its project) stop its
+provider process; a running turn is interrupted first, and queued messages stay
+queued. After unarchiving, the next message resumes the same native session. A shared
 OpenCode server stops shortly after its last session closes.
 
 ## Subagents and child agents

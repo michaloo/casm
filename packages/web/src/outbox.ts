@@ -1,6 +1,7 @@
 // The composer's side of the queue: messages shown before the server confirms
 // them, matched to the server's rows and items by the id the client chose.
 import type { AgentStatus, PendingMessage } from "@casm/protocol";
+import { retryLabel } from "@casm/protocol/retry";
 
 // A v4 UUID. crypto.randomUUID needs a secure context, which a plain-http
 // server on a LAN or tailnet address is not; getRandomValues works everywhere.
@@ -36,6 +37,8 @@ export function sendMode(status: AgentStatus | undefined, waiting: number): "sen
 
 // The label and the action offered for one pending row.
 export function pendingLabel(p: PendingMessage, now = Date.now()): { status: string; action: "send-now" | "retry" } {
+  const retrying = retryLabel(p, now);
+  if (retrying) return { status: `${retrying}${p.note ? ` · ${p.note}` : ""}`, action: "retry" };
   if (p.reason === "failed") return { status: `Not delivered${p.note ? ` · ${p.note}` : ""}`, action: "retry" };
   if (p.reason === "limit") {
     const at = p.notBefore ? Date.parse(p.notBefore) : NaN;

@@ -1,7 +1,7 @@
 // Waiting messages under the transcript, with Send now / Retry now, Edit and
 // Cancel. Each action hides or changes the row at once and reconciles with the
 // server's queue by id; a row already gone on the server is simply dropped.
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PendingMessage } from "@casm/protocol";
 import { pendingLabel, queueHeld } from "./outbox";
 import { offlineNote } from "./connection";
@@ -25,6 +25,14 @@ export function PendingRows({ rows, unconfirmed, online, labels, actions }: {
 }) {
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const held = queueHeld(rows);
+  // "Retrying in 1m 40s" counts down.
+  const [, tick] = useState(0);
+  const retrying = rows.some((p) => p.retry);
+  useEffect(() => {
+    if (!retrying) return;
+    const timer = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [retrying]);
   return (
     <>
       {rows.map((p, i) => {

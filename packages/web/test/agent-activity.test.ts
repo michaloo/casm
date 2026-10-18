@@ -22,5 +22,8 @@ test("one status dot represents execution, held queues, and offline state", asyn
   assert.equal(agentStatus(agent, "waiting").label, "Needs you");
   assert.equal(agentStatus(agent, "running", false).kind, "offline");
   assert.equal(agentStatus({ ...agent, pending: { count: 2, held: { reason: "limit" } } }).kind, "limited");
+  // A failure retried automatically waits rather than asking for a click.
+  assert.deepEqual(agentStatus({ ...agent, pending: { count: 1, held: { reason: "failed", note: "agent process exited", retryAt: "2026-10-18T20:00:30Z" } } }),
+    { kind: "limited", label: "Queue retrying", detail: "Queue retrying · agent process exited" });
   assert.equal(agentStatus({ ...agent, pending: { count: 2, held: { reason: "limit" } } }, "failed").kind, "failed");
 });

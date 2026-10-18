@@ -24,6 +24,9 @@ export function PendingQueue({ agentKey, messages, children, status, row }: {
   const listId = useId();
   const failed = messages.filter((m) => m.reason === "failed");
   const limited = messages.filter((m) => m.reason === "limit").length;
+  // Failed ones retried automatically aren't waiting for the user.
+  const retrying = failed.filter((m) => m.retry).length;
+  const held = failed.length - retrying;
   useEffect(() => {
     if (!messages.length) return;
     const next = new Set(failed.map((m) => m.id));
@@ -34,7 +37,7 @@ export function PendingQueue({ agentKey, messages, children, status, row }: {
   useEffect(() => {
     try { localStorage.setItem(storageKey, String(expanded)); } catch { /* Optional preference. */ }
   }, [storageKey, expanded]);
-  const hints = [limited ? `${limited} waiting for limit` : "", failed.length ? `${failed.length} failed` : ""].filter(Boolean).join(" · ");
+  const hints = [limited ? `${limited} waiting for limit` : "", retrying ? `${retrying} retrying` : "", held ? `${held} failed` : ""].filter(Boolean).join(" · ");
   // Fades show that the list scrolls; they follow its scroll position.
   const list = useRef<HTMLDivElement>(null);
   const [fade, setFade] = useState({ top: false, bottom: false });
@@ -65,7 +68,8 @@ export function PendingQueue({ agentKey, messages, children, status, row }: {
           <svg className="queue-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg></span>
         {(limited > 0 || failed.length > 0) && <span className="queue-hints">
           {limited > 0 && <span className="waiting"> · {limited} waiting</span>}
-          {failed.length > 0 && <span className="failed"> · {failed.length} failed</span>}
+          {retrying > 0 && <span className="waiting"> · {retrying} retrying</span>}
+          {held > 0 && <span className="failed"> · {held} failed</span>}
         </span>}</span>
       </button>}
     </div>, row)}

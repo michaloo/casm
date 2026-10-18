@@ -291,9 +291,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const localHost = wildcard ? "127.0.0.1" : opts.host.includes(":") ? `[${opts.host}]` : opts.host;
   agents.setContext({ serverId: identity.id, serverName: identity.name });
   // Messages queued and runs missed while the server was down go out now, not on the first timer tick.
+  // Failed ones that are due (cut short by the last stop) wait for the check
+  // that the agent didn't answer them anyway.
+  void agents.dropAnsweredFailed().catch((e) => log(`checking failed messages: ${e}`));
   agents.runDuePending();
   void scheduler.tick();
-  void agents.dropAnsweredFailed().catch((e) => log(`checking failed messages: ${e}`));
 
   return {
     http,

@@ -165,7 +165,11 @@ Queued messages fold into a pill next to the working indicator (**2 queued**).
 Open it for the queue panel: **Edit** a message in place, **Send now** (steer
 it in, out of order), **Cancel** it, or **Retry now** for one that failed or
 waits for a usage limit. A failed message stays at the front and holds the
-queue until you retry or cancel it, so nothing runs out of order. Drafts and queued messages from a
+queue, so nothing runs out of order. One that failed for a transient reason (a
+server restart, a crashed agent process, an overloaded provider) shows
+**Retrying in 1m 40s (attempt 2 of 3)** and goes again by itself; the pill
+counts it as **retrying**. Otherwise it waits until you retry or cancel it
+(see [the queue](concepts.md#messages-and-the-queue)). Drafts and queued messages from a
 lost connection are kept and resent once.
 
 ![two messages queued while the agent works, and the queue panel](media/web-queue.gif)

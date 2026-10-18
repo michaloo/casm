@@ -359,7 +359,19 @@ nothing pending
 ```
 
 `retry` only applies to messages held back by a failure or a limit; while the
-agent is busy, a retried message goes after the current turn.
+agent is busy, a retried message goes after the current turn. A message whose
+turn failed for a transient reason (a server restart, a crashed agent process,
+an overloaded provider) is retried automatically with backoff; `casm pending`
+shows when, and `retry` makes that attempt now:
+
+```console
+$ casm pending reviewer
+5f0e2a71  83b4f029  reviewer                  failed     retrying in 1m 40s (attempt 2 of 3)  Summarise the last hour of logs.
+          API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}
+```
+
+`casm wait` and `--wait` print the same line when the turn they waited for
+failed that way (exit code `5`).
 
 ### casm interrupt
 

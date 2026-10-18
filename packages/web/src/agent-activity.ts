@@ -15,8 +15,9 @@ export function agentStatus(agent: Pick<Agent, "status" | "deferred" | "pending"
   if (!online) return { kind: "offline", label: "Offline", detail: "Offline" };
   const held = agent.pending?.held;
   if (held && (status === "idle" || (status === "failed" && held.reason === "failed"))) {
-    const label = held.reason === "failed" ? "Queue needs retry" : "Queue waiting for limit";
-    return { kind: held.reason === "failed" ? "failed" : "limited", label, detail: [label, held.note].filter(Boolean).join(" · ") };
+    // A transient failure retried automatically waits, like a limit.
+    const label = held.reason === "limit" ? "Queue waiting for limit" : held.retryAt ? "Queue retrying" : "Queue needs retry";
+    return { kind: held.reason === "failed" && !held.retryAt ? "failed" : "limited", label, detail: [label, held.note].filter(Boolean).join(" · ") };
   }
   return { kind: activity.working ? "running" : activity.label === "Rate limited" ? "limited" : status,
     label: activity.label, detail: [activity.label, agent.deferred?.reason].filter(Boolean).join(" · ") };

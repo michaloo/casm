@@ -26,6 +26,10 @@ test("Enter queues behind a busy agent or waiting messages", () => {
 test("failed and limited rows offer Retry now and hold the queue", () => {
   assert.deepEqual(pendingLabel({ ...row("x", "failed"), note: "provider unreachable" }), { status: "Not delivered · provider unreachable", action: "retry" });
   assert.equal(pendingLabel(row("y", "limit")).action, "retry");
+  const retrying = { ...row("r", "failed"), note: "agent process exited", notBefore: "2026-10-18T20:01:40Z", retry: { attempt: 2, of: 3 } };
+  assert.deepEqual(pendingLabel(retrying, Date.parse("2026-10-18T20:00:00Z")),
+    { status: "Retrying in 1m 40s (attempt 2 of 3) · agent process exited", action: "retry" });
+  assert.equal(pendingLabel(retrying, Date.parse("2026-10-18T20:05:00Z")).status, "Retrying now (attempt 2 of 3) · agent process exited");
   assert.deepEqual(pendingLabel(row("z")), { status: "Queued", action: "send-now" });
   assert.equal(queueHeld([row("x", "failed"), row("z")]), true);
   assert.equal(queueHeld([row("z"), row("x", "failed")]), false);

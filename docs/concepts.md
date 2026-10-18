@@ -152,10 +152,30 @@ A pending message has a **reason**:
 - `limit`: the provider hit a usage limit; the message waits for the reset
   time (`notBefore`). Provider-limit gates survive restarts and hold other agents
   of the same provider, too.
-- `failed`: the turn failed before the agent produced anything (session
-  couldn't resume, provider logged out or unreachable). It stays at the front
-  and holds the queue until you **retry** or **cancel** it, so nothing is
-  silently lost or reordered.
+- `failed`: the turn failed before the agent produced anything. It stays at
+  the front and holds the queue, so nothing is silently lost or reordered.
+  What happens next depends on why it failed:
+  - **Transient** failures, caused by casm or the environment, are retried
+    automatically: the server stopped or restarted mid-turn, the agent process
+    exited or crashed, it couldn't be spawned or reached, or the provider
+    reported an overloaded, 5xx or network error. The retries wait 30 s, then
+    2 min, then 10 min; the queue shows "Retrying in 1m 40s (attempt 2 of 3)"
+    with **Retry now** and **Cancel**. A turn cut short by a server stop is
+    retried right after the next start, without waiting and without counting
+    against the three. After the third retry fails, the message holds the
+    queue like a permanent failure ("gave up after 3 automatic retries").
+  - **Permanent** failures won't pass by trying again: an auth error, an
+    unknown model, a missing folder, an invalid config, a session that can't
+    be resumed, or a provider error casm doesn't recognise as transient. The
+    message holds the queue until you **retry** or **cancel** it.
+
+  Messages behind a retrying one wait for it, as for any held queue. The
+  attempt count and the next retry time are stored with the message, so a
+  restart carries on where it was. A retry sends the same prompt again and the
+  pending message keeps its ID (each attempt reaches the agent under a fresh
+  item ID). A retried turn may repeat work the first attempt did before it
+  died: the agent resumes its session and sees its own partial transcript, so
+  it usually notices, but nothing guarantees it.
 
 **Turns the agent starts itself.** An agent can leave work running in the
 background and end its turn: a background Bash or Monitor in Claude, a

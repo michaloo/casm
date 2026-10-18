@@ -1769,6 +1769,21 @@
                 "note": {
                   "type": "string"
                 },
+                "retry": {
+                  "type": "object",
+                  "properties": {
+                    "attempt": {
+                      "type": "number"
+                    },
+                    "of": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "attempt",
+                    "of"
+                  ]
+                },
                 "createdAt": {
                   "type": "string"
                 }
@@ -3080,6 +3095,9 @@
                         },
                         "note": {
                           "type": "string"
+                        },
+                        "retryAt": {
+                          "type": "string"
                         }
                       },
                       "required": [
@@ -3302,6 +3320,9 @@
                     ]
                   },
                   "note": {
+                    "type": "string"
+                  },
+                  "retryAt": {
                     "type": "string"
                   }
                 },
@@ -3650,6 +3671,9 @@
                   },
                   "note": {
                     "type": "string"
+                  },
+                  "retryAt": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -3912,6 +3936,9 @@
                     ]
                   },
                   "note": {
+                    "type": "string"
+                  },
+                  "retryAt": {
                     "type": "string"
                   }
                 },
@@ -6310,6 +6337,21 @@
                 "note": {
                   "type": "string"
                 },
+                "retry": {
+                  "type": "object",
+                  "properties": {
+                    "attempt": {
+                      "type": "number"
+                    },
+                    "of": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "attempt",
+                    "of"
+                  ]
+                },
                 "createdAt": {
                   "type": "string"
                 }
@@ -7591,6 +7633,9 @@
                       ]
                     },
                     "note": {
+                      "type": "string"
+                    },
+                    "retryAt": {
                       "type": "string"
                     }
                   },

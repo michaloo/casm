@@ -1080,7 +1080,8 @@ test("a prompt whose turn failed before any answer is kept as a failed pending m
   await client.call("agent.wait", { id: a.id });
   const again = (await client.call("agent.pending", { id: a.id })).messages;
   assert.deepEqual(again.map((x) => [x.reason, x.text]), [["failed", "no-session again"]]);
-  assert.notEqual(again[0].id, failed.id);
+  // A retry keeps the message's id.
+  assert.equal(again[0].id, failed.id);
   // Retry now while the agent is busy: it goes after the running turn, in its
   // place (a fresh agent: the fake can be interrupted once per session).
   await client.call("agent.cancelPending", { id: a.id });

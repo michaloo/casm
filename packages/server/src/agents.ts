@@ -30,6 +30,7 @@ import { AgentPrompt, type PromptVars } from "./agent-prompt.ts";
 import { limitFromText, mergeWindows, retryAt, transientRateLimit, type LimitHit } from "./limits.ts";
 import { seen, timed, type Seen } from "./item-times.ts";
 import { findInItems } from "./find.ts";
+import { classifyFailure, MAX_RETRIES, nextRetryAt, type FailureKind, type FailureSource } from "./failures.ts";
 
 // What sessions are told about the server that runs them.
 export type SessionContext = { serverId: string; serverName: string };
@@ -97,7 +98,9 @@ const KEEP_FINISHED = 50;
 
 // id: the user item's id. A delivered pending message keeps its pending id, so
 // clients can match the bubble they showed as pending to the item that lands.
-export type Prompt = { text: string; images?: ImageData[]; id?: string; sender?: MessageSender };
+// keep: a retry of a failed pending message, kept again under its id if this
+// attempt fails too; attempts counts this one.
+export type Prompt = { text: string; images?: ImageData[]; id?: string; sender?: MessageSender; keep?: { id: string; attempts: number } };
 
 export type Notify = <N extends NotificationName>(name: N, params: NotificationParams<N>, agentId?: string) => void;
 
@@ -121,6 +124,10 @@ export class AgentManager {
   private deferTimer: ReturnType<typeof setInterval>;
   // Retries already made for an agent's deferred prompt, for backoff.
   private retryAttempts = new Map<string, number>();
+  // Per agent: wakes the queue when its failed head is due for a retry.
+  private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // False while startup checks whether kept failed prompts were answered anyway.
+  private failedChecked = true;
 
   readonly agentPrompt: AgentPrompt;
 
@@ -219,7 +226,10 @@ export class AgentManager {
       pending: {
         count: pending.length, ...(times[0] ? { next: times[0] } : {}),
         ...(pending[0]?.reason === "failed" || pending[0]?.reason === "limit"
-          ? { held: { reason: pending[0].reason, ...(pending[0].note ? { note: pending[0].note } : {}) } } : {}),
+          ? { held: {
+            reason: pending[0].reason, ...(pending[0].note ? { note: pending[0].note } : {}),
+            ...(pending[0].reason === "failed" && pending[0].notBefore ? { retryAt: pending[0].notBefore } : {}),
+          } } : {}),
       },
       subagents: { running: this.runningSubagents(a.id) },
     };
@@ -288,6 +298,23 @@ export class AgentManager {
   private changed(id: string) {
     const a = this.store.getAgent(id);
     if (a) this.notify("agent.changed", { agent: this.withStatus(a) });
+    this.armRetry(id);
+  }
+
+  // Wakes the queue when its head, a failed message due for an automatic
+  // retry, comes due (the deferral timer is too coarse for 30 s backoff).
+  private armRetry(id: string) {
+    clearTimeout(this.retryTimers.get(id));
+    this.retryTimers.delete(id);
+    if (this.stopped) return;
+    const m = this.store.listPending(id)[0];
+    if (m?.reason !== "failed" || !m.notBefore) return;
+    const t = setTimeout(() => {
+      this.retryTimers.delete(id);
+      this.runNext(id);
+    }, Math.max(0, Date.parse(m.notBefore) - Date.now()));
+    t.unref?.();
+    this.retryTimers.set(id, t);
   }
 
   pendingMessages(agentId?: string): PendingMessage[] {
@@ -300,6 +327,7 @@ export class AgentManager {
       reason: m.reason,
       ...(m.notBefore ? { notBefore: m.notBefore } : {}),
       ...(m.note ? { note: m.note } : {}),
+      ...(m.reason === "failed" && m.notBefore ? { retry: { attempt: m.attempts + 1, of: MAX_RETRIES } } : {}),
       createdAt: m.createdAt,
     }));
   }
@@ -356,7 +384,7 @@ export class AgentManager {
   private resend(id: string, m: ReturnType<Store["listPending"]>[number], whenBusy: "queue" | "steer", retryLimited = false) {
     this.store.removePending(m.id);
     try {
-      return this.send(id, { text: m.text, images: m.images, id: m.id, sender: m.sender }, whenBusy, "queue", retryLimited);
+      return this.send(id, this.pendingPrompt(m), whenBusy, "queue", retryLimited);
     } catch (e) {
       // A turn that started and failed has kept it as failed already: back
       // where it was. Anything else puts it back as it was.
@@ -367,6 +395,14 @@ export class AgentManager {
     } finally {
       this.changed(id);
     }
+  }
+
+  // The prompt a pending message is sent as. A failed one goes as the next
+  // attempt under a fresh item id: the agent may have recorded the last one
+  // under the old, while the pending message keeps its id if this fails too.
+  private pendingPrompt(m: ReturnType<Store["listPending"]>[number]): Prompt {
+    const prompt = { text: m.text, images: m.images, sender: m.sender };
+    return m.reason === "failed" ? { ...prompt, id: randomUUID(), keep: { id: m.id, attempts: m.attempts + 1 } } : { ...prompt, id: m.id };
   }
 
   blocked() {
@@ -514,7 +550,7 @@ export class AgentManager {
       start();
     } catch (e) {
       if (!l.turnId) throw new RpcError(-32603, e instanceof Error ? e.message : String(e));
-      if (l.turnId === turnId) this.endTurn(id, l, "failed", e instanceof Error ? e.message : String(e));
+      if (l.turnId === turnId) this.endTurn(id, l, "failed", e instanceof Error ? e.message : String(e), null, "dispatch");
       throw new DispatchFailed(-32603, e instanceof Error ? e.message : String(e));
     }
   }
@@ -650,7 +686,7 @@ export class AgentManager {
         void l.session?.close().catch(() => {});
         l.session = null;
         l.generation++;
-        if (l.turnId) this.endTurn(id, l, "failed", e.error ?? "agent process exited");
+        if (l.turnId) this.endTurn(id, l, "failed", e.error ?? "agent process exited", null, "process");
         this.sessionEnded(id, l);
         return;
     }
@@ -662,6 +698,7 @@ export class AgentManager {
     outcome: "completed" | "interrupted" | "failed",
     error?: string,
     limit: LimitHit | null = null,
+    source: FailureSource = "provider",
   ) {
     if (!l.turnId) return;
     const turnId = l.turnId;
@@ -677,7 +714,7 @@ export class AgentManager {
       // Retry the prompt that hit the limit first, then those steered in that
       // got no answer; anything queued waits behind them.
       const attempts = this.retryAttempts.get(id) ?? 0;
-      const prompt = l.prompt;
+      const { keep: _, ...prompt } = l.prompt;
       l.prompt = null;
       const kept = this.keepUnanswered(id, l, limit.message, { reason: "limit", notBefore: retryAt(limit, attempts).toISOString(), attempts });
       // A new id: the provider may have recorded the attempt under the old one.
@@ -686,7 +723,8 @@ export class AgentManager {
       this.changed(id);
     } else if (outcome === "failed" && a) {
       // Kept where the user can see, retry or cancel them, instead of vanishing.
-      const kept = this.keepUnanswered(id, l, error ?? "the turn failed");
+      const note = error ?? "the turn failed";
+      const kept = this.keepUnanswered(id, l, note, { reason: "failed", kind: classifyFailure(source, note) });
       if (kept.length) {
         l.lastTurn.kept = kept;
         this.changed(id);
@@ -710,18 +748,29 @@ export class AgentManager {
   // Keeps the turn's prompts nothing came back for (the one that started it and
   // any steered in later) as failed pending messages, in order, ahead of the
   // queue: they were sent before it, and hold it until retried or cancelled.
-  // Returns their ids.
+  // A transient failure is retried automatically with backoff, up to
+  // MAX_RETRIES times; one from a server stop right after startup, without
+  // counting the attempt it cut short. Returns their ids.
   private keepUnanswered(
     id: string,
     l: Live,
     note: string,
-    as: { reason: "failed" | "limit"; notBefore: string | null; attempts?: number } = { reason: "failed", notBefore: null },
+    as: { reason: "limit"; notBefore: string; attempts: number } | { reason: "failed"; kind: FailureKind | "stopped" },
   ): string[] {
     const prompts = [...(l.prompt && !l.answers ? [l.prompt] : []), ...l.steered.filter((s) => s.answersAt === l.answers).map((s) => s.prompt)];
-    // New ids: the agent may have recorded them under the old ones.
+    const kept = (p: Prompt) => {
+      if (as.reason === "limit") return { ...as, note };
+      const made = p.keep?.attempts ?? 0;
+      if (as.kind === "stopped") return { reason: "failed" as const, attempts: Math.max(0, made - 1), notBefore: new Date().toISOString(), note };
+      const at = as.kind === "transient" ? nextRetryAt(made) : null;
+      const gaveUp = as.kind === "transient" && !at ? ` (gave up after ${made} automatic retries)` : "";
+      return { reason: "failed" as const, attempts: made, notBefore: at, note: note + gaveUp };
+    };
+    // New ids, or a retried message's own: the agent may have recorded the
+    // prompts under the ids they were sent with.
     const ids = prompts
       .reverse()
-      .map((p) => this.store.addPending({ agentId: id, ...p, id: undefined, ...as, note, front: true }).id)
+      .map(({ keep, ...p }) => this.store.addPending({ agentId: id, ...p, id: keep?.id, ...kept({ keep, ...p }), front: true }).id)
       .reverse();
     l.prompt = null;
     l.steered = [];
@@ -950,49 +999,67 @@ export class AgentManager {
     if (!a || l.turnId) return;
     if (a.archivedAt || this.closing.has(id)) return;
     const m = this.store.listPending(id)[0];
-    if (!m || m.reason === "failed") return;
+    if (!m) return;
+    // A failed one goes again only when it is due for an automatic retry.
+    if (m.reason === "failed" && (!m.notBefore || !this.failedChecked)) return;
     if (m.notBefore && Date.parse(m.notBefore) > now) return;
-    if (m.reason === "queued") {
+    if (m.reason === "queued" || m.reason === "failed") {
       const until = this.exhaustedUntil(a.provider);
       if (until) {
         this.store.removePending(m.id);
-        this.store.addPending({ ...m, reason: "limit", notBefore: until, note: `${a.provider} is over its usage limit`, front: true });
+        this.store.addPending({ ...m, reason: "limit", notBefore: until, note: `${a.provider} is over its usage limit`, attempts: 0, front: true });
         return this.changed(id);
       }
     }
     this.store.removePending(m.id);
     // A retried limit message that hits the limit again backs off further.
     if (m.reason === "limit") this.retryAttempts.set(id, m.attempts + 1);
+    const prompt = this.pendingPrompt(m);
     try {
-      this.startTurn(a, l, { text: m.text, images: m.images, id: m.id, sender: m.sender });
+      this.startTurn(a, l, prompt);
     } catch (e) {
       // A turn that started and failed has kept it as failed already.
       if (e instanceof DispatchFailed) return this.changed(id);
       // A refusal (e.g. the folder is gone) won't pass on retry: keep it for the user.
       if (e instanceof RpcError) this.store.addPending({ ...m, reason: "failed", notBefore: null, note: e.message, front: true });
-      // Couldn't start (e.g. provider gone): put it back with backoff.
-      else this.store.addPending({ ...m, reason: "limit", notBefore: retryAt({ message: m.note ?? "" }, m.attempts + 1).toISOString(), attempts: m.attempts + 1, front: true });
+      // Couldn't start (e.g. the process wouldn't spawn): a transient failure, retried with backoff.
+      else {
+        const made = prompt.keep?.attempts ?? 0;
+        const at = nextRetryAt(made);
+        const note = e instanceof Error ? e.message : String(e);
+        this.store.addPending({ ...m, reason: "failed", notBefore: at, note: at ? note : `${note} (gave up after ${made} automatic retries)`, attempts: made, front: true });
+      }
     }
     this.changed(id);
   }
 
   // At startup: a kept "failed" prompt the agent went on to answer anyway (its
   // process outlived a server stop) is delivered; drop it.
+  // Failed ones are not retried until this has checked them.
   async dropAnsweredFailed() {
-    for (const m of this.store.listPending()) {
-      if (m.reason !== "failed") continue;
-      const items = await this.currentHistory(m.agentId).then((h) => h.slice(-50), () => []);
-      const asked = items.findLastIndex((i) => i.kind === "user" && i.text === m.text);
-      if (asked >= 0 && items.slice(asked + 1).some((i) => i.kind === "assistant")) {
-        this.store.removePending(m.id);
-        this.changed(m.agentId);
+    this.failedChecked = false;
+    try {
+      for (const m of this.store.listPending()) {
+        if (m.reason !== "failed") continue;
+        const items = await this.currentHistory(m.agentId).then((h) => h.slice(-50), () => []);
+        const asked = items.findLastIndex((i) => i.kind === "user" && i.text === m.text);
+        if (asked >= 0 && items.slice(asked + 1).some((i) => i.kind === "assistant")) {
+          this.store.removePending(m.id);
+          this.changed(m.agentId);
+        }
       }
+    } finally {
+      this.failedChecked = true;
     }
+    if (!this.stopped) this.runDuePending();
   }
 
   // Called on a timer: sends due pending messages of idle agents.
   runDuePending(now = Date.now()) {
-    for (const agentId of new Set(this.store.listPending().map((m) => m.agentId))) this.runNext(agentId, now);
+    for (const agentId of new Set(this.store.listPending().map((m) => m.agentId))) {
+      this.runNext(agentId, now);
+      this.armRetry(agentId);
+    }
   }
 
   private recordLimits(provider: ProviderId, update: Omit<ProviderLimits, "provider" | "updatedAt">, authoritative = false) {
@@ -1156,10 +1223,13 @@ export class AgentManager {
 
   async shutdown() {
     clearInterval(this.deferTimer);
-    // Prompts the agent hasn't answered yet would be gone after the restart;
-    // keep them like failed ones. Not resent: the agent may have stored them.
-    for (const [id, l] of this.live) if (l.turnId) this.keepUnanswered(id, l, "the server stopped before the agent answered");
+    // Prompts the agent hasn't answered yet would be gone after the restart:
+    // keep them as failed, retried right after startup (once startup has
+    // checked the agent didn't answer them anyway).
+    for (const [id, l] of this.live) if (l.turnId) this.keepUnanswered(id, l, "the server stopped before the agent answered", { reason: "failed", kind: "stopped" });
     this.stopped = true;
+    for (const t of this.retryTimers.values()) clearTimeout(t);
+    this.retryTimers.clear();
     await Promise.all([...this.live.values()].map((l) => l.session?.close().catch(() => {})));
   }
 }

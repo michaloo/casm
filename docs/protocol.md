@@ -137,6 +137,13 @@ catch up. After that, `agent.event` notifications stream `turnStarted`,
   the same ID again after a lost response does **not** send it twice.
 - `sender` declares provenance (see [message provenance](message-provenance.md));
   it's trusted-client metadata, not authorization.
+- A pending message (`agent.pending`, `pending.list`) with `reason: "failed"`
+  failed its turn. With `retry: {attempt, of}` the failure was transient and
+  the server retries it automatically at `notBefore` (backoff 30 s, 2 min,
+  10 min); without it, it holds the queue until `agent.retryPending` or
+  `agent.cancelPending`. The agent's `pending.held.retryAt` says the same for
+  the head of its queue. A retry keeps the pending ID; each attempt reaches
+  the agent as a user item with a fresh ID.
 
 ## A complete client in 30 lines
 

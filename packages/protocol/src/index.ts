@@ -89,7 +89,9 @@ export const Agent = z.object({
   // next one is due if they wait for a limit reset.
   pending: z.object({
     count: z.number(), next: z.string().optional(),
-    held: z.object({ reason: z.enum(["failed", "limit"]), note: z.string().optional() }).optional(),
+    // What holds the queue at its head; `retryAt`: a failed message that is
+    // retried automatically then.
+    held: z.object({ reason: z.enum(["failed", "limit"]), note: z.string().optional(), retryAt: z.string().optional() }).optional(),
   }).optional(),
   // Provider-internal subagents (Item.subagent) running in the agent's live
   // session, background ones included: they can run while the agent is idle.
@@ -135,8 +137,10 @@ export type Usage = z.infer<typeof Usage>;
 // "failed": the prompt of a turn that failed before the agent produced
 // anything (say its session could not be resumed, the provider logged out or
 // unreachable), so it may never have reached the agent's own history. `note`
-// has the error. It is kept at the front and holds the queue, not resent,
-// until agent.retryPending or agent.cancelPending.
+// has the error. It is kept at the front and holds the queue. A transient
+// failure (`retry` set) is resent automatically at `notBefore`, with backoff,
+// a few times; a permanent one (or one out of retries) waits for
+// agent.retryPending or agent.cancelPending. A retry keeps the message's id.
 // Snapshot of the agent that authored a prompt. Absent for human/legacy sends.
 export const MessageSender = z.object({
   serverId: z.string(),
@@ -157,6 +161,11 @@ export const PendingMessage = z.object({
   reason: z.enum(["queued", "limit", "failed"]),
   notBefore: z.string().optional(),
   note: z.string().optional(),
+  // A failed message from a transient failure (the server stopped, the agent
+  // process died, the provider was overloaded) that is retried automatically
+  // at `notBefore`: which attempt that is, of how many. Without it a failed
+  // message holds the queue until Retry or Cancel.
+  retry: z.object({ attempt: z.number(), of: z.number() }).optional(),
   createdAt: z.string(),
 });
 export type PendingMessage = z.infer<typeof PendingMessage>;

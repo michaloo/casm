@@ -13,6 +13,7 @@ import { pipeline } from "node:stream/promises";
 import { parseArgs } from "node:util";
 import { CasmClient } from "@casm/client";
 import type { Agent, AgentEvent, FindMatch, Item, Project, ProviderId, Usage } from "@casm/protocol";
+import { retryLabel } from "@casm/protocol/retry";
 
 const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");
 const hostsFile = join(home, "hosts.json");
@@ -417,11 +418,15 @@ async function waitAndPrint(c: CasmClient, id: string) {
   const failed = r.status === "idle" && r.lastTurn?.outcome === "failed";
   // A turn that failed before the agent answered keeps its prompt as a pending message.
   const kept = failed ? r.lastTurn?.kept?.[0] : undefined;
+  // A transient failure is retried automatically.
+  const retrying = kept ? (await c.call("agent.pending", { id })).messages.find((m) => m.id === kept && m.retry) : undefined;
   out({ ...r, deferred }, () => {
     if (r.status === "waiting") console.error(`agent is waiting for you: casm permissions ${shortId(id)} / casm questions ${shortId(id)}`);
     if (r.timedOut) console.error("timed out; the agent is still running");
     if (deferred) console.error(`usage limit: ${deferred.reason}\nqueued; retries ${new Date(deferred.until).toLocaleString()}`);
-    else if (failed) console.error(`the turn failed: ${r.lastTurn!.error ?? "no reason given"}${kept ? `\nthe message is kept: casm retry ${shortId(id)} ${shortId(kept)} (or casm cancel)` : ""}`);
+    else if (failed) console.error(`the turn failed: ${r.lastTurn!.error ?? "no reason given"}${
+      retrying ? `\n${retryLabel(retrying)!.toLowerCase()}; now: casm retry ${shortId(id)} ${shortId(kept!)} (or casm cancel)`
+      : kept ? `\nthe message is kept: casm retry ${shortId(id)} ${shortId(kept)} (or casm cancel)` : ""}`);
     else if (r.lastReply) console.log(r.lastReply);
     if (r.status === "idle" && r.lastTurn?.outcome === "interrupted") console.error("the turn was interrupted");
   });
@@ -922,7 +927,8 @@ async function run(c: CasmClient) {
           console.log(`${shortId(b.agentId)}  ${names.get(b.agentId) ?? ""}  waiting for you: ${what}`);
         }
         for (const m of messages) {
-          const when = m.notBefore ? `  at ${new Date(m.notBefore).toLocaleString()}` : "";
+          const retry = retryLabel(m);
+          const when = retry ? `  ${retry.toLowerCase()}` : m.notBefore ? `  at ${new Date(m.notBefore).toLocaleString()}` : "";
           const text = m.text.replace(/\s+/g, " ");
           console.log(
             `${shortId(m.id)}  ${shortId(m.agentId)}  ${(names.get(m.agentId) ?? "").slice(0, 24).padEnd(24)}  ${m.reason.padEnd(9)}${when}  ${text.length > 60 ? text.slice(0, 57) + "..." : text}${m.imageCount ? ` [${m.imageCount} image(s)]` : ""}`,

@@ -206,6 +206,7 @@ export function createHandlers(
       // A different model makes the reported one stale until the next session reports again.
       const effectiveModel = config && config.model !== current.config.model ? null : undefined;
       store.updateAgent(p.id, { ...p, config, effectiveModel });
+      if (p.archived && !current.archivedAt) await agents.close(p.id);
       if (config) agents.configChanged(p.id);
       return changed(p.id);
     },

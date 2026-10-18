@@ -52,6 +52,8 @@ type Pending =
   | { kind: "question"; req: QuestionRequest; resolve: (a: Answers | null) => void; reject: (e: Error) => void };
 
 const CATALOG_TTL_MS = 10 * 60_000;
+// How long archive and delete wait for a running turn to stop before closing.
+const INTERRUPT_GRACE_MS = 3000;
 
 type Live = {
   session: ProviderSession | null;
@@ -109,6 +111,8 @@ export class AgentManager {
   private context: SessionContext | null = null;
   // Set by shutdown: late events from closing sessions must not touch the closed store.
   private stopped = false;
+  // Agents being archived or deleted.
+  private closing = new Set<string>();
 
   private store: Store;
   private providers: Map<ProviderId, Provider>;
@@ -642,6 +646,8 @@ export class AgentManager {
         this.endTurn(id, l, e.outcome, e.error, e.outcome === "failed" ? this.limitHit(id, l, e.error) : null);
         return;
       case "closed":
+        // Make sure the process is gone, whatever the provider saw end.
+        void l.session?.close().catch(() => {});
         l.session = null;
         l.generation++;
         if (l.turnId) this.endTurn(id, l, "failed", e.error ?? "agent process exited");
@@ -864,8 +870,24 @@ export class AgentManager {
     this.notify("agent.changed", { agent: this.withStatus(updated) });
   }
 
+  // Archive and delete: stops the running turn, then the process, so nothing
+  // keeps running for an agent nobody sees. Sending after unarchiving resumes
+  // the same native session.
+  async close(id: string) {
+    const l = this.live.get(id);
+    if (!l?.session) return;
+    // Nothing queued may start a turn while it closes (delete runs before the row goes).
+    this.closing.add(id);
+    try {
+      if (l.turnId) await Promise.race([this.interrupt(id).catch(() => {}), new Promise((r) => setTimeout(r, INTERRUPT_GRACE_MS).unref())]);
+      await this.reload(id).catch(() => {});
+    } finally {
+      this.closing.delete(id);
+    }
+  }
+
   async remove(id: string) {
-    await this.reload(id).catch(() => {});
+    await this.close(id);
     this.live.delete(id);
   }
 
@@ -926,7 +948,7 @@ export class AgentManager {
     const a = this.store.getAgent(id);
     const l = this.liveFor(id);
     if (!a || l.turnId) return;
-    if (a.archivedAt) return;
+    if (a.archivedAt || this.closing.has(id)) return;
     const m = this.store.listPending(id)[0];
     if (!m || m.reason === "failed") return;
     if (m.notBefore && Date.parse(m.notBefore) > now) return;

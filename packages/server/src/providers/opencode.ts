@@ -496,11 +496,17 @@ export class OpencodeServer {
   private listeners = new Map<string, Set<Listener>>();
   private refs = 0;
   private idleTimer: NodeJS.Timeout | null = null;
+  // How long the server outlives its last session (history reads reuse it).
+  private idleMs: number;
   private windows: Promise<Map<string, number>> | null = null;
   // casm item id by native user message id, for prompts sent from this process.
   readonly aliases = new Map<string, string>();
   // Per-session state for casm's plugin; private to this user (mkdtemp is 0700).
   stateDir: string | null = null;
+
+  constructor(idleMs = IDLE_SHUTDOWN_MS) {
+    this.idleMs = idleMs;
+  }
 
   // Context window by "provider/model", from the configured providers.
   async contextWindows(): Promise<Map<string, number>> {
@@ -534,7 +540,7 @@ export class OpencodeServer {
 
   private release() {
     if (--this.refs > 0) return;
-    this.idleTimer = setTimeout(() => this.stop(), IDLE_SHUTDOWN_MS);
+    this.idleTimer = setTimeout(() => this.stop(), this.idleMs);
     this.idleTimer.unref();
   }
 

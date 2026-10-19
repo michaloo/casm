@@ -8,6 +8,7 @@ import { Store } from "../src/db.ts";
 import { startServer } from "../src/server.ts";
 import { nextRun } from "../src/schedules.ts";
 import type { Provider } from "../src/providers/types.ts";
+import { providerMessage } from "../src/message-provenance.ts";
 
 test("an interval counts from when the run was due, not from the late tick that fired it", () => {
   const every = { type: "every", minutes: 1 } as const;
@@ -85,7 +86,7 @@ test("a schedule firing at a limited agent leaves a pending message with its sen
     limited = false;
     await client.call("agent.retryPending", { id: a.id, messageId: held.id });
     for (let i = 0; i < 100 && delivered.length < 3; i++) await new Promise((r) => setTimeout(r, 20));
-    assert.deepEqual(delivered, ["trip the limit", "trip the limit", "daily digest"]);
+    assert.deepEqual(delivered, ["trip the limit", "trip the limit", providerMessage("daily digest", mine.sender)]);
     await client.call("schedule.delete", { id: s.id });
     assert.deepEqual((await client.call("schedule.list", {})).schedules, []);
   } finally {

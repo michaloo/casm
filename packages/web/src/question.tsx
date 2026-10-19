@@ -31,8 +31,24 @@ export function Question({
       }}
     >
       <strong>{request.title ?? "Question"}</strong>
+      {request.nonBlocking && <p>The agent is still working. Answer before this turn ends.</p>}
       {request.prompts.map((p) => (
-        p.kind === "select" && p.multiple ? (
+        request.nonBlocking && p.kind === "select" ? (
+          <fieldset key={p.id}>
+            <legend>{p.text}</legend>
+            <div className="async-question-options">
+              {p.options?.map(o => <button type="button" key={o.label} disabled={disabled}
+                aria-pressed={values[p.id] === o.label}
+                onClick={() => set({ ...values, [p.id]: o.label })}>{o.label}</button>)}
+            </div>
+            <label>
+              Your answer
+              <input required aria-label={`Answer: ${p.text}`} value={String(values[p.id] ?? "")}
+                placeholder="Choose an option or type your answer"
+                onChange={e => set({ ...values, [p.id]: e.target.value })} />
+            </label>
+          </fieldset>
+        ) : p.kind === "select" && p.multiple ? (
           <fieldset key={p.id}>
             <legend>{p.text}</legend>
             <div className="question-options">

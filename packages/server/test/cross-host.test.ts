@@ -32,6 +32,10 @@ const provider: Provider = {
     setImmediate(() => opts.emit({ type: "sessionId", id: sid }));
     return {
       send(text, itemId) {
+        const nativeText = text;
+        // This scripted model echoes the body, while retaining the actual
+        // attributed input in its native transcript for history assertions.
+        if (/^\[CASM (?:agent|scheduled) message v1\]\n/.test(text)) text = text.slice(text.indexOf("\n\n") + 2);
         void (async () => {
           await new Promise((r) => setTimeout(r, 10));
           let reply = `echo: ${text}`;
@@ -42,7 +46,7 @@ const provider: Provider = {
             const a = await opts.askQuestion({ id: "q-1", prompts: [{ id: "color", text: "Color?", kind: "text" }] }, abort.signal);
             reply = `answer: ${JSON.stringify(a)}`;
           }
-          histories.set(sid, [...(histories.get(sid) ?? []), { kind: "user", id: itemId, text }, { kind: "assistant", id: `a${text}`, text: reply }]);
+          histories.set(sid, [...(histories.get(sid) ?? []), { kind: "user", id: itemId, text: nativeText }, { kind: "assistant", id: `a${text}`, text: reply }]);
           opts.emit({ type: "item", item: { kind: "assistant", id: `a${text}`, text: reply } });
           opts.emit({ type: "turnEnded", outcome: "completed" });
         })();

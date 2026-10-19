@@ -233,6 +233,8 @@ export const SubagentItem = z.object({
   at: z.string().optional(),
   title: z.string(),
   agentType: z.string().optional(),
+  model: z.string().optional(),
+  effort: z.string().optional(),
   status: z.enum(["running", "done", "error"]),
   // Latest thing it did, e.g. the tool it is running.
   activity: z.string().optional(),
@@ -335,6 +337,8 @@ export type QuestionPrompt = z.infer<typeof QuestionPrompt>;
 
 export const QuestionRequest = z.object({
   id: z.string(),
+  // Answerable while the agent continues its current turn; expires with that turn.
+  nonBlocking: z.boolean().optional(),
   at: z.string().optional(),
   title: z.string().optional(),
   prompts: z.array(QuestionPrompt).min(1),

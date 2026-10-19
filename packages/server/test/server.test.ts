@@ -10,6 +10,7 @@ import type { AgentEvent, ImageData, Item } from "@casm/protocol";
 import { Store } from "../src/db.ts";
 import { startServer, type RunningServer } from "../src/server.ts";
 import type { OpenOptions, Provider, ProviderSession } from "../src/providers/types.ts";
+import { providerMessage } from "../src/message-provenance.ts";
 
 // Replies "echo: <text>" after a tick. Text containing "ask" requests a
 // permission first; "slow" waits until interrupted.
@@ -24,6 +25,9 @@ class FakeSession implements ProviderSession {
   }
   send(text: string, _itemId: string, images?: ImageData[]) {
     fake.sent.push({ text, images });
+    // Simulate a model answering the message body, while retaining the exact
+    // native input above for transport assertions.
+    text = text.replace(/^\[CASM (?:agent|scheduled) message v1\]\nSender: [^\n]+\n[^\n]+\n\n/, "");
     // The provider fails to start the turn at all.
     if (text.includes("throw-sync")) throw new Error("could not start the turn");
     void (async () => {
@@ -855,7 +859,7 @@ test("queued images arrive normally when the recipient goes idle", async () => {
     fake.gate.resolve();
     await client.call("agent.wait", { id: a.id });
     await client.call("agent.wait", { id: a.id });
-    assert.deepEqual(fake.sent.at(-1), { text: "normal delivery", images: [image, image] });
+    assert.deepEqual(fake.sent.at(-1), { text: providerMessage("normal delivery", sender), images: [image, image] });
     const delivered = events.find((event) => event.type === "item" && event.item.id === queued.pendingId);
     assert.equal(delivered?.type === "item" && delivered.item.kind, "user");
     assert.deepEqual(delivered?.type === "item" && delivered.item.kind === "user" && delivered.item.sender, sender);

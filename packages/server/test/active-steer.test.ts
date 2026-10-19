@@ -83,3 +83,58 @@ for (const scenario of ["global limit", "pending limit", "provider rejects steer
     }
   });
 }
+
+test('rejected steer stays failed pending while healthy turn completes and holds FIFO', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'casm-rejected-steer-'));
+  const store = new Store(join(dir, 'db'));
+  let emit: Parameters<Provider['open']>[0]['emit'];
+  const delivered: string[] = [];
+  const provider: Provider = {
+    id: 'codex',
+    open(opts) { emit = opts.emit; return {
+      send(text, itemId) { delivered.push(text); if(text === 'rejected') opts.emit({type:'sendFailed',itemId,error:'invalid input'}); },
+      shell() {}, async interrupt() {}, async close() {},
+    }; },
+    async history() { return []; }, async usage() { return null; }, async commands() { return []; }, async catalog() { return {models:[],modes:[]}; },
+  };
+  const server = await startServer({store,providers:[provider],host:'127.0.0.1',port:0,version:'test'});
+  const client = await CasmClient.connect(server.url,store.createToken('test'));
+  try {
+    const project = await client.call('project.create',{path:dir});
+    const a = await client.call('agent.create',{projectId:project.id,provider:'codex'});
+    await client.call('agent.send',{id:a.id,text:'original'});
+    await client.call('agent.send',{id:a.id,text:'queued'});
+    await client.call('agent.send',{id:a.id,text:'rejected',whenBusy:'steer'});
+    assert.equal((await client.call('agent.get',{id:a.id})).status,'running');
+    let pending = (await client.call('agent.pending',{id:a.id})).messages;
+    assert.deepEqual(pending.map(p=>[p.text,p.reason]),[['rejected','failed'],['queued','queued']]);
+    const view = await client.call('agent.subscribe',{id:a.id});
+    assert.ok(view.turn.some(e=>e.type==='item'&&e.item.kind==='notice'&&e.item.text.includes('invalid input')));
+    emit!({type:'turnEnded',outcome:'completed'});
+    await client.call('agent.wait',{id:a.id});
+    pending = (await client.call('agent.pending',{id:a.id})).messages;
+    assert.equal(pending[0].reason,'failed');
+    assert.deepEqual(delivered,['original','rejected']);
+  } finally {client.close();await server.close();store.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('steer rejection arriving after turn completion still preserves its prompt', async () => {
+ const {AgentManager}=await import('../src/agents.ts');
+ const dir=mkdtempSync(join(tmpdir(),'casm-late-steer-')),store=new Store(join(dir,'db'));
+ let emit:Parameters<Provider['open']>[0]['emit'];
+ let rejectSteer:()=>void=()=>{};
+ const provider:Provider={id:'codex',open(opts){emit=opts.emit;return{
+  send(text,itemId){if(text==='late') return new Promise<void>(resolve=>{rejectSteer=()=>{opts.emit({type:'sendFailed',itemId,error:'late rejection'});resolve();};});},
+  shell(){},async interrupt(){},async close(){},
+ };},async history(){return[];},async usage(){return null;},async commands(){return[];},async catalog(){return{models:[],modes:[]};}};
+ const manager=new AgentManager(store,new Map([['codex',provider]]),()=>{});
+ try {
+  const p=store.createProject({name:'p',path:dir});
+  const a=store.createAgent({projectId:p.id,name:'a',cwd:dir,provider:'codex',config:{}});
+  manager.send(a.id,{text:'original'});
+  manager.send(a.id,{text:'late'},'steer');
+  emit!({type:'turnEnded',outcome:'completed'});
+  rejectSteer();
+  assert.ok(store.listPending(a.id).some(p=>p.text==='late'&&p.reason==='failed'));
+ } finally {await manager.shutdown();store.close();rmSync(dir,{recursive:true,force:true});}
+});

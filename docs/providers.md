@@ -6,7 +6,7 @@ the provider's own source or protocol at the installed versions:
 | Provider | Installed | Source read at | casm adapter |
 |---|---|---|---|
 | Claude Code | CLI 2.1.292, Agent SDK 0.3.296 | `@anthropic-ai/claude-agent-sdk` 0.3.296 `sdk.d.ts` (the CLI is closed source) | `packages/server/src/providers/claude.ts`, `claude-tasks.ts` |
-| Codex | codex-cli 0.160.1 | [openai/codex] `rust-v0.160.1`, `codex-rs/app-server-protocol` | `providers/codex.ts` |
+| Codex | codex-cli 0.160.1 | Installed `app-server generate-ts`; local [openai/codex] source `9d3ae38` for implementation details | `providers/codex.ts`, `codex-reviews.ts` |
 | OpenCode | 1.19.0 | [anomalyco/opencode] `v1.19.0`, `packages/opencode/src` | `providers/opencode.ts`, `opencode-plugin.ts` |
 | pi | 1.1.0 | [earendil-works/pi] `v1.1.0`, `packages/coding-agent` | `providers/pi.ts`, `pi-extension.ts` |
 
@@ -23,7 +23,7 @@ below are relative to the source roots in the table; casm paths to
 | Interrupt | ✓ | ✓ | ✓ | ✓ |
 | Steer into a running turn | ✓ | ✓ | ✓ | ✓ |
 | Permissions + modes | ✓ | ✓ | ✓ | ✗ |
-| Questions | ✓ | ✓ | ✓ | ✓ (extension dialogs) |
+| Questions | ✓ | ✓ (blocking and nonblocking) | ✓ | ✓ (extension dialogs) |
 | Subagents (live + transcript) | ✓ | ✓ | ✓ | ✗ |
 | User shell commands | ✓ | ✓ | ✓ | ✓ |
 | Slash commands and skills | ✓ | ✓ | ✓ | ✓ |
@@ -36,8 +36,12 @@ below are relative to the source roots in the table; casm paths to
 | Cost per day (estimated) | ✗ | ✗ | ✓ | ✓ |
 | Local models | **partial** | **gap** | ✓ | ✓ |
 | Images in / out | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ |
-| Plan mode | **partial** | ✓ | ✓ (plan agent) | ✗ |
+| Plan mode | **partial** | **partial** (plan text deltas missing) | ✓ (plan agent) | ✗ |
 | Background jobs wake the agent | ✓ | **partial** | ✓ | ✓ (extensions) |
+
+The [2026-10-19 Codex/Claude audit](adapter-audit-20261019.md) distinguishes
+implemented paths, missing notifications, and test coverage. A supported feature
+here does not imply every upstream event or field is consumed.
 
 OpenCode was also verified end to end on an isolated dev server with
 OpenCode's free `opencode/big-pickle` model (no API key) and the local
@@ -53,7 +57,8 @@ authentication](#opencode-authentication) for the model options.
 - Claude: `Options.sessionId` / `Options.resume` (`sdk.d.ts`); history parsed from
   Claude's JSONL across branches and compaction (`claude.ts` `chain`,
   `historyItems`).
-- Codex: `thread/start`, `thread/resume`, history from `thread/items/list` and
+- Codex: `thread/start`, `thread/resume`, history from `thread/items/list` (or
+  `thread/read` with turns when pagination returns MethodNotFound) and
   failed turns from `thread/turns/list` (`common.rs`; `codex.ts` `readHistory`).
 - OpenCode: `POST /session`, prompts to an existing session id, history from
   `GET /session/:id/message` (`server/routes/instance/httpapi/groups/session.ts`;
@@ -88,7 +93,9 @@ The manager calls the session's `send` while a turn runs (`agents.ts` `send`,
   by Claude Code as content blocks in a `queued_command` attachment; history
   reads both forms.
 - Codex: `turn/steer` with `expectedTurnId`, falling back to `turn/start` if the
-  turn just ended (`v2/turn.rs` `TurnSteerParams`).
+  turn just ended with the explicit no-active-turn error (`v2/turn.rs`
+  `TurnSteerParams`). Other rejections retain the message for Retry now without
+  interrupting healthy work or submitting a second turn.
 - OpenCode: a second `prompt_async` while busy stores the user message, and the
   running loop picks it up at its next step (`session/prompt.ts` `prompt` and
   `runLoop`: the loop only exits when the last assistant message answers the
@@ -107,6 +114,12 @@ The manager calls the session's `send` while a turn runs (`agents.ts` `send`,
 - Codex: command, file-change and permissions approvals; modes plan, auto,
   auto-review, full-access map to approval policy, sandbox, reviewer and
   collaboration mode (`codex.ts` `MODES`).
+  Automatic reviews now upsert a separate review row by review ID, including
+  the canonical action, target item ID, outcome and rationale. Multiple reviews
+  can target one tool; network reviews have no target. Approval never completes
+  the execution tool. CASM retains these otherwise transient events as small
+  history supplements; old reviews cannot be reconstructed. Uncorrelated
+  `guardianWarning` messages remain warnings, without guessed command links.
 - OpenCode: `permission.asked` → `POST /permission/:id/reply` with
   `once`/`always`/`reject`. Modes are OpenCode's primary agents (`GET /agent`:
   build, plan and your own), sent as `agent` per prompt.
@@ -119,8 +132,11 @@ The manager calls the session's `send` while a turn runs (`agents.ts` `send`,
   `onElicitation` (form and URL).
 - Codex: `item/tool/requestUserInput` and `mcpServer/elicitation/request` in
   form mode, and in URL mode as a card showing the message and URL (accept or
-  decline). In Default mode Codex only offers `request_user_input` behind an
-  off-by-default feature, so questions mostly come from Plan mode.
+  decline). Nonblocking `agentMessage.questions` have separate editors while
+  the agent keeps working, with options and free text. Answers use native
+  `turn/steer` with the originating turn ID and wait for acceptance; rejection
+  keeps the editor. Editors expire at turn end. Question text and answer outcomes
+  remain in history, including question-only assistant messages.
 - OpenCode: `question.asked` → `/question/:id/reply` or `/reject`. The question
   tool is enabled for `opencode serve` (client `cli`).
 - pi: extension `select`/`input`/`editor` dialogs
@@ -258,6 +274,11 @@ count a resumed session twice. Agents deleted from casm drop out.
   `config["model_providers.<id>"]` (`v2/thread.rs`); casm sends neither, so
   local models only work through `~/.codex/config.toml` (for every agent) or a
   per-agent `CODEX_HOME` in `config.env`, and the catalog never lists them.
+  History, usage, resume, commands and child readers now receive per-agent
+  store context; Claude supports `CLAUDE_CONFIG_DIR` through the same contract.
+  New `/restart` records retain only the effective provider home. Legacy records
+  and home changes made before restart cannot reconstruct the original store.
+  Catalogs and account limits remain host-scoped.
 
 ### Images
 
@@ -274,7 +295,9 @@ count a resumed session twice. Agents deleted from casm drop out.
   agent's mode without a reopen). The approval itself is a generic permission
   card showing the plan input: there is no choice of the next mode (the SDK's
   `setMode` permission update) and no feedback text when rejecting.
-- Codex ✓: `collaborationMode: plan` per turn, plan items and `turn/plan/updated`.
+- Codex **partial**: `collaborationMode: plan` per turn, completed plan items
+  and `turn/plan/updated` work. `item/plan/delta` is ignored, so a proposed plan
+  only appears when its full item completes.
 - OpenCode ✓: the `plan` agent as the agent's mode; todo lists become plan items.
 - pi ✗: only an example extension.
 
@@ -365,3 +388,24 @@ casm uses the host's OpenCode install and credentials (`~/.local/share/opencode`
 [openai/codex]: https://github.com/openai/codex
 [anomalyco/opencode]: https://github.com/anomalyco/opencode
 [earendil-works/pi]: https://github.com/earendil-works/pi
+
+
+## Adapter diagnostics and coordination
+
+Codex plan deltas, goals, authentication recovery and hook results are visible;
+Claude authentication and hook progress/results are visible too. Diagnostic rows
+use stable IDs and history supplements when native transcripts omit them. Hidden
+hook context stays hidden. Unfinished hooks show an unknown outcome on provider
+closure; Codex synchronous turn-owned hooks also finalize at turn end.
+
+Codex effective effort and recognized explicit mode presets synchronize with
+agent state; custom permission profiles remain unmapped. Claude command-change
+events invalidate cached commands. Child Codex model/effort metadata is retained.
+Requests explicitly scoped to a different Codex thread cannot open the parent's
+permission or question dialog.
+
+Conversational agent and scheduled messages carry a sender envelope into the
+model's context. CASM displays the original text using stored sender metadata;
+human text is unchanged. Native slash commands retain exact syntax and UI sender
+metadata. See [the adapter audit](adapter-audit-20261019.md) for remaining scope
+and validation limits.

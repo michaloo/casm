@@ -277,8 +277,8 @@ export function createHandlers(
       await agents.restart(p.id);
       return { ok: true };
     },
-    "agent.answerQuestion": (p) => {
-      agents.answerQuestion(p.id, p.requestId, p.answers ?? null);
+    "agent.answerQuestion": async (p) => {
+      await agents.answerQuestion(p.id, p.requestId, p.answers ?? null);
       return { ok: true };
     },
     "agent.respondPermission": (p) => {

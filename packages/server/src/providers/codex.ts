@@ -1,9 +1,10 @@
+import { Diagnostics } from "./diagnostics.ts";
 import { codexMcpServer } from "./mcp.ts";
 import { providerEnv } from "./env.ts";
 import { toolImages, viewedImage } from "./tool-images.ts";
 // Codex via `codex app-server`: JSON-RPC over stdio, one process per open
 // session. The native session id is the thread id; history comes from
-// `thread/items/list`, which reads Codex's own rollout files.
+// `thread/items/list`, with `thread/read` for stores without item pagination.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { createHash, randomUUID } from "node:crypto";
@@ -27,10 +28,11 @@ import type {
   Usage,
   ProviderLimits,
 } from "@casm/protocol";
-import type { OpenOptions, PermissionAnswer, Provider, ProviderSession } from "./types.ts";
+import type { OpenOptions, PermissionAnswer, ProviderContext, Provider, ProviderSession } from "./types.ts";
 import { codexMemories } from "./codex-memory.ts";
 import { limitFromText } from "../limits.ts";
 import { isoTime, seen, timed } from "../item-times.ts";
+import { approvalReview, unfinishedReview } from "./codex-reviews.ts";
 
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -142,12 +144,15 @@ export function normalize(item: CodexItem, live = false): Item | null {
         .join("\n")
         .trim();
       if (!text && !images.length) return null;
-      const user: Item = { kind: "user", id: str(item.clientId) || id, text };
+      const user: Item = { kind: "user", id: str(item.clientId) || id, text: asyncReplyDisplay(text) };
       if (images.length) user.images = images;
       return user;
     }
-    case "agentMessage":
-      return str(item.text).trim() ? { kind: "assistant", id, text: str(item.text) } : null;
+    case "agentMessage": {
+      const questions = asyncQuestions(item).map(q => q.prompts[0]);
+      const text = [str(item.text), ...questions.map(q => [q.text, ...(q.options ?? []).map(o => `- ${o.label}`)].join("\n"))].filter(t => t.trim()).join("\n\n");
+      return text ? { kind: "assistant", id, text } : null;
+    }
     case "plan": {
       // Plan mode's proposed plan. Prose plans stay assistant text.
       const entries = planEntries(str(item.text));
@@ -230,6 +235,8 @@ export function subagentItems(raw: CodexItem, known = new Map<string, SubagentIt
       ...previous,
       status: nativeStatus ? childStatus(nativeStatus) : previous?.status ?? "running",
     };
+    if (raw.model) item.model = str(raw.model);
+    if (raw.reasoningEffort) item.effort = str(raw.reasoningEffort);
     if (raw.agentPath) item.title = str(raw.agentPath);
     if (state.message) item.summary = truncate(str(state.message));
     return item;
@@ -379,10 +386,10 @@ export function rolloutUsage(jsonl: string): Usage | null {
   return tokenUsage({ last: b(info.last_token_usage), total: b(info.total_token_usage), modelContextWindow: info.model_context_window }, model || undefined);
 }
 
-const codexHome = () => process.env.CODEX_HOME ?? join(homedir(), ".codex");
+const codexHome = (context?: ProviderContext) => context?.env?.CODEX_HOME ?? process.env.CODEX_HOME ?? join(homedir(), ".codex");
 
 // sessions/YYYY/MM/DD/rollout-<time>-<threadId>.jsonl (or archived_sessions/).
-async function findRollout(threadId: string): Promise<string | null> {
+async function findRollout(threadId: string, context?: ProviderContext): Promise<string | null> {
   const suffix = `-${threadId}.jsonl`;
   const walk = async (dir: string, depth: number): Promise<string | null> => {
     let entries;
@@ -401,11 +408,11 @@ async function findRollout(threadId: string): Promise<string | null> {
     }
     return null;
   };
-  return (await walk(join(codexHome(), "sessions"), 0)) ?? (await walk(join(codexHome(), "archived_sessions"), 0));
+  return (await walk(join(codexHome(context), "sessions"), 0)) ?? (await walk(join(codexHome(context), "archived_sessions"), 0));
 }
 
-export async function readUsage(sessionId: string): Promise<Usage | null> {
-  const file = await findRollout(sessionId);
+export async function readUsage(sessionId: string, context?: ProviderContext): Promise<Usage | null> {
+  const file = await findRollout(sessionId, context);
   if (!file) return null;
   return rolloutUsage(await readFile(file, "utf8"));
 }
@@ -539,6 +546,40 @@ class Rpc {
   kill() {
     if (this.child.exitCode === null) this.child.kill();
   }
+}
+
+// Installed agentMessage.questions has titles/options, not a request RPC or IDs.
+// Match native clients' stable per-message/index identity and reply envelope.
+export function asyncQuestions(item: CodexItem): QuestionRequest[] {
+  if (typeof item.id !== "string" || !item.id) return [];
+  return arr(item.questions).flatMap((raw, index) => {
+    const q = rec(raw);
+    if (typeof q.title !== "string" || !q.title.trim()) return [];
+    const options = [...new Set(arr(q.options).filter((o): o is string => typeof o === "string" && !!o.trim()))];
+    const id = JSON.stringify(["request_user_input_async", item.id, index]);
+    return [{ id, nonBlocking: true, title: "Question while working", prompts: [{
+      id, text: q.title, kind: options.length ? "select" as const : "text" as const,
+      ...(options.length ? { options: options.map(label => ({ label })), allowOther: true } : {}),
+    }] }];
+  });
+}
+
+function asyncReplyDisplay(text: string): string {
+  const match = text.trim().match(/^<send_user_message_question_reply>([\s\S]*)<\/send_user_message_question_reply>$/);
+  if (!match) return text;
+  try {
+    const parsed = JSON.parse(match[1]);
+    const replies = Array.isArray(parsed) ? parsed : [parsed];
+    if (!replies.length || replies.some(r => !r || typeof r.questionItemId !== "string" || typeof r.question !== "string" || typeof r.answer !== "string")) return text;
+    return replies.map(r => `> ${r.question}\n\n${r.answer}`).join("\n\n");
+  } catch { return text; }
+}
+
+export function asyncQuestionReply(req: QuestionRequest, answers: Answers): string {
+  const prompt = req.prompts[0];
+  const value = answers[prompt.id];
+  if (typeof value !== "string" || !value.trim()) throw new Error("An answer is required");
+  return `<send_user_message_question_reply>${JSON.stringify({ questionItemId: req.id, question: prompt.text, answer: value })}</send_user_message_question_reply>`;
 }
 
 // --- questions (item/tool/requestUserInput, mcpServer/elicitation/request)
@@ -735,7 +776,7 @@ export function collaborationMode(
     mode: kind,
     settings: {
       model: agent.model || preset?.model || thread.model,
-      reasoning_effort: agent.effort || preset?.reasoning_effort || thread.effort,
+      reasoning_effort: agent.effort?.trim() || preset?.reasoning_effort || thread.effort,
       developer_instructions: null,
     },
   };
@@ -754,10 +795,14 @@ class CodexSession implements ProviderSession {
   private casmTurnId?: string;
   private turnOwners = new Map<string, string | undefined>();
   // Serializes startup, turn/start, steer and interrupt.
-  private chain: Promise<unknown>;
+  private chain: Promise<void>;
+  private diagnostics = new Diagnostics();
   private approvals = new Map<string, AbortController>();
+  private asyncQuestions = new Map<string, { request: QuestionRequest; turnId: string; resolved: boolean }>();
   // Tool items seen in this turn, so approvals can show what they approve.
   private tools = new Map<string, Item>();
+  private reviews = new Map<string, { item: ToolItem; turnId: string; beforeItemId?: string }>();
+  private completedReviews = new Set<string>();
   // PTYs can span turns. Retain a bounded command lookup for their input cards.
   private terminalCommands = new Map<string, string>();
   private terminalSequence = 0;
@@ -784,6 +829,8 @@ class CodexSession implements ProviderSession {
     this.rpc.onRequest = (m, p, id) => this.onRequest(m, p, id);
     this.rpc.onExit = (error) => {
       this.abortApprovals();
+      this.finishReviews();
+      this.finishHooks();
       opts.emit({ type: "closed", error: this.closing ? undefined : error });
     };
     this.chain = this.start().catch((e: unknown) => {
@@ -797,7 +844,7 @@ class CodexSession implements ProviderSession {
     const { cwd, config, resumeId } = this.opts;
     await this.rpc.initialize();
     if (resumeId) {
-      for (const item of await readHistory(resumeId, cwd)) if (item.kind === "subagent") this.subagents.set(item.id, item);
+      for (const item of await readHistory(resumeId, cwd, config)) if (item.kind === "subagent") this.subagents.set(item.id, item);
     }
     const mode = config.mode ? MODES[config.mode] : undefined;
     const params = {
@@ -869,7 +916,28 @@ class CodexSession implements ProviderSession {
       this.childNotification(method, p);
       return;
     }
+    const diagnostic = p.threadId === this.threadId ? this.diagnostics.codex(method, p) : null;
+    if (diagnostic) { emit({ type: "item", item: diagnostic, history: {} }); return; }
     switch (method) {
+      case "item/autoApprovalReview/started":
+      case "item/autoApprovalReview/completed": {
+        if (p.threadId !== this.threadId) return;
+        const item = approvalReview(p);
+        if (!item || (method.endsWith("/started") && (this.completedReviews.has(item.id) || this.ended.has(str(p.turnId))))) return;
+        const history = typeof p.targetItemId === "string" ? { beforeItemId: p.targetItemId } : {};
+        if (item.status === "running") this.reviews.set(item.id, { item, turnId: str(p.turnId), ...history });
+        else {
+          this.reviews.delete(item.id);
+          this.completedReviews.add(item.id);
+          if (this.completedReviews.size > 2000) this.completedReviews.delete(this.completedReviews.values().next().value!);
+        }
+        emit({ type: "item", item, history });
+        return;
+      }
+      case "autoApprovalReview/strictReviewRequired":
+        if (p.threadId !== this.threadId) return;
+        emit({ type: "item", item: { kind: "notice", id: `strict-review:${str(p.turnId)}:${str(p.startedAtMs)}`, level: "info", text: "Codex requires a fresh automatic approval review for this turn." } });
+        return;
       case "error": {
         emit({ type: "item", item: errorNotice(p) });
         const err = rec(p.error);
@@ -896,7 +964,16 @@ class CodexSession implements ProviderSession {
         if (this.model) emit({ type: "model", model: this.model });
         return;
       case "thread/settings/updated": {
-        const model = str(rec(p.threadSettings).model);
+        const settings = rec(p.threadSettings);
+        const model = str(settings.model);
+        if (model) this.thread.model = model;
+        if ("effort" in settings) {
+          this.thread.effort = str(settings.effort) || null;
+          this.opts.config.effort = str(settings.effort) || undefined;
+          emit({ type: "effort", effort: str(settings.effort) || undefined });
+        }
+        const mode = nativeMode(settings, this.opts.config.mode);
+        if (mode) { this.opts.config.mode = mode; emit({ type: "mode", mode }); }
         if (model && model !== this.model) (this.model = model), emit({ type: "model", model });
         return;
       }
@@ -944,6 +1021,13 @@ class CodexSession implements ProviderSession {
       case "item/started":
       case "item/completed": {
         const raw = rec(p.item) as CodexItem;
+        if (raw.type === "agentMessage" && p.threadId !== this.threadId) return;
+        if (raw.type === "agentMessage" && method === "item/completed" && p.threadId === this.threadId && p.turnId === this.turnId && !this.ended.has(str(p.turnId))) {
+          for (const request of asyncQuestions(raw)) if (!this.asyncQuestions.has(request.id)) {
+            this.asyncQuestions.set(request.id, { request, turnId: this.turnId!, resolved: false });
+            emit({ type: "asyncQuestion", request });
+          }
+        }
         if (raw.type === "userMessage") return; // the manager emits our prompts
         if (raw.type === "commandExecution" && typeof raw.processId === "string" && raw.processId && typeof raw.command === "string") {
           this.terminalCommands.set(raw.processId, unwrapShell(raw.command));
@@ -967,11 +1051,14 @@ class CodexSession implements ProviderSession {
         if (this.ended.has(id)) return;
         this.ended.add(id);
         if (this.turnId && this.turnId !== id) return;
+        this.asyncQuestions.clear();
         const owner = this.turnOwners.has(id) ? this.turnOwners.get(id) : this.casmTurnId;
         this.turnOwners.delete(id);
         if (this.turnId === id) this.turnId = null;
         this.shellPending = false;
         this.abortApprovals();
+        this.finishReviews(id);
+        this.finishHooks(id);
         const status = str(turn.status);
         for (const t of this.tools.values())
           if (t.kind === "tool" && t.status === "running" && !(status !== "interrupted" && this.terminals.has(t.id)))
@@ -1012,6 +1099,18 @@ class CodexSession implements ProviderSession {
     this.approvals.clear();
   }
 
+  private finishHooks(turnId?: string) {
+    for (const item of this.diagnostics.finishHooks(turnId)) this.opts.emit({ type: "item", item, history: {} });
+  }
+
+  private finishReviews(turnId?: string) {
+    for (const [id, review] of this.reviews) {
+      if (turnId && review.turnId !== turnId) continue;
+      this.opts.emit({ type: "item", item: unfinishedReview(review.item), history: { beforeItemId: review.beforeItemId } });
+      this.reviews.delete(id);
+    }
+  }
+
   private async question(rpcId: string, req: QuestionRequest): Promise<Answers | null> {
     const ctrl = new AbortController();
     this.approvals.set(rpcId, ctrl);
@@ -1038,6 +1137,10 @@ class CodexSession implements ProviderSession {
 
   // `key` is the JSON-RPC id, which `serverRequest/resolved` refers to.
   private async onRequest(method: string, p: Record<string, unknown>, key: string): Promise<unknown> {
+    // Requests from another thread must not borrow this session's permission
+    // editor or approval context. The RPC error settles the request without a grant.
+    if (typeof p.threadId === "string" && p.threadId !== this.threadId)
+      throw new Error("Request belongs to another Codex thread");
     const itemId = str(p.approvalId) || str(p.itemId);
     const reason = str(p.reason) || undefined;
     switch (method) {
@@ -1047,7 +1150,7 @@ class CodexSession implements ProviderSession {
         // permanent rule to ~/.codex/rules, affecting every future session.
         const always: Decision | null = !available.length || available.includes("acceptForSession") ? "acceptForSession" : null;
         const command = unwrapShell(str(p.command));
-        const a = await this.ask(key, { toolName: "shell", input: { command, cwd: p.cwd, reason }, title: reason ?? command, canAlwaysAllow: !!always }, itemId);
+        const a = await this.ask(key, { toolName: "shell", input: { command, cwd: p.cwd, reason, kind: p.kind ?? "command", ...(p.networkApprovalContext ? { networkApprovalContext: p.networkApprovalContext } : {}) }, title: reason ?? (p.kind === "writeStdin" ? `Send terminal input: ${command}` : command), canAlwaysAllow: !!always }, itemId);
         return { decision: this.decision(a, always) };
       }
       case "item/fileChange/requestApproval": {
@@ -1095,9 +1198,28 @@ class CodexSession implements ProviderSession {
     return this.chain;
   }
 
+  answerAsyncQuestion(requestId: string, answers: Answers | null): Promise<void> {
+    // Serialize with sends, but do not turn a rejected answer into a failed turn.
+    const result = this.chain.then(async () => {
+      const entry = this.asyncQuestions.get(requestId);
+      if (!entry || entry.resolved || this.closing || !this.threadId || entry.turnId !== this.turnId || this.ended.has(entry.turnId))
+        throw new Error("This question is no longer active");
+      if (answers) {
+        const text = asyncQuestionReply(entry.request, answers);
+        const itemId = randomUUID();
+        await this.rpc.request("turn/steer", { threadId: this.threadId, expectedTurnId: entry.turnId,
+          input: promptInput(text), clientUserMessageId: itemId });
+        this.opts.emit({ type: "item", item: { kind: "user", id: itemId, text: asyncReplyDisplay(text) } });
+      }
+      entry.resolved = true;
+    });
+    this.chain = result.catch(() => {});
+    return result;
+  }
+
   send(text: string, itemId: string, images?: ImageData[], turnId?: string) {
     this.casmTurnId = turnId;
-    void this.enqueue(async () => {
+    return this.enqueue(async () => {
       if (!this.threadId) return; // startup failed; `closed` was emitted
       const routed = routePrompt(text, this.skills, images);
       // Builtins can't join a running turn: steer them in as text.
@@ -1106,8 +1228,13 @@ class CodexSession implements ProviderSession {
         try {
           await this.rpc.request("turn/steer", { threadId: this.threadId, expectedTurnId: this.turnId, input, clientUserMessageId: itemId });
           return;
-        } catch {
-          // The turn ended in between: start a new one instead.
+        } catch (error) {
+          // Codex rejects this specific race before submitting input. Transport,
+          // validation and turn-mismatch errors must never duplicate the prompt.
+          if (rec(error).code !== -32600 || !(error instanceof Error) || error.message !== "no active turn to steer") {
+            this.opts.emit({ type: "sendFailed", itemId, error: error instanceof Error ? error.message : String(error) });
+            return;
+          }
         }
       }
       this.expecting = true;
@@ -1128,7 +1255,9 @@ class CodexSession implements ProviderSession {
         input,
         clientUserMessageId: itemId,
         model: config.model,
-        effort: config.effort,
+        // The web picker's Default value is "", including in saved configs.
+        // Codex accepts an omitted override, but rejects an empty effort.
+        effort: config.effort?.trim() || undefined,
         // Sent on every turn: a resumed thread keeps whatever mode it last ran in.
         collaborationMode: collaborationMode(MODES[config.mode ?? ""]?.collaboration ?? "default", this.presets, config, this.thread),
       });
@@ -1219,8 +1348,32 @@ async function failedTurns(rpc: Rpc, threadId: string): Promise<Map<string, Item
   return out;
 }
 
-export async function readHistory(sessionId: string, cwd: string): Promise<Item[]> {
-  const rpc = new Rpc(cwd, providerEnv());
+// Some Codex stores expose thread/items/list but return MethodNotFound for it.
+// Full thread reads include both items and turn errors, even itemless failures.
+async function readThreadHistory(rpc: Rpc, threadId: string): Promise<Item[]> {
+  type Turn = { id: string; items: CodexItem[]; status: string; error?: unknown; startedAt?: number | null; completedAt?: number | null };
+  const { thread } = await rpc.request<{ thread: { turns: Turn[] } }>("thread/read", { threadId, includeTurns: true });
+  const byId = new Map<string, Item>();
+  const subagents = new Map<string, SubagentItem>();
+  for (const turn of thread.turns) {
+    const at = isoTime((turn.startedAt ?? turn.completedAt ?? 0) * 1000);
+    const endedAt = isoTime((turn.completedAt ?? 0) * 1000);
+    for (const item of turn.items) {
+      for (const raw of normalizeItems(item, subagents)) {
+        const prev = byId.get(raw.id);
+        byId.set(raw.id, timed(prev && seen(prev), raw, at, endedAt));
+      }
+    }
+    if (turn.status === "failed" && turn.error) {
+      const id = `error-${turn.id}`;
+      byId.set(id, { kind: "notice", id, ...(endedAt ? { at: endedAt } : {}), text: errorMessage(turn.error), level: "error" });
+    }
+  }
+  return [...byId.values()];
+}
+
+export async function readHistory(sessionId: string, cwd: string, context?: ProviderContext): Promise<Item[]> {
+  const rpc = new Rpc(cwd, providerEnv(context?.env));
   try {
     await rpc.initialize();
     const byId = new Map<string, Item>();
@@ -1228,22 +1381,28 @@ export async function readHistory(sessionId: string, cwd: string): Promise<Item[
     // Last item id of each turn, to place a failed turn's error after it.
     const lastOfTurn = new Map<string, string>();
     let cursor: string | null = null;
-    do {
-      const page: { data: { item: CodexItem; turnId?: string; startedAtMs?: number | null; completedAtMs?: number | null }[]; nextCursor: string | null } = await rpc.request("thread/items/list", {
-        threadId: sessionId,
-        cursor,
-        limit: 500,
-      });
-      for (const { item, turnId, startedAtMs, completedAtMs } of page.data) {
-        for (const raw of normalizeItems(item, subagents)) {
-          const prev = byId.get(raw.id);
-          const it = timed(prev && seen(prev), raw, isoTime(startedAtMs ?? completedAtMs), isoTime(completedAtMs));
-          byId.set(it.id, it);
-          if (turnId) lastOfTurn.set(turnId, it.id);
+    try {
+      do {
+        const page: { data: { item: CodexItem; turnId?: string; startedAtMs?: number | null; completedAtMs?: number | null }[]; nextCursor: string | null } = await rpc.request("thread/items/list", {
+          threadId: sessionId,
+          cursor,
+          limit: 500,
+        });
+        for (const { item, turnId, startedAtMs, completedAtMs } of page.data) {
+          for (const raw of normalizeItems(item, subagents)) {
+            const prev = byId.get(raw.id);
+            const it = timed(prev && seen(prev), raw, isoTime(startedAtMs ?? completedAtMs), isoTime(completedAtMs));
+            byId.set(it.id, it);
+            if (turnId) lastOfTurn.set(turnId, it.id);
+          }
         }
-      }
-      cursor = page.nextCursor;
-    } while (cursor);
+        cursor = page.nextCursor;
+      } while (cursor);
+    } catch (error) {
+      if (rec(error).code !== -32601) throw error;
+      // Await before finally closes the RPC process. Other errors stay visible.
+      return await readThreadHistory(rpc, sessionId);
+    }
     const errors = await failedTurns(rpc, sessionId);
     if (!errors.size) return [...byId.values()];
     const out: Item[] = [];
@@ -1259,8 +1418,8 @@ export async function readHistory(sessionId: string, cwd: string): Promise<Item[
   }
 }
 
-export async function readCommands(cwd: string): Promise<Command[]> {
-  const rpc = new Rpc(cwd, providerEnv());
+export async function readCommands(cwd: string, context?: ProviderContext): Promise<Command[]> {
+  const rpc = new Rpc(cwd, providerEnv(context?.env));
   try {
     await rpc.initialize();
     return [...BUILTIN_COMMANDS, ...skillCommands(parseSkills(await rpc.request("skills/list", { cwds: [cwd] })))];
@@ -1276,14 +1435,29 @@ export function codexProvider(): Provider {
     history: readHistory,
     catalog: readCatalog,
     limits: readLimits,
-    subagentHistory: async (sessionId, cwd, subagentId) => {
-      const parent = await readHistory(sessionId, cwd);
+    subagentHistory: async (sessionId, cwd, subagentId, context) => {
+      const parent = await readHistory(sessionId, cwd, context);
       if (!parent.some((item) => item.kind === "subagent" && item.id === subagentId)) throw new Error("Unknown Codex subagent");
-      return readHistory(subagentId, cwd);
+      return readHistory(subagentId, cwd, context);
     },
-    usage: (sessionId) => readUsage(sessionId),
+    usage: (sessionId, _cwd, context) => readUsage(sessionId, context),
     commands: readCommands,
     // Read-only: Codex regenerates its memory files itself.
     memories: codexMemories,
   };
+}
+
+// A notification cannot turn config-derived permissions into a CASM override.
+// Only synchronize explicit presets, and require the entire policy to match.
+export function nativeMode(settings: Record<string, unknown>, configuredMode?: string): string | undefined {
+  if (!configuredMode || !MODES[configuredMode] || settings.activePermissionProfile !== null) return undefined;
+  const collaboration = rec(settings.collaborationMode).mode;
+  const policy = rec(settings.sandboxPolicy);
+  if (settings.approvalPolicy === "never" && policy.type === "dangerFullAccess" && settings.approvalsReviewer === "user" && collaboration === "default") return "full-access";
+  if (settings.approvalPolicy !== "on-request" || policy.type !== "workspaceWrite" || policy.networkAccess !== false ||
+      !Array.isArray(policy.writableRoots) || policy.writableRoots.length !== 0 ||
+      policy.excludeTmpdirEnvVar !== false || policy.excludeSlashTmp !== false) return undefined;
+  if (settings.approvalsReviewer === "auto_review" && collaboration === "default") return "auto-review";
+  if (settings.approvalsReviewer === "user" && collaboration === "plan") return "plan";
+  return undefined;
 }

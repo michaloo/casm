@@ -1,7 +1,10 @@
 // The only persistent state: projects, agents (config + native session id),
-// client tokens, peers and message sender metadata. Transcripts live in each provider's own store.
+// client tokens, peers and message sender metadata. Transcripts live in each provider's own store;
+// history_supplements retains only events the provider does not persist (approval reviews).
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import type { ProviderContext } from "./providers/types.ts";
+import type { HistorySupplement } from "./history-supplements.ts";
 import type { Agent, AgentConfig, AgentParent, MessageSender, ImageData, Project, ProviderId, ProviderLimits, Schedule } from "@casm/protocol";
 
 export type StoredAgent = Omit<Agent, "status" | "deferred" | "pending">;
@@ -116,11 +119,20 @@ CREATE TABLE IF NOT EXISTS message_senders (
   sender TEXT NOT NULL,
   PRIMARY KEY (agent_id, item_id)
 );
+CREATE TABLE IF NOT EXISTS history_supplements (
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  native_session_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  item TEXT NOT NULL,
+  before_item_id TEXT,
+  PRIMARY KEY (agent_id, native_session_id, item_id)
+);
 -- Native sessions an agent left behind on /restart, oldest first (rowid order).
 CREATE TABLE IF NOT EXISTS past_sessions (
   agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   native_session_id TEXT NOT NULL,
   ended_at TEXT NOT NULL,
+  reader_context TEXT,
   PRIMARY KEY (agent_id, native_session_id)
 );
 CREATE TABLE IF NOT EXISTS meta (
@@ -214,6 +226,7 @@ export class Store {
     // A fresh database gets the current schema; an existing one gets the
     // columns added since (databases older than 800edae are not supported).
     this.db.exec(SCHEMA);
+    this.addColumn("past_sessions", "reader_context", "TEXT");
     this.addColumn("agents", "effective_model", "TEXT");
     this.addColumn("pending", "sender", "TEXT");
     this.addColumn("tokens", "last_used_at", "TEXT");
@@ -428,13 +441,24 @@ export class Store {
     return row ? JSON.parse(row.sender as string) : undefined;
   }
 
-  addPastSession(agentId: string, nativeSessionId: string) {
-    this.db.prepare("INSERT OR IGNORE INTO past_sessions (agent_id, native_session_id, ended_at) VALUES (?, ?, ?)").run(agentId, nativeSessionId, now());
+  addPastSession(agentId: string, nativeSessionId: string, context?: ProviderContext) {
+    this.db.prepare("INSERT OR IGNORE INTO past_sessions (agent_id, native_session_id, ended_at, reader_context) VALUES (?, ?, ?, ?)").run(agentId, nativeSessionId, now(), context ? JSON.stringify(context) : null);
   }
 
-  pastSessions(agentId: string): { nativeSessionId: string; endedAt: string }[] {
-    return (this.db.prepare("SELECT native_session_id, ended_at FROM past_sessions WHERE agent_id = ? ORDER BY rowid").all(agentId) as Row[])
-      .map((r) => ({ nativeSessionId: r.native_session_id as string, endedAt: r.ended_at as string }));
+  saveHistorySupplement(agentId: string, nativeSessionId: string, entry: HistorySupplement) {
+    this.db.prepare(`INSERT INTO history_supplements (agent_id, native_session_id, item_id, item, before_item_id) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (agent_id, native_session_id, item_id) DO UPDATE SET item = excluded.item, before_item_id = excluded.before_item_id`)
+      .run(agentId, nativeSessionId, entry.item.id, JSON.stringify(entry.item), entry.beforeItemId ?? null);
+  }
+
+  historySupplements(agentId: string, nativeSessionId: string): HistorySupplement[] {
+    return (this.db.prepare("SELECT item, before_item_id FROM history_supplements WHERE agent_id = ? AND native_session_id = ? ORDER BY rowid").all(agentId, nativeSessionId) as Row[])
+      .map(r => ({ item: JSON.parse(r.item as string), ...(r.before_item_id ? { beforeItemId: r.before_item_id as string } : {}) }));
+  }
+
+  pastSessions(agentId: string): { nativeSessionId: string; endedAt: string; context?: ProviderContext }[] {
+    return (this.db.prepare("SELECT native_session_id, ended_at, reader_context FROM past_sessions WHERE agent_id = ? ORDER BY rowid").all(agentId) as Row[])
+      .map((r) => ({ nativeSessionId: r.native_session_id as string, endedAt: r.ended_at as string, ...(r.reader_context ? { context: JSON.parse(r.reader_context as string) } : {}) }));
   }
 
   // An authoritative healthy account refresh makes limit-deferred work due.

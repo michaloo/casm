@@ -25,12 +25,15 @@ import type {
   Usage,
 } from "@casm/protocol";
 import type { StoredAgent, Store } from "./db.ts";
-import type { PermissionAnswer, Provider, ProviderEvent, ProviderSession } from "./providers/types.ts";
+import type { PermissionAnswer, Provider, ProviderContext, ProviderEvent, ProviderSession } from "./providers/types.ts";
 import { AgentPrompt, type PromptVars } from "./agent-prompt.ts";
 import { limitFromText, mergeWindows, retryAt, transientRateLimit, type LimitHit } from "./limits.ts";
 import { seen, timed, type Seen } from "./item-times.ts";
 import { findInItems } from "./find.ts";
 import { classifyFailure, MAX_RETRIES, nextRetryAt, type FailureKind, type FailureSource } from "./failures.ts";
+import { providerStoreContext } from "./providers/env.ts";
+import { mergeHistorySupplements } from "./history-supplements.ts";
+import { displayMessage, providerMessage } from "./message-provenance.ts";
 
 // What sessions are told about the server that runs them.
 export type SessionContext = { serverId: string; serverName: string };
@@ -64,6 +67,7 @@ type Live = {
   // Events of the running turn, for clients that subscribe mid-turn.
   turn: AgentEvent[];
   pending: Map<string, Pending>;
+  asyncQuestions: Map<string, { request: QuestionRequest; nativeId: string; answering: boolean }>;
   // Config changed mid-turn: restart the process once the turn ends.
   reloadAfterTurn: boolean;
   lastReply: string | null;
@@ -75,6 +79,8 @@ type Live = {
   // have reached the agent's own history.
   answers: number;
   steered: { prompt: Prompt; answersAt: number }[];
+  sending: Map<string, Prompt>;
+  retained: Map<string, { prompt: Prompt; pendingId: string }>;
   // When the running turn started, to tell fresh limit reports from old ones.
   turnStartedAt: number;
   lastTurn: { outcome: "completed" | "interrupted" | "failed"; error?: string; kept?: string[] } | null;
@@ -106,6 +112,8 @@ export type Notify = <N extends NotificationName>(name: N, params: NotificationP
 
 export class AgentManager {
   private commandCache = new Map<string, { at: number; pending: boolean; promise: Promise<Command[]> }>();
+  private promptOrder = new WeakMap<Prompt, number>();
+  private nextPromptOrder = 0;
   private live = new Map<string, Live>();
   private catalogs = new Map<ProviderId, { at: number; catalog: Promise<Catalog> }>();
   // Latest account limits per provider, as sessions or queries reported them.
@@ -205,13 +213,13 @@ export class AgentManager {
 
   runningCount(): number {
     let n = 0;
-    for (const l of this.live.values()) if (l.turnId) n++;
+    for (const l of this.live.values()) if (l.turnId || l.sending.size) n++;
     return n;
   }
 
   status(id: string): AgentStatus {
     const l = this.live.get(id);
-    if (!l?.turnId) return "idle";
+    if (!l || (!l.turnId && !l.sending.size)) return "idle";
     return l.pending.size ? "waiting" : "running";
   }
 
@@ -255,6 +263,15 @@ export class AgentManager {
 
   // The session is gone: what it was still running can't report back.
   private sessionEnded(id: string, l: Live) {
+    this.expireAsyncQuestions(id, l);
+    // Closing invalidates provider callbacks before their RPC promises settle.
+    // Preserve uncertain inputs now; a late rejection must not lose them.
+    if (l.sending.size) {
+      this.retainPrompts(id, l, [...l.sending.values()], "the provider closed before input acceptance was confirmed");
+      l.sending.clear();
+      this.changed(id);
+      this.statusChanged(id);
+    }
     let n = 0;
     for (const t of l.subagents.values()) if (t.item.status === "running" && !t.stale) (t.stale = true), n++;
     if (n) this.changed(id);
@@ -364,7 +381,8 @@ export class AgentManager {
     this.agent(id);
     const m = this.store.listPending(id).find((x) => x.id === messageId);
     if (!m) throw new RpcError(1001, "no such pending message (it may have been sent or cancelled already)");
-    if (!this.live.get(id)?.turnId) return this.resend(id, m, "queue", true);
+    const l = this.live.get(id);
+    if (!l?.turnId && !l?.sending.size) return this.resend(id, m, "queue", true);
     this.store.requeuePending(m.id);
     this.changed(id);
     return { queued: true, pendingId: m.id };
@@ -429,7 +447,7 @@ export class AgentManager {
   private liveFor(id: string): Live {
     let l = this.live.get(id);
     if (!l) {
-      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, answers: 0, steered: [], delivered: [], statusWaiters: new Set(), subagents: new Map(), times: new Map() };
+      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), asyncQuestions: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, answers: 0, steered: [], sending: new Map(), retained: new Map(), delivered: [], statusWaiters: new Set(), subagents: new Map(), times: new Map() };
       this.live.set(id, l);
     }
     return l;
@@ -517,7 +535,7 @@ export class AgentManager {
     // Busy, or idle with older messages still waiting (a restart, a failed
     // start): behind them. Only steering and "Send now" go ahead of the queue.
     const backlog = !retryLimited && this.store.listPending(id).length > 0;
-    if (l.turnId || backlog) {
+    if (l.turnId || l.sending.size || backlog) {
       const m = this.store.addPending({ agentId: id, ...prompt, reason: "queued", notBefore: null, note: null });
       if (!l.turnId) this.runNext(id);
       this.changed(id);
@@ -531,7 +549,7 @@ export class AgentManager {
     const a = this.agent(id);
     if (a.archivedAt) throw new RpcError(1003, "agent is archived");
     const l = this.liveFor(id);
-    if (l.turnId) throw new RpcError(1002, "the agent is busy; run the command when it is idle");
+    if (l.turnId || l.sending.size) throw new RpcError(1002, "the agent is busy; run the command when it is idle");
     this.openSession(a, l);
     l.turnId = randomUUID();
     l.turn = [];
@@ -557,10 +575,28 @@ export class AgentManager {
 
   private sendToSession(id: string, l: Live, prompt: Prompt) {
     const itemId = prompt.id ??= randomUUID();
+    this.promptOrder.set(prompt, this.nextPromptOrder++);
     if (prompt.sender) this.store.saveMessageSender(id, itemId, prompt.sender);
     const images = prompt.images?.length ? prompt.images : undefined;
     this.emit(id, { type: "item", item: { kind: "user", id: itemId, text: prompt.text, images, ...(prompt.sender ? { sender: prompt.sender } : {}) } });
-    this.guard(id, l, () => l.session!.send(prompt.text, itemId, images, l.turnId!));
+    this.guard(id, l, () => {
+      l.sending.set(itemId, prompt);
+      const settled = () => {
+        if (l.sending.get(itemId) !== prompt) return;
+        l.sending.delete(itemId);
+        if (this.stopped) return;
+        this.runNext(id);
+        if (!l.turnId) this.statusChanged(id);
+      };
+      try {
+        const sent = l.session!.send(providerMessage(prompt.text, prompt.sender), itemId, images, l.turnId!);
+        if (sent) void sent.finally(settled).catch(() => {});
+        else settled();
+      } catch (error) {
+        l.sending.delete(itemId);
+        throw error;
+      }
+    });
     l.delivered = [...l.delivered.slice(-99), itemId];
   }
 
@@ -616,6 +652,14 @@ export class AgentManager {
 
   private onProviderEvent(id: string, l: Live, e: ProviderEvent) {
     switch (e.type) {
+      case "asyncQuestion": {
+        const nativeId = this.agent(id).nativeSessionId;
+        if (!nativeId || !l.turnId || l.asyncQuestions.has(e.request.id)) return;
+        const request = { ...e.request, nonBlocking: true, at: e.request.at ?? new Date().toISOString() };
+        l.asyncQuestions.set(request.id, { request, nativeId, answering: false });
+        this.emit(id, { type: "question", request });
+        return;
+      }
       case "sessionId": {
         const a = this.store.getAgent(id);
         if (a && a.nativeSessionId !== e.id) {
@@ -630,6 +674,23 @@ export class AgentManager {
         const a = this.store.getAgent(id);
         if (a && a.effectiveModel !== e.model) {
           const updated = this.store.updateAgent(id, { effectiveModel: e.model })!;
+          this.notify("agent.changed", { agent: this.withStatus(updated) });
+        }
+        return;
+      }
+      case "commandsChanged": {
+        const a = this.store.getAgent(id);
+        if (a) for (const key of this.commandCache.keys()) {
+          const [provider, cwd] = JSON.parse(key);
+          if (provider === a.provider && cwd === a.cwd) this.commandCache.delete(key);
+        }
+        return;
+      }
+      case "effort": {
+        if (l.reloadAfterTurn) return;
+        const a = this.store.getAgent(id);
+        if (a && a.config.effort !== e.effort) {
+          const updated = this.store.updateAgent(id, { config: { ...a.config, effort: e.effort } })!;
           this.notify("agent.changed", { agent: this.withStatus(updated) });
         }
         return;
@@ -650,9 +711,14 @@ export class AgentManager {
         return;
       }
       case "item":
+        if (e.history) {
+          const nativeId = this.agent(id).nativeSessionId;
+          e.item = timed(l.times.get(e.item.id), e.item, new Date().toISOString());
+          if (nativeId) this.store.saveHistorySupplement(id, nativeId, { ...e.history, item: e.item });
+        }
         if (e.item.kind === "user") {
           const sender = this.store.messageSender(id, e.item.id);
-          if (sender) e.item = { ...e.item, sender };
+          if (sender) e.item = { ...e.item, text: displayMessage(e.item.text, sender), sender };
         }
         if (e.item.kind === "assistant") l.lastReply = e.item.text;
         this.emit(id, { type: "item", item: e.item });
@@ -676,6 +742,15 @@ export class AgentManager {
       case "turnStarted":
         if (!l.turnId) this.startOwnTurn(id, l, e.notice);
         return;
+      case "sendFailed": {
+        const index = l.steered.findIndex(s => s.prompt.id === e.itemId);
+        const prompt = index >= 0 ? l.steered.splice(index, 1)[0].prompt : l.sending.get(e.itemId);
+        if (!prompt) return;
+        this.retainPrompts(id, l, [prompt], e.error);
+        this.emit(id, { type: "item", item: { kind: "notice", id: randomUUID(), level: "error", text: `Message could not be steered: ${e.error}` } });
+        this.changed(id);
+        return;
+      }
       case "turnEnded":
         if (e.turnId !== undefined && e.turnId !== l.turnId) return;
         if (e.recycleSession) l.reloadAfterTurn = true;
@@ -703,6 +778,7 @@ export class AgentManager {
     if (!l.turnId) return;
     const turnId = l.turnId;
     l.lastTurn = { outcome, ...(error ? { error } : {}) };
+    this.expireAsyncQuestions(id, l);
     for (const p of l.pending.values()) p.reject(new Error("turn ended"));
     l.pending.clear();
     this.emit(id, { type: "turnEnded", turnId, outcome, error, limit: limit ?? undefined });
@@ -758,6 +834,17 @@ export class AgentManager {
     as: { reason: "limit"; notBefore: string; attempts: number } | { reason: "failed"; kind: FailureKind | "stopped" },
   ): string[] {
     const prompts = [...(l.prompt && !l.answers ? [l.prompt] : []), ...l.steered.filter((s) => s.answersAt === l.answers).map((s) => s.prompt)];
+    const ids = this.retainPrompts(id, l, prompts, note, as);
+    l.prompt = null;
+    l.steered = [];
+    return ids;
+  }
+
+  // Rejections may arrive in any order, including after turn completion. Keep
+  // each attempted prompt once and sort retained attempts by dispatch order.
+  private retainPrompts(id: string, l: Live, prompts: Prompt[], note: string,
+    as: { reason: "limit"; notBefore: string; attempts: number } | { reason: "failed"; kind: FailureKind | "stopped" } = { reason: "failed", kind: "permanent" }): string[] {
+    for (const [key, entry] of l.retained) if (!this.store.getPending(entry.pendingId)) l.retained.delete(key);
     const kept = (p: Prompt) => {
       if (as.reason === "limit") return { ...as, note };
       const made = p.keep?.attempts ?? 0;
@@ -766,14 +853,19 @@ export class AgentManager {
       const gaveUp = as.kind === "transient" && !at ? ` (gave up after ${made} automatic retries)` : "";
       return { reason: "failed" as const, attempts: made, notBefore: at, note: note + gaveUp };
     };
-    // New ids, or a retried message's own: the agent may have recorded the
-    // prompts under the ids they were sent with.
-    const ids = prompts
-      .reverse()
-      .map(({ keep, ...p }) => this.store.addPending({ agentId: id, ...p, id: keep?.id, ...kept({ keep, ...p }), front: true }).id)
-      .reverse();
-    l.prompt = null;
-    l.steered = [];
+    const ids = prompts.map(prompt => {
+      const key = prompt.id!;
+      const existing = l.retained.get(key);
+      if (existing) return existing.pendingId;
+      // Each attempt uses a fresh native item id; retries retain their pending id.
+      const { keep, ...p } = prompt;
+      const pendingId = this.store.addPending({ agentId: id, ...p, id: keep?.id, ...kept(prompt), front: true }).id;
+      l.retained.set(key, { prompt, pendingId });
+      return pendingId;
+    });
+    const retained = [...l.retained.values()].sort((a, b) => (this.promptOrder.get(a.prompt) ?? 0) - (this.promptOrder.get(b.prompt) ?? 0));
+    const first = this.store.listPending(id)[0]?.seq ?? 0;
+    retained.forEach((entry, index) => this.store.movePending(entry.pendingId, first - retained.length + index));
     return ids;
   }
 
@@ -817,8 +909,44 @@ export class AgentManager {
     p.resolve(answer);
   }
 
-  answerQuestion(id: string, requestId: string, answers: Answers | null) {
-    const p = this.live.get(id)?.pending.get(requestId);
+  private asyncQuestionOutcome(id: string, l: Live, entry: { request: QuestionRequest; nativeId: string }, outcome: string) {
+    if (this.stopped || !this.store.getAgent(id)) return;
+    const item: Item = { kind: "notice", id: `question-outcome:${entry.request.id}`, level: "info",
+      text: `${entry.request.prompts.map(p => p.text).join("; ")} — ${outcome}`, at: new Date().toISOString() };
+    this.store.saveHistorySupplement(id, entry.nativeId, { item });
+    if (this.agent(id).nativeSessionId === entry.nativeId) this.emit(id, { type: "item", item });
+    if (l.asyncQuestions.get(entry.request.id) === entry) {
+      l.asyncQuestions.delete(entry.request.id);
+      this.emit(id, { type: "questionResolved", requestId: entry.request.id });
+    }
+  }
+
+  private expireAsyncQuestions(id: string, l: Live) {
+    for (const entry of l.asyncQuestions.values()) this.asyncQuestionOutcome(id, l, entry,
+      entry.answering ? "Answer delivery was pending when the turn ended." : "Answer window closed when the turn or session ended.");
+  }
+
+  async answerQuestion(id: string, requestId: string, answers: Answers | null) {
+    const l = this.live.get(id);
+    const entry = l?.asyncQuestions.get(requestId);
+    if (entry && l) {
+      if (entry.answering) throw new RpcError(1002, "answer submission is already in progress");
+      if (this.agent(id).nativeSessionId !== entry.nativeId || !l.session?.answerAsyncQuestion)
+        throw new RpcError(1001, "this question's session is no longer available");
+      entry.answering = true;
+      try {
+        await l.session.answerAsyncQuestion(requestId, answers);
+        if (this.stopped) throw new RpcError(1002, "server stopped before the answer outcome could be recorded");
+        this.asyncQuestionOutcome(id, l, entry, answers ? "Answer accepted by the agent." : "Dismissed without sending an answer.");
+      } catch (error) {
+        entry.answering = false;
+        // Retain the editor on rejection while its turn remains active.
+        if (!l.asyncQuestions.has(requestId)) this.asyncQuestionOutcome(id, l, entry, "Answer delivery could not be confirmed before the question expired.");
+        throw error;
+      }
+      return;
+    }
+    const p = l?.pending.get(requestId);
     if (p?.kind !== "question") throw new RpcError(1001, "no such pending question");
     p.resolve(answers);
   }
@@ -914,7 +1042,7 @@ export class AgentManager {
   async restart(id: string) {
     await this.reload(id);
     const a = this.agent(id);
-    if (a.nativeSessionId) this.store.addPastSession(id, a.nativeSessionId);
+    if (a.nativeSessionId) this.store.addPastSession(id, a.nativeSessionId, providerStoreContext(a.provider, a.config));
     const updated = this.store.updateAgent(id, { nativeSessionId: null })!;
     this.notify("agent.changed", { agent: this.withStatus(updated) });
   }
@@ -947,7 +1075,7 @@ export class AgentManager {
       status: this.status(id),
       turn: l?.turn ?? [],
       permissions: l ? [...l.pending.values()].flatMap((p) => (p.kind === "permission" ? [p.req] : [])) : [],
-      questions: l ? [...l.pending.values()].flatMap((p) => (p.kind === "question" ? [p.req] : [])) : [],
+      questions: l ? [...[...l.pending.values()].flatMap((p) => (p.kind === "question" ? [p.req] : [])), ...[...l.asyncQuestions.values()].map(p => p.request)] : [],
     };
   }
 
@@ -994,9 +1122,10 @@ export class AgentManager {
   // one until its time. While the provider is known to be over its limit, the
   // first one waits for the reset as a "limit" message.
   private runNext(id: string, now = Date.now()) {
+    if (this.stopped) return;
     const a = this.store.getAgent(id);
     const l = this.liveFor(id);
-    if (!a || l.turnId) return;
+    if (!a || l.turnId || l.sending.size) return;
     if (a.archivedAt || this.closing.has(id)) return;
     const m = this.store.listPending(id)[0];
     if (!m) return;
@@ -1116,9 +1245,10 @@ export class AgentManager {
     const p = this.provider(a.provider);
     // A subagent from a session left by /restart (agent.history prefixed its id).
     const past = /^past(\d+):(.*)$/s.exec(subagentId);
-    const session = past ? this.store.pastSessions(id)[Number(past[1])]?.nativeSessionId : a.nativeSessionId;
+    const previous = past ? this.store.pastSessions(id)[Number(past[1])] : undefined;
+    const session = past ? previous?.nativeSessionId : a.nativeSessionId;
     if (!session || !p.subagentHistory) return [];
-    return (await p.subagentHistory(session, a.cwd, past ? past[2] : subagentId)).slice(-limit);
+    return (await p.subagentHistory(session, a.cwd, past ? past[2] : subagentId, { env: { ...a.config.env, ...previous?.context?.env } })).slice(-limit);
   }
 
   async usage(id: string): Promise<Usage | null> {
@@ -1126,23 +1256,23 @@ export class AgentManager {
     const live = this.live.get(id)?.lastUsage;
     if (live) return live;
     if (!a.nativeSessionId) return null;
-    return this.provider(a.provider).usage(a.nativeSessionId, a.cwd);
+    return this.provider(a.provider).usage(a.nativeSessionId, a.cwd, a.config);
   }
 
   commands(id: string, refresh = false): Promise<Command[]> {
     const a = this.agent(id);
-    const key = JSON.stringify([a.provider, a.cwd]);
+    const key = JSON.stringify([a.provider, a.cwd, Object.entries(a.config.env ?? {}).sort(([a], [b]) => a.localeCompare(b))]);
     const cached = this.commandCache.get(key);
     if (cached && (cached.pending || (!refresh && Date.now() - cached.at < 5 * 60_000))) return cached.promise;
     const entry = { at: 0, pending: true, promise: Promise.resolve([] as Command[]) };
-    entry.promise = Promise.resolve().then(() => this.provider(a.provider).commands(a.cwd)).then(
+    entry.promise = Promise.resolve().then(() => this.provider(a.provider).commands(a.cwd, a.config)).then(
       (commands) => {
         entry.at = Date.now();
         entry.pending = false;
         return commands;
       },
       (error) => {
-        this.commandCache.delete(key);
+        if (this.commandCache.get(key) === entry) this.commandCache.delete(key);
         throw error;
       },
     );
@@ -1169,7 +1299,7 @@ export class AgentManager {
     const past = this.store.pastSessions(id);
     const all: Item[] = [];
     for (const [n, s] of past.entries()) {
-      const items = await this.sessionHistory(a, s.nativeSessionId).catch(() => []);
+      const items = await this.sessionHistory(a, s.nativeSessionId, s.context).catch(() => []);
       all.push(...items.map((item) => ({ ...item, id: `past${n}:${item.id}` })), {
         kind: "notice", id: `restart:${n}`, at: s.endedAt, level: "info", restart: true,
         text: "Session restarted: earlier messages are not in the agent's context",
@@ -1179,13 +1309,17 @@ export class AgentManager {
     return all;
   }
 
-  private async sessionHistory(a: StoredAgent, nativeSessionId: string): Promise<Item[]> {
+  private async sessionHistory(a: StoredAgent, nativeSessionId: string, context?: ProviderContext): Promise<Item[]> {
     const provider = this.provider(a.provider);
-    const aliases = await provider.historyAliases?.(nativeSessionId, a.cwd) ?? {};
-    return (await provider.history(nativeSessionId, a.cwd)).map((item) => {
+    const readerContext = { env: { ...a.config.env, ...context?.env } };
+    const aliases = await provider.historyAliases?.(nativeSessionId, a.cwd, readerContext) ?? {};
+    const native = await provider.history(nativeSessionId, a.cwd, readerContext);
+    const live = this.live.get(a.id);
+    const liveIds = a.nativeSessionId === nativeSessionId && live?.session ? new Set(live.times.keys()) : undefined;
+    return mergeHistorySupplements(native, this.store.historySupplements(a.id, nativeSessionId), liveIds).map((item) => {
       if (item.kind !== "user") return item;
       const sender = this.store.messageSender(a.id, item.id) ?? (aliases[item.id] ? this.store.messageSender(a.id, aliases[item.id]) : undefined);
-      return sender ? { ...item, sender } : item;
+      return sender ? { ...item, text: displayMessage(item.text, sender), sender } : item;
     });
   }
 
@@ -1223,10 +1357,13 @@ export class AgentManager {
 
   async shutdown() {
     clearInterval(this.deferTimer);
-    // Prompts the agent hasn't answered yet would be gone after the restart:
-    // keep them as failed, retried right after startup (once startup has
-    // checked the agent didn't answer them anyway).
-    for (const [id, l] of this.live) if (l.turnId) this.keepUnanswered(id, l, "the server stopped before the agent answered", { reason: "failed", kind: "stopped" });
+    // Unanswered turn prompts retry after startup checks native history.
+    // Other unconfirmed sends are retained for an explicit retry or cancel.
+    for (const [id, l] of this.live) {
+      if (l.turnId) this.keepUnanswered(id, l, "the server stopped before the agent answered", { reason: "failed", kind: "stopped" });
+      if (l.sending.size) this.retainPrompts(id, l, [...l.sending.values()], "the server stopped before input acceptance was confirmed");
+      this.expireAsyncQuestions(id, l);
+    }
     this.stopped = true;
     for (const t of this.retryTimers.values()) clearTimeout(t);
     this.retryTimers.clear();

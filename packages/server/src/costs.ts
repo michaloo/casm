@@ -6,7 +6,7 @@
 // provider's cheap costStamp, so a repeat call reads only what changed.
 import type { ProviderCosts, ProviderId, Result } from "@casm/protocol";
 import type { Store } from "./db.ts";
-import type { CostEntry, Provider } from "./providers/types.ts";
+import type { CostEntry, Provider, ProviderContext } from "./providers/types.ts";
 
 // The local calendar day of `at`, YYYY-MM-DD.
 export function localDate(at: number | Date): string {
@@ -23,6 +23,13 @@ export function byDay(entries: CostEntry[]): Map<string, number> {
   const sums = new Map<string, number>();
   for (const e of entries) sums.set(localDate(e.at), (sums.get(localDate(e.at)) ?? 0) + e.costUsd);
   return sums;
+}
+
+// Only provider store identity affects deduplication; unrelated per-agent env
+// must not count the same native session twice (notably pi/OpenCode).
+function storeScope(provider: ProviderId, context?: ProviderContext): string {
+  return provider === "codex" ? context?.env?.CODEX_HOME ?? process.env.CODEX_HOME ?? ""
+    : provider === "claude" ? context?.env?.CLAUDE_CONFIG_DIR ?? process.env.CLAUDE_CONFIG_DIR ?? "" : "";
 }
 
 type Cached = { stamp: string; days: Map<string, number> };
@@ -42,13 +49,13 @@ export class CostReader {
     this.concurrency = concurrency;
   }
 
-  private async session(p: Provider, session: string, cwd: string): Promise<Map<string, number>> {
-    const key = `${p.id}\n${session}`;
-    const stamp = (await p.costStamp?.(session, cwd)) ?? null;
+  private async session(p: Provider, session: string, cwd: string, context?: ProviderContext): Promise<Map<string, number>> {
+    const key = JSON.stringify([p.id, session, storeScope(p.id, context)]);
+    const stamp = (await p.costStamp?.(session, cwd, context)) ?? null;
     const hit = this.cache.get(key);
     if (hit && stamp !== null && hit.stamp === stamp) return hit.days;
     this.reads++;
-    const days = byDay(await p.costs!(session, cwd));
+    const days = byDay(await p.costs!(session, cwd, context));
     if (stamp !== null) this.cache.set(key, { stamp, days });
     else this.cache.delete(key);
     return days;
@@ -63,16 +70,19 @@ export class CostReader {
       // Archived agents and sessions left by /restart spent too.
       const seen = new Set<string>();
       const jobs = this.store.listAgents({ includeArchived: true }).filter((a) => a.provider === p.id).flatMap((a) => [
-        ...this.store.pastSessions(a.id).map((s) => s.nativeSessionId),
-        ...(a.nativeSessionId ? [a.nativeSessionId] : []),
-      ].filter((session) => !seen.has(session) && seen.add(session)).map((session) => ({ agent: a.id, session, cwd: a.cwd })));
+        ...this.store.pastSessions(a.id).map((s) => ({ session: s.nativeSessionId, context: { env: { ...a.config.env, ...s.context?.env } } })),
+        ...(a.nativeSessionId ? [{ session: a.nativeSessionId, context: a.config }] : []),
+      ].filter(({ session, context }) => {
+        const key = JSON.stringify([session, storeScope(p.id, context)]);
+        return !seen.has(key) && seen.add(key);
+      }).map(({ session, context }) => ({ agent: a.id, session, cwd: a.cwd, context })));
       const sums = new Map(window.map((d) => [d, 0]));
       const spent = new Set<string>();
       let failed = 0;
       let error: string | undefined;
       await pool(jobs, this.concurrency, async (job) => {
         try {
-          for (const [date, cost] of await this.session(p, job.session, job.cwd)) {
+          for (const [date, cost] of await this.session(p, job.session, job.cwd, job.context)) {
             if (!inWindow.has(date) || cost <= 0) continue;
             sums.set(date, sums.get(date)! + cost);
             spent.add(job.agent);

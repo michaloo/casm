@@ -1,3 +1,4 @@
+import { Diagnostics } from "./diagnostics.ts";
 import { providerEnv } from "./env.ts";
 import { toolImages } from "./tool-images.ts";
 // Claude Code via the Claude Agent SDK: one long-lived query() per open
@@ -11,7 +12,6 @@ import { constants as osConstants, homedir } from "node:os";
 import { join } from "node:path";
 import {
   query,
-  getSubagentMessages,
   type CanUseTool,
   type ElicitationRequest,
   type ElicitationResult,
@@ -41,7 +41,7 @@ import type {
   QuestionRequest,
   Usage,
 } from "@casm/protocol";
-import type { OpenOptions, Provider, ProviderSession } from "./types.ts";
+import type { OpenOptions, ProviderContext, Provider, ProviderSession } from "./types.ts";
 import { claudeMemories } from "./claude-memory.ts";
 import { ClaudeTasks } from "./claude-tasks.ts";
 import { isoTime, TimedItems } from "../item-times.ts";
@@ -483,13 +483,13 @@ export class Normalizer {
 
 // --- history and usage from Claude's JSONL store
 
-function claudeDir(): string {
-  return process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+function claudeDir(context?: ProviderContext): string {
+  return context?.env?.CLAUDE_CONFIG_DIR || process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 }
 
 // Whether Claude stored the session at all (sync: decided when the session opens).
-function transcriptExists(sessionId: string, cwd: string): boolean {
-  const projects = join(claudeDir(), "projects");
+function transcriptExists(sessionId: string, cwd: string, context?: ProviderContext): boolean {
+  const projects = join(claudeDir(context), "projects");
   if (existsSync(join(projects, cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`))) return true;
   try {
     return readdirSync(projects).some((d) => existsSync(join(projects, d, `${sessionId}.jsonl`)));
@@ -498,8 +498,8 @@ function transcriptExists(sessionId: string, cwd: string): boolean {
   }
 }
 
-async function transcriptPath(sessionId: string, cwd: string): Promise<string | null> {
-  const projects = join(claudeDir(), "projects");
+async function transcriptPath(sessionId: string, cwd: string, context?: ProviderContext): Promise<string | null> {
+  const projects = join(claudeDir(context), "projects");
   const direct = join(projects, cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`);
   if (existsSync(direct)) return direct;
   // Long or unusual paths are hashed by Claude; search all project dirs.
@@ -842,7 +842,7 @@ class ClaudeSession implements ProviderSession {
     // A session Claude never stored (the server stopped before its first
     // prompt was written, or it was deleted) can't be resumed: start a new
     // conversation under the same id, and say so.
-    const missing = !!opts.resumeId && !transcriptExists(opts.resumeId, cwd);
+    const missing = !!opts.resumeId && !transcriptExists(opts.resumeId, cwd, config);
     const resumeId = missing ? null : opts.resumeId;
     // A new session gets its id from us, so the agent points at it before
     // Claude stores the first prompt there, even if the server stops right away.
@@ -864,12 +864,13 @@ class ClaudeSession implements ProviderSession {
       // itself (background job notifications) from silence.
       env: providerEnv({ CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1", ...config.env }),
       includePartialMessages: true,
+      includeHookEvents: true,
       pathToClaudeCodeExecutable: executable,
       canUseTool: this.canUseTool,
       onElicitation: this.onElicitation,
     };
     this.ready = resumeId
-      ? readLines(resumeId, cwd)
+      ? readLines(resumeId, cwd, config)
           .then((lines) => {
             for (const l of chain(lines)) this.n.entry(l);
           })
@@ -930,20 +931,30 @@ class ClaudeSession implements ProviderSession {
       await this.ready;
       for await (const m of this.q) this.handle(m);
       for (const item of this.n.endTurn()) this.item(item);
+      this.finishHooks();
       emit({ type: "closed" });
     } catch (e) {
       for (const item of this.n.endTurn()) this.item(item);
+      this.finishHooks();
       emit({ type: "closed", error: e instanceof Error ? e.message : String(e) });
     }
+  }
+
+  private finishHooks() {
+    for (const item of this.diagnostics.finishHooks()) this.opts.emit({ type: "item", item, history: {} });
   }
 
   private item(item: Item) {
     this.opts.emit({ type: "item", item });
   }
 
+  private diagnostics = new Diagnostics();
+
   private handle(m: SDKMessage) {
     const { emit } = this.opts;
     if ("parent_tool_use_id" in m && m.parent_tool_use_id) return; // subagent internals
+    const diagnostic = this.diagnostics.claude(m as unknown as Record<string, unknown>);
+    if (diagnostic) { emit({ type: "item", item: diagnostic, history: {} }); return; }
     switch (m.type) {
       case "system":
         this.system(m);
@@ -1027,6 +1038,9 @@ class ClaudeSession implements ProviderSession {
 
   private system(m: Extract<SDKMessage, { type: "system" }>) {
     switch (m.subtype) {
+      case "commands_changed":
+        this.opts.emit({ type: "commandsChanged" });
+        return;
       case "session_state_changed":
         if (m.state === "running") this.ownTurn(true);
         return;
@@ -1265,18 +1279,18 @@ export function promptContent(text: string, images?: ImageData[]): SDKUserMessag
   return content as unknown as SDKUserMessage["message"]["content"];
 }
 
-async function readLines(sessionId: string, cwd: string): Promise<Line[]> {
-  const path = await transcriptPath(sessionId, cwd);
+async function readLines(sessionId: string, cwd: string, context?: ProviderContext): Promise<Line[]> {
+  const path = await transcriptPath(sessionId, cwd, context);
   return path ? parseLines(await readFile(path, "utf8")) : [];
 }
 
 // A short-lived query whose input never yields: it initializes, answers
 // control requests and is closed without starting a session.
-async function withIdleQuery<T>(executable: string | undefined, cwd: string, what: string, f: (q: ReturnType<typeof query>) => Promise<T>, model?: string): Promise<T> {
+async function withIdleQuery<T>(executable: string | undefined, cwd: string, what: string, f: (q: ReturnType<typeof query>) => Promise<T>, model?: string, context?: ProviderContext): Promise<T> {
   const idle: AsyncIterable<SDKUserMessage> = {
     [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<SDKUserMessage>>(() => {}) }),
   };
-  const q = query({ prompt: idle, options: { cwd, model, pathToClaudeCodeExecutable: executable, env: providerEnv() } });
+  const q = query({ prompt: idle, options: { cwd, model, pathToClaudeCodeExecutable: executable, env: providerEnv(context?.env) } });
   let timer: NodeJS.Timeout | undefined;
   try {
     const timeout = new Promise<never>((_, reject) => {
@@ -1343,57 +1357,66 @@ export function parseCommands(commands: SlashCommand[], skills: SlashCommand[]):
   return out;
 }
 
-function fetchCommands(executable: string | undefined, cwd: string): Promise<Command[]> {
+function fetchCommands(executable: string | undefined, cwd: string, context?: ProviderContext): Promise<Command[]> {
   return withIdleQuery(executable, cwd, "commands", async (q) => {
     const commands = await q.supportedCommands();
     const skills = await q.reloadSkills().then((r) => r.skills, () => []);
     return parseCommands(commands, skills);
-  });
+  }, undefined, context);
 }
 
 // A model's context window as Claude Code sizes it (no API call: "summary"
 // context usage of an idle session on that model).
-function fetchContextWindow(executable: string | undefined, model: string): Promise<number> {
-  return withIdleQuery(executable, homedir(), "context window", async (q) => (await q.getContextUsage({ detail: "summary" })).rawMaxTokens, model);
+function fetchContextWindow(executable: string | undefined, model: string, context?: ProviderContext): Promise<number> {
+  return withIdleQuery(executable, homedir(), "context window", async (q) => (await q.getContextUsage({ detail: "summary" })).rawMaxTokens, model, context);
 }
 
 export function claudeProvider(): Provider {
   const executable = findClaude();
-  const windows = new Map<string, number>();
+  const stores = new Map<string, Map<string, number>>();
+  const storeKey = (context?: ProviderContext) => JSON.stringify(Object.entries(providerEnv(context?.env)).sort(([a], [b]) => a.localeCompare(b)));
+  const windowsFor = (context?: ProviderContext) => {
+    const key = storeKey(context);
+    let windows = stores.get(key);
+    if (!windows) stores.set(key, windows = new Map());
+    return windows;
+  };
   // Models whose window lookup is running or failed recently (retried after 10 min).
   const lookups = new Map<string, { at: number; window: Promise<number | undefined> }>();
   // Sessions learn windows from each turn's result; a stored session read after
   // a restart asks Claude Code once per model.
-  const contextWindow = (model: string): Promise<number | undefined> => {
+  const contextWindow = (model: string, context?: ProviderContext): Promise<number | undefined> => {
+    const windows = windowsFor(context);
+    const key = storeKey(context) + model;
     const known = windows.get(model);
     if (known) return Promise.resolve(known);
-    const cached = lookups.get(model);
+    const cached = lookups.get(key);
     if (cached && Date.now() - cached.at < 10 * 60_000) return cached.window;
-    const window = fetchContextWindow(executable, model).then(
+    const window = fetchContextWindow(executable, model, context).then(
       (w) => (w > 0 && !windows.has(model) && windows.set(model, w), windows.get(model)),
       () => undefined,
     );
-    lookups.set(model, { at: Date.now(), window });
+    lookups.set(key, { at: Date.now(), window });
     return window;
   };
   return {
     id: "claude",
-    open: (opts) => new ClaudeSession(opts, executable, windows),
+    open: (opts) => new ClaudeSession(opts, executable, windowsFor(opts.config)),
     catalog: () => fetchCatalog(executable),
-    commands: (cwd) => fetchCommands(executable, cwd),
-    async history(sessionId, cwd) {
-      return historyItems(await readLines(sessionId, cwd));
+    commands: (cwd, context) => fetchCommands(executable, cwd, context),
+    async history(sessionId, cwd, context) {
+      return historyItems(await readLines(sessionId, cwd, context));
     },
-    async usage(sessionId, cwd) {
-      const u = usageFromLines(await readLines(sessionId, cwd), windows);
+    async usage(sessionId, cwd, context) {
+      const u = usageFromLines(await readLines(sessionId, cwd, context), windowsFor(context));
       if (u?.model && !u.contextWindow) {
-        const w = await contextWindow(u.model);
+        const w = await contextWindow(u.model, context);
         if (w) u.contextWindow = w;
       }
       return u;
     },
-    async subagentHistory(sessionId, cwd, subagentId) {
-      const lines = await readLines(sessionId, cwd);
+    async subagentHistory(sessionId, cwd, subagentId, context) {
+      const lines = await readLines(sessionId, cwd, context);
       let nativeId = subagentId;
       for (const l of lines) {
         const content = blocks((l.message as { content?: unknown } | undefined)?.content);
@@ -1408,7 +1431,7 @@ export function claudeProvider(): Provider {
       // Current CLIs do not persist task_* events. The sidecar joins a running
       // foreground call to its transcript before any tool_result exists.
       if (nativeId === subagentId) {
-        const parent = await transcriptPath(sessionId, cwd);
+        const parent = await transcriptPath(sessionId, cwd, context);
         if (parent) {
           const dir = join(parent.slice(0, -".jsonl".length), "subagents");
           for (const file of await readdir(dir).catch(() => [] as string[])) {
@@ -1424,7 +1447,13 @@ export function claudeProvider(): Provider {
       if (!/^[a-zA-Z0-9_-]+$/.test(nativeId)) return [];
       const n = new Normalizer();
       const items = new Map<string, Item>();
-      for (const m of await getSubagentMessages(sessionId, nativeId, { dir: cwd })) {
+      const parent = await transcriptPath(sessionId, cwd, context);
+      if (!parent) return [];
+      const file = join(parent.slice(0, -".jsonl".length), "subagents", `agent-${nativeId}.jsonl`);
+      // Child files mark their own messages as sidechains. Within this selected
+      // transcript they are the main conversation; keep its branch semantics.
+      const childLines = parseLines(await readFile(file, "utf8").catch(() => ""));
+      for (const m of chain(childLines.map(line => ({ ...line, isSidechain: false })))) {
         for (const item of n.entry({ type: m.type, uuid: m.uuid, message: m.message })) items.set(item.id, item);
       }
       return [...items.values()];

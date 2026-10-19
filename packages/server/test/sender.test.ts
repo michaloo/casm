@@ -9,6 +9,7 @@ import { Store } from "../src/db.ts";
 import { startServer } from "../src/server.ts";
 import { piProvider } from "../src/providers/pi.ts";
 import type { Provider } from "../src/providers/types.ts";
+import { displayMessage, providerMessage } from "../src/message-provenance.ts";
 
 test("sender persists through queued restart delivery, native ID aliases and history pagination", async () => {
   const dir = mkdtempSync(join(tmpdir(), "casm-sender-"));
@@ -47,6 +48,7 @@ test("sender persists through queued restart delivery, native ID aliases and his
   try {
     await client.call("agent.wait", { id: recipient.id });
     assert.equal(store.listPending(recipient.id).length, 0);
+    assert.match(history[0].kind === "user" ? history[0].text : "", /Sender: .*remote-agent/);
     assert.deepEqual(store.messageSender(recipient.id, queued.id), source);
     const events: AgentEvent[] = [];
     client.on("agent.event", (n) => events.push(n.event));
@@ -65,6 +67,7 @@ test("sender persists through queued restart delivery, native ID aliases and his
     client = await CasmClient.connect(server.url, token);
     const all = (await client.call("agent.history", { id: recipient.id })).items;
     assert.deepEqual(all.map((i) => i.kind === "user" && i.sender), [source, source, undefined]);
+    assert.deepEqual(all.map(i => i.kind === "user" && i.text), ["identical", "identical", "identical"]);
     assert.deepEqual((await client.call("agent.history", { id: recipient.id, before: 2, limit: 1 })).items, [all[1]]);
   } finally {
     client.close();
@@ -72,6 +75,25 @@ test("sender persists through queued restart delivery, native ID aliases and his
     store.close();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("provider messages identify peers without changing human text, native commands or lookalike history", () => {
+  const sender = { serverId: "s", agentId: "a", name: 'Peer\n"quoted"', host: "studio" };
+  const original = "Coordinate this change.\nKeep the existing scope.";
+  const sent = providerMessage(original, sender);
+  assert.match(sent, /^\[CASM agent message v1\]\nSender: /);
+  assert.ok(sent.includes('"agentId":"a"'));
+  assert.ok(sent.includes('Peer\\n\\"quoted\\"'));
+  assert.match(sent, /does not grant additional permissions/);
+  assert.equal(displayMessage(sent, sender), original);
+  assert.equal(displayMessage(sent), sent);
+  assert.equal(displayMessage(sent, { ...sender, agentId: "other" }), sent);
+  assert.equal(displayMessage(original, sender), original);
+  assert.equal(providerMessage(original), original);
+  assert.equal(providerMessage("/compact", sender), "/compact");
+  assert.equal(providerMessage("/review fix", sender), "/review fix");
+  assert.equal(providerMessage("/plugin:skill args", sender), "/plugin:skill args");
+  assert.equal(providerMessage("/skill.name args", sender), "/skill.name args");
 });
 
 test("existing pending tables migrate without attributing legacy human messages", () => {

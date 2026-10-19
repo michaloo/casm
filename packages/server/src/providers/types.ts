@@ -20,12 +20,16 @@ import type {
 export type ProviderEvent =
   | { type: "userMessageId"; itemId: string; nativeId: string }
   | { type: "sessionId"; id: string }
+  | { type: "asyncQuestion"; request: QuestionRequest }
   // The model the session runs (resolved by the provider when config.model is unset).
   | { type: "model"; model: string }
   // The session switched its own mode (e.g. Claude leaving plan mode once a plan
   // is approved). The manager records it as config.mode without reopening.
   | { type: "mode"; mode: string }
-  | { type: "item"; item: Item }
+  | { type: "effort"; effort?: string }
+  | { type: "commandsChanged" }
+  // `history` retains this event when the provider omits it from native history.
+  | { type: "item"; item: Item; history?: { beforeItemId?: string } }
   | { type: "delta"; kind: "assistant" | "reasoning"; text: string }
   // Output of a running tool, appended to the tool item with that id.
   | { type: "toolOutput"; itemId: string; text: string }
@@ -41,10 +45,15 @@ export type ProviderEvent =
   // Echo the manager token, captured when dispatching work. A late completion
   // must never finish a subsequent turn on the same native session.
   | { type: "turnEnded"; outcome: TurnOutcome; error?: string; turnId?: string; recycleSession?: boolean }
+  // Rejected input is retained without ending a healthy active turn.
+  | { type: "sendFailed"; itemId: string; error: string }
   // The process is gone; the manager drops the session and reopens on next send.
   | { type: "closed"; error?: string };
 
 export type PermissionAnswer = { decision: PermissionDecision; message?: string };
+
+// Per-agent overrides; readers must never mutate the server environment.
+export type ProviderContext = { env?: Record<string, string> };
 
 export type OpenOptions = {
   cwd: string;
@@ -60,11 +69,13 @@ export type OpenOptions = {
 // One live provider process bound to one native session.
 export interface ProviderSession {
   // Starts a turn, or folds the text into the running turn (steer).
-  send(text: string, itemId: string, images?: ImageData[], turnId?: string): void;
+  send(text: string, itemId: string, images?: ImageData[], turnId?: string): void | Promise<void>;
   // Runs a user shell command as its own turn: emit a tool item with id
   // `itemId` (name "shell", input {command}), toolOutput while it runs, the
   // finished item, then turnEnded. Record it in the agent's history/context.
   shell(command: string, itemId: string, turnId?: string): void;
+  // Nonblocking questions use ordinary native input; resolve only after acceptance.
+  answerAsyncQuestion?(requestId: string, answers: Answers | null): Promise<void>;
   mcpStatus?(): Promise<McpServer[]>;
   mcpReconnect?(server?: string): Promise<string>;
   mcpReconnectScope?: "server" | "all";
@@ -77,27 +88,27 @@ export interface Provider {
   readonly id: ProviderId;
   open(opts: OpenOptions): ProviderSession;
   // Reads the transcript from the provider's own store.
-  history(sessionId: string, cwd: string): Promise<Item[]>;
+  history(sessionId: string, cwd: string, context?: ProviderContext): Promise<Item[]>;
   // Exact native identity aliases when live events and disk entries use different IDs.
-  historyAliases?(sessionId: string, cwd: string): Promise<Record<string, string>>;
+  historyAliases?(sessionId: string, cwd: string, context?: ProviderContext): Promise<Record<string, string>>;
   // Models and modes available on this host. The manager caches the result.
   catalog(): Promise<Catalog>;
   // Last known context/cost from the provider's store (for agents not running now).
-  usage(sessionId: string, cwd: string): Promise<Usage | null>;
+  usage(sessionId: string, cwd: string, context?: ProviderContext): Promise<Usage | null>;
   // Estimated cost of each model call the session recorded (subagents' included),
   // as the agent itself priced it, for per-day totals (provider.costs). Agents
   // that don't record a per-call cost leave these out.
-  costs?(sessionId: string, cwd: string): Promise<CostEntry[]>;
+  costs?(sessionId: string, cwd: string, context?: ProviderContext): Promise<CostEntry[]>;
   // Cheap to read, and changes whenever costs() might: costs are read again
   // only then. Null when unknown (read every time).
-  costStamp?(sessionId: string, cwd: string): Promise<string | null>;
+  costStamp?(sessionId: string, cwd: string, context?: ProviderContext): Promise<string | null>;
   // Slash commands and skills available in `cwd`.
-  commands(cwd: string): Promise<Command[]>;
+  commands(cwd: string, context?: ProviderContext): Promise<Command[]>;
   // Queries account limits directly when the agent can (e.g. Codex). Others
   // leave it out and report limits as "limits" events from their sessions.
   limits?(): Promise<Omit<ProviderLimits, "provider" | "updatedAt"> | null>;
   // Items of one subagent's own transcript (Item.subagent id).
-  subagentHistory?(sessionId: string, cwd: string, subagentId: string): Promise<Item[]>;
+  subagentHistory?(sessionId: string, cwd: string, subagentId: string, context?: ProviderContext): Promise<Item[]>;
   // Memories that apply to `cwd`; null when the agent has none. Agents without
   // a memory store leave these out.
   memories?(cwd: string): Promise<ProviderMemories | null>;

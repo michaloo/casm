@@ -3076,3 +3076,19 @@ footer .device-settings .exit-glyph { width: 16px; height: 16px; }
   .find-bar select { height: 44px; padding: 0 6px; font-size: 14px; }
   .find-bar button { width: 44px; height: 44px; }
 }
+
+/* Async choices are suggestions; only a click selects one. */
+.card .async-question-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.card .async-question-options button {
+  min-height: 44px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--line);
+}
+.card .async-question-options button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}

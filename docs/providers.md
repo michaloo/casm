@@ -36,7 +36,7 @@ below are relative to the source roots in the table; casm paths to
 | Cost per day (estimated) | ✗ | ✗ | ✓ | ✓ |
 | Local models | **partial** | **gap** | ✓ | ✓ |
 | Images in / out | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ |
-| Plan mode | **partial** | **partial** (plan text deltas missing) | ✓ (plan agent) | ✗ |
+| Plan mode | **partial** | ✓ (including plan text deltas) | ✓ (plan agent) | ✗ |
 | Background jobs wake the agent | ✓ | **partial** | ✓ | ✓ (extensions) |
 
 The [2026-10-19 Codex/Claude audit](adapter-audit-20261019.md) distinguishes
@@ -105,6 +105,9 @@ The manager calls the session's `send` while a turn runs (`agents.ts` `send`,
   `streamingBehavior: "steer"`.
 
 ### Permissions and modes
+
+See [permission modes, presets and defaults](permission-modes.md) for the
+four-provider comparison, required resume semantics and deferred Codex reset gap.
 
 - Claude: `canUseTool` with "always" from the SDK's suggestions; modes plan,
   default, acceptEdits, auto, bypassPermissions as `permissionMode`. A mode
@@ -267,9 +270,9 @@ count a resumed session twice. Agents deleted from casm drop out.
 - Claude **partial**: `config.env` with `ANTHROPIC_BASE_URL` (and a token/model)
   points a session at an Anthropic-compatible endpoint, e.g. the llama.cpp
   router: `casm run --env ANTHROPIC_BASE_URL=http://127.0.0.1:8080 --model <id>`
-  (also `casm run --env` from inside an agent). The catalog, limits and
-  context-window lookups still use the host env, and the web client has no env
-  field.
+  (also `casm run --env` from inside an agent). The catalog and limits still use
+  the host env; context-window lookups are scoped
+  by provider context. The web client has no env field.
 - Codex **gap**: `thread/start` takes `modelProvider` and
   `config["model_providers.<id>"]` (`v2/thread.rs`); casm sends neither, so
   local models only work through `~/.codex/config.toml` (for every agent) or a
@@ -295,9 +298,9 @@ count a resumed session twice. Agents deleted from casm drop out.
   agent's mode without a reopen). The approval itself is a generic permission
   card showing the plan input: there is no choice of the next mode (the SDK's
   `setMode` permission update) and no feedback text when rejecting.
-- Codex **partial**: `collaborationMode: plan` per turn, completed plan items
-  and `turn/plan/updated` work. `item/plan/delta` is ignored, so a proposed plan
-  only appears when its full item completes.
+- Codex ✓: `collaborationMode: plan` per turn, completed plan items,
+  `turn/plan/updated` and `item/plan/delta` work. Late deltas cannot replace a
+  finalized plan.
 - OpenCode ✓: the `plan` agent as the agent's mode; todo lists become plan items.
 - pi ✗: only an example extension.
 

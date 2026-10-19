@@ -150,7 +150,11 @@ export function normalize(item: CodexItem, live = false): Item | null {
     }
     case "agentMessage": {
       const questions = asyncQuestions(item).map(q => q.prompts[0]);
-      const text = [str(item.text), ...questions.map(q => [q.text, ...(q.options ?? []).map(o => `- ${o.label}`)].join("\n"))].filter(t => t.trim()).join("\n\n");
+      const body = str(item.text);
+      const questionText = questions.map(q => [q.text, ...(q.options ?? []).map(o => `- ${o.label}`)].join("\n")).join("\n\n");
+      // Native request_user_input_async already renders these titles/options
+      // in text. Metadata-only messages still need the readable fallback.
+      const text = [body, body.trimEnd().endsWith(questionText) ? "" : questionText].filter(t => t.trim()).join("\n\n");
       return text ? { kind: "assistant", id, text } : null;
     }
     case "plan": {

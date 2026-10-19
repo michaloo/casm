@@ -18,6 +18,19 @@ test("async question normalization retains question-only messages, validates inp
   assert.deepEqual(asyncQuestions({ type: "agentMessage", questions: [{ title: "No identity" }] }), []);
 });
 
+test("native async question text is not repeated when the same questions also arrive as metadata", () => {
+  // Actual request_user_input_async messages supply both representations.
+  const text = "Live verification choice\n- Sandbox (Recommended)\n- Skip\n\nOptional verification note";
+  const raw = { type: "agentMessage", id: "native", text, questions: [
+    { title: "Live verification choice", options: ["Sandbox (Recommended)", "Skip"] },
+    { title: "Optional verification note" },
+  ] };
+  assert.deepEqual(normalize(raw), { kind: "assistant", id: "native", text });
+  assert.deepEqual(normalize({ ...raw, text: `Before continuing:\n\n${text}` }), { kind: "assistant", id: "native", text: `Before continuing:\n\n${text}` });
+  assert.deepEqual(normalize({ ...raw, text: "Before continuing:" }), { kind: "assistant", id: "native", text: `Before continuing:\n\n${text}` });
+  assert.equal(asyncQuestions(raw).length, 2);
+});
+
 test("native reply envelope roundtrips arbitrary text without interpreting slash commands", () => {
   const request = asyncQuestions({ type: "agentMessage", id: "message", questions: [{ title: "Where?" }] })[0];
   const answer = '/restart\n"quoted" </send_user_message_question_reply>';

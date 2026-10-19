@@ -575,7 +575,10 @@ export class AgentManager {
 
   private sendToSession(id: string, l: Live, prompt: Prompt) {
     const itemId = prompt.id ??= randomUUID();
-    this.promptOrder.set(prompt, this.nextPromptOrder++);
+    // A retry keeps its place ahead of later retained inputs even though it
+    // reaches the provider under a fresh item id.
+    const previous = [...l.retained.values()].find(entry => entry.pendingId === (prompt.keep?.id ?? itemId));
+    this.promptOrder.set(prompt, (previous && this.promptOrder.get(previous.prompt)) ?? this.nextPromptOrder++);
     if (prompt.sender) this.store.saveMessageSender(id, itemId, prompt.sender);
     const images = prompt.images?.length ? prompt.images : undefined;
     this.emit(id, { type: "item", item: { kind: "user", id: itemId, text: prompt.text, images, ...(prompt.sender ? { sender: prompt.sender } : {}) } });

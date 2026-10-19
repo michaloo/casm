@@ -166,6 +166,53 @@ test("integration: failed turn then late steer rejections retain initial/A/B onc
   assert.deepEqual(f.sent.map(s => s.id), ["original", "steer-a", "steer-b"]);
 });
 
+test("integration: automatic retries wait for late steer acceptance and preserve retry IDs and backoff", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: Date.parse("2026-10-19T12:00:00Z") });
+  const f = fixture(t);
+  for (const [id, text] of [["steer-a", "A"], ["steer-b", "B"]]) {
+    f.hold(id);
+    f.manager.send(f.agent.id, { id, text, sender }, "steer");
+  }
+  f.manager.send(f.agent.id, { id: "queued-c", text: "C", sender });
+  f.opts.emit({ type: "turnEnded", outcome: "failed", error: "API Error: 503 Service Unavailable" });
+  const before = f.store.listPending(f.agent.id);
+  assert.deepEqual(before.map(p => p.text), ["original", "A", "B", "C"]);
+  assert.ok(before.slice(0, 3).every(p => p.notBefore === new Date(Date.now() + 30_000).toISOString()));
+  t.mock.timers.tick(30_000);
+  assert.equal(f.sent.length, 3, "the retry is due but two steers still await acceptance");
+  f.fail("steer-b");
+  await flush();
+  assert.equal(f.sent.length, 3);
+  f.fail("steer-a");
+  await flush();
+  assert.equal(f.sent.length, 4);
+  assert.equal(f.sent[3].text, "original");
+  assert.ok(!["original", before[0].id].includes(f.sent[3].id));
+  f.opts.emit({ type: "turnEnded", outcome: "failed", error: "API Error: 503 Service Unavailable" });
+  const after = f.store.listPending(f.agent.id);
+  assert.deepEqual(after.map(p => [p.id, p.text, p.sender]), before.map(p => [p.id, p.text, p.sender]));
+  assert.deepEqual(after.map(p => p.attempts), [1, 0, 0, 0]);
+  assert.equal(after[0].notBefore, new Date(Date.now() + 120_000).toISOString());
+  assert.deepEqual(after.slice(1).map(p => [p.notBefore, p.attempts, p.note]), before.slice(1).map(p => [p.notBefore, p.attempts, p.note]), "late steer failures retain the original retry policy");
+});
+
+test("integration: shutdown retains unanswered and unsettled prompts once with startup retry policy", async t => {
+  const f = fixture(t);
+  f.hold("steer-a");
+  f.manager.send(f.agent.id, { id: "steer-a", text: "A", sender }, "steer");
+  f.manager.send(f.agent.id, { id: "queued-b", text: "B", sender });
+  await f.stop();
+  const before = f.store.listPending(f.agent.id);
+  assert.deepEqual(before.map(p => [p.text, p.reason, p.attempts]), [["original", "failed", 0], ["A", "failed", 0], ["B", "queued", 0]]);
+  assert.ok(before.slice(0, 2).every(p => p.notBefore && Date.parse(p.notBefore) <= Date.now()));
+  assert.equal(before[2].id, "queued-b");
+  assert.deepEqual(before.slice(1).map(p => p.sender), [sender, sender]);
+  f.fail("steer-a");
+  await flush();
+  assert.deepEqual(f.store.listPending(f.agent.id), before);
+  assert.deepEqual(f.sent.map(s => s.id), ["original", "steer-a"]);
+});
+
 test("integration: provider closure after turn end retains unresolved steer once and releases running status", async t => {
   const f = fixture(t);
   f.hold("steer-a");

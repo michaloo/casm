@@ -1,6 +1,6 @@
 # Getting started
 
-This takes you from a fresh checkout to a running server, your first agent,
+This takes you from installing casm to a running server, your first agent,
 the web client, a background service and a second machine.
 
 ## Requirements
@@ -17,6 +17,18 @@ the web client, a background service and a second machine.
   [network](network.md); set it up first.
 
 ## Install
+
+```sh
+npm install -g casm-cli
+```
+
+The package includes the server, the CLI and the built web client. It does not
+start anything by itself. Run `command -v casm` afterwards: an older
+`~/.local/bin/casm` launcher from a source install takes precedence over npm's
+executable if it comes first on `PATH`. Update later with
+`npm install -g casm-cli@latest`.
+
+### From source
 
 ```sh
 git clone https://github.com/michaloo/casm.git
@@ -84,8 +96,8 @@ casm service logs -f
 
 Linux gets a systemd user unit, macOS a launchd agent. `install` captures your
 `PATH` so the service finds the provider binaries; run it again after
-installing a provider or switching Node versions. (`scripts/install.sh
---service` does both steps.) A restart ends running turns; queued messages
+installing a provider or switching Node versions. (From a source checkout,
+`scripts/install.sh --service` does both steps.) A restart ends running turns; queued messages
 and schedules survive.
 
 On Linux, a user service stops when you log out unless lingering is enabled:

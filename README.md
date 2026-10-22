@@ -85,6 +85,25 @@ models. pi has no permission system, so its tools run without asking.
 Requires Linux or macOS, Node.js 24+ and npm.
 
 ```sh
+npm install -g casm-cli
+casm serve
+```
+
+The npm package includes the server, CLI and built web app. Install and log in
+to your preferred provider CLIs separately. Installation does not start a
+service; use `casm service install` when you want it to run in the background.
+
+**Upgrading from casm-cli 0.x:** version 1 is the new orchestrator, with different
+commands. The old SSH/container/session-manager implementation remains on the
+[`legacy` branch](https://github.com/michaloo/casm/tree/legacy) and as
+`casm-cli@0.9.2`. For local session search and resume, use
+[cass](https://github.com/michaloo/cass). Legacy configuration is not migrated.
+Run `command -v casm` after installation: an older `~/.local/bin/casm` checkout
+launcher may take precedence over npm's executable.
+
+Alternatively, install from source:
+
+```sh
 git clone https://github.com/michaloo/casm.git
 cd casm
 npm ci                     # with NODE_ENV unset (or NODE_ENV=development)
@@ -155,4 +174,5 @@ CLI/TUI is on `legacy`.
 ## Development
 
 [Development](docs/development.md) covers isolated dev servers, tests and
-deployment. [Design](docs/design.md) explains the architecture.
+deployment. [npm releases](docs/npm-release.md) covers packaging and publishing.
+[Design](docs/design.md) explains the architecture.

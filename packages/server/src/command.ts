@@ -17,7 +17,7 @@ import { opencodeProvider } from "./providers/opencode.ts";
 import { piProvider } from "./providers/pi.ts";
 import type { Provider } from "./providers/types.ts";
 
-const VERSION = "0.0.1";
+import { VERSION } from "../../protocol/src/version.ts";
 const DEFAULT_LISTEN = "127.0.0.1:7373";
 
 const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");

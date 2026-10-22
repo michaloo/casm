@@ -38,7 +38,8 @@ import { approvalReview, unfinishedReview } from "./codex-reviews.ts";
 const MAX_TOOL_OUTPUT = 8000;
 // History drops image bytes above this (decoded) size; the item keeps the media type.
 const MAX_HISTORY_IMAGE = 1024 * 1024;
-const CLIENT_INFO = { name: "casm", title: "casm", version: "0.0.1" };
+import { VERSION } from "../../../protocol/src/version.ts";
+const CLIENT_INFO = { name: "casm", title: "casm", version: VERSION };
 
 // --- normalization (shared by history and live events)
 

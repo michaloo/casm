@@ -15,6 +15,8 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 main="$repo/packages/cli/src/main.ts"
+# The npm artifact contains compiled sources in the same layout.
+if [ -f "$repo/packages/cli/src/main.js" ]; then main="$repo/packages/cli/src/main.js"; fi
 casm_home="${CASM_HOME:-$HOME/.casm-ng}"
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
@@ -23,7 +25,7 @@ usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; }
 
 node_bin() {
   local n
-  n="$(command -v node)" || { echo "service.sh: node not found on PATH" >&2; exit 1; }
+  n="${CASM_NODE_BIN:-$(command -v node)}" || { echo "service.sh: node not found on PATH" >&2; exit 1; }
   # Resolve to an absolute path so the service does not depend on PATH order.
   (cd "$(dirname "$n")" && echo "$(pwd -P)/$(basename "$n")")
 }

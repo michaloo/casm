@@ -1,11 +1,14 @@
 {
   "name": "casm",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
+    "build:npm": "node scripts/package-npm.ts",
+    "test:npm": "node --test scripts/package-npm.test.ts",
     "build": "npm run build -w @casm/web",
     "typecheck": "node node_modules/typescript/bin/tsc -p tsconfig.json && npm run typecheck -w @casm/web",
     "test": "node --test 'packages/*/test/*.test.ts'",

@@ -19,7 +19,7 @@ import { randomInt } from "node:crypto";
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Answers, Catalog, Command, ImageData, Item, PlanEntry, QuestionRequest, Usage } from "@casm/protocol";
 import type { CostEntry, OpenOptions, Provider, ProviderEvent, ProviderSession } from "./types.ts";
@@ -460,7 +460,7 @@ export function parseCatalog(providers: OcProviders, agents: OcAgent[], configMo
 // What casm's plugin (opencode-plugin.ts) reads for one session.
 export type SessionState = { env?: Record<string, string> };
 
-const PLUGIN = pathToFileURL(join(import.meta.dirname, "opencode-plugin.ts")).href;
+const PLUGIN = pathToFileURL(join(import.meta.dirname, `opencode-plugin${extname(import.meta.filename)}`)).href;
 
 // The server's env: casm's plugin added to the config, its state directory named.
 export function serveEnv(base: Record<string, string>, stateDir: string): Record<string, string> {

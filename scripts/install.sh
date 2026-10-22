@@ -9,8 +9,7 @@
 # - with --service, also installs and starts the background service (scripts/service.sh install)
 #
 # Why a launcher and not `npm i -g`: Node strips TypeScript types only outside node_modules,
-# so a globally installed copy of the workspace would not run. Publishing to npm will need a
-# bundle step first (see README).
+# so the npm release uses compiled JavaScript instead (see docs/npm-release.md).
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

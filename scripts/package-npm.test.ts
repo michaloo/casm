@@ -26,13 +26,16 @@ test("the npm tarball works outside the workspace", { timeout: 180_000 }, async 
   assert(files.includes("packages/web/dist/index.html"));
   assert(files.includes("packages/server/src/providers/pi-extension.js"));
   assert(files.includes("packages/server/src/providers/opencode-plugin.js"));
-  assert(!files.some((f: string) => f.endsWith(".ts") || f.includes("node_modules") || f.includes(".test.")));
+  assert(!files.some((f: string) => !f.startsWith("node_modules/") && (f.endsWith(".ts") || f.includes(".test."))));
+  assert(files.includes("node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs"));
   const prefix = join(temp, "prefix");
   await run("npm", ["install", "--global", "--prefix", prefix, "--ignore-scripts", "--no-audit", "--no-fund", join(temp, pack.filename)]);
   const cli = join(prefix, "bin/casm");
   const installed = join(prefix, "lib/node_modules/casm-cli");
   assert(realpathSync(installed).startsWith(temp));
   const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
+  // Claude Code comes from PATH, like the other providers: no bundled native binary.
+  assert.deepEqual(readdirSync(join(installed, "node_modules/@anthropic-ai")).filter(n => n.startsWith("claude-agent-sdk-")), []);
 
   await t.test("CLI version, help and runtime imports", async () => {
     assert.equal((await run(cli, ["--version"])).stdout.trim(), manifest.version);

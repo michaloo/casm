@@ -3,7 +3,11 @@
 Publish `casm-cli`; its executable is `casm`. The root workspace stays private.
 One generated package contains compiled CLI/client/server/protocol code, provider
 helpers, the built web app, documentation and the service script. Runtime
-dependencies are installed by npm; private `@casm/*` workspace imports are
+dependencies are bundled from the lockfile install (`bundleDependencies`), without
+the Claude Agent SDK's optional platform binaries (~250 MB): like Codex, OpenCode
+and pi, Claude Code must be on PATH (or set `CASM_CLAUDE_PATH`). Bundling all of
+them is deliberate: when only some are bundled, a global install leaves the others
+as empty directories. Private `@casm/*` workspace imports are
 rewritten to relative JavaScript imports. No TypeScript loader, build tools or
 Git checkout is needed on the user's machine.
 

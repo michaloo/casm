@@ -1,5 +1,5 @@
 // Build a standalone npm package; no private workspace packages are published.
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -56,6 +56,42 @@ for (const file of ["README.md", "LICENSE", "scripts/service.sh", "scripts/npm-l
 // README links and screenshots work on npm as well as in the installed tree.
 cpSync(join(root, "docs"), join(out, "docs"), { recursive: true });
 cpSync(join(root, "spec"), join(out, "spec"), { recursive: true });
+// Runtime dependencies ship inside the package, copied from the lockfile install,
+// without the Claude Agent SDK's optional per-platform Claude Code binaries (~250 MB),
+// which npm would otherwise always install. Like the other providers, casm runs the
+// user's own `claude` from PATH. All of them are bundled: when only some are, npm
+// leaves the others as empty directories on a global install.
+const SDK = "@anthropic-ai/claude-agent-sdk";
+const sdk = JSON.parse(readFileSync(join(root, "node_modules", SDK, "package.json"), "utf8"));
+dependencies[SDK] = sdk.version;
+for (const peer of Object.keys(sdk.peerDependencies ?? {})) {
+  if (sdk.peerDependenciesMeta?.[peer]?.optional || dependencies[peer]) continue;
+  dependencies[peer] = "^" + JSON.parse(readFileSync(join(root, "node_modules", peer, "package.json"), "utf8")).version;
+}
+const bundled = new Set<string>();
+function bundle(name: string, from: string, optional: boolean) {
+  // Node's lookup: the nearest node_modules up from the requiring package.
+  let dir = from;
+  while (!existsSync(join(dir, "node_modules", name, "package.json"))) {
+    if (dir === root) {
+      if (optional) return;
+      throw new Error(`Missing runtime dependency: ${name}`);
+    }
+    dir = dirname(dir);
+    if (dir.endsWith(sep + "node_modules")) dir = dirname(dir);
+  }
+  const source = join(dir, "node_modules", name);
+  if (bundled.has(source)) return;
+  bundled.add(source);
+  cpSync(source, join(out, relative(root, source)), { recursive: true });
+  const pkg = JSON.parse(readFileSync(join(source, "package.json"), "utf8"));
+  for (const dep of Object.keys(pkg.dependencies ?? {})) bundle(dep, source, false);
+  // The SDK's optional dependencies are the platform binaries.
+  if (pkg.name !== SDK) for (const dep of Object.keys(pkg.optionalDependencies ?? {})) bundle(dep, source, true);
+  for (const dep of Object.keys(pkg.peerDependencies ?? {}))
+    if (!pkg.peerDependenciesMeta?.[dep]?.optional) bundle(dep, source, false);
+}
+for (const name of Object.keys(dependencies)) bundle(name, root, false);
 chmodSync(join(out, "bin/casm.mjs"), 0o755);
 chmodSync(join(out, "scripts/service.sh"), 0o755);
 writeFileSync(join(out, "package.json"), JSON.stringify({
@@ -73,5 +109,6 @@ writeFileSync(join(out, "package.json"), JSON.stringify({
   keywords: ["claude-code", "codex", "opencode", "pi", "agents", "orchestration", "pwa", "cli"],
   files: ["bin", "packages", "scripts/service.sh", "docs", "spec", "README.md", "LICENSE"],
   dependencies,
+  bundleDependencies: Object.keys(dependencies),
 }, null, 2) + "\n");
 console.log(`Ready to pack: ${out}`);

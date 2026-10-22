@@ -5,7 +5,7 @@ import { toolImages } from "./tool-images.ts";
 // session, fed by an async input queue. History comes from Claude's own JSONL.
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { constants as osConstants, homedir } from "node:os";
@@ -772,13 +772,10 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   }
 }
 
-function findClaude(): string | undefined {
-  if (process.env.CASM_CLAUDE_PATH) return process.env.CASM_CLAUDE_PATH;
-  try {
-    return execFileSync("which", ["claude"], { encoding: "utf8" }).trim() || undefined;
-  } catch {
-    return undefined;
-  }
+// Like the other providers, Claude Code comes from PATH (or CASM_CLAUDE_PATH), never
+// from the SDK's bundled binary, which the npm package leaves out.
+function findClaude(): string {
+  return process.env.CASM_CLAUDE_PATH ?? "claude";
 }
 
 const LIMIT_LABELS: Record<string, string> = {
@@ -835,7 +832,7 @@ class ClaudeSession implements ProviderSession {
   // to tasks created before the reload.
   private ready: Promise<void>;
 
-  constructor(opts: OpenOptions, executable: string | undefined, windows: Map<string, number>) {
+  constructor(opts: OpenOptions, executable: string, windows: Map<string, number>) {
     this.opts = opts;
     this.windows = windows;
     const { cwd, config } = opts;
@@ -1286,7 +1283,7 @@ async function readLines(sessionId: string, cwd: string, context?: ProviderConte
 
 // A short-lived query whose input never yields: it initializes, answers
 // control requests and is closed without starting a session.
-async function withIdleQuery<T>(executable: string | undefined, cwd: string, what: string, f: (q: ReturnType<typeof query>) => Promise<T>, model?: string, context?: ProviderContext): Promise<T> {
+async function withIdleQuery<T>(executable: string, cwd: string, what: string, f: (q: ReturnType<typeof query>) => Promise<T>, model?: string, context?: ProviderContext): Promise<T> {
   const idle: AsyncIterable<SDKUserMessage> = {
     [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<SDKUserMessage>>(() => {}) }),
   };
@@ -1329,12 +1326,12 @@ export async function queryLimits(fetch: () => Promise<unknown>): Promise<Awaite
   } catch { return null; }
 }
 
-function fetchLimits(executable: string | undefined) {
+function fetchLimits(executable: string) {
   return queryLimits(() => withIdleQuery(executable, homedir(), "limits", (q) =>
     q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })));
 }
 
-function fetchCatalog(executable: string | undefined): Promise<Catalog> {
+function fetchCatalog(executable: string): Promise<Catalog> {
   return withIdleQuery(executable, homedir(), "models", async (q) => parseCatalog(await q.supportedModels()));
 }
 
@@ -1357,7 +1354,7 @@ export function parseCommands(commands: SlashCommand[], skills: SlashCommand[]):
   return out;
 }
 
-function fetchCommands(executable: string | undefined, cwd: string, context?: ProviderContext): Promise<Command[]> {
+function fetchCommands(executable: string, cwd: string, context?: ProviderContext): Promise<Command[]> {
   return withIdleQuery(executable, cwd, "commands", async (q) => {
     const commands = await q.supportedCommands();
     const skills = await q.reloadSkills().then((r) => r.skills, () => []);
@@ -1367,7 +1364,7 @@ function fetchCommands(executable: string | undefined, cwd: string, context?: Pr
 
 // A model's context window as Claude Code sizes it (no API call: "summary"
 // context usage of an idle session on that model).
-function fetchContextWindow(executable: string | undefined, model: string, context?: ProviderContext): Promise<number> {
+function fetchContextWindow(executable: string, model: string, context?: ProviderContext): Promise<number> {
   return withIdleQuery(executable, homedir(), "context window", async (q) => (await q.getContextUsage({ detail: "summary" })).rawMaxTokens, model, context);
 }
 

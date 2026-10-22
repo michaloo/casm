@@ -23,11 +23,11 @@ It does not sandbox or containerize agents, import sessions (including Paseo
 sessions), or synchronize sessions/files between machines. Provider permission
 modes remain provider settings, not a casm isolation boundary. Full-text session
 search belongs to [cass](https://github.com/michaloo/cass). The old CLI/TUI lives
-on `legacy`; reproducing its features is not a casm roadmap.
+at the `legacy` tag; reproducing its features is not a casm roadmap.
 
 The React web client in `packages/web` is primary, served at `/` by the server
 and installable as a PWA. Native macOS/iOS apps and their Swift package live on
-the separate `apple` branch. Native distribution, speech engines, and Slack
+the `apple` tag. Native distribution, speech engines, and Slack
 integration are outside this design's current scope.
 
 ## Architecture

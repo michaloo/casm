@@ -95,7 +95,7 @@ service; use `casm service install` when you want it to run in the background.
 
 **Upgrading from casm-cli 0.x:** version 1 is the new orchestrator, with different
 commands. The old SSH/container/session-manager implementation remains on the
-[`legacy` branch](https://github.com/michaloo/casm/tree/legacy) and as
+[`legacy` tag](https://github.com/michaloo/casm/tree/legacy) and as
 `casm-cli@0.9.2`. For local session search and resume, use
 [cass](https://github.com/michaloo/cass). Legacy configuration is not migrated.
 Run `command -v casm` after installation: an older `~/.local/bin/casm` checkout
@@ -168,8 +168,8 @@ recipes.
 - [All docs](docs/README.md)
 
 Native macOS and iOS clients are on the
-[`apple` branch](https://github.com/michaloo/casm/tree/apple); the former
-CLI/TUI is on `legacy`.
+[`apple` tag](https://github.com/michaloo/casm/tree/apple); the former
+CLI/TUI is at the `legacy` tag.
 
 ## Development
 

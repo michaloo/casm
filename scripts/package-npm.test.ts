@@ -32,7 +32,7 @@ test("the npm tarball works outside the workspace", { timeout: 180_000 }, async 
   assert(!files.some((f: string) => f.startsWith("docs/") || f.startsWith("spec/")));
   const readme = readFileSync(join(root, "dist/npm/README.md"), "utf8");
   assert.doesNotMatch(readme, /(\]\(|src=")(docs|spec|brand)\//);
-  assert.match(readme, /https:\/\/raw\.githubusercontent\.com\/michaloo\/casm\/main\/docs\/media\//);
+  assert(readme.includes(`https://raw.githubusercontent.com/michaloo/casm/v${pack.version}/docs/media/`));
   const prefix = join(temp, "prefix");
   await run("npm", ["install", "--global", "--prefix", prefix, "--ignore-scripts", "--no-audit", "--no-fund", join(temp, pack.filename)]);
   const cli = join(prefix, "bin/casm");

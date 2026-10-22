@@ -37,6 +37,7 @@ npm pack ./dist/npm --pack-destination ./dist/tarballs
 npm publish ./dist/tarballs/casm-cli-1.0.0.tgz --access public
 ```
 
+Push the `v<version>` tag before publishing: the packaged README links to it.
 Use the actual release version in the filename. Review `npm pack --dry-run
 ./dist/npm` before publication. Never publish the development workspace or
 remove its `private` flag. npm login/2FA and publish rights are required.

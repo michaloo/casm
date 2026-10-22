@@ -54,13 +54,15 @@ for (const file of ["LICENSE", "scripts/service.sh", "scripts/npm-launcher.mjs"]
   cpSync(join(root, file), target);
 }
 // Docs stay on GitHub: the README's relative links and images point there, so they
-// work on npmjs.com and in the installed tree without shipping docs/ or spec/.
+// work on npmjs.com and in the installed tree without shipping docs/ or spec/. They
+// name the release tag (pushed before publishing), so later doc moves can't break them.
 const GITHUB = "https://github.com/michaloo/casm";
+const tag = `v${manifest.version}`;
 writeFileSync(join(out, "README.md"), readFileSync(join(root, "README.md"), "utf8")
   .replace(/(\]\(|src=")(?![a-z]+:|#|\/)([^)"#\s]+)/g, (_all, lead: string, path: string) =>
     lead + (/\.(png|gif|jpe?g|svg|webp)$/i.test(path)
-      ? `https://raw.githubusercontent.com/michaloo/casm/main/${path}`
-      : `${GITHUB}/blob/main/${path}`)));
+      ? `https://raw.githubusercontent.com/michaloo/casm/${tag}/${path}`
+      : `${GITHUB}/blob/${tag}/${path}`)));
 // Runtime dependencies ship inside the package, copied from the lockfile install,
 // without the Claude Agent SDK's optional per-platform Claude Code binaries (~250 MB),
 // which npm would otherwise always install. Like the other providers, casm runs the

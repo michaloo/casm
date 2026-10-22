@@ -10,6 +10,33 @@ machine and its peers. It does not impose a workflow.
   <img alt="The casm web client: hosts, projects and agents in the sidebar, an agent's transcript and the composer" src="docs/media/web-agent-light.png">
 </picture>
 
+## Quick start
+
+You need Linux or macOS, Node.js 24+ and at least one coding agent CLI
+installed and signed in: `claude`, `codex`, `opencode` or `pi`.
+
+1. Install casm and start the server:
+
+   ```sh
+   npm install -g casm-cli
+   casm serve
+   ```
+
+2. In another terminal, create a token for the web client:
+
+   ```sh
+   casm token create web
+   ```
+
+3. Open http://localhost:7373, paste the token into **Server token** and click
+   **Connect**.
+4. Click **+** next to your host to add a project: any folder on that machine.
+5. Click **+** next to the project, pick a provider in the composer, type your
+   first message and send it.
+
+Next: run it as a background service, connect your phone or a second machine
+([getting started](docs/getting-started.md)).
+
 ## Architecture
 
 - **Server:** `casm serve`, one per machine. A Node.js process that owns that

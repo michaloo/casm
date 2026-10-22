@@ -25,9 +25,8 @@ modes remain provider settings, not a casm isolation boundary. Full-text session
 search belongs to [cass](https://github.com/michaloo/cass). The old CLI/TUI lives
 at the `legacy` tag; reproducing its features is not a casm roadmap.
 
-The React web client in `packages/web` is primary, served at `/` by the server
-and installable as a PWA. Native macOS/iOS apps and their Swift package live on
-the `apple` tag. Native distribution, speech engines, and Slack
+The React web client in `packages/web` is the client, served at `/` by the
+server and installable as a PWA. Native apps, speech engines, and Slack
 integration are outside this design's current scope.
 
 ## Architecture
@@ -131,5 +130,4 @@ Validation combines protocol/type checks, fake-provider server tests and
 Playwright browser tests with realistic transcript fixtures. See
 [development.md](development.md) for isolated state/ports and deployment.
 Development tests must not restart the stable orchestrator or operate on its
-agents. Native app builds and their platform-specific decisions remain on
-`apple`.
+agents.

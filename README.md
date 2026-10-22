@@ -167,9 +167,8 @@ recipes.
 - [Troubleshooting](docs/troubleshooting.md)
 - [All docs](docs/README.md)
 
-Native macOS and iOS clients are on the
-[`apple` tag](https://github.com/michaloo/casm/tree/apple); the former
-CLI/TUI is at the `legacy` tag.
+The former CLI/TUI is at the
+[`legacy` tag](https://github.com/michaloo/casm/tree/legacy).
 
 ## Development
 

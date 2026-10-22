@@ -5,7 +5,7 @@ import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) test(`mobile tool badges stay on one line with long titles at ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 812 });
-  const command = "cd ~/Explorations/refs && git log --all --format=fuller ".repeat(30);
+  const command = "cd ~/code/refs && git log --all --format=fuller ".repeat(30);
   await page.routeWebSocket("**", (socket) => {
     const server = socket.connectToServer();
     const histories = new Set<number>();

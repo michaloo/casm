@@ -30,7 +30,7 @@ test("--steer, -H and other flags around the positionals", () => {
   assert.equal(one(`casm send abc "x" --steer --wait`).label, "Steer");
   assert.equal(one(`casm --host=mac agents`).peer, "mac");
   assert.equal(one(`casm -Hmac agents`).peer, "mac");
-  const run = one(`casm run --project Explorations --cwd .worktrees/x --provider codex --name "web: rows" "Do the thing"`);
+  const run = one(`casm run --project code --cwd .worktrees/x --provider codex --name "web: rows" "Do the thing"`);
   assert.equal(run.label, "Run");
   assert.equal(run.text, "Do the thing");
   assert.equal(run.agent, "web: rows");

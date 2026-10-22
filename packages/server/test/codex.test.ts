@@ -67,14 +67,14 @@ const fx = {
   mcpOk: {
     type: "mcpToolCall",
     id: "call_a",
-    server: "paseo",
+    server: "voice",
     tool: "speak",
     status: "completed",
     arguments: { text: "hello" },
     result: { content: [{ type: "text", text: '{"ok":true}' }], structuredContent: { ok: true }, _meta: null },
     error: null,
   },
-  mcpFailed: { type: "mcpToolCall", id: "call_b", server: "paseo", tool: "speak", status: "failed", arguments: {}, result: null, error: { message: "review failed" } },
+  mcpFailed: { type: "mcpToolCall", id: "call_b", server: "voice", tool: "speak", status: "failed", arguments: {}, result: null, error: { message: "review failed" } },
   webSearch: { type: "webSearch", id: "ws_1", query: "terra repo", action: { type: "search", query: null, queries: ["terra repo"] } },
   collab: { type: "collabAgentToolCall", id: "call_c", tool: "wait", status: "completed", senderThreadId: "t1", receiverThreadIds: [], prompt: null, model: null, agentsStates: {} },
   subAgent: { type: "subAgentActivity", id: "call_d", kind: "started", agentThreadId: "t2", agentPath: "/root/feasibility" },
@@ -117,8 +117,8 @@ test("file changes, MCP and web search map to tools", () => {
     status: "done",
     output: "/work/notes.md\n# Notes\n",
   });
-  assert.deepEqual(normalize(fx.mcpOk), { kind: "tool", id: "call_a", name: "mcp__paseo__speak", input: { text: "hello" }, status: "done", output: '{"ok":true}' });
-  assert.deepEqual(normalize(fx.mcpFailed), { kind: "tool", id: "call_b", name: "mcp__paseo__speak", input: {}, status: "error", output: "review failed" });
+  assert.deepEqual(normalize(fx.mcpOk), { kind: "tool", id: "call_a", name: "mcp__voice__speak", input: { text: "hello" }, status: "done", output: '{"ok":true}' });
+  assert.deepEqual(normalize(fx.mcpFailed), { kind: "tool", id: "call_b", name: "mcp__voice__speak", input: {}, status: "error", output: "review failed" });
   const tool = (i: CodexItem, live = false) => normalize(i, live) as { name: string; status: string };
   assert.deepEqual([tool(fx.webSearch).name, tool(fx.webSearch).status, tool(fx.webSearch, true).status], ["web_search", "done", "running"]);
   assert.equal(normalize(fx.collab), null);
@@ -453,7 +453,7 @@ const skillsList = {
       cwd: "/w",
       errors: [],
       skills: [
-        { name: "buildbox-compute", description: "Use the `buildbox` box as the on-demand local powerhouse.", enabled: true, interface: null, path: "/h/.agents/skills/buildbox-compute/SKILL.md", scope: "user", shortDescription: null },
+        { name: "gpu-compute", description: "Use the `gpu` box for heavy jobs.", enabled: true, interface: null, path: "/h/.agents/skills/gpu-compute/SKILL.md", scope: "user", shortDescription: null },
         {
           name: "openai-docs",
           description: "Use when the user asks how to build with OpenAI products or APIs.",
@@ -472,7 +472,7 @@ const skillsList = {
 test("skills/list becomes skill commands after the routed builtins", () => {
   const skills = parseSkills(skillsList);
   assert.deepEqual(skillCommands(skills), [
-    { name: "buildbox-compute", description: "Use the `buildbox` box as the on-demand local powerhouse.", kind: "skill" },
+    { name: "gpu-compute", description: "Use the `gpu` box for heavy jobs.", kind: "skill" },
     { name: "openai-docs", description: "OpenAI and Codex docs for models, skills, tasks, and setup", kind: "skill" },
   ]);
   assert.deepEqual(BUILTIN_COMMANDS.map((c) => c.name), ["compact", "review"]);

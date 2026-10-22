@@ -4,7 +4,8 @@ import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import { openAgents } from "./phone.ts";
 
-const SHOTS = "~/code/screenshots";
+// Review screenshots go to CASM_SHOTS_DIR when set, else Playwright's output folder.
+const SHOTS = process.env.CASM_SHOTS_DIR ?? "test-results/shots";
 const local = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const now = new Date();
 const dates = Array.from({ length: 7 }, (_, i) => local(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6 + i, 12)));

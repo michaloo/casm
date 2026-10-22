@@ -6,7 +6,8 @@ import { findInItems } from "../../server/src/find.ts";
 
 // Find in chat searches the agent's whole history on the server: matches in
 // pages the client has not loaded, and in collapsed rows, are found and shown.
-const shots = "~/code/screenshots";
+// Review screenshots go to CASM_SHOTS_DIR when set, else Playwright's output folder.
+const shots = process.env.CASM_SHOTS_DIR ?? "test-results/shots";
 const items = scrollItems();
 const total = (query: string, kinds?: Parameters<typeof findInItems>[2]["kinds"]) => findInItems(items, query, { kinds }).total;
 

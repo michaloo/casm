@@ -27,7 +27,7 @@ const items = (ids: Map<string, string>) => [
   { kind: "user", id: "casm-ask", text: "Coordinate the workers" },
   { kind: "tool", id: "casm-send", name: "Bash", status: "done", input: { command: `casm send ${ids.get("Agent 01")!.slice(0, 8)} "${message.replace(/`/g, "\\`")}"`, description: "Message worker" }, output: "" },
   { kind: "tool", id: "casm-steer", name: "shell", status: "done", input: { command: `/bin/bash -lc "casm send --steer 'Visual review' 'Stop and rebase first.'"` }, output: "queued behind the running turn" },
-  { kind: "tool", id: "casm-run", name: "Bash", status: "done", input: { command: `cd ~/Explorations && casm run --project "Test project" --name "Agent 02" "Build the sidebar"` }, output: `${ids.get("Agent 02")}\n` },
+  { kind: "tool", id: "casm-run", name: "Bash", status: "done", input: { command: `cd ~/code && casm run --project "Test project" --name "Agent 02" "Build the sidebar"` }, output: `${ids.get("Agent 02")}\n` },
   { kind: "tool", id: "casm-wait", name: "exec_command", status: "done", input: { command: `casm send 'Visual review' "Status?" && casm wait 'Visual review'` }, output: "All three specs are green.\n\nCommit `abc1234` is on main." },
   { kind: "tool", id: "casm-peer", name: "Bash", status: "running", input: { command: "casm -H buildbox agents" }, output: "" },
   { kind: "tool", id: "casm-unknown", name: "Bash", status: "error", input: { command: "casm frobnicate --hard thing" }, output: "unknown command: frobnicate" },

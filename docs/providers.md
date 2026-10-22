@@ -39,9 +39,7 @@ below are relative to the source roots in the table; casm paths to
 | Plan mode | **partial** | ✓ (including plan text deltas) | ✓ (plan agent) | ✗ |
 | Background jobs wake the agent | ✓ | **partial** | ✓ | ✓ (extensions) |
 
-The [2026-10-19 Codex/Claude audit](adapter-audit-20261019.md) distinguishes
-implemented paths, missing notifications, and test coverage. A supported feature
-here does not imply every upstream event or field is consumed.
+A supported feature here does not imply every upstream event or field is consumed.
 
 OpenCode was also verified end to end on an isolated dev server with
 OpenCode's free `opencode/big-pickle` model (no API key) and the local
@@ -363,7 +361,7 @@ casm uses the host's OpenCode install and credentials (`~/.local/share/opencode`
   creates user message ids in OpenCode's format (`opencode.ts` `messageId`;
   `id/id.ts`).
 - **Local models**: any provider in `~/.config/opencode/opencode.jsonc`, e.g. the
-  llama.cpp router at `http://127.0.0.1:8080` (wakes buildbox on demand).
+  llama.cpp router at `http://127.0.0.1:8080`.
 - **ChatGPT Plus/Pro (Codex subscription)**: OpenCode's OpenAI plugin supports it
   (`plugin/openai/codex.ts`), but needs an interactive login; it does not reuse
   `~/.codex/auth.json`. To sign in on a headless box:
@@ -410,5 +408,4 @@ permission or question dialog.
 Conversational agent and scheduled messages carry a sender envelope into the
 model's context. CASM displays the original text using stored sender metadata;
 human text is unchanged. Native slash commands retain exact syntax and UI sender
-metadata. See [the adapter audit](adapter-audit-20261019.md) for remaining scope
-and validation limits.
+metadata.

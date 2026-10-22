@@ -326,7 +326,7 @@ test("commands: get_commands entries with kinds; argument hints from prompt temp
     [
       { name: "todos", description: "Show all todos on the current branch", source: "extension", sourceInfo: { path: "/x/todo.ts" } },
       { name: "shout", description: "Repeat a word in capitals", source: "prompt", sourceInfo: { path: "/w/.pi/prompts/shout.md" } },
-      { name: "skill:buildbox-compute", description: "Use the buildbox box", source: "skill" },
+      { name: "skill:gpu-compute", description: "Use the GPU box", source: "skill" },
       { name: "bare", source: "extension" },
     ],
     new Map([["shout", "<word>"]]),
@@ -334,7 +334,7 @@ test("commands: get_commands entries with kinds; argument hints from prompt temp
   assert.deepEqual(commands, [
     { name: "todos", description: "Show all todos on the current branch", kind: "command" },
     { name: "shout", description: "Repeat a word in capitals", argumentHint: "<word>", kind: "command" },
-    { name: "skill:buildbox-compute", description: "Use the buildbox box", kind: "skill" },
+    { name: "skill:gpu-compute", description: "Use the GPU box", kind: "skill" },
     { name: "bare", kind: "command" },
   ]);
 });

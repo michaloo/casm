@@ -28,6 +28,11 @@ test("the npm tarball works outside the workspace", { timeout: 180_000 }, async 
   assert(files.includes("packages/server/src/providers/opencode-plugin.js"));
   assert(!files.some((f: string) => !f.startsWith("node_modules/") && (f.endsWith(".ts") || f.includes(".test."))));
   assert(files.includes("node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs"));
+  // Docs stay on GitHub; the README links there.
+  assert(!files.some((f: string) => f.startsWith("docs/") || f.startsWith("spec/")));
+  const readme = readFileSync(join(root, "dist/npm/README.md"), "utf8");
+  assert.doesNotMatch(readme, /(\]\(|src=")(docs|spec|brand)\//);
+  assert.match(readme, /https:\/\/raw\.githubusercontent\.com\/michaloo\/casm\/main\/docs\/media\//);
   const prefix = join(temp, "prefix");
   await run("npm", ["install", "--global", "--prefix", prefix, "--ignore-scripts", "--no-audit", "--no-fund", join(temp, pack.filename)]);
   const cli = join(prefix, "bin/casm");

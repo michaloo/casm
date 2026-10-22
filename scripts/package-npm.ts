@@ -48,14 +48,19 @@ function compile(dir: string) {
 }
 for (const name of packages) compile(join(root, "packages", name, "src"));
 cpSync(join(root, "packages/web/dist"), join(out, "packages/web/dist"), { recursive: true });
-for (const file of ["README.md", "LICENSE", "scripts/service.sh", "scripts/npm-launcher.mjs"]) {
+for (const file of ["LICENSE", "scripts/service.sh", "scripts/npm-launcher.mjs"]) {
   const target = join(out, file === "scripts/npm-launcher.mjs" ? "bin/casm.mjs" : file);
   mkdirSync(dirname(target), { recursive: true });
   cpSync(join(root, file), target);
 }
-// README links and screenshots work on npm as well as in the installed tree.
-cpSync(join(root, "docs"), join(out, "docs"), { recursive: true });
-cpSync(join(root, "spec"), join(out, "spec"), { recursive: true });
+// Docs stay on GitHub: the README's relative links and images point there, so they
+// work on npmjs.com and in the installed tree without shipping docs/ or spec/.
+const GITHUB = "https://github.com/michaloo/casm";
+writeFileSync(join(out, "README.md"), readFileSync(join(root, "README.md"), "utf8")
+  .replace(/(\]\(|src=")(?![a-z]+:|#|\/)([^)"#\s]+)/g, (_all, lead: string, path: string) =>
+    lead + (/\.(png|gif|jpe?g|svg|webp)$/i.test(path)
+      ? `https://raw.githubusercontent.com/michaloo/casm/main/${path}`
+      : `${GITHUB}/blob/main/${path}`)));
 // Runtime dependencies ship inside the package, copied from the lockfile install,
 // without the Claude Agent SDK's optional per-platform Claude Code binaries (~250 MB),
 // which npm would otherwise always install. Like the other providers, casm runs the
@@ -107,7 +112,7 @@ writeFileSync(join(out, "package.json"), JSON.stringify({
   homepage: "https://github.com/michaloo/casm#readme",
   bugs: { url: "https://github.com/michaloo/casm/issues" },
   keywords: ["claude-code", "codex", "opencode", "pi", "agents", "orchestration", "pwa", "cli"],
-  files: ["bin", "packages", "scripts/service.sh", "docs", "spec", "README.md", "LICENSE"],
+  files: ["bin", "packages", "scripts/service.sh", "README.md", "LICENSE"],
   dependencies,
   bundleDependencies: Object.keys(dependencies),
 }, null, 2) + "\n");

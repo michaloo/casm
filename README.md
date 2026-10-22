@@ -174,4 +174,4 @@ The former CLI/TUI is at the
 
 [Development](docs/development.md) covers isolated dev servers, tests and
 deployment. [npm releases](docs/npm-release.md) covers packaging and publishing.
-[Design](docs/design.md) explains the architecture.
+[Architecture](docs/architecture.md) explains how it fits together.

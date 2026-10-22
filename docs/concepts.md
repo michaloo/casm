@@ -332,4 +332,4 @@ casm provides the `casm` CLI for working with other agents, schedules and limits
 - No full-text session search; that's the separate tool
   [cass](https://github.com/michaloo/cass).
 
-[design.md](design.md) explains the architecture behind these choices.
+[Architecture](architecture.md) explains the design behind these choices.

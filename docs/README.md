@@ -28,7 +28,7 @@
 
 **Working on casm**
 
-- [Design](design.md): architecture and scope.
+- [Architecture](architecture.md): servers, peers, storage, protocol and providers.
 - [Development](development.md): isolated dev servers, tests, deployment.
 - [Docs media](../scripts/docs-media/README.md): how the screenshots, GIFs and
   terminal recordings are made.

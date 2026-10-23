@@ -1315,14 +1315,14 @@ function App() {
                 </button>
                 <input ref={fileInput} type="file" accept="image/*" multiple hidden aria-hidden="true" tabIndex={-1}
                   onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void attachImages(files); }} />
-                {recallHint ? <small className="send-hint recall-hint" key={recallHint.key} role="status">{recallHint.text}</small>
-                  : <small className="send-hint">
+                <small className="send-hint">
+                  {recallHint && <span className="recall-hint" key={recallHint.key} role="status">{recallHint.text} · </span>}
                   {attaching > 0 ? "Preparing image…" : !online ? "Offline · your draft is kept on this device and can be sent after reconnecting" : busy
                     ? <>Enter to queue · <kbd>{mac ? "⌘" : "Ctrl"}+Enter</kbd> to steer · Shift+Enter for newline</>
                     : primary === "queue"
                       ? "Enter to queue after the waiting messages · Shift+Enter for newline"
                       : "Enter to send · Shift+Enter for newline"}
-                </small>}
+                </small>
                 {busy && (
                   <>
                     <button

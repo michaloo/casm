@@ -163,13 +163,20 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
 // Scripts run so that self-contained pages (charts, reports) work, but the
 // sandbox has no allow-same-origin: the page gets an opaque origin and can't
 // touch casm's storage, token, cookies or API. It can still make outbound
-// network requests like any web page; popups, forms, top navigation and
-// downloads stay blocked.
-const HTML_SANDBOX = "allow-scripts";
+// network requests like any web page; forms, top navigation and downloads stay
+// blocked. Popups are allowed (and escape the sandbox) only so links open in a
+// new browser tab instead of navigating the frame inside casm.
+const HTML_SANDBOX = "allow-scripts allow-popups allow-popups-to-escape-sandbox";
+// Forces every real link to a new tab, including ones with an explicit
+// target=_self/_top that a <base target> would not override. In-page "#" links scroll in place (a srcdoc frame would otherwise reload blank).
+const LINK_SCRIPT = `<script>addEventListener("click",function(e){var a=e.target.closest&&e.target.closest("a[href],area[href]");if(!a)return;var h=a.getAttribute("href");if(h.charAt(0)==="#"){e.preventDefault();var t=h.length>1&&(document.getElementById(h.slice(1))||document.getElementsByName(h.slice(1))[0]);if(t)t.scrollIntoView();else if(h.length<2)scrollTo(0,0)}else{a.target="_blank";a.rel="noopener"}},true)</script>`;
+const withLinkScript = (html: string) => /<head[\s>][^>]*>?/i.test(html)
+  ? html.replace(/<head(?:\s[^>]*)?>/i, (head) => head + LINK_SCRIPT)
+  : `<meta charset="utf-8">${LINK_SCRIPT}${html}`;
 const RELATIVE_ASSET = /\b(?:src|href)\s*=\s*["']?(?!(?:[a-z][a-z0-9+.-]*:|\/\/|#|data:|mailto:))[^"'\s>]+/i;
 
 function HtmlView({ html, line, view }: { html: string; line?: number; view: "rendered" | "source" }) {
-  const doc = useMemo(() => /<head[\s>]/i.test(html) ? html : `<meta charset="utf-8">${html}`, [html]);
+  const doc = useMemo(() => withLinkScript(html), [html]);
   const assets = RELATIVE_ASSET.test(html);
   return view === "rendered" ? <>
     <iframe className="file-html-frame" title="Rendered HTML" sandbox={HTML_SANDBOX} referrerPolicy="no-referrer" srcDoc={doc} />

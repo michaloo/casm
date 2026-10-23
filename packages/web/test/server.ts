@@ -235,6 +235,7 @@ writeFileSync(`${exportsDir}/pixel.png`, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAA
 writeFileSync(`${exportsDir}/blob.bin`, Buffer.from([0, 1, 2, 3]));
 writeFileSync(`${exportsDir}/lines.ts`, Array.from({ length: 120 }, (_, i) => `export const line${i + 1} = ${i + 1};`).join("\n") + "\n");
 writeFileSync(`${exportsDir}/page.html`, `<!doctype html><html><head><title>t</title><link rel="stylesheet" href="style.css"></head><body><h1 id="hi">Rendered page</h1><script>document.getElementById("hi").dataset.js = "ran"; try { window.parent.document.title; document.title = "reached"; } catch (e) { document.getElementById("hi").dataset.blocked = "yes"; }</script></body></html>`);
+writeFileSync(`${exportsDir}/links.html`, `<!doctype html><html><head><title>l</title></head><body><h1>Links page</h1><a id="ext" href="https://example.com/out" target="_self">out</a> <a id="top" href="https://example.com/top" target="_top">top</a> <a id="jump" href="#end">jump</a><p id="end">end</p></body></html>`);
 writeFileSync(`${exportsDir}/nested/deep.txt`, "deep\n");
 writeFileSync(`${home}/.hidden-config`, "hidden=1\n");
 const filesAgent = store.createAgent({ projectId: p.id, name: "Files agent", provider: "claude", cwd: home, config: {} });

@@ -291,7 +291,8 @@ folder completion as you type, a name, a group and tags.
 Paths that agents mention inside a project folder become links. Clicking one
 opens a preview: syntax-highlighted code, rendered Markdown, pretty JSON,
 images, with **Download** and **Copy path**. `/f/<absolute path>` opens a
-preview directly. Files are read-only through casm.
+preview directly. Files are read-only through casm. Links inside a rendered
+HTML page open in a new browser tab, never inside casm.
 
 Images attached to messages or tool output open in that same preview (click or
 press Enter). Images fit by default; click or pinch to zoom to natural pixels

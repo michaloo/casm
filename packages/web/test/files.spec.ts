@@ -157,7 +157,7 @@ for (const width of [1440, 375]) {
     const frame = dialog.locator("iframe.file-html-frame");
     await expect(frame).toBeVisible();
     // No allow-same-origin: the page cannot reach casm's origin.
-    expect(await frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(await frame.getAttribute("sandbox")).toBe("allow-scripts allow-popups allow-popups-to-escape-sandbox");
     const inner = page.frameLocator("iframe.file-html-frame");
     await expect(inner.locator("h1")).toHaveText("Rendered page");
     await expect(inner.locator("h1")).toHaveAttribute("data-js", "ran");
@@ -172,3 +172,27 @@ for (const width of [1440, 375]) {
     await expect(dialog.getByRole("link", { name: "Download", exact: true })).toBeVisible();
   });
 }
+
+test("links in a rendered html page open in a new tab and leave the preview alone", async ({ page, context }) => {
+  await login(page, 1440, `/f${exportsDir}/links.html`);
+  const dialog = page.getByRole("dialog", { name: "File links.html" });
+  const inner = page.frameLocator("iframe.file-html-frame");
+  await expect(inner.locator("h1")).toHaveText("Links page");
+  // example.com is not reachable from the test box: only the popup's request matters.
+  await context.route("https://example.com/**", (route) => route.fulfill({ body: "<title>external</title>", contentType: "text/html" }));
+  for (const [id, path] of [["ext", "/out"], ["top", "/top"]]) {
+    const opened = context.waitForEvent("page");
+    await inner.locator(`#${id}`).click();
+    const popup = await opened;
+    await popup.waitForLoadState();
+    expect(new URL(popup.url()).pathname).toBe(path);
+    await popup.close();
+    await expect(dialog).toBeVisible();
+    await expect(inner.locator("h1")).toHaveText("Links page");
+  }
+  // In-page anchors still scroll the frame instead of opening a tab.
+  const pages = context.pages().length;
+  await inner.locator("#jump").click();
+  expect(context.pages().length).toBe(pages);
+  await expect(inner.locator("h1")).toHaveText("Links page");
+});

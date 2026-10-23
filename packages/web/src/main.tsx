@@ -24,6 +24,7 @@ import type {
   ModelInfo,
   ProviderId,
 } from "@casm/protocol";
+import { onHostLatency } from "./host-stats";
 import { ConnectionError, Rpc, chat, chats, event, key, syncPending, timing, type Host } from "./state";
 import { filePathFromRoute, resolveView, viewPath, type Selection } from "./navigation";
 import { FilePreview } from "./files";
@@ -308,6 +309,13 @@ function App() {
       load(host, id, true).catch(() => resubscribe(host, id, r, Math.min(delay * 2, 15000)));
     }, delay);
   }
+  // Between refreshes the host.stats poll keeps latency current; only a
+  // change between slow and not redraws the sidebar.
+  useEffect(() => onHostLatency((host, ms) => setHosts((hs) => {
+    const h = hs.find((x) => x.id === host);
+    if (h?.latencyMs === undefined || (h.latencyMs > SLOW_HOST_MS) === (ms > SLOW_HOST_MS)) return hs;
+    return hs.map((x) => (x === h ? { ...x, latencyMs: ms } : x));
+  })), []);
   async function refresh() {
     const r = rpc.current!;
     const info = await r.call("server.info", {});

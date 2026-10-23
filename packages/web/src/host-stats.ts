@@ -8,6 +8,10 @@ type Reader = { every: number; rpc: Rpc; seen: (stats: HostStats | null | undefi
 type Poller = { readers: Set<Reader>; stats: HostStats | null | undefined; at: number; rpc?: Rpc; timer?: ReturnType<typeof setTimeout>; reading: boolean };
 
 const pollers = new Map<string, Poller>();
+// Each answered read's round trip, so a host's latency stays current between
+// sidebar refreshes (one slow refresh after a resume must not stick).
+let latencySeen: (host: string, ms: number) => void = () => {};
+export function onHostLatency(seen: typeof latencySeen) { latencySeen = seen; }
 const hidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
 
 function plan(host: string) {
@@ -29,8 +33,9 @@ function read(host: string) {
   if (!poller?.rpc) return;
   const rpc = poller.rpc;
   poller.reading = true;
+  const started = performance.now();
   // Older hosts without host.stats fail: no stats, so their bars stay hidden.
-  void rpc.call("host.stats", {}, host).then((stats) => stats, () => null).then((stats) => {
+  void rpc.call("host.stats", {}, host).then((stats) => { latencySeen(host, performance.now() - started); return stats; }, () => null).then((stats) => {
     poller.reading = false;
     poller.at = Date.now();
     if (poller.rpc === rpc) {

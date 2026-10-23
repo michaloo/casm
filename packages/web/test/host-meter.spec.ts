@@ -177,3 +177,25 @@ test("host mini bars poll every 30 s, pause while the page is hidden, and share 
   await page.clock.runFor(11_000);
   await expect.poll(() => seen.calls).toBe(6);
 });
+
+test("host label: one slow refresh after a resume does not stay Slow", async ({ page }) => {
+  // The first sidebar refresh answers slowly (a host still waking); host.stats
+  // waits until the label has shown it.
+  let slow = true, release!: () => void;
+  const held = new Promise<void>((done) => (release = done));
+  await page.routeWebSocket("**", (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage(async (message) => {
+      const request = JSON.parse(String(message));
+      if (request.method === "project.list" && slow) { slow = false; setTimeout(() => server.send(message), 2_500); return; }
+      if (request.method === "host.stats") await held;
+      server.send(message);
+    });
+  });
+  await connect(page);
+  const host = page.getByRole("button", { name: "Toggle Test host host" });
+  await expect(host).toHaveAttribute("aria-description", /^Slow/);
+  // The host.stats poll measures it again.
+  release();
+  await expect(host).toHaveAttribute("aria-description", /^Online/);
+});

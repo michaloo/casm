@@ -143,6 +143,28 @@ test("offline mobile: coming back to the page checks the connection at once", as
   await expect(page.getByText("echo: after resume", { exact: true })).toBeVisible();
 });
 
+test("offline mobile: a chat opened on a dead socket shows one banner, not a second error", async ({ page }) => {
+  await login(page);
+  await openAgent(page, "Agent 00");
+  await expect(page.locator(".item").first()).toBeVisible();
+  await page.waitForTimeout(1200);
+  signal("SIGSTOP");
+  try {
+    // Back from the background, the first tap opens another chat: its load
+    // waits on the dead socket until the resume check drops it.
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await openAgent(page, "Agent 01");
+    await expect(banner(page)).toHaveText(/^Reconnecting…/, { timeout: 8000 });
+    await page.waitForTimeout(500);
+    await expect(page.locator("main > .banner")).toHaveCount(0);
+  } finally {
+    signal("SIGCONT");
+  }
+  await expect(banner(page)).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator("main > .banner")).toHaveCount(0);
+  await expect(page.locator(".item").first()).toBeVisible();
+});
+
 test("offline mobile: plain remote HTTP keeps the saved copy without a service worker", async ({ page }) => {
   // A non-loopback http origin mapped to the disposable server, its socket too.
   const origin = "http://casm-insecure.test";

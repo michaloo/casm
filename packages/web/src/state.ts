@@ -196,6 +196,9 @@ export function serverURL(): URL {
 // laptop, a dropped network): no message for `heartbeat` ms starts a probe,
 // and a probe or a connection attempt that takes too long drops the socket.
 export const timing = { heartbeat: 20_000, probe: 10_000, resume: 5_000, connect: 10_000, retry: 1_500 };
+// A call that failed because the connection did (not the server): the
+// connection banner already says so.
+export class ConnectionError extends Error {}
 export class Rpc {
   socket?: WebSocket;
   // The socket once its `auth` succeeded; nothing else is sent before.
@@ -287,7 +290,7 @@ export class Rpc {
     this.status(false);
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
-      p.reject(new Error("Connection lost"));
+      p.reject(new ConnectionError("Connection lost"));
     }
     this.pending.clear();
     if (!this.stopped) this.timer = setTimeout(() => this.connect(), timing.retry);
@@ -332,7 +335,7 @@ export class Rpc {
     timeout = 30000,
   ): Promise<Result<M>> {
     if (this.socket?.readyState !== WebSocket.OPEN || (method !== "auth" && this.socket !== this.authed))
-      return Promise.reject(new Error("Offline"));
+      return Promise.reject(new ConnectionError("Offline"));
     const id = ++this.next;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

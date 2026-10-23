@@ -24,7 +24,7 @@ import type {
   ModelInfo,
   ProviderId,
 } from "@casm/protocol";
-import { Rpc, chat, chats, event, key, syncPending, timing, type Host } from "./state";
+import { ConnectionError, Rpc, chat, chats, event, key, syncPending, timing, type Host } from "./state";
 import { filePathFromRoute, resolveView, viewPath, type Selection } from "./navigation";
 import { FilePreview } from "./files";
 import { FileLinksContext, insideRoot } from "./file-links";
@@ -244,12 +244,14 @@ function App() {
   // Only creating a new agent waits for the server; sends to existing agents
   // show at once and reconcile by message id.
   const [creating, setCreating] = useState(false);
+  // Background work: a lost connection is the connection banner's to report.
+  const failed = (e: unknown) => { if (!(e instanceof ConnectionError)) setError(String((e as Error).message)); };
   const run = async (fn: () => Promise<unknown>) => {
     try {
       setError("");
       await fn();
     } catch (e) {
-      setError(String((e as Error).message));
+      failed(e);
     }
   };
   async function refreshPending(host: string, id: string, r = rpc.current!) {
@@ -610,7 +612,7 @@ function App() {
     // Not run(): opening a chat must not clear an error just reported (say a
     // failed first send to an agent created a moment ago).
     if (selection?.id && online)
-      load(selection.host, selection.id!).catch((e) => setError(String((e as Error).message)));
+      load(selection.host, selection.id!).catch(failed);
     if (agent) {
       setProvider(agent.provider);
       setModel(agent.config.model ?? "");

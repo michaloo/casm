@@ -46,7 +46,7 @@ import { ViewportDebug } from "./viewport-debug";
 import { PendingQueue } from "./pending-queue";
 import { Question } from "./question";
 import { ChatWorking } from "./chat-working";
-import { newMessageId, sendMode, visiblePending } from "./outbox";
+import { RECALL_HINT_MS, newMessageId, recallable, sendMode, visiblePending } from "./outbox";
 import { PendingRows } from "./pending-strip";
 import { AttachGlyph, ChevronGlyph, PlusGlyph } from "./row-menu";
 import { MAX_IMAGES, imageFiles, prepareImage } from "./attach";
@@ -580,6 +580,13 @@ function App() {
     if (problems.length) setError(problems.join(" "));
   }
   const rows = visiblePending(c);
+  // A short note after Esc found nothing to take back.
+  const [recallNote, setRecallNote] = useState<{ key: string; text: string }>();
+  const recallNoteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Keyboards only: on touch, the queue panel's Cancel and Interrupt do it.
+  const recallHint = recallNote?.key === ckey ? { key: recallNote.text, text: recallNote.text }
+    : !coarsePointer.matches && !c.input && !c.images.length && c.recall && Date.now() - c.recall.at < RECALL_HINT_MS
+      && recallable(c, agent?.status) ? { key: c.recall.id, text: <><kbd>Esc</kbd> to edit the message you just sent</> } : undefined;
   const busy = !!agent && agent.status !== "idle";
   const primary = sendMode(agent?.status, rows.length);
   const sessionModel = modelLabels(agent?.config.model, agent?.effectiveModel, catalog.models);
@@ -771,6 +778,12 @@ function App() {
     const queued = !steer && sendMode(current?.status, visiblePending(target).length) === "queue";
     const row = { id: messageId, agentId, text, ...(images.length ? { imageCount: images.length } : {}), reason: "queued" as const, createdAt: new Date().toISOString() };
     const item: Item = { kind: "user", id: messageId, text, ...(images.length ? { images } : {}) };
+    // Esc can take it back while it waits or runs its own turn; a steer joins another turn.
+    let settle: (queued: boolean | undefined) => void = () => {};
+    const recall = steer ? undefined : { id: messageId, text, images, at: Date.now(), ended: target.turnsEnded ?? 0,
+      sent: new Promise<boolean | undefined>((done) => (settle = done)) };
+    target.recall = recall;
+    if (recall) setTimeout(redraw, RECALL_HINT_MS);
     if (!queued) (target.inFlight ??= new Map()).set(messageId, item);
     if (queued) target.outbox = [...(target.outbox ?? []), row];
     else if (!target.items.some((i) => i.id === messageId)) target.items = [...target.items, item];
@@ -789,6 +802,7 @@ function App() {
         s.host,
       );
       target.inFlight?.delete(messageId);
+      settle(queued || !!result.queued);
       if (result.queued) {
         // It waits after all (a steer to a limited agent, a queue we didn't know of).
         target.items = target.items.filter((i) => i !== item);
@@ -803,6 +817,8 @@ function App() {
       await load(s.host, agentId);
     } catch (e) {
       target.inFlight?.delete(messageId);
+      settle(undefined);
+      if (target.recall === recall) target.recall = undefined;
       // Back in the composer, unless something new was typed meanwhile; the
       // same message sent again keeps its id, in case this one did arrive.
       target.outbox = target.outbox?.filter((o) => o.id !== messageId);
@@ -816,6 +832,74 @@ function App() {
       setError(String((e as Error).message));
     }
     redraw();
+  }
+  // Esc in an empty composer: takes the message just sent back into it, out of
+  // the queue or by interrupting the turn it started. Nothing else is stopped.
+  async function takeBack() {
+    const s = selection;
+    const target = c;
+    const r = target.recall;
+    if (!s?.id || !r) return;
+    const status = () => hostsRef.current.find((h) => h.id === s.host)?.agents.find((a) => a.id === s.id)?.status;
+    if (!recallable(target, status())) {
+      target.recall = undefined;
+      showRecallNote(key(s.host, s.id), "Already answered · nothing to take back");
+      return;
+    }
+    target.recall = undefined;
+    redraw();
+    const restore = () => {
+      // Something typed meanwhile wins; the message is out of the queue or stopped either way.
+      if (target.input || target.images.length) return;
+      target.input = r.text;
+      target.images = r.images;
+      saveDraft(target, true);
+      redraw();
+      requestAnimationFrame(() => {
+        const box = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]');
+        if (!box || selected.current?.id !== s.id) return;
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      });
+    };
+    try {
+      setError("");
+      // A send still on its way settles first, so the server knows the message.
+      const queued = await r.sent;
+      if (queued === undefined) return;
+      const hidden = (target.hidden ??= new Set());
+      if (queued) {
+        hidden.add(r.id);
+        redraw();
+        try {
+          const { cancelled } = await rpc.current!.call("agent.cancelPending", { id: s.id, messageId: r.id }, s.host);
+          if (cancelled) restore();
+          else showRecallNote(key(s.host, s.id), "Already started · use Interrupt to stop it");
+        } finally {
+          await refreshPending(s.host, s.id).catch(() => {});
+          hidden.delete(r.id);
+          redraw();
+        }
+        return;
+      }
+      // Checked again: the turn may have ended while the send settled.
+      if (recallable({ ...target, recall: r }, status()) !== "running") {
+        showRecallNote(key(s.host, s.id), "Already answered · nothing to take back");
+        return;
+      }
+      await rpc.current!.call("agent.interrupt", { id: s.id }, s.host);
+      // The provider keeps the prompt in its own history; say so instead of hiding it.
+      target.items = [...target.items, { kind: "notice", id: `local:recall:${r.id}`, at: new Date().toISOString(),
+        text: "Interrupted · the message is back in the composer (the agent's history still has it)" }];
+      restore();
+    } catch (e) {
+      failed(e);
+    }
+  }
+  function showRecallNote(k: string, text: string) {
+    clearTimeout(recallNoteTimer.current);
+    setRecallNote({ key: k, text });
+    recallNoteTimer.current = setTimeout(() => setRecallNote(undefined), RECALL_HINT_MS);
   }
   // Runs a pending-row action; the row shows `note` (or is hidden) until the
   // server's queue confirms. A row that is already gone needs no error.
@@ -1205,6 +1289,12 @@ function App() {
                 }}
                 onKeyDown={(e) => {
                   if (slash.onKeyDown(e)) return;
+                  // Enter by mistake: Esc takes the message back (the composer must be empty).
+                  if (e.key === "Escape" && !e.nativeEvent.isComposing && c.recall && !c.input && !c.images.length) {
+                    e.preventDefault();
+                    void takeBack();
+                    return;
+                  }
                   if (
                     e.key === "Enter" &&
                     !e.shiftKey &&
@@ -1225,13 +1315,14 @@ function App() {
                 </button>
                 <input ref={fileInput} type="file" accept="image/*" multiple hidden aria-hidden="true" tabIndex={-1}
                   onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void attachImages(files); }} />
-                <small className="send-hint">
+                {recallHint ? <small className="send-hint recall-hint" key={recallHint.key} role="status">{recallHint.text}</small>
+                  : <small className="send-hint">
                   {attaching > 0 ? "Preparing image…" : !online ? "Offline · your draft is kept on this device and can be sent after reconnecting" : busy
                     ? <>Enter to queue · <kbd>{mac ? "⌘" : "Ctrl"}+Enter</kbd> to steer · Shift+Enter for newline</>
                     : primary === "queue"
                       ? "Enter to queue after the waiting messages · Shift+Enter for newline"
                       : "Enter to send · Shift+Enter for newline"}
-                </small>
+                </small>}
                 {busy && (
                   <>
                     <button

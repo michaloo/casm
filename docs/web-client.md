@@ -127,6 +127,20 @@ While a turn runs, the composer offers three buttons:
 | **Steer** | Ctrl/⌘+Enter | Puts the message into the running turn. |
 | **Interrupt** | | Stops the turn; the queue continues with its next message. |
 
+Sent with Enter by mistake? **Escape** in the empty composer, within 30 seconds,
+takes the message you just sent from this browser back for editing (a hint
+**Esc to edit** shows for a few seconds after sending):
+
+- Still queued: it is cancelled from the queue; text and images return.
+- Running the turn it started: that turn is interrupted and the text returns.
+  The message stays in the transcript, because the agent keeps it in its own
+  history; a notice says so.
+- Already answered, steered into a running turn, or followed by another
+  message: nothing happens (or a short **Already answered** note). A draft in
+  the composer, the slash palette and the pickers keep their own Escape.
+
+On touch screens, use the queue panel's **Cancel** or **Interrupt** instead.
+
 ![sending a message, then steering the running turn](media/web-send-steer.gif)
 
 ## Find in chat

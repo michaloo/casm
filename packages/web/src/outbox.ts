@@ -52,3 +52,28 @@ export function pendingLabel(p: PendingMessage, now = Date.now()): { status: str
 export function queueHeld(rows: PendingMessage[]): boolean {
   return rows[0]?.reason === "failed" || rows[0]?.reason === "limit";
 }
+
+// How long after sending Esc can take a message back, and how long the hint shows.
+export const RECALL_MS = 30_000;
+export const RECALL_HINT_MS = 5_000;
+
+export type Recallable = Outbox & {
+  items: { kind: string; id: string }[];
+  inFlight?: Map<string, unknown>;
+  recall?: { id: string; at: number; ended: number };
+  turnsEnded?: number;
+};
+
+// Whether Esc can take back the last message sent from here: "queued" while it
+// still waits (cancel it), "running" while the turn it started runs with no
+// later prompt in it (interrupt it). Anything else (answered, steered into
+// another turn, followed by someone else's message) is left alone.
+export function recallable(c: Recallable, status: AgentStatus | undefined, now = Date.now()): "queued" | "running" | undefined {
+  const r = c.recall;
+  if (!r || now - r.at > RECALL_MS) return;
+  if (visiblePending(c).some((p) => p.id === r.id)) return "queued";
+  if (c.inFlight?.has(r.id)) return "running";
+  if (status !== "running" || (c.turnsEnded ?? 0) !== r.ended) return;
+  const last = c.items.findLast((i) => i.kind === "user");
+  return last?.id === r.id ? "running" : undefined;
+}

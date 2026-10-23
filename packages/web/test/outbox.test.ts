@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newMessageId, pendingLabel, queueHeld, sendMode, visiblePending } from "../src/outbox.ts";
+import { RECALL_MS, newMessageId, pendingLabel, queueHeld, recallable, sendMode, visiblePending } from "../src/outbox.ts";
 
 const row = (id: string, reason: "queued" | "limit" | "failed" = "queued") => ({ id, agentId: "a", text: id, reason, createdAt: "" });
 
@@ -33,4 +33,18 @@ test("failed and limited rows offer Retry now and hold the queue", () => {
   assert.deepEqual(pendingLabel(row("z")), { status: "Queued", action: "send-now" });
   assert.equal(queueHeld([row("x", "failed"), row("z")]), true);
   assert.equal(queueHeld([row("z"), row("x", "failed")]), false);
+});
+
+test("Esc takes back only a message still queued or running its own turn", () => {
+  const recall = { id: "m", at: 1000, ended: 2 };
+  const base = { pending: [], items: [{ kind: "user", id: "m" }], recall, turnsEnded: 2 };
+  assert.equal(recallable({ ...base, pending: [row("m")] }, "running", 1000), "queued");
+  assert.equal(recallable({ ...base, items: [], inFlight: new Map([["m", {}]]) }, "idle", 1000), "running");
+  assert.equal(recallable(base, "running", 1000), "running");
+  // Answered, or its turn ended and another runs, or someone wrote since, or too late.
+  assert.equal(recallable(base, "idle", 1000), undefined);
+  assert.equal(recallable({ ...base, turnsEnded: 3 }, "running", 1000), undefined);
+  assert.equal(recallable({ ...base, items: [...base.items, { kind: "user", id: "other" }] }, "running", 1000), undefined);
+  assert.equal(recallable(base, "running", 1000 + RECALL_MS + 1), undefined);
+  assert.equal(recallable({ ...base, recall: undefined }, "running", 1000), undefined);
 });

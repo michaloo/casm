@@ -164,7 +164,7 @@ export class BrowserHub {
   result(browser: Browser, tabId: number, seen: Seen) {
     const t = browser.tabs.get(tabId) ?? { tabId, title: "", url: "", sharedAt: new Date().toISOString() };
     const tab = this.tab(browser, { ...t, ...(seen.url ? { url: seen.url } : {}), ...(seen.title !== undefined ? { title: seen.title } : {}) });
-    const opened = (seen.opened ?? []).flatMap((id) => (browser.tabs.has(id) ? [this.tab(browser, browser.tabs.get(id)!)] : []));
+    const opened = (seen.opened ?? []).flatMap((id) => (id !== tabId && browser.tabs.has(id) ? [this.tab(browser, browser.tabs.get(id)!)] : []));
     return { tab, ...(seen.dialog ? { dialog: seen.dialog } : {}), ...(opened.length ? { opened } : {}) };
   }
 
@@ -223,12 +223,16 @@ export function browserHandlers(hub: BrowserHub) {
       const url = http(p.url);
       const browser = hub.browser(p);
       const newTab = p.newTab || (p.tab === undefined && !browser.tabs.size);
-      const tabId = newTab ? undefined : hub.target(p).tabId;
-      const r = await hub.command<Seen & { tabId: number }>(browser, { action: "open", url, ...(tabId === undefined ? {} : { tabId }) });
+      // A new tab goes next to the target tab (its window and casm group), when there is one.
+      const target = browser.tabs.size ? hub.target(p).tabId : undefined;
+      const cmd: BrowserCommand = newTab
+        ? { action: "open", url, ...(target === undefined ? {} : { near: target }) }
+        : { action: "open", url, tabId: target! };
+      const r = await hub.command<Seen & { tabId: number }>(browser, cmd);
       return hub.result(browser, r.tabId, r);
     },
     "browser.snapshot": (p: Params<"browser.snapshot">) => onTab(p, (tabId) => ({ action: "snapshot", tabId }), (r: Seen & { text: string }) => ({ text: r.text })),
-    "browser.click": (p: Params<"browser.click">) => onTab(p, (tabId) => ({ action: "click", tabId, ref: p.ref })),
+    "browser.click": (p: Params<"browser.click">) => onTab(p, (tabId) => ({ action: "click", tabId, ref: p.ref, ...(p.newTab ? { newTab: true } : {}) })),
     "browser.type": (p: Params<"browser.type">) =>
       onTab(p, (tabId) => ({ action: "type", tabId, ref: p.ref, text: p.text, ...(p.submit ? { submit: true } : {}) })),
     "browser.press": (p: Params<"browser.press">) => onTab(p, (tabId) => ({ action: "press", tabId, key: p.key })),

@@ -129,6 +129,14 @@ export function onEvent(source, method, params) {
     case "Page.javascriptDialogClosed":
       if (s.dialog?.session === from) s.dialog = null;
       break;
+    case "Page.frameRequestedNavigation":
+      // A modified or middle click: the navigation goes to a new tab or window.
+      if (params.disposition !== "newTab" && params.disposition !== "newWindow") break;
+    // falls through
+    case "Page.windowOpen":
+      windowOpens.push({ tabId: source.tabId, url: normal(params.url), at: Date.now() });
+      while (windowOpens.length && Date.now() - windowOpens[0].at > WINDOW_OPEN_MS) windowOpens.shift();
+      break;
     case "Page.downloadWillBegin":
       s.downloads.push({ n: s.nextDownload++, guid: params.guid, frame: frameOf(s, from), url: params.url, filename: params.suggestedFilename ?? "", state: "inProgress", startedAt: new Date().toISOString() });
       break;
@@ -154,6 +162,25 @@ async function sessionOf(tabId, frame) {
     await sleep(50);
   }
   throw new ActionError("that frame is gone: take a new snapshot");
+}
+
+// Which tab opened a new one. Chrome's openerTabId is the window's active tab
+// for links opened in the background (a Control- or middle-click), so the
+// source tab's own events are asked first: Page.windowOpen (window.open,
+// target=_blank) and Page.frameRequestedNavigation into a new tab (modified
+// and middle clicks). Only seen while the debugger is attached.
+const WINDOW_OPEN_MS = 5_000;
+const windowOpens = [];
+const normal = (url) => {
+  try {
+    return new URL(url).href;
+  } catch {
+    return url;
+  }
+};
+export function openedFrom(url) {
+  const i = windowOpens.findIndex((w) => w.url === normal(url) && Date.now() - w.at < WINDOW_OPEN_MS);
+  return i < 0 ? undefined : windowOpens.splice(i, 1)[0].tabId;
 }
 
 export function openDialog(tabId) {
@@ -326,14 +353,17 @@ export async function navigate(tabId, url) {
   return {};
 }
 
-export async function click(tabId, ref) {
+// `newTab`: with the modifier that opens a link in a new tab (Command on macOS, Control elsewhere).
+export async function click(tabId, ref, newTab = false) {
+  const mac = /mac/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
+  const modifiers = newTab ? (mac ? 4 : 2) : 0;
   await onNode(tabId, ref, async (backendNodeId, session) => {
     const p = await centre(tabId, backendNodeId, session);
     if (!p) throw new ActionError(`${ref} has no visible box to click`);
     // Input goes to the tab's own session, which routes it into the frame under the point.
-    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", ...p });
-    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", ...p, button: "left", clickCount: 1 });
-    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", ...p, button: "left", clickCount: 1 });
+    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", ...p, modifiers });
+    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", ...p, button: "left", clickCount: 1, modifiers });
+    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", ...p, button: "left", clickCount: 1, modifiers });
   });
   await sleep(SETTLE_MS);
   return {};

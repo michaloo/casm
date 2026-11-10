@@ -103,7 +103,7 @@ try {
   await refused(/no tab is shared/, "browser", "snapshot");
 
   // The user shares a tab (the popup's button calls the same function).
-  const { tabId } = await one.share(`${site}/`);
+  const { tabId, page: firstPage } = await one.share(`${site}/`);
   const group = await one.sw<{ title: string }>(`chrome.tabs.get(${tabId}).then((t) => chrome.tabGroups.get(t.groupId))`);
   assert.equal(group.title, "casm");
   assert.match((await ok("browser", "tabs")).out, /Test login/);
@@ -189,6 +189,41 @@ try {
   assert.match(popped.err, /opened tab (\d+) .*\/next.*opened by \d+/);
   const popupId = popped.err.match(/opened tab (\d+)/)![1];
   assert.match((await ok("browser", "snapshot", "--tab", popupId)).out, /heading "Next page"/);
+
+  // Every way a shared tab opens another puts it in the same casm group, and agents can steer it.
+  // (Each new tab becomes the default target, the most recently shared, so the opener is named.)
+  const toolsId = (await ok("browser", "tabs")).out.split("\n").find((l) => l.includes("/tools"))!.split(/\s+/)[0];
+  const inGroup = () => one.sw<number>(`chrome.tabs.get(${tabId}).then((t) => chrome.tabs.query({ groupId: t.groupId })).then((ts) => ts.length)`);
+  let grouped = await inGroup();
+  const blank = await ok("browser", "click", ref(tools, /link "Blank link"/), "--tab", toolsId);
+  assert.match(blank.err, new RegExp(`opened tab \\d+ .*/next\\?blank.*opened by ${toolsId}`));
+  assert.equal(await inGroup(), ++grouped, "target=_blank joined the group");
+  const newTab = await ok("browser", "click", ref(tools, /link "Plain link"/), "--new-tab", "--tab", toolsId);
+  assert.match(newTab.err, new RegExp(`opened tab \\d+ .*/next\\?plain.*opened by ${toolsId}`));
+  assert.match(newTab.out + (await ok("browser", "tabs")).out, new RegExp(`^${toolsId} +Tools`, "m"), "the clicking tab stayed where it was");
+  assert.equal(await inGroup(), ++grouped, "click --new-tab joined the group");
+  // The user's (or the page's) own Control-click and middle-click.
+  await firstPage.click("#plain", { modifiers: ["Control"] });
+  await until(async () => (await inGroup()) === grouped + 1);
+  assert.equal(await inGroup(), ++grouped, "Control-click joined the group");
+  await firstPage.click("#plain", { button: "middle" });
+  await until(async () => (await inGroup()) === grouped + 1);
+  assert.equal(await inGroup(), ++grouped, "middle-click joined the group");
+  // open --new goes next to the target tab, in its group.
+  const near = (await ok("browser", "open", "--new", "--tab", toolsId, `${site}/next?near`)).out;
+  assert.match(near, /\/next\?near/);
+  assert.equal(await inGroup(), ++grouped, "open --new joined the target tab's group");
+  // All of them are listed, opener included, and every command works on each.
+  const listed = (await ok("browser", "tabs")).out.split("\n");
+  for (const kind of ["blank", "plain", "near"]) assert.ok(listed.some((l) => l.includes(`/next?${kind}`) && l.includes(`opened by ${toolsId}`)), `${kind} listed with its opener`);
+  for (const line of listed) {
+    const id = line.split(/\s+/)[0];
+    if (line.includes("/next")) assert.match((await ok("browser", "snapshot", "--tab", id)).out, /heading "Next page"/);
+  }
+  const plainId = listed.filter((l) => l.includes("/next?plain"))[0].split(/\s+/)[0];
+  assert.equal((await ok("browser", "eval", "location.search", "--tab", plainId)).out, "?plain");
+  await ok("browser", "open", `${site}/`, "--tab", plainId);
+  await ok("browser", "type", ref((await ok("browser", "snapshot", "--tab", plainId)).out, /textbox "Email"/), "in a new tab", "--tab", plainId);
 
   // A new tab opens in the background, and casm won't bring it to the front for a screenshot.
   const opened = (await ok("browser", "open", "--new", `${site}/`)).out;

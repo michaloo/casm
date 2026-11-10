@@ -639,9 +639,10 @@ export type SharedTab = z.infer<typeof SharedTab>;
 // extension acts only on tabs it shares, and answers with a result or an
 // error. Results may carry `dialog` and `opened` (Chrome tab ids).
 export const BrowserCommand = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("open"), tabId: z.number().int().optional(), url: z.string() }),
+  // Without tabId: a new tab, in the casm group of `near`'s window (else the last shared tab's).
+  z.object({ action: z.literal("open"), tabId: z.number().int().optional(), url: z.string(), near: z.number().int().optional() }),
   z.object({ action: z.literal("snapshot"), tabId: z.number().int() }),
-  z.object({ action: z.literal("click"), tabId: z.number().int(), ref: z.string() }),
+  z.object({ action: z.literal("click"), tabId: z.number().int(), ref: z.string(), newTab: z.boolean().optional() }),
   z.object({ action: z.literal("type"), tabId: z.number().int(), ref: z.string(), text: z.string(), submit: z.boolean().optional() }),
   z.object({ action: z.literal("press"), tabId: z.number().int(), key: z.string() }),
   z.object({ action: z.literal("screenshot"), tabId: z.number().int() }),
@@ -1011,13 +1012,16 @@ export const methods = {
   // See BrowserTarget for which tab a call acts on.
   "browser.list": method(Empty, z.object({ browsers: z.array(BrowserInfo) })),
   "browser.tabs": method(z.object({ browser: z.string().optional() }), z.object({ tabs: z.array(BrowserTab), browsers: z.array(BrowserInfo) })),
-  // Navigates a shared tab to an http(s) URL, or opens a new background tab in
-  // the browser's casm tab group (`newTab`, or when it shares none yet).
+  // Navigates a shared tab to an http(s) URL, or opens a new background tab
+  // (`newTab`, or when the browser shares none yet) in the casm group of the
+  // target tab's window, which it then reports in `opened` too.
   "browser.open": method(BrowserTarget.extend({ url: z.string(), newTab: z.boolean().optional() }), BrowserResult),
   // The page's accessibility tree as text, iframes included; [eN] marks refs
   // for click, type and upload, valid until the next snapshot or navigation.
   "browser.snapshot": method(BrowserTarget, BrowserResult.extend({ text: z.string() })),
-  "browser.click": method(BrowserTarget.extend({ ref: z.string() }), BrowserResult),
+  // `newTab`: a Control-click (Command on macOS), so a link opens in a new tab,
+  // which joins the casm group and comes back in `opened`.
+  "browser.click": method(BrowserTarget.extend({ ref: z.string(), newTab: z.boolean().optional() }), BrowserResult),
   // Focuses the element and inserts the text (replacing an input's value); `submit` presses Enter after.
   "browser.type": method(BrowserTarget.extend({ ref: z.string(), text: z.string(), submit: z.boolean().optional() }), BrowserResult),
   // A key ("Enter", "Tab", "ArrowDown", "a"), with modifiers as "Control+a", "Shift+Tab".

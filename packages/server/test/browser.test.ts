@@ -186,6 +186,11 @@ test("open navigates the shared tab, or opens a new one when none is shared", as
     assert.deepEqual(ext.commands.at(-1), { action: "open", url: "https://example.org/login" });
     await alpha.client.call("browser.open", { url: "http://example.org/next" });
     assert.deepEqual(ext.commands.at(-1), { action: "open", url: "http://example.org/next", tabId: 300 });
+    // --new goes next to the target tab: its window and group.
+    await alpha.client.call("browser.open", { url: "https://example.org/other", newTab: true });
+    assert.deepEqual(ext.commands.at(-1), { action: "open", url: "https://example.org/other", near: 300 });
+    await alpha.client.call("browser.click", { ref: "e5", newTab: true });
+    assert.deepEqual(ext.commands.at(-1), { action: "click", tabId: 300, ref: "e5", newTab: true });
     await rejects(alpha.client.call("browser.open", { url: "javascript:alert(1)" }), ErrorCode.InvalidParams, /only http and https/);
     await rejects(alpha.client.call("browser.open", { url: "file:///etc/passwd" }), ErrorCode.InvalidParams, /only http and https/);
   } finally {

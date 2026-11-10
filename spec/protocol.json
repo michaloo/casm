@@ -7080,6 +7080,9 @@
           },
           "ref": {
             "type": "string"
+          },
+          "newTab": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -9585,6 +9588,11 @@
               },
               "url": {
                 "type": "string"
+              },
+              "near": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               }
             },
             "required": [
@@ -9624,6 +9632,9 @@
               },
               "ref": {
                 "type": "string"
+              },
+              "newTab": {
+                "type": "boolean"
               }
             },
             "required": [

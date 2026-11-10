@@ -544,9 +544,9 @@ once.
 ```text
 casm browser list                                connected browsers and their shared tab counts
 casm browser tabs [--browser b]                  shared tabs
-casm browser open <url> [--new]                  navigate a shared tab, or open a new one in the casm group
+casm browser open <url> [--new]                  navigate a shared tab, or open a new one next to it
 casm browser snapshot                            accessibility tree with [eN] refs, iframes included
-casm browser click <ref>
+casm browser click <ref> [--new-tab]             --new-tab: Control/Command-click (a link opens in a new tab)
 casm browser type <ref> <text> [--submit]
 casm browser press <key>                         Enter, Tab, Escape, ArrowDown, a, Control+a…
 casm browser screenshot [-o file.png]            prints the PNG's path; the tab must be in front
@@ -592,7 +592,9 @@ casm: browser: the tab is not visible (another tab is in front in its window), a
 ```
 
 Dialogs and opened tabs are reported on stderr, after any command that left
-them. `-H <peer>` reaches a browser connected to that peer.
+them. Tabs a shared tab opens (links in new tabs, popups, `click --new-tab`,
+`open --new`) are shared too and listed with their opener; the newest shared
+tab becomes the default target, so name the one you mean with `--tab`. `-H <peer>` reaches a browser connected to that peer.
 
 ## Subagents, shell and MCP
 

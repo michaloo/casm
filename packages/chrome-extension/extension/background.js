@@ -230,13 +230,14 @@ async function publish(tabs, sharedAt) {
   if (conn.status !== "connected") return;
   const s = await settings();
   const ids = new Set(tabs.map((t) => t.id));
+  const { openers = {} } = await chrome.storage.session.get("openers");
   const shared = tabs.map((t) => ({
     tabId: t.id,
     title: t.title ?? "",
     url: t.pendingUrl || t.url || "",
     sharedAt: sharedAt[t.id],
     // Only a shared opener: other tabs' ids are none of the server's business.
-    ...(t.openerTabId !== undefined && ids.has(t.openerTabId) ? { openerTabId: t.openerTabId } : {}),
+    ...(ids.has(openers[t.id] ?? t.openerTabId) ? { openerTabId: openers[t.id] ?? t.openerTabId } : {}),
   }));
   // Sent now, before any answer this sync precedes; the reply doesn't matter.
   call("browser.share", { browserId: await browserId(), label: s.label || defaultLabel(), tabs: shared }).catch((e) => console.warn(`casm: share failed: ${e.message}`));
@@ -252,14 +253,32 @@ chrome.tabs.onRemoved.addListener(() => void sync());
 // A tab a shared tab opens is shared too, and reported with the next answer.
 const opened = [];
 chrome.tabs.onCreated.addListener(async (tab) => {
-  if (tab.openerTabId === undefined || !(await isShared(tab.openerTabId))) return;
+  const opener = await openerOf(tab);
+  if (opener === undefined) return;
   try {
+    const { openers = {} } = await chrome.storage.session.get("openers");
+    await chrome.storage.session.set({ openers: { ...openers, [tab.id]: opener } });
     await shareTab(tab.id, { anyUrl: true });
     opened.push(tab.id);
   } catch (e) {
-    console.warn(`casm: can't share the tab ${tab.openerTabId} opened: ${e.message}`);
+    console.warn(`casm: can't share the tab ${opener} opened: ${e.message}`);
   }
 });
+
+// The shared tab that opened `tab`, if one did: by the source's Page.windowOpen
+// (its URL can take a moment to show), else Chrome's openerTabId (right for
+// the user's own clicks, which happen in the front tab).
+async function openerOf(tab) {
+  for (let i = 0; i < 10; i++) {
+    const url = tab.pendingUrl || tab.url;
+    const from = url && act.openedFrom(url);
+    if (from !== undefined && (await isShared(from))) return from;
+    if (url && url !== "about:blank") break;
+    await new Promise((r) => setTimeout(r, 50));
+    tab = await chrome.tabs.get(tab.id).catch(() => tab);
+  }
+  return tab.openerTabId !== undefined && (await isShared(tab.openerTabId)) ? tab.openerTabId : undefined;
+}
 chrome.debugger.onEvent.addListener((source, method, params) => act.onEvent(source, method, params));
 chrome.tabs.onAttached.addListener(() => void sync());
 chrome.tabGroups.onRemoved.addListener(() => void sync());
@@ -278,7 +297,12 @@ chrome.debugger.onDetach.addListener(({ tabId }) => {
 async function command(p) {
   if (p.action === "downloads") return { downloads: (await sharedTabs()).flatMap((t) => act.downloads(t.id)) };
   let r;
-  if (p.action === "open" && p.tabId === undefined) r = await openTab(p.url);
+  if (p.action === "open" && p.tabId === undefined) {
+    // Next to a tab only if that one is shared: the server doesn't pick windows.
+    const near = p.near !== undefined && (await isShared(p.near)) ? p.near : undefined;
+    r = await openTab(p.url, near);
+    if (!opened.includes(r.tabId)) opened.push(r.tabId);
+  }
   else {
     // Checked here, against the groups, whatever the server thinks is shared.
     if (!(await isShared(p.tabId))) throw new act.ActionError("that tab is not shared anymore");
@@ -288,7 +312,13 @@ async function command(p) {
       const run = {
         open: () => act.navigate(t, p.url),
         snapshot: () => act.snapshot(t),
-        click: () => act.click(t, p.ref),
+        click: async () => {
+          const before = opened.length;
+          const r = await act.click(t, p.ref, p.newTab);
+          // A new tab may take a moment to be created and shared.
+          for (let i = 0; p.newTab && opened.length === before && i < 15; i++) await new Promise((w) => setTimeout(w, 100));
+          return r;
+        },
         type: () => act.type(t, p.ref, p.text, p.submit),
         press: () => act.press(t, p.key),
         screenshot: () => act.screenshot(t),
@@ -318,14 +348,24 @@ async function command(p) {
   };
 }
 
-// A new tab, in the casm group of the window that shared last (or the current one).
-async function openTab(url) {
+// A new tab in the casm group of `near`'s window, right after it (else of the
+// window that shared last, or the current one), with `near` as its opener.
+async function openTab(url, near) {
   const tabs = await sharedTabs();
   const { sharedAt = {} } = await chrome.storage.session.get("sharedAt");
   const latest = tabs.sort((a, b) => String(sharedAt[b.id]).localeCompare(String(sharedAt[a.id])))[0];
-  const windowId = latest?.windowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
+  let anchor = near === undefined ? latest : tabs.find((t) => t.id === near);
+  // A popup window can't hold more tabs: open next to its opener instead.
+  if (anchor && (await chrome.windows.get(anchor.windowId).catch(() => null))?.type !== "normal")
+    anchor = tabs.find((t) => t.id === anchor.openerTabId) ?? undefined;
+  const windowId = anchor?.windowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
   // In the background: casm never brings a tab to the front.
-  const tab = await chrome.tabs.create({ url, active: false, ...(windowId === undefined ? {} : { windowId }) });
+  const tab = await chrome.tabs.create({
+    url,
+    active: false,
+    ...(windowId === undefined ? {} : { windowId }),
+    ...(anchor ? { index: anchor.index + 1, openerTabId: anchor.id } : {}),
+  });
   await shareTab(tab.id, { anyUrl: true });
   const until = Date.now() + NEW_TAB_LOAD_MS;
   let now = tab;

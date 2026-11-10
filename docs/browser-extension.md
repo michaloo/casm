@@ -41,12 +41,20 @@ ungoogled Chromium, side by side.
 - The group is the truth. Dragging another tab **into** the casm group shares
   it too.
 - **Tabs a shared tab opens are shared too.** `window.open`, `target=_blank`
-  links and sign-in popups ("Sign in with …", OAuth) join the casm group, or,
-  in a popup window Chrome won't group, are tracked by the extension until
-  they close. This is deliberate: those flows continue in the new tab, and an
-  agent stuck at "a window opened" is no help. The agent sees them in the
-  answer to the command that opened them ("opened tab 4 … opened by 2") and
-  in `casm browser tabs`. Unshare them like any other tab.
+  links, Control/Command-clicks, middle-clicks and sign-in popups ("Sign in
+  with …", OAuth) join the casm group of the opener's window, or, in a popup
+  window Chrome won't group, are tracked by the extension until they close.
+  This is deliberate: agents work across tabs the way people do, and flows
+  continue in the new tab. The agent sees each one in the answer to the
+  command that opened it ("opened tab 4 … opened by 2") and in
+  `casm browser tabs`, and steers it with `--tab 4`. Unshare them like any
+  other tab.
+- **Which tab opened a tab.** Chrome's `openerTabId` names the window's
+  front tab for links opened in the background, not the tab clicked in. So
+  the extension asks the clicking tab first: its `Page.windowOpen` and
+  `Page.frameRequestedNavigation` (into a new tab or window) events, matched
+  by URL. Those need the debugger attached, which it is during agent work;
+  the user's own clicks happen in the front tab, where `openerTabId` is right.
 - **Chrome's debugging bar shows while agents work.** The extension attaches
   `chrome.debugger` to a shared tab when an agent command arrives, and
   detaches 30 s after the last one, so Chrome's own "casm started debugging
@@ -81,12 +89,12 @@ fails and lists the browsers' names: casm doesn't guess.
 | Command | How |
 | --- | --- |
 | `snapshot` | `Accessibility.getFullAXTree` of every frame, flattened to text with `[eN]` refs to DOM nodes (`extension/snapshot.js`). Each iframe's content sits under its `Iframe` line. |
-| `click <ref>` | scrolls the node (and its iframes) into view, clicks the centre of its box with `Input.dispatchMouseEvent` |
+| `click <ref> [--new-tab]` | scrolls the node (and its iframes) into view, clicks the centre of its box with `Input.dispatchMouseEvent`; `--new-tab` holds Control (Command on macOS), so a link opens in a new tab in the group |
 | `type <ref> <text>` | focuses, selects the current value, `Input.insertText` replaces it; `--submit` presses Enter |
 | `press <key>` | key events (`extension/keys.js`), with editing commands for Control/Meta+A, C, X, V, Z |
 | `screenshot` | `Page.captureScreenshot` of the viewport, only when the tab is in front (below) |
 | `eval <js>` | `Runtime.evaluate` in the page's main frame, awaited, by value |
-| `open <url>` | `Page.navigate` (http and https only), or `--new`: a new background tab in the casm group |
+| `open <url>` | `Page.navigate` (http and https only), or `--new`: a new background tab right after the target tab, in its window's casm group, opened by it |
 | `dialog [accept [text] \| dismiss]` | shows or answers an open alert, confirm, prompt or beforeunload dialog |
 | `upload <ref> <file>…` | sets files from the agent's machine on a file input |
 | `downloads`, `download <id>` | lists downloads shared tabs started, fetches one's content |
@@ -237,7 +245,9 @@ the popup then shows a warning with an *Allow access* button.
   CLI: snapshot, type, click, eval, press, screenshot, navigate; same- and
   cross-origin iframes (click and type inside them); confirm and prompt
   dialogs; an upload; a download fetched back; a popup shared automatically;
-  a background tab refused for a screenshot; two browsers and the ambiguity
+  a background tab refused for a screenshot; tabs opened by `target=_blank`,
+  `click --new-tab`, Control-click, middle-click and `open --new --tab`, all
+  in the opener's group, listed with their opener and steered by `--tab`; two browsers and the ambiguity
   error; the debugger attaching per command and detaching when idle, with refs
   (cross-origin frames included) still working after a re-attach, staying
   attached while a dialog waits, and a dialog opened while detached reported

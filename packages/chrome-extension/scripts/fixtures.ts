@@ -28,7 +28,8 @@ const pages: Record<string, (other: string) => string> = {
 <label>Attachment <input type="file" id="file" onchange="this.files[0].text().then((t) => document.getElementById('got').textContent = this.files[0].name + ': ' + t)"></label>
 <p id="got">-</p>
 <a href="/report.txt">Get the report</a>
-<button onclick="window.open('/next', 'login', 'popup,width=400,height=300')">Sign in with popup</button>`,
+<button onclick="window.open('/next', 'login', 'popup,width=400,height=300')">Sign in with popup</button>
+<p><a href="/next?blank" target="_blank">Blank link</a> <a id="plain" href="/next?plain">Plain link</a></p>`,
 };
 export async function startFixtures(port: number, host = "127.0.0.1"): Promise<Server> {
   const web = createServer((req, res) => {

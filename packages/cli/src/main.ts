@@ -102,7 +102,7 @@ browser (tabs the user shared from the casm browser extension; nothing else in t
   browser tabs [--browser b]         shared tabs
   browser open <url> [--new]         navigate a shared tab, or open a new one in the casm tab group
   browser snapshot                   the page's accessibility tree, iframes included; [eN] are refs
-  browser click <ref>
+  browser click <ref> [--new-tab]    --new-tab: Control/Command-click, so a link opens in a new tab
   browser type <ref> <text> [--submit]   replace the field's text; --submit presses Enter
   browser press <key>                Enter, Tab, Escape, ArrowDown, a, Control+a, Shift+Tab...
   browser screenshot [-o file.png]   save a PNG of the page and print its path (the tab must be in front)
@@ -214,6 +214,7 @@ const options = {
   browser: { type: "string" },
   new: { type: "boolean" },
   submit: { type: "boolean" },
+  "new-tab": { type: "boolean" },
 } as const;
 
 // The first positional decides; flags (and the values of flags that take one) may
@@ -679,8 +680,10 @@ async function run(c: CasmClient) {
           return done(r, () => console.log(`tab ${line(r.tab)}\n${r.text}`));
         }
         case "click": {
-          const ref = rest[0] ?? fail("usage: casm browser click <ref>");
-          return done(await c.call("browser.click", { ...where, ref }));
+          const ref = rest[0] ?? fail("usage: casm browser click <ref> [--new-tab]");
+          const r = await c.call("browser.click", { ...where, ref, newTab: opt["new-tab"] });
+          if (opt["new-tab"] && !r.opened?.length && !opt.json) console.error("no new tab opened (not a link?)");
+          return done(r);
         }
         case "type": {
           const [ref, ...words] = rest;

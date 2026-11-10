@@ -16,7 +16,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { chromium, type BrowserContext } from "playwright";
+import { chromium, type BrowserContext, type Dialog } from "playwright";
 import { Store } from "../../server/src/db.ts";
 import { startServer } from "../../server/src/server.ts";
 
@@ -91,6 +91,8 @@ const ref = (snapshot: string, pattern: RegExp) => {
   assert.ok(m, `no ref for ${pattern} in\n${snapshot}`);
   return m[1];
 };
+const IDLE_MS = 1500;
+const idle = () => new Promise((r) => setTimeout(r, IDLE_MS + 1000));
 const until = async (check: () => Promise<boolean>) => {
   for (let i = 0; i < 50 && !(await check()); i++) await new Promise((r) => setTimeout(r, 100));
 };
@@ -101,12 +103,16 @@ async function browser(name: string) {
     headless: !headed,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
   });
-  // Playwright dismisses dialogs nobody listens for; the extension must see them open.
-  context.on("page", (p) => p.on("dialog", () => {}));
+  // Playwright dismisses dialogs nobody listens for; the extension must see
+  // them open. Kept, to play the user answering one.
+  const dialogs: Dialog[] = [];
+  context.on("page", (p) => p.on("dialog", (d) => dialogs.push(d)));
   const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
   const sw = <T>(fn: string) => worker.evaluate(fn) as Promise<T>;
   // Saved as the popup does it, minus the permission prompt (no one to click it here).
   await sw(`casm.saveSettings({ url: ${JSON.stringify(server.url)}, token: ${JSON.stringify(token)}, label: "" })`);
+  // The debugger lets go after 30 s without commands; here after IDLE_MS.
+  await sw(`casm.setIdleDetachMs(${IDLE_MS})`);
   const share = async (url: string) => {
     const page = await context.newPage();
     await page.goto(url);
@@ -114,7 +120,8 @@ async function browser(name: string) {
     await sw(`casm.share(${tabId})`);
     return { page, tabId };
   };
-  return { context, sw, share, extensionId: new URL(worker.url()).host };
+  const attached = () => sw<number[]>("casm.attached()");
+  return { context, sw, share, attached, dialogs, extensionId: new URL(worker.url()).host };
 }
 
 const contexts: BrowserContext[] = [];
@@ -131,9 +138,15 @@ try {
   const group = await one.sw<{ title: string }>(`chrome.tabs.get(${tabId}).then((t) => chrome.tabGroups.get(t.groupId))`);
   assert.equal(group.title, "casm");
   assert.match((await ok("browser", "tabs")).out, /Test login/);
+  // Sharing alone doesn't attach the debugger (no "debugging" bar yet).
+  assert.deepEqual(await one.attached(), []);
 
   const snap = (await ok("browser", "snapshot")).out;
   assert.match(snap, /heading "Sign in"/);
+  assert.deepEqual(await one.attached(), [tabId], "attached while the agent works");
+  await idle();
+  assert.deepEqual(await one.attached(), [], "detached once it stops");
+  // Refs outlive the detach: the next command attaches again and uses them.
   await ok("browser", "type", ref(snap, /textbox "Email"/), "ada@example.com");
   await ok("browser", "click", ref(snap, /button "Continue"/));
   assert.equal((await ok("browser", "eval", "document.getElementById('out').textContent")).out, "Hello ada@example.com");
@@ -151,6 +164,8 @@ try {
   let frames = (await ok("browser", "snapshot")).out;
   assert.match(frames, /Iframe "same"[^\n]*\n\s+- button "Same button"/);
   assert.match(frames, /Iframe "cross"[^\n]*\n\s+- button "Cross button"/);
+  // A cross-origin frame's refs too, though its session is new after re-attaching.
+  await idle();
   await ok("browser", "click", ref(frames, /button "Cross button"/));
   await ok("browser", "click", ref(frames, /button "Same button"/));
   await ok("browser", "type", ref(frames.slice(frames.indexOf('Iframe "cross"')), /textbox "Field"/), "typed across origins");
@@ -165,6 +180,9 @@ try {
   const asked = await ok("browser", "click", ref(tools, /button "Ask"/));
   assert.match(asked.err, /a confirm dialog is open: "Leave\?"/);
   await refused(/a confirm dialog is open: "Leave\?". Answer it first/, "browser", "snapshot");
+  // A dialog waiting for the agent keeps the debugger attached.
+  await idle();
+  assert.deepEqual(await one.attached(), [tabId]);
   assert.match((await ok("browser", "dialog")).out, /^confirm: Leave\?$/);
   await ok("browser", "dialog", "dismiss");
   assert.equal((await ok("browser", "eval", "document.getElementById('said').textContent")).out, "no");
@@ -173,6 +191,13 @@ try {
   await ok("browser", "dialog", "accept", "Ada Lovelace");
   assert.equal((await ok("browser", "eval", "document.getElementById('said').textContent")).out, "Ada Lovelace");
   await refused(/no dialog is open/, "browser", "dialog", "accept");
+  // A dialog that opens while no agent works is the user's: commands say so at once.
+  await ok("browser", "eval", "setTimeout(() => alert('while idle'), 2000); 1");
+  await idle();
+  await until(async () => one.dialogs.some((d) => d.message() === "while idle"));
+  await refused(/a dialog is probably open .* ask the user to answer it/, "browser", "snapshot");
+  await one.dialogs.find((d) => d.message() === "while idle")!.accept();
+  assert.match((await ok("browser", "snapshot")).out, /button "Ask"/);
 
   // Uploads: a file from this machine set on the page's file input.
   const upload = join(dir, "notes.txt");

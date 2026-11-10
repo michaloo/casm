@@ -11,10 +11,13 @@
 // tab in a popup window, which Chrome may refuse to group, is tracked as a
 // "loose" share instead, and ends with its window.
 //
-// Shared tabs get the debugger attached, so Chrome shows its own "started
-// debugging this browser" bar while anything is shared; cancelling that bar
-// unshares everything. Every agent command checks again that its tab is in
-// one of our groups before touching it: the server's list is not trusted.
+// The debugger attaches to a shared tab when an agent command arrives and
+// detaches IDLE_DETACH_MS after the last one, unless a command is still
+// running, a dialog is waiting for the agent or a download is in progress.
+// So Chrome's "started debugging this browser" bar shows while agents work.
+// Cancel on that bar detaches only; the tabs stay shared and the next command
+// attaches again. Every agent command checks again that its tab is shared
+// before touching it: the server's list is not trusted.
 //
 // The WebSocket to the casm server keeps this worker alive while connected
 // (a request every 20 s), an alarm wakes it to reconnect after it was
@@ -28,6 +31,7 @@ const CALL_TIMEOUT_MS = 10_000;
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 30_000;
 const NEW_TAB_LOAD_MS = 10_000;
+let IDLE_DETACH_MS = 30_000;
 
 const conn = {
   ws: null,
@@ -41,6 +45,9 @@ const conn = {
   waiting: new Map(),
 };
 const attached = new Set();
+// Per tab: commands running, and the idle timer that detaches the debugger.
+const inFlight = new Map();
+const idleTimers = new Map();
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -176,10 +183,26 @@ async function attach(tabId) {
   await act.setup(tabId);
 }
 
-async function detach(tabId) {
-  attached.delete(tabId);
-  act.forgetTab(tabId);
-  await chrome.debugger.detach({ tabId }).catch(() => {});
+// `forget`: the tab is no longer shared, so its refs and downloads go too.
+async function detach(tabId, { forget = false } = {}) {
+  clearTimeout(idleTimers.get(tabId));
+  idleTimers.delete(tabId);
+  const was = attached.delete(tabId);
+  if (forget) act.forgetTab(tabId);
+  else act.detached(tabId);
+  if (was) await chrome.debugger.detach({ tabId }).catch(() => {});
+}
+
+// Detach once agents have left the tab alone for a while.
+function idleLater(tabId) {
+  clearTimeout(idleTimers.get(tabId));
+  idleTimers.set(
+    tabId,
+    setTimeout(() => {
+      if (inFlight.get(tabId) || act.keepAttached(tabId)) return idleLater(tabId);
+      void detach(tabId);
+    }, IDLE_DETACH_MS),
+  );
 }
 
 // Reconciles everything with the groups as they are now: which tabs are
@@ -195,9 +218,8 @@ async function syncNow() {
   const sharedAt = {};
   for (const t of tabs) sharedAt[t.id] = before[t.id] ?? new Date().toISOString();
   await chrome.storage.session.set({ sharedAt });
-  for (const id of new Set([...Object.keys(before).map(Number), ...attached])) if (!(id in sharedAt)) await detach(id);
+  for (const id of new Set([...Object.keys(before).map(Number), ...attached])) if (!(id in sharedAt)) await detach(id, { forget: true });
   await dropLoose(Object.keys(before).map(Number).filter((id) => !(id in sharedAt)));
-  for (const t of tabs) await attach(t.id).catch((e) => console.warn(`casm: can't debug tab ${t.id}: ${e.message}`));
   await chrome.action.setBadgeText({ text: tabs.length ? String(tabs.length) : "" });
   await chrome.action.setBadgeBackgroundColor({ color: conn.status === "connected" ? "#d9730d" : "#888888" });
   await publish(tabs, sharedAt);
@@ -241,11 +263,13 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 chrome.debugger.onEvent.addListener((source, method, params) => act.onEvent(source, method, params));
 chrome.tabs.onAttached.addListener(() => void sync());
 chrome.tabGroups.onRemoved.addListener(() => void sync());
-chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
+chrome.debugger.onDetach.addListener(({ tabId }) => {
+  // Cancel on Chrome's debugging bar, the tab closing, DevTools taking over:
+  // the session is gone, the sharing isn't. The next command attaches again.
+  clearTimeout(idleTimers.get(tabId));
   attached.delete(tabId);
-  // The user pressed Cancel on Chrome's debugging bar: that stops all sharing.
-  if (reason === "canceled_by_user") void unshareAll();
-  else void sync();
+  act.detached(tabId);
+  void sync();
 });
 
 // ---------------------------------------------------------------------------
@@ -258,23 +282,29 @@ async function command(p) {
   else {
     // Checked here, against the groups, whatever the server thinks is shared.
     if (!(await isShared(p.tabId))) throw new act.ActionError("that tab is not shared anymore");
-    await attach(p.tabId);
     const t = p.tabId;
-    const run = {
-      open: () => act.navigate(t, p.url),
-      snapshot: () => act.snapshot(t),
-      click: () => act.click(t, p.ref),
-      type: () => act.type(t, p.ref, p.text, p.submit),
-      press: () => act.press(t, p.key),
-      screenshot: () => act.screenshot(t),
-      eval: () => act.evaluate(t, p.expression),
-      upload: () => act.upload(t, p.ref, p.files ?? []),
-      download: () => act.fetchDownload(t, p.n, p.maxBytes),
-    }[p.action];
-    if (p.action === "dialog") r = await act.dialog(t, p.response, p.text);
-    else if (run) r = await act.guarded(t, run);
-    else throw new act.ActionError(`unknown action ${p.action}`, -32601);
-    r = { ...r, tabId: t };
+    inFlight.set(t, (inFlight.get(t) ?? 0) + 1);
+    try {
+      const run = {
+        open: () => act.navigate(t, p.url),
+        snapshot: () => act.snapshot(t),
+        click: () => act.click(t, p.ref),
+        type: () => act.type(t, p.ref, p.text, p.submit),
+        press: () => act.press(t, p.key),
+        screenshot: () => act.screenshot(t),
+        eval: () => act.evaluate(t, p.expression),
+        upload: () => act.upload(t, p.ref, p.files ?? []),
+        download: () => act.fetchDownload(t, p.n, p.maxBytes),
+      }[p.action];
+      if (!run && p.action !== "dialog") throw new act.ActionError(`unknown action ${p.action}`, -32601);
+      await attach(t);
+      if (p.action === "dialog") r = await act.dialog(t, p.response, p.text);
+      else r = await act.guarded(t, run);
+      r = { ...r, tabId: t };
+    } finally {
+      inFlight.set(t, inFlight.get(t) - 1);
+      idleLater(t);
+    }
   }
   // Shares of tabs it opened go out before this answer, so the server knows them.
   await serial(() => {});
@@ -477,7 +507,11 @@ chrome.alarms.create("casm-keepalive", { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener(() => void connect());
 
 // For debugging from the service worker console (and the end-to-end check).
-globalThis.casm = { share: shareTab, unshare: unshareTab, unshareAll, sync, reconnect, state, saveSettings, command };
+globalThis.casm = {
+  share: shareTab, unshare: unshareTab, unshareAll, sync, reconnect, state, saveSettings, command,
+  attached: () => [...attached],
+  setIdleDetachMs: (ms) => (IDLE_DETACH_MS = ms),
+};
 
 void connect();
 void sync();

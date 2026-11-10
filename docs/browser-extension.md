@@ -37,8 +37,7 @@ ungoogled Chromium, side by side.
   **casm** (one per window). Only http and https pages can be shared.
 - **Stop:** the popup's *Stop* (per tab, or *Stop sharing all*), the context
   menu again, dragging the tab out of the group, ungrouping or closing the
-  group, closing the tab, or *Cancel* on Chrome's debugging bar (which stops
-  all sharing).
+  group, or closing the tab.
 - The group is the truth. Dragging another tab **into** the casm group shares
   it too.
 - **Tabs a shared tab opens are shared too.** `window.open`, `target=_blank`
@@ -48,8 +47,14 @@ ungoogled Chromium, side by side.
   agent stuck at "a window opened" is no help. The agent sees them in the
   answer to the command that opened them ("opened tab 4 … opened by 2") and
   in `casm browser tabs`. Unshare them like any other tab.
-- While any tab is shared, the extension holds a `chrome.debugger` session
-  on it, and Chrome shows its own "casm started debugging this browser" bar.
+- **Chrome's debugging bar shows while agents work.** The extension attaches
+  `chrome.debugger` to a shared tab when an agent command arrives, and
+  detaches 30 s after the last one, so Chrome's own "casm started debugging
+  this browser" bar is an activity light, not a sharing light (the casm group
+  and the toolbar badge show sharing). It stays attached while a command
+  runs, while a dialog waits for the agent and while a download runs. *Cancel*
+  on the bar detaches at once but doesn't unshare: the next command attaches
+  again (2026-11-10 decision).
 - Sharing does not survive a browser restart: the extension remembers its
   group ids in session storage, so a restored group titled "casm" shares
   nothing until you share again.
@@ -106,8 +111,13 @@ Refs are forgotten on the next snapshot and on navigation.
   once with the dialog, which the CLI prints ("a confirm dialog is open:
   "Leave?"; answer it: casm browser dialog accept|dismiss"). While it is open,
   every other command on the tab fails at once (error 1002) with the same
-  advice. Only the agent (`casm browser dialog accept [text]|dismiss`) or the
-  user answers it; casm never does.
+  advice, and the debugger stays attached so the agent can answer it. Only the
+  agent (`casm browser dialog accept [text]|dismiss`) or the user answers it;
+  casm never does. A dialog that opens while no agent is working (the
+  debugger detached) is the user's: Chrome shows it as usual, and a new
+  debugger session can neither see nor answer it. The page is blocked then, so
+  the next command fails within 2 s with "a dialog is probably open in the
+  browser … ask the user to answer it".
 - **Uploads.** The files are read on the agent's machine and sent over the
   connection (10 MiB in all, base64 inside one message). In the page, the
   extension builds `File` objects from the bytes, sets them on the input with
@@ -123,7 +133,9 @@ Refs are forgotten on the next snapshot and on navigation.
   links and blob: URLs still alive. It fails for one-time links, downloads a
   form POST started and cross-origin URLs the page may not fetch; the error
   says to ask the user for the file. The file Chrome saved stays on the
-  browser's machine, untouched.
+  browser's machine, untouched. Only downloads that start while the debugger
+  is attached are seen: during agent work and the 30 s after it, which covers
+  downloads an agent's click starts.
 
 ## Architecture
 
@@ -157,8 +169,7 @@ casm CLI (agent's shell) ── browser.snapshot {tab?, browser?} ──▶ casm
   server's list. The server is never trusted to name a tab.
 - **Service worker lifetime (MV3).** An open WebSocket with traffic keeps
   the worker alive (Chrome 116+), so the extension sends `server.info` every
-  20 s and treats a missed answer as a lost connection. Attached debugger
-  sessions keep it alive too. A lost connection retries with backoff
+  20 s and treats a missed answer as a lost connection. A lost connection retries with backoff
   (1 s to 30 s); a `chrome.alarms` tick every 30 s restarts the worker and
   reconnects after the browser slept. A refused token stops retrying until the
   settings are saved again.
@@ -225,7 +236,10 @@ the popup then shows a warning with an *Allow access* button.
   cross-origin iframes (click and type inside them); confirm and prompt
   dialogs; an upload; a download fetched back; a popup shared automatically;
   a background tab refused for a screenshot; two browsers and the ambiguity
-  error; unsharing by ungrouping; a command for the unshared tab refused
+  error; the debugger attaching per command and detaching when idle, with refs
+  (cross-origin frames included) still working after a re-attach, staying
+  attached while a dialog waits, and a dialog opened while detached reported
+  as the user's; unsharing by ungrouping; a command for the unshared tab refused
   inside the extension; the popup's missing-access warning; and closing the
   browser.
 - Not tested here: real Chrome and ungoogled Chromium (Playwright's Chromium
@@ -235,8 +249,11 @@ the popup then shows a warning with an *Allow access* button.
 ## Limitations and open questions
 
 - **The debugging bar** is browser-wide in current Chrome ("started debugging
-  this browser"), not per tab. Whether to keep the debugger attached while a
-  tab is shared (as now) is still open.
+  this browser"), not per tab, and appearing and disappearing shifts page
+  content. Considered and not taken: keeping it attached while shared (always
+  on), content scripts without the debugger (lower fidelity, broad site
+  permissions), and Chrome's `--silent-debugger-extension-api` flag (silences
+  it for every extension).
 - **Shadow DOM, canvas, PDFs.** Open shadow roots are in the accessibility
   tree; canvas-drawn UIs and Chrome's PDF viewer aren't readable as text
   (use `screenshot`). `eval` doesn't reach into iframes.

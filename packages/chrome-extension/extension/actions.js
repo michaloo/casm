@@ -2,13 +2,21 @@
 // Protocol). The caller (background.js) has already checked the tab is shared
 // and attached the debugger.
 //
+// The debugger is attached only while agents work (background.js detaches
+// it when they stop), so what must outlive a detach lives in the tab's state:
+// refs (backend node ids stay valid across sessions), the downloads, and the
+// frame each belongs to, by target id rather than by session.
+//
 // Frames: same-process iframes share the tab's own session; cross-origin
 // ones (out-of-process) get a session each through Target.setAutoAttach.
-// A ref remembers its session, and clicks add up the iframes' offsets.
+// A ref remembers its frame, and clicks add up the iframes' offsets.
 //
 // Dialogs block the page (Runtime.evaluate waits until they close), so each
 // command races against a dialog opening, and while one is open every command
-// but `dialog` fails at once. Nothing answers a dialog except the agent or the user.
+// but `dialog` fails at once. Nothing answers a dialog except the agent or the
+// user. One that opens while detached is shown to the user by Chrome and can't
+// be seen from a new session; the page then doesn't answer, which setup
+// reports after SETUP_WAIT_MS.
 import { formatAXTree } from "./snapshot.js";
 import { keyEvents } from "./keys.js";
 
@@ -22,15 +30,17 @@ export class ActionError extends Error {
 
 const LOAD_WAIT_MS = 10_000;
 const SCREENSHOT_WAIT_MS = 8_000;
+const SETUP_WAIT_MS = 2_000;
 // After a click or a key, how long a dialog or a popup it caused has to show up in the answer.
 const SETTLE_MS = 250;
 
 const cdp = (tabId, method, params = {}, sessionId) => chrome.debugger.sendCommand(sessionId ? { tabId, sessionId } : { tabId }, method, params);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Per shared tab, in memory (a restarted service worker sets it up again):
-// child sessions (sessionId → {targetId, parent}), the last snapshot's refs,
-// the open dialog and the downloads.
+// Per shared tab, in memory: for the current attach, its setup and child
+// sessions (sessionId → {targetId, parent}); kept across attaches, the last
+// snapshot's refs and the downloads. `dialog` is open while attached (it
+// keeps the debugger attached).
 const tabs = new Map();
 function state(tabId) {
   let s = tabs.get(tabId);
@@ -38,8 +48,26 @@ function state(tabId) {
   return s;
 }
 
+// The tab is no longer shared: everything goes.
 export function forgetTab(tabId) {
   tabs.delete(tabId);
+}
+
+// The debugger let go of the tab (idle, or the user's Cancel): sessions are
+// gone, refs and downloads stay. A dialog still open is now the user's.
+export function detached(tabId) {
+  const s = tabs.get(tabId);
+  if (!s) return;
+  s.ready = null;
+  s.sessions.clear();
+  s.dialog = null;
+}
+
+// What keeps the debugger attached between commands: an open dialog (only
+// this session can answer it) or a download still running (its progress).
+export function keepAttached(tabId) {
+  const s = tabs.get(tabId);
+  return !!s && (!!s.dialog || s.downloads.some((d) => d.state === "inProgress"));
 }
 
 export function forgetRefs(tabId) {
@@ -50,9 +78,15 @@ export function forgetRefs(tabId) {
 // Domains and auto-attach to out-of-process iframes, once per attach.
 export function setup(tabId) {
   const s = state(tabId);
-  s.ready ??= (async () => {
-    await initSession(tabId, undefined);
-  })().catch((e) => {
+  s.ready ??= Promise.race([
+    initSession(tabId, undefined),
+    sleep(SETUP_WAIT_MS).then(() => {
+      throw new ActionError(
+        "the page does not respond: a dialog is probably open in the browser (it opened while no agent was working, so it is the user's): ask the user to answer it, then try again",
+        1002,
+      );
+    }),
+  ]).catch((e) => {
     s.ready = null;
     throw e;
   });
@@ -96,7 +130,7 @@ export function onEvent(source, method, params) {
       if (s.dialog?.session === from) s.dialog = null;
       break;
     case "Page.downloadWillBegin":
-      s.downloads.push({ n: s.nextDownload++, guid: params.guid, session: from, url: params.url, filename: params.suggestedFilename ?? "", state: "inProgress", startedAt: new Date().toISOString() });
+      s.downloads.push({ n: s.nextDownload++, guid: params.guid, frame: frameOf(s, from), url: params.url, filename: params.suggestedFilename ?? "", state: "inProgress", startedAt: new Date().toISOString() });
       break;
     case "Page.downloadProgress": {
       const d = s.downloads.find((x) => x.guid === params.guid);
@@ -104,6 +138,22 @@ export function onEvent(source, method, params) {
       break;
     }
   }
+}
+
+// A frame key that outlives sessions: the out-of-process frame's target id, or undefined for the tab's own.
+function frameOf(s, sessionId) {
+  return sessionId === undefined ? undefined : s.sessions.get(sessionId)?.targetId;
+}
+
+// The current session for a frame key, waiting briefly for a re-attach to announce it.
+async function sessionOf(tabId, frame) {
+  if (frame === undefined) return undefined;
+  const s = state(tabId);
+  for (let i = 0; i < 20; i++) {
+    for (const [sessionId, info] of s.sessions) if (info.targetId === frame) return sessionId;
+    await sleep(50);
+  }
+  throw new ActionError("that frame is gone: take a new snapshot");
 }
 
 export function openDialog(tabId) {
@@ -178,7 +228,8 @@ export async function snapshot(tabId) {
       nodeId: `${i}:${n.nodeId}`,
       parentId: n.parentId === undefined ? undefined : `${i}:${n.parentId}`,
       childIds: (n.childIds ?? []).map((c) => `${i}:${c}`),
-      session: f.session,
+      session: frameOf(state(tabId), f.session),
+      sessionId: f.session,
     }));
     trees.push({ frame: f, nodes: mine });
     all.push(...mine);
@@ -186,7 +237,7 @@ export async function snapshot(tabId) {
   // Each frame's document goes under its <iframe> element in the parent.
   for (const { frame, nodes } of trees) {
     if (!frame.owner) continue;
-    const owner = all.find((n) => n.session === frame.owner.session && n.backendDOMNodeId === frame.owner.node);
+    const owner = all.find((n) => n.sessionId === frame.owner.session && n.backendDOMNodeId === frame.owner.node);
     if (!owner) continue;
     for (const root of nodes.filter((n) => n.parentId === undefined)) {
       root.parentId = owner.nodeId;
@@ -206,7 +257,8 @@ function node(tabId, ref) {
 
 // CDP's "No node with given id" means the page changed under the ref.
 async function onNode(tabId, ref, fn) {
-  const { node: backendNodeId, session } = node(tabId, ref);
+  const { node: backendNodeId, session: frame } = node(tabId, ref);
+  const session = await sessionOf(tabId, frame);
   try {
     return await fn(backendNodeId, session);
   } catch (e) {
@@ -408,7 +460,7 @@ export async function upload(tabId, ref, files) {
 }
 
 export function downloads(tabId) {
-  return (tabs.get(tabId)?.downloads ?? []).map(({ guid: _, session: __, ...d }) => ({ ...d, tabId }));
+  return (tabs.get(tabId)?.downloads ?? []).map(({ guid: _, frame: __, ...d }) => ({ ...d, tabId }));
 }
 
 // The page that started the download fetches it again, with its cookies.
@@ -431,10 +483,10 @@ export async function fetchDownload(tabId, n, maxBytes) {
     tabId,
     "Runtime.evaluate",
     { expression: `(${fn})(${JSON.stringify(d.url)}, ${maxBytes})`, awaitPromise: true, returnByValue: true },
-    d.session,
+    await sessionOf(tabId, d.frame).catch(() => undefined),
   );
   if (r.exceptionDetails)
     throw new ActionError(`the page could not fetch ${d.url} again (${r.exceptionDetails.exception?.description?.split("\n")[0] ?? r.exceptionDetails.text}): ask the user for the file`, -32603);
-  const { guid: _, session: __, ...info } = d;
+  const { guid: _, frame: __, ...info } = d;
   return { download: { ...info, tabId }, ...r.result.value };
 }

@@ -1,7 +1,7 @@
 // Turns CDP Accessibility.getFullAXTree nodes into the text agents read, one
 // node per line, with [eN] refs for click and type. A ref is the node's
-// backendDOMNodeId and the `session` its node came with (iframes in another
-// process have their own). Pure, so it is tested in Node (test/extension.test.ts).
+// backendDOMNodeId and the `session` key its node came with (the frame's
+// target id for iframes in another process). Pure, so it is tested in Node (test/extension.test.ts).
 
 // Structure-only roles: not printed, their children move up a level.
 const SKIP = new Set(["none", "generic", "presentation", "InlineTextBox", "LineBreak", "RootWebArea", "WebArea", "Ignored", "GenericContainer"]);

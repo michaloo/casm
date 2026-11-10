@@ -1,6 +1,7 @@
-// Turns a CDP Accessibility.getFullAXTree result into the text agents read,
-// one node per line, with [eN] refs for click and type. Pure, so it is tested
-// in Node (test/snapshot.test.ts).
+// Turns CDP Accessibility.getFullAXTree nodes into the text agents read, one
+// node per line, with [eN] refs for click and type. A ref is the node's
+// backendDOMNodeId and the `session` its node came with (iframes in another
+// process have their own). Pure, so it is tested in Node (test/extension.test.ts).
 
 // Structure-only roles: not printed, their children move up a level.
 const SKIP = new Set(["none", "generic", "presentation", "InlineTextBox", "LineBreak", "RootWebArea", "WebArea", "Ignored", "GenericContainer"]);
@@ -12,7 +13,7 @@ const clean = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 /**
  * @param {Array<any>} nodes AXNode list (nodeId, parentId, childIds, ignored, role, name, value, properties, backendDOMNodeId)
  * @param {{ maxLines?: number }} [opts]
- * @returns {{ text: string, refs: Record<string, number> }}
+ * @returns {{ text: string, refs: Record<string, { node: number, session?: string }> }}
  */
 export function formatAXTree(nodes, opts = {}) {
   const maxLines = opts.maxLines ?? 2000;
@@ -51,7 +52,7 @@ export function formatAXTree(nodes, opts = {}) {
       }
       if (node.backendDOMNodeId && role !== "StaticText") {
         const ref = `e${++next}`;
-        refs[ref] = node.backendDOMNodeId;
+        refs[ref] = { node: node.backendDOMNodeId, ...(node.session ? { session: node.session } : {}) };
         line += ` [${ref}]`;
       }
       lines.push(line);

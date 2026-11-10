@@ -1,10 +1,18 @@
 // What agents do in a shared tab, over chrome.debugger (the Chrome DevTools
 // Protocol). The caller (background.js) has already checked the tab is shared
 // and attached the debugger.
+//
+// Frames: same-process iframes share the tab's own session; cross-origin
+// ones (out-of-process) get a session each through Target.setAutoAttach.
+// A ref remembers its session, and clicks add up the iframes' offsets.
+//
+// Dialogs block the page (Runtime.evaluate waits until they close), so each
+// command races against a dialog opening, and while one is open every command
+// but `dialog` fails at once. Nothing answers a dialog except the agent or the user.
 import { formatAXTree } from "./snapshot.js";
 import { keyEvents } from "./keys.js";
 
-// An error the server passes on with this JSON-RPC code (1001: NotFound).
+// An error the server passes on with this JSON-RPC code (1001 NotFound, 1002 Busy).
 export class ActionError extends Error {
   constructor(message, code = 1001) {
     super(message);
@@ -14,44 +22,241 @@ export class ActionError extends Error {
 
 const LOAD_WAIT_MS = 10_000;
 const SCREENSHOT_WAIT_MS = 8_000;
+// After a click or a key, how long a dialog or a popup it caused has to show up in the answer.
+const SETTLE_MS = 250;
 
-const cdp = (tabId, method, params = {}) => chrome.debugger.sendCommand({ tabId }, method, params);
+const cdp = (tabId, method, params = {}, sessionId) => chrome.debugger.sendCommand(sessionId ? { tabId, sessionId } : { tabId }, method, params);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Refs from each tab's last snapshot (eN → backendDOMNodeId). In memory: a
-// restarted service worker or a navigation asks for a new snapshot.
-const refs = new Map();
+// Per shared tab, in memory (a restarted service worker sets it up again):
+// child sessions (sessionId → {targetId, parent}), the last snapshot's refs,
+// the open dialog and the downloads.
+const tabs = new Map();
+function state(tabId) {
+  let s = tabs.get(tabId);
+  if (!s) tabs.set(tabId, (s = { ready: null, sessions: new Map(), refs: {}, dialog: null, dialogWaiters: new Set(), downloads: [], nextDownload: 1 }));
+  return s;
+}
+
 export function forgetTab(tabId) {
-  refs.delete(tabId);
+  tabs.delete(tabId);
+}
+
+export function forgetRefs(tabId) {
+  const s = tabs.get(tabId);
+  if (s) s.refs = {};
+}
+
+// Domains and auto-attach to out-of-process iframes, once per attach.
+export function setup(tabId) {
+  const s = state(tabId);
+  s.ready ??= (async () => {
+    await initSession(tabId, undefined);
+  })().catch((e) => {
+    s.ready = null;
+    throw e;
+  });
+  return s.ready;
+}
+
+async function initSession(tabId, sessionId) {
+  await cdp(tabId, "Page.enable", {}, sessionId);
+  await cdp(tabId, "DOM.enable", {}, sessionId);
+  // Off and on again, so frames attached before a service worker restart are announced again.
+  await cdp(tabId, "Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true }, sessionId);
+  await cdp(tabId, "Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sessionId);
+}
+
+// chrome.debugger.onEvent, for every tab.
+export function onEvent(source, method, params) {
+  const s = tabs.get(source.tabId);
+  if (!s) return;
+  const from = source.sessionId;
+  switch (method) {
+    case "Target.attachedToTarget":
+      if (params.targetInfo?.type === "iframe") {
+        s.sessions.set(params.sessionId, { targetId: params.targetInfo.targetId, parent: from });
+        initSession(source.tabId, params.sessionId).catch(() => {});
+      }
+      break;
+    case "Target.detachedFromTarget":
+      s.sessions.delete(params.sessionId);
+      break;
+    case "Page.javascriptDialogOpening":
+      s.dialog = {
+        session: from,
+        type: params.type,
+        message: params.message ?? "",
+        ...(params.type === "prompt" ? { defaultPrompt: params.defaultPrompt ?? "" } : {}),
+        url: params.url,
+      };
+      for (const wake of s.dialogWaiters) wake();
+      break;
+    case "Page.javascriptDialogClosed":
+      if (s.dialog?.session === from) s.dialog = null;
+      break;
+    case "Page.downloadWillBegin":
+      s.downloads.push({ n: s.nextDownload++, guid: params.guid, session: from, url: params.url, filename: params.suggestedFilename ?? "", state: "inProgress", startedAt: new Date().toISOString() });
+      break;
+    case "Page.downloadProgress": {
+      const d = s.downloads.find((x) => x.guid === params.guid);
+      if (d) Object.assign(d, { state: params.state, receivedBytes: params.receivedBytes, ...(params.totalBytes ? { totalBytes: params.totalBytes } : {}) });
+      break;
+    }
+  }
+}
+
+export function openDialog(tabId) {
+  const d = tabs.get(tabId)?.dialog;
+  if (!d) return undefined;
+  const { session: _, ...dialog } = d;
+  return dialog;
+}
+
+// Runs one command, unless a dialog is open; returns early with `dialog` when one opens meanwhile.
+export async function guarded(tabId, run) {
+  const s = state(tabId);
+  const open = openDialog(tabId);
+  if (open)
+    throw new ActionError(`a ${open.type} dialog is open: ${JSON.stringify(open.message)}. Answer it first: casm browser dialog accept|dismiss`, 1002);
+  let wake;
+  const opened = new Promise((r) => s.dialogWaiters.add((wake = r)));
+  try {
+    const r = await Promise.race([run(), opened.then(() => ({}))]);
+    return r;
+  } finally {
+    s.dialogWaiters.delete(wake);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot, with iframes
+
+// Every frame of the tab: [{session, frameId, owner: {session, node}?}].
+async function frames(tabId) {
+  const s = state(tabId);
+  const out = [];
+  const walk = (tree, session, root) => {
+    out.push({ session, frameId: tree.frame.id, root });
+    for (const child of tree.childFrames ?? []) walk(child, session, false);
+  };
+  for (const session of [undefined, ...s.sessions.keys()]) {
+    try {
+      walk((await cdp(tabId, "Page.getFrameTree", {}, session)).frameTree, session, true);
+    } catch {
+      // A frame that went away meanwhile.
+    }
+  }
+  for (const f of out) {
+    if (f.session === undefined && f.root) continue;
+    // A same-process frame's owner is in its own session; a child session's root's, in the parent's.
+    const ownerSession = f.root ? s.sessions.get(f.session)?.parent : f.session;
+    try {
+      const { backendNodeId } = await cdp(tabId, "DOM.getFrameOwner", { frameId: f.frameId }, ownerSession);
+      f.owner = { session: ownerSession, node: backendNodeId };
+      if (f.root) s.sessions.get(f.session).owner = backendNodeId;
+    } catch {}
+  }
+  return out;
+}
+
+export async function snapshot(tabId) {
+  await setup(tabId);
+  const all = [];
+  const list = await frames(tabId);
+  const trees = [];
+  for (const [i, f] of list.entries()) {
+    let nodes;
+    try {
+      ({ nodes } = await cdp(tabId, "Accessibility.getFullAXTree", { frameId: f.frameId }, f.session));
+    } catch {
+      continue;
+    }
+    // Node ids are per frame: prefix them, and remember each node's session.
+    const mine = nodes.map((n) => ({
+      ...n,
+      nodeId: `${i}:${n.nodeId}`,
+      parentId: n.parentId === undefined ? undefined : `${i}:${n.parentId}`,
+      childIds: (n.childIds ?? []).map((c) => `${i}:${c}`),
+      session: f.session,
+    }));
+    trees.push({ frame: f, nodes: mine });
+    all.push(...mine);
+  }
+  // Each frame's document goes under its <iframe> element in the parent.
+  for (const { frame, nodes } of trees) {
+    if (!frame.owner) continue;
+    const owner = all.find((n) => n.session === frame.owner.session && n.backendDOMNodeId === frame.owner.node);
+    if (!owner) continue;
+    for (const root of nodes.filter((n) => n.parentId === undefined)) {
+      root.parentId = owner.nodeId;
+      owner.childIds.push(root.nodeId);
+    }
+  }
+  const out = formatAXTree(all);
+  state(tabId).refs = out.refs;
+  return { text: out.text };
 }
 
 function node(tabId, ref) {
-  const id = refs.get(tabId)?.[ref];
-  if (!id) throw new ActionError(`unknown ref ${ref}: take a new snapshot (refs last until the next snapshot or navigation)`);
-  return id;
+  const r = tabs.get(tabId)?.refs[ref];
+  if (!r) throw new ActionError(`unknown ref ${ref}: take a new snapshot (refs last until the next snapshot or navigation)`);
+  return r;
 }
 
 // CDP's "No node with given id" means the page changed under the ref.
 async function onNode(tabId, ref, fn) {
-  const backendNodeId = node(tabId, ref);
+  const { node: backendNodeId, session } = node(tabId, ref);
   try {
-    return await fn(backendNodeId);
+    return await fn(backendNodeId, session);
   } catch (e) {
-    if (/node|object/i.test(String(e?.message))) throw new ActionError(`ref ${ref} is stale (${e.message}): take a new snapshot`);
+    if (!(e instanceof ActionError) && /node|object|session|target/i.test(String(e?.message))) throw new ActionError(`ref ${ref} is stale (${e.message}): take a new snapshot`);
     throw e;
   }
 }
 
-function withTimeout(promise, ms, message) {
-  let timer;
-  return Promise.race([promise, new Promise((_, reject) => (timer = setTimeout(() => reject(new ActionError(message, -32603)), ms)))]).finally(() =>
-    clearTimeout(timer),
-  );
+// The <iframe> elements between the page and `session`, outermost first.
+async function owners(tabId, session) {
+  const s = state(tabId);
+  const chain = [];
+  while (session !== undefined) {
+    const info = s.sessions.get(session);
+    if (!info) throw new ActionError("the frame is gone: take a new snapshot");
+    if (info.owner === undefined) info.owner = (await cdp(tabId, "DOM.getFrameOwner", { frameId: info.targetId }, info.parent)).backendNodeId;
+    chain.unshift({ session: info.parent, node: info.owner });
+    session = info.parent;
+  }
+  return chain;
 }
+
+// The node's centre in the tab's viewport: an out-of-process frame reports
+// boxes in its own viewport, so each <iframe>'s content box is added.
+async function centre(tabId, backendNodeId, session) {
+  const chain = await owners(tabId, session);
+  for (const o of chain) await cdp(tabId, "DOM.scrollIntoViewIfNeeded", { backendNodeId: o.node }, o.session);
+  await cdp(tabId, "DOM.scrollIntoViewIfNeeded", { backendNodeId }, session);
+  let dx = 0;
+  let dy = 0;
+  for (const o of chain) {
+    const { model } = await cdp(tabId, "DOM.getBoxModel", { backendNodeId: o.node }, o.session);
+    // Same-process frames above report page coordinates already; only cross-session steps add up.
+    dx += model.content[0];
+    dy += model.content[1];
+  }
+  const { quads } = await cdp(tabId, "DOM.getContentQuads", { backendNodeId }, session);
+  const q = quads?.[0];
+  if (!q) return null;
+  return { x: dx + (q[0] + q[2] + q[4] + q[6]) / 4, y: dy + (q[1] + q[3] + q[5] + q[7]) / 4 };
+}
+
+// ---------------------------------------------------------------------------
+// Commands
 
 async function waitForLoad(tabId) {
   const until = Date.now() + LOAD_WAIT_MS;
   while (Date.now() < until) {
-    await new Promise((r) => setTimeout(r, 100));
+    await sleep(100);
+    if (openDialog(tabId)) return;
     try {
       const { result } = await cdp(tabId, "Runtime.evaluate", { expression: "document.readyState", returnByValue: true });
       if (result?.value === "complete") return;
@@ -61,17 +266,8 @@ async function waitForLoad(tabId) {
   }
 }
 
-export async function snapshot(tabId) {
-  await cdp(tabId, "DOM.enable");
-  await cdp(tabId, "Accessibility.enable");
-  const { nodes } = await cdp(tabId, "Accessibility.getFullAXTree");
-  const out = formatAXTree(nodes);
-  refs.set(tabId, out.refs);
-  return { text: out.text };
-}
-
 export async function navigate(tabId, url) {
-  refs.delete(tabId);
+  forgetRefs(tabId);
   const r = await cdp(tabId, "Page.navigate", { url });
   if (r.errorText) throw new ActionError(`could not open ${url}: ${r.errorText}`, -32603);
   await waitForLoad(tabId);
@@ -79,32 +275,36 @@ export async function navigate(tabId, url) {
 }
 
 export async function click(tabId, ref) {
-  await onNode(tabId, ref, async (backendNodeId) => {
-    await cdp(tabId, "DOM.scrollIntoViewIfNeeded", { backendNodeId });
-    const { quads } = await cdp(tabId, "DOM.getContentQuads", { backendNodeId });
-    const q = quads?.[0];
-    if (!q) throw new ActionError(`${ref} has no visible box to click`);
-    const x = (q[0] + q[2] + q[4] + q[6]) / 4;
-    const y = (q[1] + q[3] + q[5] + q[7]) / 4;
-    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
-    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+  await onNode(tabId, ref, async (backendNodeId, session) => {
+    const p = await centre(tabId, backendNodeId, session);
+    if (!p) throw new ActionError(`${ref} has no visible box to click`);
+    // Input goes to the tab's own session, which routes it into the frame under the point.
+    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", ...p });
+    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", ...p, button: "left", clickCount: 1 });
+    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", ...p, button: "left", clickCount: 1 });
   });
+  await sleep(SETTLE_MS);
   return {};
 }
 
 export async function type(tabId, ref, text, submit) {
-  await onNode(tabId, ref, async (backendNodeId) => {
-    await cdp(tabId, "DOM.focus", { backendNodeId });
+  await onNode(tabId, ref, async (backendNodeId, session) => {
+    await cdp(tabId, "DOM.focus", { backendNodeId }, session);
     // Select what's there, so the text replaces it, as typing over a selection does.
-    const { object } = await cdp(tabId, "DOM.resolveNode", { backendNodeId });
-    await cdp(tabId, "Runtime.callFunctionOn", {
-      objectId: object.objectId,
-      functionDeclaration: `function () {
-        if (typeof this.select === "function" && "value" in this) this.select();
-        else if (this.isContentEditable) { const r = document.createRange(); r.selectNodeContents(this); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
-      }`,
-    });
+    const { object } = await cdp(tabId, "DOM.resolveNode", { backendNodeId }, session);
+    await cdp(
+      tabId,
+      "Runtime.callFunctionOn",
+      {
+        objectId: object.objectId,
+        functionDeclaration: `function () {
+          if (typeof this.select === "function" && "value" in this) this.select();
+          else if (this.isContentEditable) { const r = document.createRange(); r.selectNodeContents(this); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+        }`,
+      },
+      session,
+    );
+    // Keyboard input goes to the focused frame through the tab's session.
     if (text) await cdp(tabId, "Input.insertText", { text });
     else await press(tabId, "Delete");
   });
@@ -121,15 +321,27 @@ export async function press(tabId, key) {
   }
   await cdp(tabId, "Input.dispatchKeyEvent", events.down);
   await cdp(tabId, "Input.dispatchKeyEvent", events.up);
+  await sleep(SETTLE_MS);
   return {};
 }
 
+// Chrome paints only the front tab of a window that isn't minimized. casm
+// never brings a tab to the front: that is the user's call.
 export async function screenshot(tabId) {
-  const { data } = await withTimeout(
+  const tab = await chrome.tabs.get(tabId);
+  const win = await chrome.windows.get(tab.windowId);
+  const { result } = await cdp(tabId, "Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true });
+  if (!tab.active || win.state === "minimized" || result?.value === "hidden")
+    throw new ActionError(
+      `the tab is not visible (${!tab.active ? "another tab is in front in its window" : win.state === "minimized" ? "its window is minimized" : "the page is hidden"}), and casm never brings tabs to the front: ask the user to show it, then try again`,
+      1002,
+    );
+  const { data } = await Promise.race([
     cdp(tabId, "Page.captureScreenshot", { format: "png" }),
-    SCREENSHOT_WAIT_MS,
-    "the screenshot did not come: Chrome may not paint a hidden tab or a minimized window",
-  );
+    sleep(SCREENSHOT_WAIT_MS).then(() => {
+      throw new ActionError("the screenshot did not come: Chrome may not be painting the tab (is its window covered?); ask the user to bring it to the front", 1002);
+    }),
+  ]);
   return { data };
 }
 
@@ -140,4 +352,89 @@ export async function evaluate(tabId, expression) {
     throw new ActionError(`the page threw: ${d.exception?.description ?? d.text}`, -32603);
   }
   return { value: r.result?.value ?? null };
+}
+
+// Without a response: just reports the open dialog (the caller adds it).
+export async function dialog(tabId, response, text) {
+  const s = state(tabId);
+  if (!response) return {};
+  if (!s.dialog) throw new ActionError("no dialog is open in the tab");
+  const { session } = s.dialog;
+  await cdp(tabId, "Page.handleJavaScriptDialog", { accept: response === "accept", ...(text !== undefined ? { promptText: text } : {}) }, session);
+  s.dialog = null;
+  await sleep(SETTLE_MS);
+  return {};
+}
+
+// Files built in the page from their bytes (they come from the agent's
+// machine, not this one) and set on the input, as if the user picked them.
+export async function upload(tabId, ref, files) {
+  const set = await onNode(tabId, ref, async (backendNodeId, session) => {
+    const { object } = await cdp(tabId, "DOM.resolveNode", { backendNodeId }, session);
+    return cdp(
+      tabId,
+      "Runtime.callFunctionOn",
+      {
+        objectId: object.objectId,
+        functionDeclaration: `function (files) {
+          const isFile = (e) => e instanceof HTMLInputElement && e.type === "file";
+          const all = [...document.querySelectorAll("input[type=file]")];
+          const input = isFile(this) ? this
+            : (this.querySelector && this.querySelector("input[type=file]"))
+            || (this.control && isFile(this.control) ? this.control : null)
+            || (all.length === 1 ? all[0] : null);
+          if (!input) throw new Error(all.length ? "that is not a file input, and its frame has " + all.length + " of them: give the input's ref" : "there is no file input there");
+          if (files.length > 1 && !input.multiple) throw new Error("this input takes one file");
+          const dt = new DataTransfer();
+          for (const f of files) {
+            const bin = atob(f.data);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            dt.items.add(new File([bytes], f.name, { type: f.mimeType || "" }));
+          }
+          input.files = dt.files;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          return input.files.length;
+        }`,
+        arguments: [{ value: files }],
+        returnByValue: true,
+      },
+      session,
+    );
+  });
+  if (set.exceptionDetails) throw new ActionError(set.exceptionDetails.exception?.description?.split("\n")[0] ?? set.exceptionDetails.text, -32602);
+  return {};
+}
+
+export function downloads(tabId) {
+  return (tabs.get(tabId)?.downloads ?? []).map(({ guid: _, session: __, ...d }) => ({ ...d, tabId }));
+}
+
+// The page that started the download fetches it again, with its cookies.
+// Works for most links and blob: URLs still alive; not for one-time links or
+// downloads a form POST started.
+export async function fetchDownload(tabId, n, maxBytes) {
+  const d = tabs.get(tabId)?.downloads.find((x) => x.n === n);
+  if (!d) throw new ActionError(`the tab has no download ${n} (casm browser downloads lists them)`);
+  const fn = `async (url, max) => {
+    const r = await fetch(url, { credentials: "include" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const b = await r.blob();
+    if (b.size > max) throw new Error("it is " + b.size + " bytes, more than " + max);
+    const buf = new Uint8Array(await b.arrayBuffer());
+    let s = "";
+    for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    return { data: btoa(s), mimeType: b.type };
+  }`;
+  const r = await cdp(
+    tabId,
+    "Runtime.evaluate",
+    { expression: `(${fn})(${JSON.stringify(d.url)}, ${maxBytes})`, awaitPromise: true, returnByValue: true },
+    d.session,
+  );
+  if (r.exceptionDetails)
+    throw new ActionError(`the page could not fetch ${d.url} again (${r.exceptionDetails.exception?.description?.split("\n")[0] ?? r.exceptionDetails.text}): ask the user for the file`, -32603);
+  const { guid: _, session: __, ...info } = d;
+  return { download: { ...info, tabId }, ...r.result.value };
 }

@@ -3,6 +3,23 @@
 const $ = (id) => document.getElementById(id);
 const ask = (msg) => chrome.runtime.sendMessage(msg);
 
+// Host access to the server, which exempts the extension from Chrome's local
+// network access checks: its WebSocket URL and the same host over HTTP.
+function serverOrigins(url) {
+  try {
+    const u = new URL(url);
+    const secure = u.protocol === "wss:";
+    return [`${secure ? "wss" : "ws"}://${u.hostname}/*`, `${secure ? "https" : "http"}://${u.hostname}/*`];
+  } catch {
+    return null;
+  }
+}
+// Asked when the user saves (permissions.request needs their click); denied is shown, not fatal.
+const requestAccess = (url) => {
+  const origins = serverOrigins(url);
+  return origins ? chrome.permissions.request({ origins }).catch(() => false) : Promise.resolve(false);
+};
+
 const STATUS = {
   idle: "starting",
   unconfigured: "not set up",
@@ -17,6 +34,10 @@ async function render() {
   $("status").textContent = STATUS[s.status] ?? s.status;
   $("status").className = `status ${s.status}`;
   $("status").title = s.detail ?? "";
+
+  const origins = serverOrigins(s.settings.url);
+  $("perm").hidden = !origins || (await chrome.permissions.contains({ origins }).catch(() => false));
+  $("permHost").textContent = origins ? new URL(s.settings.url).hostname : "";
 
   const toggle = $("toggle");
   const cur = s.current;
@@ -52,6 +73,7 @@ async function render() {
   if (!form.dataset.filled) {
     form.url.value = s.settings.url;
     form.label.value = s.settings.label;
+    form.label.placeholder = s.settings.defaultLabel;
     form.token.placeholder = s.settings.hasToken ? "saved (paste to replace)" : "casm token create chrome";
     form.dataset.filled = "1";
     $("settingsBox").open = !s.settings.url || s.status === "refused";
@@ -72,11 +94,18 @@ $("toggle").onclick = async () => {
   if (s.current) await act({ type: s.current.shared ? "unshare" : "share", tabId: s.current.id });
 };
 $("stopAll").onclick = () => act({ type: "unshareAll" });
-$("settings").onsubmit = (e) => {
+$("settings").onsubmit = async (e) => {
   e.preventDefault();
   const f = e.target;
-  void act({ type: "save", url: f.url.value, token: f.token.value, label: f.label.value });
+  const msg = { type: "save", url: f.url.value, token: f.token.value, label: f.label.value };
   f.token.value = "";
+  await requestAccess(msg.url);
+  await act(msg);
+};
+$("permAllow").onclick = async () => {
+  const s = await ask({ type: "state" });
+  await requestAccess(s.settings.url);
+  await render();
 };
 chrome.runtime.onMessage.addListener((m) => m.type === "changed" && void render());
 void render();

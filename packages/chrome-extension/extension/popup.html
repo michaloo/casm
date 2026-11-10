@@ -12,6 +12,11 @@
     <span id="status" class="status"></span>
   </header>
 
+  <section id="perm" class="warning" hidden>
+    <p>Chrome may block the connection to the server once it enforces its local network rules: this extension has no access to <strong id="permHost"></strong>.</p>
+    <button id="permAllow" type="button" class="secondary">Allow access</button>
+  </section>
+
   <section id="current">
     <button id="toggle" type="button"></button>
     <p id="hint" class="hint"></p>

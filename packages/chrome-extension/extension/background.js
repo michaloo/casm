@@ -6,6 +6,11 @@
 // group ids live in chrome.storage.session, so a browser restart (which may
 // restore a group titled "casm") shares nothing.
 //
+// Tabs a shared tab opens (window.open, target=_blank, OAuth popups) are
+// shared too, deliberately: flows like "sign in with…" continue in them. A
+// tab in a popup window, which Chrome may refuse to group, is tracked as a
+// "loose" share instead, and ends with its window.
+//
 // Shared tabs get the debugger attached, so Chrome shows its own "started
 // debugging this browser" bar while anything is shared; cancelling that bar
 // unshares everything. Every agent command checks again that its tab is in
@@ -54,6 +59,14 @@ async function browserId() {
   return browserId;
 }
 
+// The default name agents see: "chrome", "chromium" (ungoogled Chromium says
+// Chromium too), "edge", "brave"…; the server makes it unique.
+function defaultLabel() {
+  const brands = (navigator.userAgentData?.brands ?? []).map((b) => b.brand);
+  const known = [["Google Chrome", "chrome"], ["Microsoft Edge", "edge"], ["Brave", "brave"], ["Opera", "opera"], ["Vivaldi", "vivaldi"], ["Chromium", "chromium"]];
+  return known.find(([brand]) => brands.includes(brand))?.[1] ?? "chromium";
+}
+
 async function saveSettings({ url, token, label }) {
   url = String(url ?? "").trim();
   if (!/^wss?:\/\/[^/]+/.test(url)) throw new Error("the server URL starts with ws:// or wss://, e.g. ws://my-server:7373");
@@ -74,7 +87,10 @@ async function ourGroups() {
 
 async function sharedTabs() {
   const groups = await ourGroups();
-  return (await Promise.all(groups.map((groupId) => chrome.tabs.query({ groupId }).catch(() => [])))).flat();
+  const { loose = [] } = await chrome.storage.session.get("loose");
+  const grouped = (await Promise.all(groups.map((groupId) => chrome.tabs.query({ groupId }).catch(() => [])))).flat();
+  const others = (await Promise.all(loose.map((id) => chrome.tabs.get(id).catch(() => null)))).filter((t) => t && !grouped.some((g) => g.id === t.id));
+  return [...grouped, ...others];
 }
 
 async function isShared(tabId) {
@@ -96,6 +112,22 @@ async function shareNow(tabId, { anyUrl = false } = {}) {
   const tab = await chrome.tabs.get(tabId);
   const url = tab.pendingUrl || tab.url || "";
   if (!anyUrl && !/^https?:\/\//.test(url)) throw new Error("only http and https pages can be shared");
+  const win = await chrome.windows.get(tab.windowId);
+  if (win.type !== "normal") {
+    try {
+      await groupInto(tab);
+    } catch {
+      // Chrome groups tabs of normal windows only (some versions); track this one by id.
+      const { loose = [] } = await chrome.storage.session.get("loose");
+      await chrome.storage.session.set({ loose: [...new Set([...loose, tabId])] });
+    }
+  } else await groupInto(tab);
+  await syncNow();
+}
+
+// Puts the tab into our group in its window, making the group if needed.
+async function groupInto(tab) {
+  const tabId = tab.id;
   const groups = await ourGroups();
   let groupId;
   for (const g of groups) {
@@ -109,34 +141,44 @@ async function shareNow(tabId, { anyUrl = false } = {}) {
   } else {
     await chrome.tabs.group({ tabIds: [tabId], groupId });
   }
-  await syncNow();
+}
+
+async function dropLoose(ids) {
+  const { loose = [] } = await chrome.storage.session.get("loose");
+  await chrome.storage.session.set({ loose: loose.filter((id) => !ids.includes(id)) });
 }
 
 const unshareTab = (tabId) =>
   serial(async () => {
-    if (await isShared(tabId)) await chrome.tabs.ungroup(tabId);
+    await dropLoose([tabId]);
+    if (await isShared(tabId)) await chrome.tabs.ungroup(tabId).catch(() => {});
     await syncNow();
   });
 
 const unshareAll = () =>
   serial(async () => {
     const tabs = await sharedTabs();
-    if (tabs.length) await chrome.tabs.ungroup(tabs.map((t) => t.id)).catch(() => {});
+    await chrome.storage.session.set({ loose: [] });
+    for (const t of tabs) if (t.groupId !== -1) await chrome.tabs.ungroup(t.id).catch(() => {});
     await syncNow();
   });
 
 async function attach(tabId) {
-  if (attached.has(tabId)) return;
-  try {
-    await chrome.debugger.attach({ tabId }, "1.3");
-  } catch (e) {
-    if (!/already attached/i.test(e.message)) throw e;
+  if (!attached.has(tabId)) {
+    try {
+      await chrome.debugger.attach({ tabId }, "1.3");
+    } catch (e) {
+      if (!/already attached/i.test(e.message)) throw e;
+    }
+    attached.add(tabId);
   }
-  attached.add(tabId);
+  // From now on dialogs, downloads and iframes of the tab are tracked.
+  await act.setup(tabId);
 }
 
 async function detach(tabId) {
   attached.delete(tabId);
+  act.forgetTab(tabId);
   await chrome.debugger.detach({ tabId }).catch(() => {});
 }
 
@@ -153,11 +195,8 @@ async function syncNow() {
   const sharedAt = {};
   for (const t of tabs) sharedAt[t.id] = before[t.id] ?? new Date().toISOString();
   await chrome.storage.session.set({ sharedAt });
-  for (const id of new Set([...Object.keys(before).map(Number), ...attached]))
-    if (!(id in sharedAt)) {
-      act.forgetTab(id);
-      await detach(id);
-    }
+  for (const id of new Set([...Object.keys(before).map(Number), ...attached])) if (!(id in sharedAt)) await detach(id);
+  await dropLoose(Object.keys(before).map(Number).filter((id) => !(id in sharedAt)));
   for (const t of tabs) await attach(t.id).catch((e) => console.warn(`casm: can't debug tab ${t.id}: ${e.message}`));
   await chrome.action.setBadgeText({ text: tabs.length ? String(tabs.length) : "" });
   await chrome.action.setBadgeBackgroundColor({ color: conn.status === "connected" ? "#d9730d" : "#888888" });
@@ -168,18 +207,38 @@ async function syncNow() {
 async function publish(tabs, sharedAt) {
   if (conn.status !== "connected") return;
   const s = await settings();
-  const shared = tabs.map((t) => ({ tabId: t.id, title: t.title ?? "", url: t.pendingUrl || t.url || "", sharedAt: sharedAt[t.id] }));
+  const ids = new Set(tabs.map((t) => t.id));
+  const shared = tabs.map((t) => ({
+    tabId: t.id,
+    title: t.title ?? "",
+    url: t.pendingUrl || t.url || "",
+    sharedAt: sharedAt[t.id],
+    // Only a shared opener: other tabs' ids are none of the server's business.
+    ...(t.openerTabId !== undefined && ids.has(t.openerTabId) ? { openerTabId: t.openerTabId } : {}),
+  }));
   // Sent now, before any answer this sync precedes; the reply doesn't matter.
-  call("browser.share", { browserId: await browserId(), label: s.label || "chrome", tabs: shared }).catch((e) => console.warn(`casm: share failed: ${e.message}`));
+  call("browser.share", { browserId: await browserId(), label: s.label || defaultLabel(), tabs: shared }).catch((e) => console.warn(`casm: share failed: ${e.message}`));
 }
 
 chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
-  if (change.status === "loading") act.forgetTab(tabId);
+  if (change.status === "loading") act.forgetRefs(tabId);
   if ("groupId" in change) return void sync();
   // Other tabs' titles and URLs are none of the server's business.
   if (("url" in change || "title" in change) && (await ourGroups()).includes(tab.groupId)) void sync();
 });
 chrome.tabs.onRemoved.addListener(() => void sync());
+// A tab a shared tab opens is shared too, and reported with the next answer.
+const opened = [];
+chrome.tabs.onCreated.addListener(async (tab) => {
+  if (tab.openerTabId === undefined || !(await isShared(tab.openerTabId))) return;
+  try {
+    await shareTab(tab.id, { anyUrl: true });
+    opened.push(tab.id);
+  } catch (e) {
+    console.warn(`casm: can't share the tab ${tab.openerTabId} opened: ${e.message}`);
+  }
+});
+chrome.debugger.onEvent.addListener((source, method, params) => act.onEvent(source, method, params));
 chrome.tabs.onAttached.addListener(() => void sync());
 chrome.tabGroups.onRemoved.addListener(() => void sync());
 chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
@@ -193,38 +252,40 @@ chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
 // Agent commands (browser.command from the server)
 
 async function command(p) {
-  if (p.action === "open" && p.tabId === undefined) return openTab(p.url);
-  // Checked here, against the groups, whatever the server thinks is shared.
-  if (!(await isShared(p.tabId))) throw new act.ActionError("that tab is not shared anymore");
-  await attach(p.tabId);
+  if (p.action === "downloads") return { downloads: (await sharedTabs()).flatMap((t) => act.downloads(t.id)) };
   let r;
-  switch (p.action) {
-    case "open":
-      r = await act.navigate(p.tabId, p.url);
-      break;
-    case "snapshot":
-      r = await act.snapshot(p.tabId);
-      break;
-    case "click":
-      r = await act.click(p.tabId, p.ref);
-      break;
-    case "type":
-      r = await act.type(p.tabId, p.ref, p.text, p.submit);
-      break;
-    case "press":
-      r = await act.press(p.tabId, p.key);
-      break;
-    case "screenshot":
-      r = await act.screenshot(p.tabId);
-      break;
-    case "eval":
-      r = await act.evaluate(p.tabId, p.expression);
-      break;
-    default:
-      throw new act.ActionError(`unknown action ${p.action}`, -32601);
+  if (p.action === "open" && p.tabId === undefined) r = await openTab(p.url);
+  else {
+    // Checked here, against the groups, whatever the server thinks is shared.
+    if (!(await isShared(p.tabId))) throw new act.ActionError("that tab is not shared anymore");
+    await attach(p.tabId);
+    const t = p.tabId;
+    const run = {
+      open: () => act.navigate(t, p.url),
+      snapshot: () => act.snapshot(t),
+      click: () => act.click(t, p.ref),
+      type: () => act.type(t, p.ref, p.text, p.submit),
+      press: () => act.press(t, p.key),
+      screenshot: () => act.screenshot(t),
+      eval: () => act.evaluate(t, p.expression),
+      upload: () => act.upload(t, p.ref, p.files ?? []),
+      download: () => act.fetchDownload(t, p.n, p.maxBytes),
+    }[p.action];
+    if (p.action === "dialog") r = await act.dialog(t, p.response, p.text);
+    else if (run) r = await act.guarded(t, run);
+    else throw new act.ActionError(`unknown action ${p.action}`, -32601);
+    r = { ...r, tabId: t };
   }
-  const tab = await chrome.tabs.get(p.tabId).catch(() => null);
-  return { ...r, tabId: p.tabId, ...(tab ? { url: tab.url ?? "", title: tab.title ?? "" } : {}) };
+  // Shares of tabs it opened go out before this answer, so the server knows them.
+  await serial(() => {});
+  const tab = await chrome.tabs.get(r.tabId).catch(() => null);
+  const dialog = act.openDialog(r.tabId);
+  return {
+    ...r,
+    ...(tab ? { url: tab.url ?? "", title: tab.title ?? "" } : {}),
+    ...(dialog ? { dialog } : {}),
+    ...(opened.length ? { opened: opened.splice(0) } : {}),
+  };
 }
 
 // A new tab, in the casm group of the window that shared last (or the current one).
@@ -233,6 +294,7 @@ async function openTab(url) {
   const { sharedAt = {} } = await chrome.storage.session.get("sharedAt");
   const latest = tabs.sort((a, b) => String(sharedAt[b.id]).localeCompare(String(sharedAt[a.id])))[0];
   const windowId = latest?.windowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
+  // In the background: casm never brings a tab to the front.
   const tab = await chrome.tabs.create({ url, active: false, ...(windowId === undefined ? {} : { windowId }) });
   await shareTab(tab.id, { anyUrl: true });
   const until = Date.now() + NEW_TAB_LOAD_MS;
@@ -371,7 +433,7 @@ async function state() {
   return {
     status: conn.status,
     detail: conn.detail,
-    settings: { url: s.url ?? "", label: s.label ?? "", hasToken: !!s.token },
+    settings: { url: s.url ?? "", label: s.label ?? "", hasToken: !!s.token, defaultLabel: defaultLabel() },
     shared: tabs.map((t) => ({ id: t.id, title: t.title ?? "", url: t.url ?? "" })),
     current: current ? { id: current.id, url: current.url ?? "", shared: tabs.some((t) => t.id === current.id) } : null,
   };

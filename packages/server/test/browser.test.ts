@@ -3,7 +3,7 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -67,8 +67,10 @@ class FakeExtension {
       this.ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
     });
   }
+  browserId = "install-1";
+  label = "chrome-test";
   share(tabs: SharedTab[]) {
-    return this.call("browser.share", { browserId: "install-1", label: "chrome-test", tabs });
+    return this.call("browser.share", { browserId: this.browserId, label: this.label, tabs });
   }
   close() {
     this.ws.close();
@@ -111,6 +113,7 @@ after(async () => {
 
 test("without a connected browser, calls fail at once", async () => {
   assert.deepEqual(await alpha.client.call("browser.tabs", {}), { tabs: [], browsers: [] });
+  assert.deepEqual(await alpha.client.call("browser.list", {}), { browsers: [] });
   await rejects(alpha.client.call("browser.snapshot", {}), ErrorCode.Unreachable, /no browser is connected/);
   const r = await cli(alpha, "browser", "snapshot");
   assert.equal(r.code, 1);
@@ -229,5 +232,139 @@ test("-H reaches a browser connected to a peer; a browser can't share through on
     }
   } finally {
     ext.close();
+  }
+});
+
+// Two browsers side by side, as with Chrome and ungoogled Chromium.
+async function twoBrowsers() {
+  const chrome = await FakeExtension.connect(alpha.url, alpha.token);
+  chrome.browserId = "chrome-install";
+  chrome.label = "chrome";
+  const chromium = await FakeExtension.connect(alpha.url, alpha.token);
+  chromium.browserId = "chromium-install";
+  chromium.label = "chromium";
+  await chrome.share([tab(1, "2026-11-10T14:00:00Z")]);
+  await chromium.share([tab(1, "2026-11-10T14:01:00Z"), tab(2, "2026-11-10T14:02:00Z")]);
+  return { chrome, chromium };
+}
+
+test("with several browsers: list, --browser, --tab implies its browser, ambiguity fails", async () => {
+  const { chrome, chromium } = await twoBrowsers();
+  try {
+    const listed = await cli(alpha, "browser", "list");
+    assert.match(listed.stdout, /^chrome  1 shared tab  connected/m);
+    assert.match(listed.stdout, /^chromium  2 shared tabs  connected/m);
+
+    const ambiguous = await cli(alpha, "browser", "snapshot");
+    assert.equal(ambiguous.code, 1);
+    assert.match(ambiguous.stderr, /2 browsers are connected \(chrome, chromium\): name one with --browser, or a tab with --tab/);
+    await rejects(alpha.client.call("browser.open", { url: "https://example.com/", newTab: true }), ErrorCode.InvalidParams, /2 browsers are connected/);
+    assert.equal(chrome.commands.length + chromium.commands.length, 0, "nothing was guessed");
+
+    // Chrome tab ids collide across browsers; casm's don't.
+    const { tabs } = await alpha.client.call("browser.tabs", {});
+    assert.equal(new Set(tabs.map((t) => t.id)).size, 3);
+    const inChromium = tabs.filter((t) => t.browser === "chromium");
+    assert.equal((await cli(alpha, "browser", "tabs", "--browser", "chromium")).stdout.trim().split("\n").length, 2);
+
+    assert.equal((await cli(alpha, "browser", "click", "e1", "--browser", "chromium")).code, 0);
+    assert.deepEqual(chromium.commands.at(-1), { action: "click", tabId: 2, ref: "e1" });
+    assert.equal((await cli(alpha, "browser", "click", "e2", "--tab", tabs.find((t) => t.browser === "chrome")!.id)).code, 0);
+    assert.deepEqual(chrome.commands.at(-1), { action: "click", tabId: 1, ref: "e2" });
+    await rejects(alpha.client.call("browser.click", { tab: inChromium[0].id, browser: "chrome", ref: "e1" }), ErrorCode.InvalidParams, /is in chromium, not chrome/);
+    await rejects(alpha.client.call("browser.click", { browser: "firefox", ref: "e1" }), ErrorCode.NotFound, /no browser named "firefox" is connected \(connected: chrome, chromium\)/);
+
+    // A third browser with a name in use gets a unique one.
+    const twin = await FakeExtension.connect(alpha.url, alpha.token);
+    twin.browserId = "another-chrome";
+    twin.label = "chrome";
+    await twin.share([]);
+    assert.deepEqual((await alpha.client.call("browser.list", {})).browsers.map((b) => b.name), ["chrome", "chromium", "chrome-2"]);
+    twin.close();
+  } finally {
+    chrome.close();
+    chromium.close();
+  }
+});
+
+test("dialogs and tabs a shared tab opened come back with the result", async () => {
+  const ext = await FakeExtension.connect(alpha.url, alpha.token);
+  try {
+    await ext.share([tab(40, "2026-11-10T15:00:00Z")]);
+    ext.answer = (cmd) => {
+      if (cmd.action === "click") {
+        // Like the extension: the popup is shared before the answer, opener included.
+        void ext.share([tab(40, "2026-11-10T15:00:00Z"), { ...tab(41, "2026-11-10T15:00:01Z", "https://login.example.com/"), openerTabId: 40 }]);
+        return { tabId: 40, opened: [41], dialog: { type: "confirm", message: "Leave?" } };
+      }
+      if (cmd.action === "dialog") return cmd.response ? {} : { dialog: { type: "confirm", message: "Leave?" } };
+      return {};
+    };
+    const clicked = await cli(alpha, "browser", "click", "e1");
+    assert.equal(clicked.code, 0, clicked.stderr);
+    assert.match(clicked.stderr, /a confirm dialog is open: "Leave\?"; answer it: casm browser dialog accept\|dismiss/);
+    assert.match(clicked.stderr, /opened tab \d+ +Tab 41  https:\/\/login.example.com\/  opened by \d+/);
+    const { tabs } = await alpha.client.call("browser.tabs", {});
+    const opener = tabs.find((t) => t.url === "https://example.com/40")!;
+    const r = await alpha.client.call("browser.click", { tab: opener.id, ref: "e1" });
+    assert.equal(r.opened?.[0].openedBy, opener.id);
+    assert.equal(r.dialog?.message, "Leave?");
+
+    assert.match((await cli(alpha, "browser", "dialog")).stdout, /^confirm: Leave\?$/m);
+    assert.equal((await cli(alpha, "browser", "dialog", "accept", "my", "answer")).code, 0);
+    assert.deepEqual(ext.commands.at(-1), { action: "dialog", tabId: 41, response: "accept", text: "my answer" });
+    assert.equal((await cli(alpha, "browser", "dialog", "maybe")).code, 1);
+  } finally {
+    ext.close();
+  }
+});
+
+test("uploads carry the agent's files, within the size cap", async () => {
+  const ext = await FakeExtension.connect(alpha.url, alpha.token);
+  try {
+    await ext.share([tab(50, "2026-11-10T16:00:00Z")]);
+    const file = join(alpha.dir, "report.csv");
+    writeFileSync(file, "a,b\n1,2\n");
+    const up = await cli(alpha, "browser", "upload", "e7", file);
+    assert.equal(up.code, 0, up.stderr);
+    assert.deepEqual(ext.commands.at(-1), { action: "upload", tabId: 50, ref: "e7", files: [{ name: "report.csv", data: Buffer.from("a,b\n1,2\n").toString("base64") }] });
+
+    const big = "A".repeat(Math.ceil((10 * 1024 * 1024 + 3) / 3) * 4);
+    const before = ext.commands.length;
+    await rejects(alpha.client.call("browser.upload", { ref: "e7", files: [{ name: "big.bin", data: big }] }), ErrorCode.InvalidParams, /at most 10485760 bytes/);
+    assert.equal(ext.commands.length, before);
+  } finally {
+    ext.close();
+  }
+});
+
+test("downloads of every browser, and fetching one", async () => {
+  const { chrome, chromium } = await twoBrowsers();
+  try {
+    const d = (tabId: number, n: number, filename: string) => ({ tabId, n, url: `https://example.com/${filename}`, filename, state: "completed", startedAt: `2026-11-10T17:0${n}:00Z` });
+    chrome.answer = (cmd) => (cmd.action === "downloads" ? { downloads: [d(1, 1, "a.pdf")] } : {});
+    chromium.answer = (cmd) =>
+      cmd.action === "downloads"
+        ? { downloads: [d(2, 2, "b.zip")] }
+        : cmd.action === "download"
+          ? { download: d(2, 2, "b.zip"), mimeType: "application/zip", data: Buffer.from("zip!").toString("base64") }
+          : {};
+    const { tabs } = await alpha.client.call("browser.tabs", {});
+    const chromeTab = tabs.find((t) => t.browser === "chrome")!.id;
+    const chromiumTab = tabs.find((t) => t.browser === "chromium" && t.url.endsWith("/2"))!.id;
+    const listed = await cli(alpha, "browser", "downloads");
+    assert.equal(listed.code, 0, listed.stderr);
+    assert.match(listed.stdout, new RegExp(`^${chromeTab}\\.1 +completed +a.pdf`, "m"));
+    assert.match(listed.stdout, new RegExp(`^${chromiumTab}\\.2 +completed +b.zip`, "m"));
+
+    const out = join(alpha.dir, "fetched.zip");
+    const got = await cli(alpha, "browser", "download", `${chromiumTab}.2`, "-o", out);
+    assert.equal(got.code, 0, got.stderr);
+    assert.equal(readFileSync(out, "utf8"), "zip!");
+    assert.deepEqual(chromium.commands.at(-1), { action: "download", tabId: 2, n: 2, maxBytes: 10 * 1024 * 1024 });
+    await rejects(alpha.client.call("browser.download", { id: "x" }), ErrorCode.InvalidParams, /look like 3.1/);
+  } finally {
+    chrome.close();
+    chromium.close();
   }
 });

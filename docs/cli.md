@@ -539,23 +539,29 @@ casm: /etc/hostname is not inside a project folder on this host
 Agents can drive browser tabs that you explicitly share from the casm browser
 extension ([browser extension](browser-extension.md)). Only shared tabs exist
 for these commands; with nothing shared or no browser connected they fail at
-once. `--tab` takes an id from `casm browser tabs`; without it, the most
-recently shared tab.
+once.
 
 ```text
-casm browser tabs                                shared tabs and connected browsers
-casm browser open <url> [--tab t] [--new]        navigate a shared tab, or open a new one in the casm group
-casm browser snapshot [--tab t]                  accessibility tree with [eN] refs
-casm browser click <ref> [--tab t]
-casm browser type <ref> <text> [--submit] [--tab t]
-casm browser press <key> [--tab t]               Enter, Tab, Escape, ArrowDown, a, Control+a…
-casm browser screenshot [--tab t] [-o file.png]  prints the PNG's path
-casm browser eval <js> [--tab t]                 prints the JSON value
+casm browser list                                connected browsers and their shared tab counts
+casm browser tabs [--browser b]                  shared tabs
+casm browser open <url> [--new]                  navigate a shared tab, or open a new one in the casm group
+casm browser snapshot                            accessibility tree with [eN] refs, iframes included
+casm browser click <ref>
+casm browser type <ref> <text> [--submit]
+casm browser press <key>                         Enter, Tab, Escape, ArrowDown, a, Control+a…
+casm browser screenshot [-o file.png]            prints the PNG's path; the tab must be in front
+casm browser eval <js>                           prints the JSON value
+casm browser dialog [accept [text] | dismiss]    show or answer an alert, confirm or prompt
+casm browser upload <ref> <file>...              files from this machine, 10 MiB in all
+casm browser downloads [--browser b]             downloads the shared tabs started
+casm browser download <id> [-o path]             fetch one (10 MiB at most)
 ```
 
+Each command on a tab takes `--tab <id>` (from `casm browser tabs`; it implies
+the browser) or `--browser <name>` (its most recently shared tab). With one
+browser connected neither is needed; with several, one is.
+
 ```console
-$ casm browser tabs
-1    Test login  http://127.0.0.1:35561/
 $ casm browser snapshot
 tab 1    Test login  http://127.0.0.1:35561/
 - heading "Sign in" [level=1] [e1]
@@ -569,13 +575,24 @@ $ casm browser type e3 ada@example.com
 $ casm browser click e4
 $ casm browser eval "document.getElementById('out').textContent"
 Hello ada@example.com
-$ casm browser open http://127.0.0.1:35561/next
-1    Next  http://127.0.0.1:35561/next
-$ casm browser click e4
-casm: browser: unknown ref e4: take a new snapshot (refs last until the next snapshot or navigation)
+$ casm browser click e1
+a confirm dialog is open: "Leave?"; answer it: casm browser dialog accept|dismiss
+$ casm browser snapshot
+casm: browser: a confirm dialog is open: "Leave?". Answer it first: casm browser dialog accept|dismiss
+$ casm browser dialog dismiss
+$ casm browser click e8
+opened tab 2    Next  http://127.0.0.1:35561/next  opened by 1
+$ casm browser list
+chromium  3 shared tabs  connected 11/10/2026, 10:01:31 AM
+chromium-2  1 shared tab  connected 11/10/2026, 10:01:44 AM
+$ casm browser snapshot
+casm: 2 browsers are connected (chromium, chromium-2): name one with --browser, or a tab with --tab
+$ casm browser screenshot --tab 3
+casm: browser: the tab is not visible (another tab is in front in its window), and casm never brings tabs to the front: ask the user to show it, then try again
 ```
 
-`-H <peer>` reaches a browser connected to that peer.
+Dialogs and opened tabs are reported on stderr, after any command that left
+them. `-H <peer>` reaches a browser connected to that peer.
 
 ## Subagents, shell and MCP
 

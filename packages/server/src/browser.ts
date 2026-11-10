@@ -5,7 +5,17 @@
 // from this server to that connection, answered like any JSON-RPC request.
 // Kept in memory only: a disconnected browser shares nothing, and a call for
 // it fails at once instead of waiting for it to come back.
-import { BROWSER_COMMAND_METHOD, ErrorCode, type BrowserCommand, type BrowserTab, type Params, type SharedTab } from "@casm/protocol";
+import {
+  BROWSER_COMMAND_METHOD,
+  BROWSER_FILE_MAX_BYTES,
+  ErrorCode,
+  type BrowserCommand,
+  type BrowserDialog,
+  type BrowserDownload,
+  type BrowserTab,
+  type Params,
+  type SharedTab,
+} from "@casm/protocol";
 import { RpcError } from "./agents.ts";
 import type { Conn } from "./methods.ts";
 
@@ -23,6 +33,13 @@ type Browser = {
   tabs: Map<number, SharedTab>;
   waiting: Map<string, Waiter>;
 };
+type Target = { browser: Browser; tabId: number };
+type Which = { tab?: string; browser?: string };
+// What the extension answers to a command on a tab, besides the command's own fields.
+type Seen = { tabId?: number; url?: string; title?: string; dialog?: BrowserDialog; opened?: number[] };
+type RawDownload = Omit<BrowserDownload, "id" | "tab"> & { tabId: number; n: number };
+
+const notConnected = () => new RpcError(ErrorCode.Unreachable, "no browser is connected: open the casm extension and check its server settings");
 
 export class BrowserHub {
   private browsers = new Map<Conn, Browser>();
@@ -47,9 +64,16 @@ export class BrowserHub {
       for (const other of this.browsers.values()) if (other.browserId === p.browserId) this.closed(other.conn, "the browser reconnected");
       b = { conn, send: conn.send, browserId: p.browserId, label: "", connectedAt: new Date().toISOString(), tabs: new Map(), waiting: new Map() };
       this.browsers.set(conn, b);
-      this.log(`browser connected: ${p.label ?? conn.name}`);
     }
-    b.label = p.label || conn.name || "browser";
+    const wanted = p.label || conn.name || "browser";
+    if (b.label !== wanted && !b.label.startsWith(`${wanted}-`)) {
+      // Names must tell browsers apart: a second "chrome" becomes "chrome-2".
+      const taken = new Set([...this.browsers.values()].filter((o) => o !== b).map((o) => o.label));
+      let label = wanted;
+      for (let n = 2; taken.has(label); n++) label = `${wanted}-${n}`;
+      if (!b.label) this.log(`browser connected: ${label}`);
+      b.label = label;
+    }
     b.tabs = new Map(p.tabs.map((t) => [t.tabId, t]));
     for (const t of p.tabs) this.idFor(b.browserId, t.tabId);
     return { ok: true as const };
@@ -81,33 +105,45 @@ export class BrowserHub {
   }
 
   list() {
-    const tabs = [...this.browsers.values()].flatMap((b) => [...b.tabs.values()].map((t) => this.tab(b, t)));
-    tabs.sort((a, b) => a.sharedAt.localeCompare(b.sharedAt));
-    return { tabs, browsers: [...this.browsers.values()].map((b) => ({ name: b.label, connectedAt: b.connectedAt })) };
+    return [...this.browsers.values()].map((b) => ({ name: b.label, connectedAt: b.connectedAt, tabs: b.tabs.size }));
   }
 
-  // The shared tab `ref` names, else the most recently shared one.
-  target(ref: string | undefined): { browser: Browser; tabId: number } {
-    if (!this.browsers.size) throw new RpcError(ErrorCode.Unreachable, "no browser is connected: open the casm extension and check its server settings");
-    if (ref !== undefined) {
-      const key = this.keys.get(ref);
+  tabs(browser?: string) {
+    const from = browser === undefined ? [...this.browsers.values()] : [this.named(browser)];
+    const tabs = from.flatMap((b) => [...b.tabs.values()].map((t) => this.tab(b, t)));
+    tabs.sort((a, b) => a.sharedAt.localeCompare(b.sharedAt));
+    return tabs;
+  }
+
+  // The browser a call means: named, the tab's, or the only one connected.
+  browser(which: Which): Browser {
+    if (!this.browsers.size) throw notConnected();
+    if (which.tab !== undefined) return this.target(which).browser;
+    if (which.browser !== undefined) return this.named(which.browser);
+    if (this.browsers.size > 1)
+      throw new RpcError(
+        ErrorCode.InvalidParams,
+        `${this.browsers.size} browsers are connected (${this.list().map((b) => b.name).join(", ")}): name one with --browser, or a tab with --tab`,
+      );
+    return [...this.browsers.values()][0];
+  }
+
+  // The shared tab a call acts on: `tab`, else the browser's most recently shared one.
+  target(which: Which): Target {
+    if (!this.browsers.size) throw notConnected();
+    if (which.tab !== undefined) {
+      const key = this.keys.get(which.tab);
       const browser = key && [...this.browsers.values()].find((b) => b.browserId === key.browserId && b.tabs.has(key.tabId));
-      if (!key || !browser) throw new RpcError(ErrorCode.NotFound, `tab ${ref} is not shared${key ? " anymore" : ""} (casm browser tabs lists shared tabs)`);
+      if (!key || !browser) throw new RpcError(ErrorCode.NotFound, `tab ${which.tab} is not shared${key ? " anymore" : ""} (casm browser tabs lists shared tabs)`);
+      if (which.browser !== undefined && which.browser !== browser.label)
+        throw new RpcError(ErrorCode.InvalidParams, `tab ${which.tab} is in ${browser.label}, not ${which.browser}`);
       return { browser, tabId: key.tabId };
     }
-    let best: { browser: Browser; tab: SharedTab } | undefined;
-    for (const browser of this.browsers.values())
-      for (const tab of browser.tabs.values()) if (!best || tab.sharedAt > best.tab.sharedAt) best = { browser, tab };
-    if (!best) throw new RpcError(ErrorCode.NotFound, "no tab is shared: share one from the casm extension (it joins the casm tab group)");
-    return { browser: best.browser, tabId: best.tab.tabId };
-  }
-
-  // For browser.open with no tab to navigate: the browser that shared last, or the only one.
-  anyBrowser(): Browser {
-    const all = [...this.browsers.values()];
-    if (!all.length) throw new RpcError(ErrorCode.Unreachable, "no browser is connected: open the casm extension and check its server settings");
-    const latest = (b: Browser) => [...b.tabs.values()].reduce((m, t) => (t.sharedAt > m ? t.sharedAt : m), "");
-    return all.reduce((a, b) => (latest(b) > latest(a) ? b : a));
+    const browser = this.browser(which);
+    let latest: SharedTab | undefined;
+    for (const t of browser.tabs.values()) if (!latest || t.sharedAt > latest.sharedAt) latest = t;
+    if (!latest) throw new RpcError(ErrorCode.NotFound, `no tab is shared in ${browser.label}: share one from the casm extension (it joins the casm tab group)`);
+    return { browser, tabId: latest.tabId };
   }
 
   // Sends one command and waits for the extension's answer, at most timeoutMs.
@@ -123,14 +159,30 @@ export class BrowserHub {
     });
   }
 
-  // The tab as agents see it, after a command (which may have changed its title or url).
-  tabAfter(browser: Browser, tabId: number, seen?: { url?: string; title?: string }): BrowserTab {
+  // What every tab command returns: the tab after it (its title or url may
+  // have changed), a dialog it left open, and tabs opened meanwhile.
+  result(browser: Browser, tabId: number, seen: Seen) {
     const t = browser.tabs.get(tabId) ?? { tabId, title: "", url: "", sharedAt: new Date().toISOString() };
-    return this.tab(browser, { ...t, ...(seen?.url ? { url: seen.url } : {}), ...(seen?.title !== undefined ? { title: seen.title } : {}) });
+    const tab = this.tab(browser, { ...t, ...(seen.url ? { url: seen.url } : {}), ...(seen.title !== undefined ? { title: seen.title } : {}) });
+    const opened = (seen.opened ?? []).flatMap((id) => (browser.tabs.has(id) ? [this.tab(browser, browser.tabs.get(id)!)] : []));
+    return { tab, ...(seen.dialog ? { dialog: seen.dialog } : {}), ...(opened.length ? { opened } : {}) };
+  }
+
+  download(raw: RawDownload, browser: Browser): BrowserDownload {
+    const { tabId, n, ...rest } = raw;
+    const tab = this.idFor(browser.browserId, tabId);
+    return { ...rest, id: `${tab}.${n}`, tab };
+  }
+
+  private named(name: string): Browser {
+    const b = [...this.browsers.values()].find((x) => x.label === name);
+    if (!b) throw new RpcError(ErrorCode.NotFound, `no browser named "${name}" is connected (connected: ${this.list().map((x) => x.name).join(", ") || "none"})`);
+    return b;
   }
 
   private tab(b: Browser, t: SharedTab): BrowserTab {
-    return { id: this.idFor(b.browserId, t.tabId), browser: b.label, title: t.title, url: t.url, sharedAt: t.sharedAt };
+    const opener = t.openerTabId === undefined ? undefined : this.ids.get(`${b.browserId}\n${t.openerTabId}`);
+    return { id: this.idFor(b.browserId, t.tabId), browser: b.label, title: t.title, url: t.url, sharedAt: t.sharedAt, ...(opener ? { openedBy: opener } : {}) };
   }
 
   private idFor(browserId: string, tabId: number): string {
@@ -157,46 +209,60 @@ export function browserHandlers(hub: BrowserHub) {
     if (u.protocol !== "http:" && u.protocol !== "https:") throw new RpcError(ErrorCode.InvalidParams, `only http and https URLs can be opened, not ${u.protocol}`);
     return u.href;
   };
-  type Seen = { url?: string; title?: string };
+  // One command on the target tab; `extra` picks the command's own fields from the answer.
+  async function onTab<T extends Seen, X extends object>(which: Which, cmd: (tabId: number) => BrowserCommand, extra?: (r: T) => X) {
+    const { browser, tabId } = hub.target(which);
+    const r = await hub.command<T>(browser, cmd(tabId));
+    return { ...hub.result(browser, tabId, r), ...(extra ? extra(r) : ({} as X)) };
+  }
   return {
-    "browser.tabs": () => hub.list(),
+    "browser.list": () => ({ browsers: hub.list() }),
+    "browser.tabs": (p: Params<"browser.tabs">) => ({ tabs: hub.tabs(p.browser), browsers: hub.list() }),
     "browser.share": (p: Params<"browser.share">, conn: Conn) => hub.share(conn, p),
     "browser.open": async (p: Params<"browser.open">) => {
       const url = http(p.url);
-      const newTab = p.newTab || (p.tab === undefined && !hub.list().tabs.length);
-      const { browser, tabId } = newTab ? { browser: hub.anyBrowser(), tabId: undefined } : hub.target(p.tab);
+      const browser = hub.browser(p);
+      const newTab = p.newTab || (p.tab === undefined && !browser.tabs.size);
+      const tabId = newTab ? undefined : hub.target(p).tabId;
       const r = await hub.command<Seen & { tabId: number }>(browser, { action: "open", url, ...(tabId === undefined ? {} : { tabId }) });
-      return { tab: hub.tabAfter(browser, r.tabId, r) };
+      return hub.result(browser, r.tabId, r);
     },
-    "browser.snapshot": async (p: Params<"browser.snapshot">) => {
-      const { browser, tabId } = hub.target(p.tab);
-      const r = await hub.command<Seen & { text: string }>(browser, { action: "snapshot", tabId });
-      return { tab: hub.tabAfter(browser, tabId, r), text: r.text };
+    "browser.snapshot": (p: Params<"browser.snapshot">) => onTab(p, (tabId) => ({ action: "snapshot", tabId }), (r: Seen & { text: string }) => ({ text: r.text })),
+    "browser.click": (p: Params<"browser.click">) => onTab(p, (tabId) => ({ action: "click", tabId, ref: p.ref })),
+    "browser.type": (p: Params<"browser.type">) =>
+      onTab(p, (tabId) => ({ action: "type", tabId, ref: p.ref, text: p.text, ...(p.submit ? { submit: true } : {}) })),
+    "browser.press": (p: Params<"browser.press">) => onTab(p, (tabId) => ({ action: "press", tabId, key: p.key })),
+    "browser.screenshot": (p: Params<"browser.screenshot">) =>
+      onTab(p, (tabId) => ({ action: "screenshot", tabId }), (r: Seen & { data: string }) => ({ mediaType: "image/png", data: r.data })),
+    "browser.eval": (p: Params<"browser.eval">) =>
+      onTab(p, (tabId) => ({ action: "eval", tabId, expression: p.expression }), (r: Seen & { value?: unknown }) => ({ value: r.value ?? null })),
+    "browser.dialog": (p: Params<"browser.dialog">) =>
+      onTab(p, (tabId) => ({ action: "dialog", tabId, ...(p.response ? { response: p.response } : {}), ...(p.text !== undefined ? { text: p.text } : {}) })),
+    "browser.upload": (p: Params<"browser.upload">) => {
+      const bytes = p.files.reduce((n, f) => n + Buffer.byteLength(f.data, "base64"), 0);
+      if (bytes > BROWSER_FILE_MAX_BYTES)
+        throw new RpcError(ErrorCode.InvalidParams, `the files are ${bytes} bytes; uploads take at most ${BROWSER_FILE_MAX_BYTES} bytes in all`);
+      return onTab(p, (tabId) => ({ action: "upload", tabId, ref: p.ref, files: p.files }));
     },
-    "browser.click": async (p: Params<"browser.click">) => {
-      const { browser, tabId } = hub.target(p.tab);
-      const r = await hub.command<Seen>(browser, { action: "click", tabId, ref: p.ref });
-      return { tab: hub.tabAfter(browser, tabId, r) };
+    "browser.downloads": async (p: Params<"browser.downloads">) => {
+      if (!hub.list().length) throw notConnected();
+      const browsers = p.browser === undefined ? hub.list().map((b) => hub.browser({ browser: b.name })) : [hub.browser({ browser: p.browser })];
+      const lists = await Promise.all(
+        browsers.map(async (b) => (await hub.command<{ downloads: RawDownload[] }>(b, { action: "downloads" })).downloads.map((d) => hub.download(d, b))),
+      );
+      return { downloads: lists.flat().sort((a, b) => a.startedAt.localeCompare(b.startedAt)) };
     },
-    "browser.type": async (p: Params<"browser.type">) => {
-      const { browser, tabId } = hub.target(p.tab);
-      const r = await hub.command<Seen>(browser, { action: "type", tabId, ref: p.ref, text: p.text, ...(p.submit ? { submit: true } : {}) });
-      return { tab: hub.tabAfter(browser, tabId, r) };
-    },
-    "browser.press": async (p: Params<"browser.press">) => {
-      const { browser, tabId } = hub.target(p.tab);
-      const r = await hub.command<Seen>(browser, { action: "press", tabId, key: p.key });
-      return { tab: hub.tabAfter(browser, tabId, r) };
-    },
-    "browser.screenshot": async (p: Params<"browser.screenshot">) => {
-      const { browser, tabId } = hub.target(p.tab);
-      const r = await hub.command<Seen & { data: string }>(browser, { action: "screenshot", tabId });
-      return { tab: hub.tabAfter(browser, tabId, r), mediaType: "image/png", data: r.data };
-    },
-    "browser.eval": async (p: Params<"browser.eval">) => {
-      const { browser, tabId } = hub.target(p.tab);
-      const r = await hub.command<Seen & { value?: unknown }>(browser, { action: "eval", tabId, expression: p.expression });
-      return { tab: hub.tabAfter(browser, tabId, r), value: r.value ?? null };
+    "browser.download": async (p: Params<"browser.download">) => {
+      const m = p.id.match(/^(\d+)\.(\d+)$/);
+      if (!m) throw new RpcError(ErrorCode.InvalidParams, `download ids look like 3.1 (tab 3, its first download), not ${p.id}`);
+      const { browser, tabId } = hub.target({ tab: m[1] });
+      const r = await hub.command<{ download: RawDownload; mimeType: string; data: string }>(browser, {
+        action: "download",
+        tabId,
+        n: Number(m[2]),
+        maxBytes: BROWSER_FILE_MAX_BYTES,
+      });
+      return { download: hub.download(r.download, browser), mimeType: r.mimeType, data: r.data };
     },
   };
 }

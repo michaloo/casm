@@ -42,7 +42,7 @@ test("snapshot: roles with names and refs, structure-only nodes flattened, repea
       '  - text "Forgot your password?"',
     ].join("\n"),
   );
-  assert.deepEqual(refs, { e1: 3, e2: 4, e3: 6, e4: 8 });
+  assert.deepEqual(refs, { e1: { node: 3 }, e2: { node: 4 }, e3: { node: 6 }, e4: { node: 8 } });
 });
 
 test("snapshot: long pages are cut, empty ones say so", () => {

@@ -7,12 +7,13 @@ import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { parseArgs } from "node:util";
 import { CasmClient } from "@casm/client";
-import type { Agent, AgentEvent, BrowserTab, FindMatch, Item, Project, ProviderId, Usage } from "@casm/protocol";
+import { BROWSER_FILE_MAX_BYTES } from "@casm/protocol";
+import type { Agent, AgentEvent, BrowserDialog, BrowserTab, FindMatch, Item, Project, ProviderId, Usage } from "@casm/protocol";
 import { retryLabel } from "@casm/protocol/retry";
 
 const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");
@@ -97,15 +98,22 @@ agents:
                                      Codex sub-agents, OpenCode tasks): running, then recent
 
 browser (tabs the user shared from the casm browser extension; nothing else in the browser):
-  browser tabs                       shared tabs and connected browsers
-  browser open <url> [--tab t] [--new]   navigate a shared tab, or open a new one in the casm tab group
-  browser snapshot [--tab t]         the page's accessibility tree; [eN] are refs for click and type
-  browser click <ref> [--tab t]
-  browser type <ref> <text> [--submit] [--tab t]   replace the field's text; --submit presses Enter
-  browser press <key> [--tab t]      Enter, Tab, Escape, ArrowDown, a, Control+a, Shift+Tab...
-  browser screenshot [--tab t] [-o file.png]   save a PNG of the visible page and print its path
-  browser eval <js> [--tab t]        evaluate an expression in the page; prints its JSON value
-                                     --tab: an id from "browser tabs"; default: the last shared tab
+  browser list                       connected browsers and how many tabs each shares
+  browser tabs [--browser b]         shared tabs
+  browser open <url> [--new]         navigate a shared tab, or open a new one in the casm tab group
+  browser snapshot                   the page's accessibility tree, iframes included; [eN] are refs
+  browser click <ref>
+  browser type <ref> <text> [--submit]   replace the field's text; --submit presses Enter
+  browser press <key>                Enter, Tab, Escape, ArrowDown, a, Control+a, Shift+Tab...
+  browser screenshot [-o file.png]   save a PNG of the page and print its path (the tab must be in front)
+  browser eval <js>                  evaluate an expression in the page; prints its JSON value
+  browser dialog [accept [text] | dismiss]   show or answer the open alert/confirm/prompt
+  browser upload <ref> <file>...     set files from this machine on a file input (10 MiB in all)
+  browser downloads [--browser b]    downloads the shared tabs started
+  browser download <id> [-o path]    fetch a download's content (10 MiB at most)
+                                     each takes --tab t (an id from "browser tabs", which implies its
+                                     browser) or --browser b; default: the last shared tab of the only
+                                     connected browser
 
 notifications:
   notify <message> [--title t] [--url path] [--device name]
@@ -203,6 +211,7 @@ const options = {
   url: { type: "string" },
   device: { type: "string" },
   tab: { type: "string" },
+  browser: { type: "string" },
   new: { type: "boolean" },
   submit: { type: "boolean" },
 } as const;
@@ -626,56 +635,112 @@ async function run(c: CasmClient) {
 
     case "browser": {
       const [sub, ...rest] = args;
-      const tab = opt.tab;
-      const line = (t: BrowserTab) => `${t.id.padEnd(3)}  ${t.title || "(untitled)"}  ${t.url}`;
+      const where = { tab: opt.tab, browser: opt.browser };
+      const line = (t: BrowserTab, many = false) =>
+        `${t.id.padEnd(3)}  ${t.title || "(untitled)"}  ${t.url}${many ? `  (${t.browser})` : ""}${t.openedBy ? `  opened by ${t.openedBy}` : ""}`;
+      // What else happened in the tab, for whoever reads stderr.
+      const report = (r: { dialog?: BrowserDialog; opened?: BrowserTab[] }) => {
+        if (r.dialog)
+          console.error(`a ${r.dialog.type} dialog is open: ${JSON.stringify(r.dialog.message)}; answer it: casm browser dialog accept|dismiss`);
+        for (const t of r.opened ?? []) console.error(`opened tab ${line(t)}`);
+      };
+      const done = <R extends { dialog?: BrowserDialog; opened?: BrowserTab[] }>(r: R, human: () => void = () => {}) =>
+        out(r, () => {
+          human();
+          report(r);
+        });
+      const save = (path: string, data: string) => {
+        if (existsSync(path) && !opt.force) fail(`${path} exists; choose another -o or add --force`);
+        writeFileSync(path, Buffer.from(data, "base64"));
+      };
       switch (sub) {
+        case "list": {
+          const r = await c.call("browser.list", {});
+          return out(r, () => {
+            if (!r.browsers.length) console.error("no browser is connected (casm extension: check its server settings)");
+            for (const b of r.browsers) console.log(`${b.name}  ${b.tabs} shared tab${b.tabs === 1 ? "" : "s"}  connected ${new Date(b.connectedAt).toLocaleString()}`);
+          });
+        }
         case "tabs": {
-          const r = await c.call("browser.tabs", {});
+          const r = await c.call("browser.tabs", { browser: opt.browser });
           return out(r, () => {
             if (!r.browsers.length) return void console.error("no browser is connected (casm extension: check its server settings)");
-            if (!r.tabs.length) console.error(`no tab is shared in ${r.browsers.map((b) => b.name).join(", ")}: share one from the casm extension`);
-            for (const t of r.tabs) console.log(`${line(t)}${r.browsers.length > 1 ? `  (${t.browser})` : ""}`);
+            if (!r.tabs.length) console.error(`no tab is shared in ${opt.browser ?? r.browsers.map((b) => b.name).join(", ")}: share one from the casm extension`);
+            for (const t of r.tabs) console.log(line(t, r.browsers.length > 1));
           });
         }
         case "open": {
-          const url = rest[0] ?? fail("usage: casm browser open <url> [--tab t] [--new]");
-          const r = await c.call("browser.open", { url, tab, newTab: opt.new });
-          return out(r, () => console.log(line(r.tab)));
+          const url = rest[0] ?? fail("usage: casm browser open <url> [--new] [--tab t | --browser b]");
+          const r = await c.call("browser.open", { ...where, url, newTab: opt.new });
+          return done(r, () => console.log(line(r.tab)));
         }
         case "snapshot": {
-          const r = await c.call("browser.snapshot", { tab });
-          return out(r, () => console.log(`tab ${line(r.tab)}\n${r.text}`));
+          const r = await c.call("browser.snapshot", where);
+          return done(r, () => console.log(`tab ${line(r.tab)}\n${r.text}`));
         }
         case "click": {
-          const ref = rest[0] ?? fail("usage: casm browser click <ref> [--tab t]");
-          const r = await c.call("browser.click", { tab, ref });
-          return out(r, () => {});
+          const ref = rest[0] ?? fail("usage: casm browser click <ref>");
+          return done(await c.call("browser.click", { ...where, ref }));
         }
         case "type": {
           const [ref, ...words] = rest;
-          if (!ref || !words.length) fail("usage: casm browser type <ref> <text> [--submit] [--tab t]");
-          const r = await c.call("browser.type", { tab, ref, text: words.join(" "), submit: opt.submit });
-          return out(r, () => {});
+          if (!ref || !words.length) fail("usage: casm browser type <ref> <text> [--submit]");
+          return done(await c.call("browser.type", { ...where, ref, text: words.join(" "), submit: opt.submit }));
         }
         case "press": {
-          const key = rest[0] ?? fail("usage: casm browser press <key> [--tab t]");
-          const r = await c.call("browser.press", { tab, key });
-          return out(r, () => {});
+          const key = rest[0] ?? fail("usage: casm browser press <key>");
+          return done(await c.call("browser.press", { ...where, key }));
         }
         case "screenshot": {
-          const r = await c.call("browser.screenshot", { tab });
+          const r = await c.call("browser.screenshot", where);
           const target = resolve(opt.output ?? join(tmpdir(), `casm-tab-${r.tab.id}-${new Date().toISOString().replace(/[:.]/g, "-")}.png`));
-          writeFileSync(target, Buffer.from(r.data, "base64"));
-          return out({ tab: r.tab, path: target }, () => console.log(target));
+          save(target, r.data);
+          const { data: _, ...rest } = r;
+          return done({ ...rest, path: target }, () => console.log(target));
         }
         case "eval": {
           const expression = rest.join(" ");
-          if (!expression) fail("usage: casm browser eval <js> [--tab t]");
-          const r = await c.call("browser.eval", { tab, expression });
-          return out(r, () => console.log(typeof r.value === "string" ? r.value : JSON.stringify(r.value, null, 2)));
+          if (!expression) fail("usage: casm browser eval <js>");
+          const r = await c.call("browser.eval", { ...where, expression });
+          return done(r, () => console.log(typeof r.value === "string" ? r.value : JSON.stringify(r.value, null, 2)));
+        }
+        case "dialog": {
+          const [response, ...words] = rest;
+          if (response !== undefined && response !== "accept" && response !== "dismiss") fail("usage: casm browser dialog [accept [text] | dismiss]");
+          const r = await c.call("browser.dialog", { ...where, response, text: words.length ? words.join(" ") : undefined });
+          return out(r, () => {
+            if (!response) console.log(r.dialog ? `${r.dialog.type}: ${r.dialog.message}${r.dialog.defaultPrompt ? `  (default: ${r.dialog.defaultPrompt})` : ""}` : "no dialog is open");
+            else report(r);
+          });
+        }
+        case "upload": {
+          const [ref, ...paths] = rest;
+          if (!ref || !paths.length) fail("usage: casm browser upload <ref> <file>...");
+          const files = paths.map((path) => {
+            const data = readFileSync(resolve(path));
+            if (data.length > BROWSER_FILE_MAX_BYTES) fail(`${path} is ${data.length} bytes; uploads take at most ${BROWSER_FILE_MAX_BYTES} bytes in all`);
+            return { name: basename(path), data: data.toString("base64") };
+          });
+          return done(await c.call("browser.upload", { ...where, ref, files }));
+        }
+        case "downloads": {
+          const r = await c.call("browser.downloads", { browser: opt.browser });
+          return out(r, () => {
+            if (!r.downloads.length) console.error("no downloads from shared tabs");
+            for (const d of r.downloads)
+              console.log(`${d.id.padEnd(5)}  ${d.state.padEnd(10)}  ${d.filename}  ${d.totalBytes ? `${d.totalBytes} bytes  ` : ""}${d.url}`);
+          });
+        }
+        case "download": {
+          const id = rest[0] ?? fail("usage: casm browser download <id> [-o path]");
+          const r = await c.call("browser.download", { id });
+          const target = resolve(opt.output ?? (basename(r.download.filename) || `download-${id}`));
+          save(target, r.data);
+          const bytes = Buffer.byteLength(r.data, "base64");
+          return out({ download: r.download, mimeType: r.mimeType, path: target, bytes }, () => console.log(target));
         }
         default:
-          fail("usage: casm browser tabs | open | snapshot | click | type | press | screenshot | eval (see casm --help)");
+          fail("usage: casm browser list | tabs | open | snapshot | click | type | press | screenshot | eval | dialog | upload | downloads | download (see casm --help)");
       }
     }
 

@@ -1,18 +1,22 @@
 // End-to-end check of the extension in Playwright's Chromium: a throwaway
 // casm server (in this process, its own temp state), the unpacked extension
-// paired with it, a local test page shared by hand (as the popup does), and
-// the real `casm browser` CLI against it.
+// paired with it in two browser profiles, local test pages shared by hand
+// (as the popup does), and the real `casm browser` CLI against them.
 //
 //   npm run e2e -w @casm/chrome-extension            (headless)
 //   xvfb-run -a npm run e2e -w @casm/chrome-extension -- --headed
+//
+// Playwright's Chromium paints background tabs (it runs with anti-throttling
+// flags), so the hidden-tab check is exercised through Chrome's own notion of
+// the front tab, not through painting.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { chromium } from "playwright";
+import { chromium, type BrowserContext } from "playwright";
 import { Store } from "../../server/src/db.ts";
 import { startServer } from "../../server/src/server.ts";
 
@@ -21,12 +25,37 @@ const extension = join(import.meta.dirname, "../extension");
 const cliPath = join(import.meta.dirname, "../../cli/src/main.ts");
 const dir = mkdtempSync(join(tmpdir(), "casm-ext-e2e-"));
 
-const page = `<!doctype html><title>Test login</title>
+// Two origins on one server: 127.0.0.1 and localhost are different sites, so
+// an iframe from the other one runs out of process.
+const pages: Record<string, (other: string) => string> = {
+  "/": () => `<!doctype html><title>Test login</title>
 <h1>Sign in</h1>
 <label>Email <input id="email" name="email"></label>
 <button onclick="document.getElementById('out').textContent = 'Hello ' + document.getElementById('email').value">Continue</button>
-<p id="out">waiting</p>`;
-const web = createServer((req, res) => res.writeHead(200, { "content-type": "text/html" }).end(req.url === "/next" ? "<title>Next</title><h1>Next page</h1>" : page));
+<p id="out">waiting</p>`,
+  "/next": () => "<title>Next</title><h1>Next page</h1>",
+  "/frames": (other) => `<!doctype html><title>Frames</title><h1>Outer</h1>
+<iframe title="same" src="/inner?who=Same" width="400" height="90"></iframe>
+<div style="height: 30px"></div>
+<iframe title="cross" src="${other}/inner?who=Cross" width="400" height="90"></iframe>`,
+  "/inner": () => `<!doctype html><button onclick="this.textContent = this.textContent + ' clicked'"></button><input aria-label="Field">
+<script>document.querySelector("button").textContent = new URLSearchParams(location.search).get("who") + " button"</script>`,
+  "/tools": () => `<!doctype html><title>Tools</title>
+<button onclick="document.getElementById('said').textContent = confirm('Leave?') ? 'yes' : 'no'">Ask</button>
+<button onclick="document.getElementById('said').textContent = prompt('Name?', 'anon')">Name</button>
+<p id="said">-</p>
+<label>Attachment <input type="file" id="file" onchange="this.files[0].text().then((t) => document.getElementById('got').textContent = this.files[0].name + ': ' + t)"></label>
+<p id="got">-</p>
+<a href="/report.txt">Get the report</a>
+<button onclick="window.open('/next', 'login', 'popup,width=400,height=300')">Sign in with popup</button>`,
+};
+const web = createServer((req, res) => {
+  const url = new URL(req.url ?? "/", "http://x");
+  if (url.pathname === "/report.txt")
+    return void res.writeHead(200, { "content-type": "text/plain", "content-disposition": "attachment; filename=report.txt" }).end("quarterly numbers");
+  const other = `http://${req.headers.host?.startsWith("localhost") ? "127.0.0.1" : "localhost"}:${(web.address() as { port: number }).port}`;
+  res.writeHead(200, { "content-type": "text/html" }).end((pages[url.pathname] ?? pages["/"])(other));
+});
 await new Promise<void>((r) => web.listen(0, "127.0.0.1", r));
 const site = `http://127.0.0.1:${(web.address() as { port: number }).port}`;
 
@@ -37,17 +66,24 @@ const server = await startServer({ store, providers: [], host: "127.0.0.1", port
 async function casm(...args: string[]) {
   try {
     const { stdout, stderr } = await promisify(execFile)(process.execPath, [cliPath, ...args], { env: { ...process.env, CASM_URL: server.url, CASM_TOKEN: token, CASM_HOST: "" } });
-    return { code: 0, out: (stdout + stderr).trim() };
+    return { code: 0, out: stdout.trim(), err: stderr.trim() };
   } catch (e) {
-    const err = e as { code: number; stderr: string };
-    return { code: err.code, out: err.stderr.trim() };
+    const err = e as { code: number; stdout: string; stderr: string };
+    return { code: err.code, out: err.stdout.trim(), err: err.stderr.trim() };
   }
 }
+const show = (args: string[], r: { out: string; err: string }) => console.log(`$ casm ${args.join(" ")}\n${[r.out, r.err].filter(Boolean).join("\n")}\n`);
 const ok = async (...args: string[]) => {
   const r = await casm(...args);
-  assert.equal(r.code, 0, `casm ${args.join(" ")}: ${r.out}`);
-  console.log(`$ casm ${args.join(" ")}\n${r.out}\n`);
-  return r.out;
+  assert.equal(r.code, 0, `casm ${args.join(" ")}: ${r.err}`);
+  show(args, r);
+  return r;
+};
+const refused = async (pattern: RegExp, ...args: string[]) => {
+  const r = await casm(...args);
+  assert.equal(r.code, 1, `casm ${args.join(" ")} should fail: ${r.out}`);
+  assert.match(r.err, pattern);
+  show(args, r);
 };
 const ref = (snapshot: string, pattern: RegExp) => {
   const line = snapshot.split("\n").find((l) => pattern.test(l));
@@ -55,72 +91,155 @@ const ref = (snapshot: string, pattern: RegExp) => {
   assert.ok(m, `no ref for ${pattern} in\n${snapshot}`);
   return m[1];
 };
+const until = async (check: () => Promise<boolean>) => {
+  for (let i = 0; i < 50 && !(await check()); i++) await new Promise((r) => setTimeout(r, 100));
+};
 
-const context = await chromium.launchPersistentContext(join(dir, "profile"), {
-  channel: "chromium",
-  headless: !headed,
-  args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
-});
-try {
+async function browser(name: string) {
+  const context = await chromium.launchPersistentContext(join(dir, name), {
+    channel: "chromium",
+    headless: !headed,
+    args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+  });
+  // Playwright dismisses dialogs nobody listens for; the extension must see them open.
+  context.on("page", (p) => p.on("dialog", () => {}));
   const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
   const sw = <T>(fn: string) => worker.evaluate(fn) as Promise<T>;
-  await sw(`casm.saveSettings({ url: ${JSON.stringify(server.url)}, token: ${JSON.stringify(token)}, label: "e2e-chromium" })`);
+  // Saved as the popup does it, minus the permission prompt (no one to click it here).
+  await sw(`casm.saveSettings({ url: ${JSON.stringify(server.url)}, token: ${JSON.stringify(token)}, label: "" })`);
+  const share = async (url: string) => {
+    const page = await context.newPage();
+    await page.goto(url);
+    const tabId = await sw<number>(`chrome.tabs.query({ url: ${JSON.stringify(url)} }).then((t) => t[0].id)`);
+    await sw(`casm.share(${tabId})`);
+    return { page, tabId };
+  };
+  return { context, sw, share, extensionId: new URL(worker.url()).host };
+}
 
-  const tab = await context.newPage();
-  await tab.goto(site);
-  // Nothing shared yet: agents see a browser and no tabs.
-  for (let i = 0; i < 50 && !(await casm("browser", "tabs")).out.includes("no tab is shared"); i++) await new Promise((r) => setTimeout(r, 100));
-  assert.match((await casm("browser", "tabs")).out, /no tab is shared in e2e-chromium/);
-  assert.match((await casm("browser", "snapshot")).out, /no tab is shared/);
+const contexts: BrowserContext[] = [];
+try {
+  const one = await browser("profile-one");
+  contexts.push(one.context);
+  await until(async () => (await casm("browser", "tabs")).err.includes("no tab is shared"));
+  // The extension names itself after the browser: Playwright's is Chromium.
+  assert.match((await casm("browser", "tabs")).err, /no tab is shared in chromium/);
+  await refused(/no tab is shared/, "browser", "snapshot");
 
-  // The user shares the tab (the popup's button calls the same function).
-  const tabId = await sw<number>(`chrome.tabs.query({ url: "${site}/*" }).then((t) => t[0].id)`);
-  await sw(`casm.share(${tabId})`);
-  const group = await sw<{ title: string }>(`chrome.tabs.get(${tabId}).then((t) => chrome.tabGroups.get(t.groupId))`);
+  // The user shares a tab (the popup's button calls the same function).
+  const { tabId } = await one.share(`${site}/`);
+  const group = await one.sw<{ title: string }>(`chrome.tabs.get(${tabId}).then((t) => chrome.tabGroups.get(t.groupId))`);
   assert.equal(group.title, "casm");
-  assert.match(await ok("browser", "tabs"), /Test login/);
+  assert.match((await ok("browser", "tabs")).out, /Test login/);
 
-  const snap = await ok("browser", "snapshot");
+  const snap = (await ok("browser", "snapshot")).out;
   assert.match(snap, /heading "Sign in"/);
   await ok("browser", "type", ref(snap, /textbox "Email"/), "ada@example.com");
   await ok("browser", "click", ref(snap, /button "Continue"/));
-  assert.equal(await ok("browser", "eval", "document.getElementById('out').textContent"), "Hello ada@example.com");
+  assert.equal((await ok("browser", "eval", "document.getElementById('out').textContent")).out, "Hello ada@example.com");
   await ok("browser", "press", "Tab");
 
-  const shot = await ok("browser", "screenshot", "-o", join(dir, "shot.png"));
+  const shot = (await ok("browser", "screenshot", "-o", join(dir, "shot.png"))).out;
   assert.equal(readFileSync(shot).subarray(1, 4).toString(), "PNG");
 
-  assert.match(await ok("browser", "open", `${site}/next`), /Next/);
+  assert.match((await ok("browser", "open", `${site}/next`)).out, /Next/);
   // Refs don't outlive a navigation.
-  assert.match((await casm("browser", "click", ref(snap, /button "Continue"/))).out, /unknown ref e\d+: take a new snapshot/);
-  assert.match(await ok("browser", "snapshot"), /heading "Next page"/);
+  await refused(/unknown ref e\d+: take a new snapshot/, "browser", "click", ref(snap, /button "Continue"/));
 
-  // A new tab joins the casm group.
-  const opened = await ok("browser", "open", "--new", `${site}/`);
+  // iframes: same-origin and cross-origin content, with refs that work.
+  await ok("browser", "open", `${site}/frames`);
+  let frames = (await ok("browser", "snapshot")).out;
+  assert.match(frames, /Iframe "same"[^\n]*\n\s+- button "Same button"/);
+  assert.match(frames, /Iframe "cross"[^\n]*\n\s+- button "Cross button"/);
+  await ok("browser", "click", ref(frames, /button "Cross button"/));
+  await ok("browser", "click", ref(frames, /button "Same button"/));
+  await ok("browser", "type", ref(frames.slice(frames.indexOf('Iframe "cross"')), /textbox "Field"/), "typed across origins");
+  frames = (await ok("browser", "snapshot")).out;
+  assert.match(frames, /button "Cross button clicked"/);
+  assert.match(frames, /button "Same button clicked"/);
+  assert.match(frames, /textbox "Field" value="typed across origins"/);
+
+  // Dialogs: reported, block other commands, answered only by the agent.
+  await ok("browser", "open", `${site}/tools`);
+  let tools = (await ok("browser", "snapshot")).out;
+  const asked = await ok("browser", "click", ref(tools, /button "Ask"/));
+  assert.match(asked.err, /a confirm dialog is open: "Leave\?"/);
+  await refused(/a confirm dialog is open: "Leave\?". Answer it first/, "browser", "snapshot");
+  assert.match((await ok("browser", "dialog")).out, /^confirm: Leave\?$/);
+  await ok("browser", "dialog", "dismiss");
+  assert.equal((await ok("browser", "eval", "document.getElementById('said').textContent")).out, "no");
+  await ok("browser", "click", ref(tools, /button "Name"/));
+  assert.match((await ok("browser", "dialog")).out, /prompt: Name\?  \(default: anon\)/);
+  await ok("browser", "dialog", "accept", "Ada Lovelace");
+  assert.equal((await ok("browser", "eval", "document.getElementById('said').textContent")).out, "Ada Lovelace");
+  await refused(/no dialog is open/, "browser", "dialog", "accept");
+
+  // Uploads: a file from this machine set on the page's file input.
+  const upload = join(dir, "notes.txt");
+  writeFileSync(upload, "from the agent's machine");
+  tools = (await ok("browser", "snapshot")).out;
+  await ok("browser", "upload", ref(tools, /button "Attachment"/), upload);
+  assert.equal((await ok("browser", "eval", "document.getElementById('got').textContent")).out, "notes.txt: from the agent's machine");
+
+  // Downloads: reported, and fetched back.
+  await ok("browser", "click", ref(tools, /link "Get the report"/));
+  await until(async () => (await casm("browser", "downloads")).out.includes("report.txt"));
+  const downloads = (await ok("browser", "downloads")).out;
+  const downloadId = downloads.split(/\s+/)[0];
+  assert.match(downloads, /report\.txt/);
+  const fetched = (await ok("browser", "download", downloadId, "-o", join(dir, "report.txt"))).out;
+  assert.equal(readFileSync(fetched, "utf8"), "quarterly numbers");
+
+  // A popup the shared tab opens is shared too, and reported.
+  const popped = await ok("browser", "click", ref(tools, /button "Sign in with popup"/));
+  assert.match(popped.err, /opened tab (\d+) .*\/next.*opened by \d+/);
+  const popupId = popped.err.match(/opened tab (\d+)/)![1];
+  assert.match((await ok("browser", "snapshot", "--tab", popupId)).out, /heading "Next page"/);
+
+  // A new tab opens in the background, and casm won't bring it to the front for a screenshot.
+  const opened = (await ok("browser", "open", "--new", `${site}/`)).out;
   const newId = opened.split(/\s+/)[0];
-  assert.match(await ok("browser", "tabs"), new RegExp(`^${newId} +Test login`, "m"));
-  // It opened in the background; it still has to answer.
-  await ok("browser", "screenshot", "--tab", newId, "-o", join(dir, "background.png"));
+  assert.match((await ok("browser", "tabs")).out, new RegExp(`^${newId} +Test login`, "m"));
+  await refused(/the tab is not visible \(another tab is in front in its window\).*ask the user to show it/, "browser", "screenshot", "--tab", newId);
+
+  // A second browser: targets must be named.
+  const two = await browser("profile-two");
+  contexts.push(two.context);
+  await until(async () => (await casm("browser", "list")).out.includes("chromium-2"));
+  await two.share(`${site}/next`);
+  const list = (await ok("browser", "list")).out;
+  assert.match(list, /^chromium  \d+ shared tabs/m);
+  assert.match(list, /^chromium-2  1 shared tab/m);
+  await refused(/2 browsers are connected \(chromium, chromium-2\): name one with --browser, or a tab with --tab/, "browser", "snapshot");
+  assert.match((await ok("browser", "snapshot", "--browser", "chromium-2")).out, /heading "Next page"/);
+  assert.match((await ok("browser", "snapshot", "--tab", newId)).out, /heading "Sign in"/);
+  await two.context.close();
+  await until(async () => !(await casm("browser", "list")).out.includes("chromium-2"));
 
   // Taking a tab out of the group unshares it at once.
-  const firstId = (await ok("browser", "tabs")).split("\n")[0].split(/\s+/)[0];
-  await sw(`chrome.tabs.ungroup(${tabId})`);
+  const firstId = (await ok("browser", "tabs")).out.split("\n")[0].split(/\s+/)[0];
+  await one.sw(`chrome.tabs.ungroup(${tabId})`);
   await new Promise((r) => setTimeout(r, 300));
-  const refused = await casm("browser", "snapshot", "--tab", firstId);
-  assert.equal(refused.code, 1);
-  assert.match(refused.out, /not shared anymore/);
-  console.log(`$ casm browser snapshot --tab ${firstId}\n${refused.out}\n`);
+  await refused(/not shared anymore/, "browser", "snapshot", "--tab", firstId);
   // The extension checks for itself: a command naming the unshared tab's Chrome id is refused.
-  const forged = await sw<string>(`casm.command({ action: "eval", tabId: ${tabId}, expression: "1" }).then(() => "ran", (e) => e.message)`);
+  const forged = await one.sw<string>(`casm.command({ action: "eval", tabId: ${tabId}, expression: "1" }).then(() => "ran", (e) => e.message)`);
   assert.equal(forged, "that tab is not shared anymore");
 
+  // Server access for local network rules: the manifest's ws:// patterns are valid, and the popup says it's missing.
+  assert.equal(await one.sw<boolean>(`chrome.permissions.contains({ origins: ["ws://127.0.0.1/*", "http://127.0.0.1/*"] })`), false);
+  const popup = await one.context.newPage();
+  await popup.goto(`chrome-extension://${one.extensionId}/popup.html`);
+  await popup.locator("#perm:not([hidden])").waitFor();
+  assert.match(await popup.locator("#perm").innerText(), /no access to 127\.0\.0\.1/);
+  await popup.close();
+
   // Closing the browser: calls fail at once.
-  await context.close();
+  await one.context.close();
   await new Promise((r) => setTimeout(r, 300));
-  assert.match((await casm("browser", "snapshot")).out, /no browser is connected/);
+  await refused(/no browser is connected/, "browser", "snapshot");
   console.log("e2e: all checks passed");
 } finally {
-  await context.close().catch(() => {});
+  for (const c of contexts) await c.close().catch(() => {});
   await server.close();
   store.close();
   web.close();

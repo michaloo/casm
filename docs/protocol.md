@@ -79,7 +79,7 @@ Errors use the standard codes plus casm's own:
 | Schedules | `schedule.list` (`projectId?`, `agentId?` filters), `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.runNow`; each schedule carries its derived `projectId` |
 | Files | `fs.read`, `fs.search`, `fs.downloadLink` |
 | Notifications | `push.list`, `push.subscribe`, `push.unsubscribe`, `push.test`, `push.notify` |
-| Browser | `browser.tabs`, `browser.open`, `browser.snapshot`, `browser.click`, `browser.type`, `browser.press`, `browser.screenshot`, `browser.eval`; `browser.share` (from the extension) |
+| Browser | `browser.list`, `browser.tabs`, `browser.open`, `browser.snapshot`, `browser.click`, `browser.type`, `browser.press`, `browser.screenshot`, `browser.eval`, `browser.dialog`, `browser.upload`, `browser.downloads`, `browser.download`; `browser.share` (from the extension) |
 
 Notifications: `agent.event` (for subscribed agents), `agent.status`,
 `agent.changed`, `agent.removed`, `project.changed`, `project.removed`,

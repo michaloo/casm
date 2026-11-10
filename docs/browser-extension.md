@@ -149,9 +149,10 @@ casm CLI (agent's shell) ── browser.snapshot {tab?} ──▶ casm serve ─
 - **Several browsers** can connect; tab ids are unique across them and
   `open --new` picks the browser that shared last. Should agents pick by
   browser name?
-- **Per-agent grants.** Every agent that reaches the server can use every
-  shared tab. Should sharing name an agent (or project), and should the popup
-  show which agent did what?
+- **Per-agent grants (decided: not now).** A shared tab is open to every
+  agent that reaches the server (2026-11-10 decision). Scoping a share to one
+  agent or project, and showing in the popup which agent did what, is a
+  possible later option.
 - **Private Network Access.** Chrome is restricting pages and possibly
   extensions from reaching private addresses. If the extension's WebSocket is
   blocked, it may need an optional host permission for the server's origin,

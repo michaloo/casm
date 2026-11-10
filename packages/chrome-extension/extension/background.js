@@ -1,0 +1,421 @@
+// The casm extension's service worker: a casm client that shares tabs.
+//
+// Sharing is a tab group: our "casm" groups (one per window) hold exactly the
+// shared tabs. Sharing a tab moves it into the group; taking it out of the
+// group, closing it or the group, or the popup's Stop button unshares it. The
+// group ids live in chrome.storage.session, so a browser restart (which may
+// restore a group titled "casm") shares nothing.
+//
+// Shared tabs get the debugger attached, so Chrome shows its own "started
+// debugging this browser" bar while anything is shared; cancelling that bar
+// unshares everything. Every agent command checks again that its tab is in
+// one of our groups before touching it: the server's list is not trusted.
+//
+// The WebSocket to the casm server keeps this worker alive while connected
+// (a request every 20 s), an alarm wakes it to reconnect after it was
+// stopped, and lost connections retry with backoff.
+import * as act from "./actions.js";
+
+const GROUP_TITLE = "casm";
+const GROUP_COLOR = "orange";
+const PING_MS = 20_000;
+const CALL_TIMEOUT_MS = 10_000;
+const RETRY_MIN_MS = 1000;
+const RETRY_MAX_MS = 30_000;
+const NEW_TAB_LOAD_MS = 10_000;
+
+const conn = {
+  ws: null,
+  // idle | unconfigured | connecting | connected | disconnected | refused
+  status: "idle",
+  detail: "",
+  retryMs: RETRY_MIN_MS,
+  retryTimer: undefined,
+  pingTimer: undefined,
+  nextId: 1,
+  waiting: new Map(),
+};
+const attached = new Set();
+
+// ---------------------------------------------------------------------------
+// Settings
+
+async function settings() {
+  const { settings = {} } = await chrome.storage.local.get("settings");
+  return settings;
+}
+
+async function browserId() {
+  let { browserId } = await chrome.storage.local.get("browserId");
+  if (!browserId) {
+    browserId = crypto.randomUUID();
+    await chrome.storage.local.set({ browserId });
+  }
+  return browserId;
+}
+
+async function saveSettings({ url, token, label }) {
+  url = String(url ?? "").trim();
+  if (!/^wss?:\/\/[^/]+/.test(url)) throw new Error("the server URL starts with ws:// or wss://, e.g. ws://my-server:7373");
+  const current = await settings();
+  const next = { url, label: String(label ?? "").trim(), token: String(token ?? "").trim() || current.token || "" };
+  if (!next.token) throw new Error("paste a client token (casm token create <name> on the server)");
+  await chrome.storage.local.set({ settings: next });
+  reconnect();
+}
+
+// ---------------------------------------------------------------------------
+// Sharing
+
+async function ourGroups() {
+  const { groups = [] } = await chrome.storage.session.get("groups");
+  return groups;
+}
+
+async function sharedTabs() {
+  const groups = await ourGroups();
+  return (await Promise.all(groups.map((groupId) => chrome.tabs.query({ groupId }).catch(() => [])))).flat();
+}
+
+async function isShared(tabId) {
+  return (await sharedTabs()).some((t) => t.id === tabId);
+}
+
+// Changes to the groups and syncs run one at a time: a sync reads and writes
+// the stored group ids, and must not overwrite a group a share just made.
+let queue = Promise.resolve();
+function serial(fn) {
+  const run = queue.then(fn, fn);
+  queue = run.catch(() => {});
+  return run;
+}
+
+const shareTab = (tabId, opts) => serial(() => shareNow(tabId, opts));
+
+async function shareNow(tabId, { anyUrl = false } = {}) {
+  const tab = await chrome.tabs.get(tabId);
+  const url = tab.pendingUrl || tab.url || "";
+  if (!anyUrl && !/^https?:\/\//.test(url)) throw new Error("only http and https pages can be shared");
+  const groups = await ourGroups();
+  let groupId;
+  for (const g of groups) {
+    const info = await chrome.tabGroups.get(g).catch(() => null);
+    if (info?.windowId === tab.windowId) groupId = g;
+  }
+  if (groupId === undefined) {
+    groupId = await chrome.tabs.group({ tabIds: [tabId], createProperties: { windowId: tab.windowId } });
+    await chrome.storage.session.set({ groups: [...groups, groupId] });
+    await chrome.tabGroups.update(groupId, { title: GROUP_TITLE, color: GROUP_COLOR });
+  } else {
+    await chrome.tabs.group({ tabIds: [tabId], groupId });
+  }
+  await syncNow();
+}
+
+const unshareTab = (tabId) =>
+  serial(async () => {
+    if (await isShared(tabId)) await chrome.tabs.ungroup(tabId);
+    await syncNow();
+  });
+
+const unshareAll = () =>
+  serial(async () => {
+    const tabs = await sharedTabs();
+    if (tabs.length) await chrome.tabs.ungroup(tabs.map((t) => t.id)).catch(() => {});
+    await syncNow();
+  });
+
+async function attach(tabId) {
+  if (attached.has(tabId)) return;
+  try {
+    await chrome.debugger.attach({ tabId }, "1.3");
+  } catch (e) {
+    if (!/already attached/i.test(e.message)) throw e;
+  }
+  attached.add(tabId);
+}
+
+async function detach(tabId) {
+  attached.delete(tabId);
+  await chrome.debugger.detach({ tabId }).catch(() => {});
+}
+
+// Reconciles everything with the groups as they are now: which tabs are
+// shared and since when, the debugger, the badge and the server.
+const sync = () => serial(syncNow);
+
+async function syncNow() {
+  const live = [];
+  for (const g of await ourGroups()) if (await chrome.tabGroups.get(g).catch(() => null)) live.push(g);
+  await chrome.storage.session.set({ groups: live });
+  const tabs = await sharedTabs();
+  const { sharedAt: before = {} } = await chrome.storage.session.get("sharedAt");
+  const sharedAt = {};
+  for (const t of tabs) sharedAt[t.id] = before[t.id] ?? new Date().toISOString();
+  await chrome.storage.session.set({ sharedAt });
+  for (const id of new Set([...Object.keys(before).map(Number), ...attached]))
+    if (!(id in sharedAt)) {
+      act.forgetTab(id);
+      await detach(id);
+    }
+  for (const t of tabs) await attach(t.id).catch((e) => console.warn(`casm: can't debug tab ${t.id}: ${e.message}`));
+  await chrome.action.setBadgeText({ text: tabs.length ? String(tabs.length) : "" });
+  await chrome.action.setBadgeBackgroundColor({ color: conn.status === "connected" ? "#d9730d" : "#888888" });
+  await publish(tabs, sharedAt);
+  changed();
+}
+
+async function publish(tabs, sharedAt) {
+  if (conn.status !== "connected") return;
+  const s = await settings();
+  const shared = tabs.map((t) => ({ tabId: t.id, title: t.title ?? "", url: t.pendingUrl || t.url || "", sharedAt: sharedAt[t.id] }));
+  // Sent now, before any answer this sync precedes; the reply doesn't matter.
+  call("browser.share", { browserId: await browserId(), label: s.label || "chrome", tabs: shared }).catch((e) => console.warn(`casm: share failed: ${e.message}`));
+}
+
+chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
+  if (change.status === "loading") act.forgetTab(tabId);
+  if ("groupId" in change) return void sync();
+  // Other tabs' titles and URLs are none of the server's business.
+  if (("url" in change || "title" in change) && (await ourGroups()).includes(tab.groupId)) void sync();
+});
+chrome.tabs.onRemoved.addListener(() => void sync());
+chrome.tabs.onAttached.addListener(() => void sync());
+chrome.tabGroups.onRemoved.addListener(() => void sync());
+chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
+  attached.delete(tabId);
+  // The user pressed Cancel on Chrome's debugging bar: that stops all sharing.
+  if (reason === "canceled_by_user") void unshareAll();
+  else void sync();
+});
+
+// ---------------------------------------------------------------------------
+// Agent commands (browser.command from the server)
+
+async function command(p) {
+  if (p.action === "open" && p.tabId === undefined) return openTab(p.url);
+  // Checked here, against the groups, whatever the server thinks is shared.
+  if (!(await isShared(p.tabId))) throw new act.ActionError("that tab is not shared anymore");
+  await attach(p.tabId);
+  let r;
+  switch (p.action) {
+    case "open":
+      r = await act.navigate(p.tabId, p.url);
+      break;
+    case "snapshot":
+      r = await act.snapshot(p.tabId);
+      break;
+    case "click":
+      r = await act.click(p.tabId, p.ref);
+      break;
+    case "type":
+      r = await act.type(p.tabId, p.ref, p.text, p.submit);
+      break;
+    case "press":
+      r = await act.press(p.tabId, p.key);
+      break;
+    case "screenshot":
+      r = await act.screenshot(p.tabId);
+      break;
+    case "eval":
+      r = await act.evaluate(p.tabId, p.expression);
+      break;
+    default:
+      throw new act.ActionError(`unknown action ${p.action}`, -32601);
+  }
+  const tab = await chrome.tabs.get(p.tabId).catch(() => null);
+  return { ...r, tabId: p.tabId, ...(tab ? { url: tab.url ?? "", title: tab.title ?? "" } : {}) };
+}
+
+// A new tab, in the casm group of the window that shared last (or the current one).
+async function openTab(url) {
+  const tabs = await sharedTabs();
+  const { sharedAt = {} } = await chrome.storage.session.get("sharedAt");
+  const latest = tabs.sort((a, b) => String(sharedAt[b.id]).localeCompare(String(sharedAt[a.id])))[0];
+  const windowId = latest?.windowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
+  const tab = await chrome.tabs.create({ url, active: false, ...(windowId === undefined ? {} : { windowId }) });
+  await shareTab(tab.id, { anyUrl: true });
+  const until = Date.now() + NEW_TAB_LOAD_MS;
+  let now = tab;
+  do {
+    await new Promise((r) => setTimeout(r, 100));
+    now = await chrome.tabs.get(tab.id);
+  } while (now.status !== "complete" && Date.now() < until);
+  return { tabId: tab.id, url: now.url ?? url, title: now.title ?? "" };
+}
+
+// ---------------------------------------------------------------------------
+// The connection
+
+function call(method, params, timeoutMs = CALL_TIMEOUT_MS) {
+  const ws = conn.ws;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("not connected"));
+  const id = conn.nextId++;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      conn.waiting.delete(id);
+      reject(new Error(`${method}: no answer within ${timeoutMs / 1000} s`));
+    }, timeoutMs);
+    conn.waiting.set(id, { resolve, reject, timer });
+    ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+  });
+}
+
+function setStatus(status, detail = "") {
+  conn.status = status;
+  conn.detail = detail;
+  void chrome.action.setBadgeBackgroundColor({ color: status === "connected" ? "#d9730d" : "#888888" });
+  changed();
+}
+
+async function connect() {
+  clearTimeout(conn.retryTimer);
+  if (conn.ws || conn.status === "refused") return;
+  const s = await settings();
+  if (!s.url || !s.token) return setStatus("unconfigured", "set the casm server URL and a client token");
+  setStatus("connecting", s.url);
+  let ws;
+  try {
+    ws = new WebSocket(s.url);
+  } catch (e) {
+    setStatus("disconnected", e.message);
+    return retryLater();
+  }
+  conn.ws = ws;
+  ws.onopen = async () => {
+    try {
+      // Browsers can't send a header on a WebSocket: the token goes in the first request.
+      await call("auth", { token: s.token });
+    } catch {
+      return;
+    }
+    conn.retryMs = RETRY_MIN_MS;
+    setStatus("connected", s.url);
+    clearInterval(conn.pingTimer);
+    conn.pingTimer = setInterval(() => call("server.info", {}).catch(() => lost(ws, "the server stopped answering")), PING_MS);
+    await sync();
+  };
+  ws.onmessage = (ev) => void onMessage(ws, ev.data);
+  ws.onclose = (ev) => {
+    if (ev.code === 4401) {
+      lost(ws, "the server refused the token");
+      setStatus("refused", "the server refused the token: create one with casm token create <name> and save it here");
+    } else lost(ws, ev.reason || `the connection closed (${ev.code})`);
+  };
+}
+
+// Drops `ws` (if it is still ours) and fails everything waiting on it.
+function lost(ws, why) {
+  if (conn.ws !== ws) return;
+  conn.ws = null;
+  clearInterval(conn.pingTimer);
+  for (const w of conn.waiting.values()) {
+    clearTimeout(w.timer);
+    w.reject(new Error(why));
+  }
+  conn.waiting.clear();
+  try {
+    ws.close();
+  } catch {}
+  setStatus("disconnected", why);
+  retryLater();
+}
+
+function retryLater() {
+  clearTimeout(conn.retryTimer);
+  conn.retryTimer = setTimeout(connect, conn.retryMs);
+  conn.retryMs = Math.min(conn.retryMs * 2, RETRY_MAX_MS);
+}
+
+function reconnect() {
+  const ws = conn.ws;
+  conn.ws = null;
+  conn.status = "idle";
+  conn.retryMs = RETRY_MIN_MS;
+  ws?.close();
+  void connect();
+}
+
+async function onMessage(ws, raw) {
+  let msg;
+  try {
+    msg = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  if (msg.method === "browser.command" && msg.id !== undefined) {
+    let reply;
+    try {
+      reply = { jsonrpc: "2.0", id: msg.id, result: await command(msg.params ?? {}) };
+    } catch (e) {
+      reply = { jsonrpc: "2.0", id: msg.id, error: { code: typeof e.code === "number" ? e.code : -32603, message: e.message ?? String(e) } };
+    }
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(reply));
+    return;
+  }
+  const w = conn.waiting.get(msg.id);
+  if (!w) return;
+  conn.waiting.delete(msg.id);
+  clearTimeout(w.timer);
+  if (msg.error) w.reject(new Error(msg.error.message));
+  else w.resolve(msg.result);
+}
+
+// ---------------------------------------------------------------------------
+// Popup, context menu, lifecycle
+
+async function state() {
+  const s = await settings();
+  const tabs = await sharedTabs();
+  const [current] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  return {
+    status: conn.status,
+    detail: conn.detail,
+    settings: { url: s.url ?? "", label: s.label ?? "", hasToken: !!s.token },
+    shared: tabs.map((t) => ({ id: t.id, title: t.title ?? "", url: t.url ?? "" })),
+    current: current ? { id: current.id, url: current.url ?? "", shared: tabs.some((t) => t.id === current.id) } : null,
+  };
+}
+
+function changed() {
+  chrome.runtime.sendMessage({ type: "changed" }).catch(() => {});
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
+  const run = {
+    state: () => state(),
+    share: () => shareTab(msg.tabId),
+    unshare: () => unshareTab(msg.tabId),
+    unshareAll: () => unshareAll(),
+    save: () => saveSettings(msg),
+    reconnect: () => reconnect(),
+  }[msg.type];
+  if (!run) return false;
+  Promise.resolve()
+    .then(run)
+    .then((r) => respond({ ok: true, ...(r ?? {}) }), (e) => respond({ ok: false, error: e.message }));
+  return true;
+});
+
+const MENU = "casm-toggle";
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({ id: MENU, title: "Share this tab with casm agents, or stop", contexts: ["page", "action"] });
+});
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== MENU || !tab?.id) return;
+  try {
+    if (await isShared(tab.id)) await unshareTab(tab.id);
+    else await shareTab(tab.id);
+  } catch (e) {
+    console.warn(`casm: ${e.message}`);
+  }
+});
+
+chrome.alarms.create("casm-keepalive", { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener(() => void connect());
+
+// For debugging from the service worker console (and the end-to-end check).
+globalThis.casm = { share: shareTab, unshare: unshareTab, unshareAll, sync, reconnect, state, saveSettings, command };
+
+void connect();
+void sync();

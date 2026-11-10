@@ -29,6 +29,7 @@ import { PeerPool } from "./peers.ts";
 import { Files } from "./files.ts";
 import { AgentPrompt } from "./agent-prompt.ts";
 import { PushService, type PushSend } from "./push.ts";
+import { BrowserHub } from "./browser.ts";
 import type { Provider } from "./providers/types.ts";
 
 export type ServerOptions = {
@@ -56,6 +57,8 @@ export type ServerOptions = {
   // connections are checked for revoked tokens (tests use short ones).
   authTimeoutMs?: number;
   revokeCheckMs?: number;
+  // How long a browser extension may take to answer a command (tests use a short one).
+  browserTimeoutMs?: number;
 };
 
 const AUTH_TIMEOUT_MS = 10_000;
@@ -108,8 +111,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   );
   const files = new Files({ store: opts.store, peers, home: opts.home });
   const push = new PushService({ store: opts.store, home: opts.home, log, send: opts.pushSend });
+  const browsers = new BrowserHub({ log, timeoutMs: opts.browserTimeoutMs });
   let scheduler: Scheduler | undefined;
-  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!, files, push);
+  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!, files, push, browsers);
   scheduler = new Scheduler(opts.store, agents, notify, (p) =>
     (handlers["agent.create"] as (p: Params<"agent.create">, c: Conn) => Promise<Agent>)(p, { subscriptions: new Set(), name: "schedule" }),
   );
@@ -141,13 +145,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     }
     if (name && token === query) log(`client ${name} sent its token in the URL (?token=), which is deprecated: update the client`);
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const client: Client = { ws, subscriptions: new Set(), remote: new Map() };
+      const client: Client = { ws, subscriptions: new Set(), remote: new Map(), send: (raw) => ws.send(raw) };
       const timer = name ? undefined : setTimeout(() => ws.close(CLOSE_UNAUTHORIZED, "authenticate first"), opts.authTimeoutMs ?? AUTH_TIMEOUT_MS);
       if (name) admit(client, name, token!);
       ws.on("close", () => {
         clearTimeout(timer);
         if (!clients.delete(client)) return;
         for (const r of client.remote.values()) r.stop();
+        browsers.closed(client);
         log(`client disconnected: ${client.name}`);
       });
       ws.on("message", (data) => {
@@ -198,6 +203,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     } catch {
       return reply(client, { jsonrpc: "2.0", id: null, error: { code: ErrorCode.ParseError, message: "invalid JSON" } });
     }
+    // A client's answer to a request of ours (the browser extension's to browser.command).
+    if (req && typeof req === "object" && !("method" in req) && ("result" in req || "error" in req)) {
+      browsers.response(client, req as never);
+      return;
+    }
     const id = req.id ?? null;
     const method = methods[req.method as MethodName];
     if (!method) return reply(client, { jsonrpc: "2.0", id, error: { code: ErrorCode.MethodNotFound, message: `unknown method ${req.method}` } });
@@ -207,6 +217,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     // A request for a peer is forwarded; this server's own name or id means here.
     // It goes as sent: the peer may know params this server doesn't.
     const host = typeof req.host === "string" && req.host !== identity.name && req.host !== identity.id ? req.host : undefined;
+    // The server sends browser commands down the extension's own connection, which a forward has none of.
+    if (host && req.method === "browser.share")
+      return reply(client, { jsonrpc: "2.0", id, error: { code: ErrorCode.InvalidRequest, message: "a browser shares its tabs with the server it connects to, not through a peer" } });
     try {
       const handler = handlers[req.method as MethodName] as (p: unknown, c: Conn) => unknown;
       const result = host ? await forward(client, host, req.method as MethodName, req.params ?? {}) : await handler(parsed.data, client);

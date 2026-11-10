@@ -6714,6 +6714,514 @@
         ]
       }
     },
+    "browser.tabs": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {}
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tabs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          },
+          "browsers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "connectedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "connectedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tabs",
+          "browsers"
+        ]
+      }
+    },
+    "browser.open": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "newTab": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      }
+    },
+    "browser.snapshot": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tab",
+          "text"
+        ]
+      }
+    },
+    "browser.click": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      }
+    },
+    "browser.type": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "submit": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ref",
+          "text"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      }
+    },
+    "browser.press": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      }
+    },
+    "browser.screenshot": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tab",
+          "mediaType",
+          "data"
+        ]
+      }
+    },
+    "browser.eval": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "value": {}
+        },
+        "required": [
+          "tab",
+          "value"
+        ]
+      }
+    },
+    "browser.share": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "tabs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tabId": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tabId",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "browserId",
+          "tabs"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
     "agent.wait": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8136,6 +8644,167 @@
         "host",
         "connected"
       ]
+    }
+  },
+  "clientRequests": {
+    "browser.command": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "open"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "url"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "snapshot"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "action",
+              "tabId"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "click"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "ref": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "ref"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "type"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "ref": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "submit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "ref",
+              "text"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "press"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "key"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "screenshot"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "action",
+              "tabId"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "eval"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "expression": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "expression"
+            ]
+          }
+        ]
+      }
     }
   }
 }

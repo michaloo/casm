@@ -564,6 +564,44 @@ export const FileContent = z.object({
 export type FileContent = z.infer<typeof FileContent>;
 
 // ---------------------------------------------------------------------------
+// Browser (the casm browser extension; see docs/browser-extension.md)
+
+// A tab the user shared from a browser running the casm extension. `id` is
+// short and given by this server; it stays the same while the server runs.
+// Only shared tabs exist here: the rest of the browser is never reported.
+export const BrowserTab = z.object({
+  id: z.string(),
+  // The extension's label for its browser (its client token name if unset).
+  browser: z.string(),
+  title: z.string(),
+  url: z.string(),
+  sharedAt: z.string(),
+});
+export type BrowserTab = z.infer<typeof BrowserTab>;
+
+// Which shared tab a browser.* call acts on: its id, else the most recently shared one.
+const BrowserTarget = z.object({ tab: z.string().optional() });
+
+// What the extension reports in browser.share: its own tab ids.
+export const SharedTab = z.object({ tabId: z.number().int(), title: z.string(), url: z.string(), sharedAt: z.string() });
+export type SharedTab = z.infer<typeof SharedTab>;
+
+// Requests the server sends to an extension connection (JSON-RPC requests
+// from server to client, ids "browser:<n>"), one per browser.* call. The
+// extension acts only on tabs it shares, and answers with a result or an error.
+export const BrowserCommand = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("open"), tabId: z.number().int().optional(), url: z.string() }),
+  z.object({ action: z.literal("snapshot"), tabId: z.number().int() }),
+  z.object({ action: z.literal("click"), tabId: z.number().int(), ref: z.string() }),
+  z.object({ action: z.literal("type"), tabId: z.number().int(), ref: z.string(), text: z.string(), submit: z.boolean().optional() }),
+  z.object({ action: z.literal("press"), tabId: z.number().int(), key: z.string() }),
+  z.object({ action: z.literal("screenshot"), tabId: z.number().int() }),
+  z.object({ action: z.literal("eval"), tabId: z.number().int(), expression: z.string() }),
+]);
+export type BrowserCommand = z.infer<typeof BrowserCommand>;
+export const BROWSER_COMMAND_METHOD = "browser.command";
+
+// ---------------------------------------------------------------------------
 // Methods
 
 const Empty = z.object({});
@@ -912,6 +950,29 @@ export const methods = {
     z.object({ id: z.string(), requestId: z.string(), decision: PermissionDecision, message: z.string().optional() }),
     Ok,
   ),
+  // The casm browser extension: agents act on tabs the user shared, through
+  // the extension connected to this server. Each call fails at once when no
+  // extension is connected (Unreachable) or the tab isn't shared (NotFound);
+  // nothing is queued. `tab` defaults to the most recently shared tab.
+  "browser.tabs": method(Empty, z.object({ tabs: z.array(BrowserTab), browsers: z.array(z.object({ name: z.string(), connectedAt: z.string() })) })),
+  // Navigates a shared tab to an http(s) URL, or opens a new tab in the
+  // extension's casm tab group (`newTab`, or when none is shared yet).
+  "browser.open": method(BrowserTarget.extend({ url: z.string(), newTab: z.boolean().optional() }), z.object({ tab: BrowserTab })),
+  // The page's accessibility tree as text; [eN] marks refs for click and type,
+  // valid until the next snapshot of the tab.
+  "browser.snapshot": method(BrowserTarget, z.object({ tab: BrowserTab, text: z.string() })),
+  "browser.click": method(BrowserTarget.extend({ ref: z.string() }), z.object({ tab: BrowserTab })),
+  // Focuses the element and inserts the text (replacing an input's value); `submit` presses Enter after.
+  "browser.type": method(BrowserTarget.extend({ ref: z.string(), text: z.string(), submit: z.boolean().optional() }), z.object({ tab: BrowserTab })),
+  // A key ("Enter", "Tab", "ArrowDown", "a"), with modifiers as "Control+a", "Shift+Tab".
+  "browser.press": method(BrowserTarget.extend({ key: z.string() }), z.object({ tab: BrowserTab })),
+  // The visible part of the page, base64 PNG.
+  "browser.screenshot": method(BrowserTarget, z.object({ tab: BrowserTab, mediaType: z.string(), data: z.string() })),
+  // A JavaScript expression in the page (promises awaited); its JSON value.
+  "browser.eval": method(BrowserTarget.extend({ expression: z.string() }), z.object({ tab: BrowserTab, value: z.unknown() })),
+  // From the extension: this connection is a browser sharing exactly `tabs`.
+  // Sent on connect and after every change; `browserId` is stable per install.
+  "browser.share": method(z.object({ browserId: z.string().min(1), label: z.string().optional(), tabs: z.array(SharedTab) }), Ok),
   // Resolves when the agent is idle (or waiting for permission or an answer) or the timeout passes.
   // `lastTurn`: how the agent's last turn since the server started ended; `kept`: the
   // pending messages it kept as failed (prompts nothing came back for), oldest first.

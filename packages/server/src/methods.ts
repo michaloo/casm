@@ -13,10 +13,12 @@ import { hostAgentsMd, setHostAgentsMd } from "./host-details.ts";
 import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts";
 import type { PeerPool } from "./peers.ts";
 import type { PushService } from "./push.ts";
+import { browserHandlers, type BrowserHub } from "./browser.ts";
 import { DEFAULT_AGENT_PROMPT, PLACEHOLDERS, type AgentPromptState } from "./agent-prompt.ts";
 
 // `name`: the client token's name (or what started the call, e.g. a schedule).
-export type Conn = { subscriptions: Set<string>; name?: string };
+// `send`: writes to the client's socket (only direct connections have one).
+export type Conn = { subscriptions: Set<string>; name?: string; send?: (raw: string) => void };
 
 export type Handlers = { [M in MethodName]: (p: Params<M>, conn: Conn) => Result<M> | Promise<Result<M>> };
 
@@ -53,6 +55,7 @@ export function createHandlers(
   schedules: () => Scheduler,
   files: Files,
   push: PushService,
+  browsers: BrowserHub,
 ): Handlers {
   const getProject = (id: string) => {
     const p = store.getProject(id);
@@ -286,6 +289,8 @@ export function createHandlers(
       return { ok: true };
     },
     "agent.wait": (p) => agents.wait(p.id, p.timeoutMs),
+
+    ...browserHandlers(browsers),
 
     "push.list": (p) => push.list(p.endpoint),
     "push.subscribe": (p) => push.subscribe(p),

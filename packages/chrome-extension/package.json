@@ -1,0 +1,10 @@
+{
+  "name": "@casm/chrome-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The casm browser extension (Chrome MV3, unpacked from ./extension, no build step)",
+  "scripts": {
+    "e2e": "node scripts/e2e.ts"
+  }
+}

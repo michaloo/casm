@@ -228,6 +228,8 @@ the popup then shows a warning with an *Allow access* button.
   WebSockets and the real CLI.
 - `node --test packages/chrome-extension/test/extension.test.ts`: snapshot
   text and key parsing.
+- `node packages/chrome-extension/scripts/fixtures.ts [port]` serves the test
+  pages below on loopback (default 7499), for trying the extension by hand.
 - `npm run e2e -w @casm/chrome-extension` (or
   `xvfb-run -a npm run e2e -w @casm/chrome-extension -- --headed`): Playwright's
   Chromium with the unpacked extension, in two profiles, and a throwaway

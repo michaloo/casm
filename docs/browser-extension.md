@@ -18,10 +18,11 @@ Plain Manifest V3 JavaScript, no build step, Chrome 125 or later.
    choose **Load unpacked** and pick `packages/chrome-extension/extension`.
 3. Click the casm toolbar button, open **Server**, enter the server's
    WebSocket URL (as for the web client, e.g. `ws://my-server:7373`), the
-   token and, optionally, a name for this browser, and **Save and connect**.
-   Chrome asks to allow access to the server's host: allow it (see
-   [local network access](#local-network-access)). The status shows
-   *connected*.
+   token and, optionally, a name for this browser (left empty, it is the
+   suggested one: `chrome`, `chromium`…), and **Save and connect**. The
+   settings are saved at once; Chrome then asks to allow access to the
+   server's host: allow it (see [local network access](#local-network-access)).
+   The status shows *connected*.
 
 The extension connects out to the server like any other client. How the
 browser reaches the server is a deployment choice ([network](network.md)).
@@ -60,7 +61,7 @@ ungoogled Chromium, side by side.
   detaches 30 s after the last one, so Chrome's own "casm started debugging
   this browser" bar is an activity light, not a sharing light (the casm group
   and the toolbar badge show sharing). It stays attached while a command
-  runs, while a dialog waits for the agent and while a download runs. *Cancel*
+  runs and while a dialog waits for the agent. *Cancel*
   on the bar detaches at once but doesn't unshare: the next command attaches
   again (2026-11-10 decision).
 - Sharing does not survive a browser restart: the extension remembers its
@@ -107,13 +108,18 @@ Refs are forgotten on the next snapshot and on navigation.
   them from Chrome 125). A ref remembers its frame's session; a click adds up
   the offsets of the iframes above the node, and the input goes to the tab,
   which routes it into the frame. `eval` runs in the top frame only.
-- **Hidden tabs.** Chrome paints only the front tab of a window that isn't
-  minimized, and casm never brings a tab to the front: that's the user's call.
-  `screenshot` checks first (the tab is active in its window, the window isn't
-  minimized, the page isn't hidden) and otherwise fails at once with "ask the
-  user to show it". A front tab whose window is covered may still not paint:
-  that fails after 8 s with the same advice. `open --new` opens tabs in the
-  background for the same reason. Other commands work in background tabs.
+- **Hidden tabs.** Chrome neither paints a background tab nor delivers mouse
+  clicks or key presses to it: they are dropped silently (so a click's
+  `confirm()` never opens). casm never brings a tab to the front: that's the
+  user's call. So `screenshot`, `click`, `press` and `type --submit` check
+  first (the tab is active in its window, the window isn't minimized, the page
+  isn't hidden, as when its window is covered) and otherwise fail at once:
+  "the tab is not visible (another tab is in front in its window): Chrome
+  doesn't deliver clicks to a background tab … ask the user to show it".
+  `snapshot`, `eval`, `type` (without `--submit`), `open`, `upload`,
+  `downloads` and `dialog` work in background tabs. Tabs opened from shared
+  tabs and by `open --new` usually start in the background, so an agent
+  reads them freely and asks the user to show one before clicking in it.
 - **Dialogs.** A JavaScript dialog blocks its page: the extension sees it open
   (`Page.javascriptDialogOpening`) and the command that caused it returns at
   once with the dialog, which the CLI prints ("a confirm dialog is open:
@@ -134,8 +140,12 @@ Refs are forgotten on the next snapshot and on navigation.
   "Choose file" button's label), or anything in a frame with exactly one file
   input. Drag-and-drop-only upload areas aren't supported.
 - **Downloads.** The extension records downloads a shared tab starts
-  (`Page.downloadWillBegin`, `Page.downloadProgress`); ids are
-  `<tab>.<n>`. `casm browser download <id> -o path` fetches the file
+  (`Page.downloadWillBegin`), and follows each one in Chrome's own list
+  (`chrome.downloads`, matched by URL), which keeps counting with the debugger
+  detached; ids are `<tab>.<n>`. A download Chrome hasn't finished says why:
+  "waiting for the user to choose where to save it" (ungoogled Chromium asks
+  for every file by default), paused, flagged as dangerous, or stopped with
+  Chrome's error. `casm browser download <id> -o path` fetches the file
   **again**, inside the page that started it (so with its cookies), and
   writes it on the agent's machine, 10 MiB at most. That works for ordinary
   links and blob: URLs still alive. It fails for one-time links, downloads a
@@ -223,9 +233,10 @@ the popup then shows a warning with an *Allow access* button.
   (`casm token create chrome-laptop`) so `casm token revoke` cuts just it off;
   the server closes revoked connections within 30 s.
 - **Permissions:** `debugger` (CDP, used only on shared tabs), `tabs` (tab
-  URLs and titles, for sharing and the popup), `tabGroups`, `storage`,
-  `alarms`, `contextMenus`, and optional host access to the server's host
-  only. No content scripts.
+  URLs and titles, for sharing and the popup), `tabGroups`, `downloads` (the
+  state of downloads shared tabs started; others are never reported),
+  `storage`, `alarms`, `contextMenus`, and optional host access to the
+  server's host only. No content scripts.
 
 ## Testing
 
@@ -254,9 +265,18 @@ the popup then shows a warning with an *Allow access* button.
   as the user's; unsharing by ungrouping; a command for the unshared tab refused
   inside the extension; the popup's missing-access warning; and closing the
   browser.
-- Not tested here: real Chrome and ungoogled Chromium (Playwright's Chromium
-  is close to the latter: no Google services), the permission prompt (no one
-  to click it), and painting of covered windows.
+  The second profile is set up through the popup's form with the name left
+  empty, while the host-access prompt goes unanswered.
+- `xvfb-run -a node packages/chrome-extension/scripts/e2e-bare.ts`: what
+  Playwright hides (its Chromium keeps background tabs rendering and takes
+  over downloads). It runs the same Chromium binary bare, drives only the
+  extension's service worker, and checks that clicks and key presses in a
+  background tab are refused while typing works, that the first click in a
+  front tab reports its confirm, that clicks land in both iframes, also at
+  device scale 2, and that a download behind a save-as prompt says so and can
+  still be fetched.
+- Not tested here: real Chrome and ungoogled Chromium on macOS (Michal
+  tested those by hand), and the permission prompt itself (no one to click it).
 
 ## Limitations and open questions
 

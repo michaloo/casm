@@ -731,7 +731,7 @@ async function run(c: CasmClient) {
           return out(r, () => {
             if (!r.downloads.length) console.error("no downloads from shared tabs");
             for (const d of r.downloads)
-              console.log(`${d.id.padEnd(5)}  ${d.state.padEnd(10)}  ${d.filename}  ${d.totalBytes ? `${d.totalBytes} bytes  ` : ""}${d.url}`);
+              console.log(`${d.id.padEnd(5)}  ${d.state.padEnd(11)}  ${d.filename}  ${d.totalBytes ? `${d.totalBytes} bytes  ` : ""}${d.url}${d.note ? `  (${d.note})` : ""}`);
           });
         }
         case "download": {

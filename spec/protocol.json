@@ -7978,7 +7978,8 @@
                   "enum": [
                     "inProgress",
                     "completed",
-                    "canceled"
+                    "canceled",
+                    "interrupted"
                   ]
                 },
                 "receivedBytes": {
@@ -7988,6 +7989,9 @@
                   "type": "number"
                 },
                 "startedAt": {
+                  "type": "string"
+                },
+                "note": {
                   "type": "string"
                 }
               },
@@ -8044,7 +8048,8 @@
                 "enum": [
                   "inProgress",
                   "completed",
-                  "canceled"
+                  "canceled",
+                  "interrupted"
                 ]
               },
               "receivedBytes": {
@@ -8054,6 +8059,9 @@
                 "type": "number"
               },
               "startedAt": {
+                "type": "string"
+              },
+              "note": {
                 "type": "string"
               }
             },

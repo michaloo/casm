@@ -64,10 +64,11 @@ export function detached(tabId) {
 }
 
 // What keeps the debugger attached between commands: an open dialog (only
-// this session can answer it) or a download still running (its progress).
+// this session can answer it). Downloads don't: their state comes from
+// chrome.downloads, which needs no debugger (and a download waiting for a
+// save-as answer would keep the bar up for good).
 export function keepAttached(tabId) {
-  const s = tabs.get(tabId);
-  return !!s && (!!s.dialog || s.downloads.some((d) => d.state === "inProgress"));
+  return !!tabs.get(tabId)?.dialog;
 }
 
 export function forgetRefs(tabId) {
@@ -355,6 +356,8 @@ export async function navigate(tabId, url) {
 
 // `newTab`: with the modifier that opens a link in a new tab (Command on macOS, Control elsewhere).
 export async function click(tabId, ref, newTab = false) {
+  node(tabId, ref);
+  await needVisible(tabId, "clicks");
   const mac = /mac/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
   const modifiers = newTab ? (mac ? 4 : 2) : 0;
   await onNode(tabId, ref, async (backendNodeId, session) => {
@@ -370,6 +373,8 @@ export async function click(tabId, ref, newTab = false) {
 }
 
 export async function type(tabId, ref, text, submit) {
+  // Typing reaches a background tab; the Enter of --submit doesn't.
+  if (submit) await needVisible(tabId, "key presses (--submit presses Enter)");
   await onNode(tabId, ref, async (backendNodeId, session) => {
     await cdp(tabId, "DOM.focus", { backendNodeId }, session);
     // Select what's there, so the text replaces it, as typing over a selection does.
@@ -388,19 +393,20 @@ export async function type(tabId, ref, text, submit) {
     );
     // Keyboard input goes to the focused frame through the tab's session.
     if (text) await cdp(tabId, "Input.insertText", { text });
-    else await press(tabId, "Delete");
+    else await cdp(tabId, "Runtime.callFunctionOn", { objectId: object.objectId, functionDeclaration: `function () { if ("value" in this) { this.value = ""; this.dispatchEvent(new Event("input", { bubbles: true })); } else this.textContent = ""; }` }, session);
   });
-  if (submit) await press(tabId, "Enter");
+  if (submit) await press(tabId, "Enter", { checked: true });
   return {};
 }
 
-export async function press(tabId, key) {
+export async function press(tabId, key, { checked = false } = {}) {
   let events;
   try {
     events = keyEvents(key);
   } catch (e) {
     throw new ActionError(e.message, -32602);
   }
+  if (!checked) await needVisible(tabId, "key presses");
   await cdp(tabId, "Input.dispatchKeyEvent", events.down);
   await cdp(tabId, "Input.dispatchKeyEvent", events.up);
   await sleep(SETTLE_MS);
@@ -409,15 +415,31 @@ export async function press(tabId, key) {
 
 // Chrome paints only the front tab of a window that isn't minimized. casm
 // never brings a tab to the front: that is the user's call.
-export async function screenshot(tabId) {
+// Why the tab isn't showing, or null when it is. Chrome neither paints a
+// background tab nor delivers mouse clicks or key presses to it (they are
+// dropped silently, so a click's confirm() never opens). Typing (focus and
+// insert text), snapshots and eval work there.
+async function hidden(tabId) {
   const tab = await chrome.tabs.get(tabId);
+  if (!tab.active) return "another tab is in front in its window";
   const win = await chrome.windows.get(tab.windowId);
+  if (win.state === "minimized") return "its window is minimized";
   const { result } = await cdp(tabId, "Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true });
-  if (!tab.active || win.state === "minimized" || result?.value === "hidden")
+  return result?.value === "hidden" ? "the page is hidden, e.g. its window is covered" : null;
+}
+
+// Fails at once when the tab can't take `what` in the background.
+async function needVisible(tabId, what) {
+  const why = await hidden(tabId);
+  if (why)
     throw new ActionError(
-      `the tab is not visible (${!tab.active ? "another tab is in front in its window" : win.state === "minimized" ? "its window is minimized" : "the page is hidden"}), and casm never brings tabs to the front: ask the user to show it, then try again`,
+      `the tab is not visible (${why}): Chrome doesn't deliver ${what} to a background tab, and casm never brings tabs to the front: ask the user to show it, then try again`,
       1002,
     );
+}
+
+export async function screenshot(tabId) {
+  await needVisible(tabId, "screenshots");
   const { data } = await Promise.race([
     cdp(tabId, "Page.captureScreenshot", { format: "png" }),
     sleep(SCREENSHOT_WAIT_MS).then(() => {
@@ -489,8 +511,35 @@ export async function upload(tabId, ref, files) {
   return {};
 }
 
-export function downloads(tabId) {
-  return (tabs.get(tabId)?.downloads ?? []).map(({ guid: _, frame: __, ...d }) => ({ ...d, tabId }));
+// A download's state from Chrome's own list (chrome.downloads), which keeps
+// counting whether or not the debugger is attached. CDP only tells which tab
+// started it: the entry is found by URL among downloads started around then.
+const claimed = new Set();
+async function refresh(d) {
+  if (d.downloadId === undefined) {
+    const since = new Date(Date.parse(d.startedAt) - 5000).toISOString();
+    const items = await chrome.downloads.search({ startedAfter: since, orderBy: ["startTime"] }).catch(() => []);
+    const item = items.find((i) => (i.url === d.url || i.finalUrl === d.url) && !claimed.has(i.id));
+    if (!item) return;
+    d.downloadId = item.id;
+    claimed.add(item.id);
+  }
+  const [i] = await chrome.downloads.search({ id: d.downloadId }).catch(() => []);
+  if (!i) return;
+  d.state = i.state === "complete" ? "completed" : i.state === "interrupted" ? (i.error === "USER_CANCELED" ? "canceled" : "interrupted") : "inProgress";
+  d.receivedBytes = i.bytesReceived;
+  if (i.totalBytes > 0) d.totalBytes = i.totalBytes;
+  delete d.note;
+  if (d.state === "interrupted") d.note = `stopped: ${i.error}`;
+  else if (d.state === "inProgress" && i.paused) d.note = "paused in the browser";
+  else if (d.state === "inProgress" && !i.filename) d.note = "waiting for the user to choose where to save it";
+  else if (i.danger && !["safe", "accepted"].includes(i.danger)) d.note = `Chrome flagged it (${i.danger}): the user has to keep or discard it`;
+}
+
+export async function downloads(tabId) {
+  const list = tabs.get(tabId)?.downloads ?? [];
+  for (const d of list) await refresh(d);
+  return list.map(({ guid: _, frame: __, downloadId: ___, ...d }) => ({ ...d, tabId }));
 }
 
 // The page that started the download fetches it again, with its cookies.
@@ -499,6 +548,7 @@ export function downloads(tabId) {
 export async function fetchDownload(tabId, n, maxBytes) {
   const d = tabs.get(tabId)?.downloads.find((x) => x.n === n);
   if (!d) throw new ActionError(`the tab has no download ${n} (casm browser downloads lists them)`);
+  await refresh(d);
   const fn = `async (url, max) => {
     const r = await fetch(url, { credentials: "include" });
     if (!r.ok) throw new Error("HTTP " + r.status);
@@ -517,6 +567,6 @@ export async function fetchDownload(tabId, n, maxBytes) {
   );
   if (r.exceptionDetails)
     throw new ActionError(`the page could not fetch ${d.url} again (${r.exceptionDetails.exception?.description?.split("\n")[0] ?? r.exceptionDetails.text}): ask the user for the file`, -32603);
-  const { guid: _, frame: __, ...info } = d;
+  const { guid: _, frame: __, downloadId: ___, ...info } = d;
   return { download: { ...info, tabId }, ...r.result.value };
 }

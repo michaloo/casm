@@ -99,8 +99,11 @@ $("settings").onsubmit = async (e) => {
   const f = e.target;
   const msg = { type: "save", url: f.url.value, token: f.token.value, label: f.label.value };
   f.token.value = "";
-  await requestAccess(msg.url);
+  // Both start now, inside the click: Chrome closes the popup when its
+  // permission prompt opens, and the settings must be on their way by then.
+  const access = requestAccess(msg.url);
   await act(msg);
+  await access;
 };
 $("permAllow").onclick = async () => {
   const s = await ask({ type: "state" });

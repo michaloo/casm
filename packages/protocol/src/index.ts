@@ -612,10 +612,12 @@ export const BrowserDownload = z.object({
   tab: z.string(),
   url: z.string(),
   filename: z.string(),
-  state: z.enum(["inProgress", "completed", "canceled"]),
+  state: z.enum(["inProgress", "completed", "canceled", "interrupted"]),
   receivedBytes: z.number().optional(),
   totalBytes: z.number().optional(),
   startedAt: z.string(),
+  // Why it's stuck or stopped: a save-as prompt waiting, paused, flagged as dangerous, a network error.
+  note: z.string().optional(),
 });
 export type BrowserDownload = z.infer<typeof BrowserDownload>;
 

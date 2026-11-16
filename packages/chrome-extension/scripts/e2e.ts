@@ -66,7 +66,8 @@ const until = async (check: () => Promise<boolean>) => {
   for (let i = 0; i < 50 && !(await check()); i++) await new Promise((r) => setTimeout(r, 100));
 };
 
-async function browser(name: string) {
+// `viaPopup`: set up through the popup's form, as a person does (name left empty).
+async function browser(name: string, { viaPopup = false } = {}) {
   const context = await chromium.launchPersistentContext(join(dir, name), {
     channel: "chromium",
     headless: !headed,
@@ -79,7 +80,20 @@ async function browser(name: string) {
   const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
   const sw = <T>(fn: string) => worker.evaluate(fn) as Promise<T>;
   // Saved as the popup does it, minus the permission prompt (no one to click it here).
-  await sw(`casm.saveSettings({ url: ${JSON.stringify(server.url)}, token: ${JSON.stringify(token)}, label: "" })`);
+  if (viaPopup) {
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${new URL(worker.url()).host}/popup.html`);
+    await popup.locator("form[data-filled]").waitFor({ state: "attached" });
+    await popup.evaluate(() => ((document.getElementById("settingsBox") as HTMLDetailsElement).open = true));
+    assert.equal(await popup.locator("input[name=label]").getAttribute("placeholder"), "chromium", "the name field suggests the browser's kind");
+    await popup.fill("input[name=url]", server.url);
+    await popup.fill("input[name=token]", token);
+    // Saving also asks for host access; nobody answers that prompt here, and the settings must not wait for it.
+    await popup.click("button[type=submit]");
+    await until(() => sw<string>("casm.state().then((s) => s.status)").then((s) => s === "connected"));
+    assert.equal(await sw<string>("casm.state().then((s) => s.settings.label)"), "chromium", "an empty name is the suggested one");
+    await popup.close();
+  } else await sw(`casm.saveSettings({ url: ${JSON.stringify(server.url)}, token: ${JSON.stringify(token)}, label: "" })`);
   // The debugger lets go after 30 s without commands; here after IDLE_MS.
   await sw(`casm.setIdleDetachMs(${IDLE_MS})`);
   const share = async (url: string) => {
@@ -198,6 +212,17 @@ try {
   const blank = await ok("browser", "click", ref(tools, /link "Blank link"/), "--tab", toolsId);
   assert.match(blank.err, new RegExp(`opened tab \\d+ .*/next\\?blank.*opened by ${toolsId}`));
   assert.equal(await inGroup(), ++grouped, "target=_blank joined the group");
+  // The _blank tab came to the front: clicks and keys no longer reach /tools, and casm says so at once.
+  await refused(/the tab is not visible \(another tab is in front in its window\): Chrome doesn't deliver clicks to a background tab.*ask the user to show it/, "browser", "click", ref(tools, /link "Plain link"/), "--tab", toolsId);
+  await refused(/doesn't deliver key presses/, "browser", "press", "Tab", "--tab", toolsId);
+  // Typing does reach a background tab.
+  await ok("browser", "eval", "document.body.insertAdjacentHTML('beforeend', '<input aria-label=Later>'); 1", "--tab", toolsId);
+  const later = ref((await ok("browser", "snapshot", "--tab", toolsId)).out, /textbox "Later"/);
+  await ok("browser", "type", later, "typed in the background", "--tab", toolsId);
+  assert.equal((await ok("browser", "eval", "document.querySelector('[aria-label=Later]').value", "--tab", toolsId)).out, "typed in the background");
+  await refused(/doesn't deliver key presses \(--submit presses Enter\)/, "browser", "type", later, "x", "--submit", "--tab", toolsId);
+  // The user brings it back.
+  await firstPage.bringToFront();
   const newTab = await ok("browser", "click", ref(tools, /link "Plain link"/), "--new-tab", "--tab", toolsId);
   assert.match(newTab.err, new RegExp(`opened tab \\d+ .*/next\\?plain.*opened by ${toolsId}`));
   assert.match(newTab.out + (await ok("browser", "tabs")).out, new RegExp(`^${toolsId} +Tools`, "m"), "the clicking tab stayed where it was");
@@ -232,7 +257,7 @@ try {
   await refused(/the tab is not visible \(another tab is in front in its window\).*ask the user to show it/, "browser", "screenshot", "--tab", newId);
 
   // A second browser: targets must be named.
-  const two = await browser("profile-two");
+  const two = await browser("profile-two", { viaPopup: true });
   contexts.push(two.context);
   await until(async () => (await casm("browser", "list")).out.includes("chromium-2"));
   await two.share(`${site}/next`);

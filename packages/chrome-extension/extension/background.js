@@ -78,7 +78,8 @@ async function saveSettings({ url, token, label }) {
   url = String(url ?? "").trim();
   if (!/^wss?:\/\/[^/]+/.test(url)) throw new Error("the server URL starts with ws:// or wss://, e.g. ws://my-server:7373");
   const current = await settings();
-  const next = { url, label: String(label ?? "").trim(), token: String(token ?? "").trim() || current.token || "" };
+  // An empty name is the one the field suggests.
+  const next = { url, label: String(label ?? "").trim() || defaultLabel(), token: String(token ?? "").trim() || current.token || "" };
   if (!next.token) throw new Error("paste a client token (casm token create <name> on the server)");
   await chrome.storage.local.set({ settings: next });
   reconnect();
@@ -295,7 +296,7 @@ chrome.debugger.onDetach.addListener(({ tabId }) => {
 // Agent commands (browser.command from the server)
 
 async function command(p) {
-  if (p.action === "downloads") return { downloads: (await sharedTabs()).flatMap((t) => act.downloads(t.id)) };
+  if (p.action === "downloads") return { downloads: (await Promise.all((await sharedTabs()).map((t) => act.downloads(t.id)))).flat() };
   let r;
   if (p.action === "open" && p.tabId === undefined) {
     // Next to a tab only if that one is shared: the server doesn't pick windows.

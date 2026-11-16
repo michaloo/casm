@@ -14,7 +14,22 @@ async function stop(child: ReturnType<typeof spawn>) {
   clearTimeout(killer);
 }
 
-export const test = base.extend<{ server: void; scenario: string }>({
+export const test = base.extend<{ server: void; scenario: string; defaultProvider: "codex" | "claude"; workView: "compact" | "detailed" }>({
+  // Existing tool/layout scenarios exercise the individual view. The compact
+  // suite leaves storage untouched to exercise the actual first-run default.
+  workView: ["detailed", { option: true }],
+  defaultProvider: ["claude", { option: true }],
+  page: async ({ page, workView, defaultProvider }, use) => {
+    // Legacy layout tests retain their explicit Claude choice. New-default tests
+    // leave storage untouched to exercise the real first-run preference.
+    if (defaultProvider === "claude") await page.addInitScript(() => {
+      if (!localStorage.getItem("casm.new-chat-provider")) localStorage.setItem("casm.new-chat-provider", "claude");
+    });
+    if (workView === "detailed") await page.addInitScript(() => {
+      if (!localStorage.getItem("casm.work-view")) localStorage.setItem("casm.work-view", "detailed");
+    });
+    await use(page);
+  },
   baseURL: async ({}, use) => use(testURL),
   // "memory": the heavy workspace of memory-fixture.ts besides the usual one.
   scenario: ["", { option: true }],

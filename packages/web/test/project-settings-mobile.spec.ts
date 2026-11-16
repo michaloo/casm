@@ -34,7 +34,7 @@ for (const width of [1440, 375]) test(`project modal mobile view edit conflict c
   await expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
   await trigger.focus(); await trigger.press("Enter");
   const panel = page.getByRole("dialog", { name: "Test project project" });
-  await expect(panel.getByRole("navigation").getByRole("button")).toHaveText(["AGENTS.md", "Memories", "Schedules"]);
+  await expect(panel.getByRole("navigation").getByRole("button")).toHaveText(["Files", "AGENTS.md", "Memories", "Schedules", "Archived chats"]);
   // Where it lives sits under the title: the path (whole in its tooltip), Copy, the host; no group set.
   const context = panel.locator(".settings-context");
   await expect(context.locator(".middle-path")).toHaveAttribute("title", testHome);
@@ -43,7 +43,7 @@ for (const width of [1440, 375]) test(`project modal mobile view edit conflict c
   await expect(context.locator(".settings-context-item")).toHaveCount(1);
   await context.getByRole("button", { name: "Copy project path" }).click();
   await expect(context.getByRole("button", { name: "Copy project path" })).toHaveText("Copied");
-  await expect(panel.getByRole("button", { name: "Files", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Files", exact: true })).toHaveCount(1);
   await expect(panel.getByRole("heading", { name: "Project rules" })).toBeVisible();
   await panel.getByRole("button", { name: "Edit instructions", exact: true }).click();
   const editor = panel.getByRole("textbox", { name: "Project instructions", exact: true });
@@ -65,7 +65,7 @@ for (const width of [1440, 375]) test(`project modal mobile view edit conflict c
   // A flat list for this project: no project box around it.
   await expect(panel.locator("details.memory-project")).toHaveCount(0);
   await expect(panel.getByRole("heading", { name: /Claude · project/ })).toBeVisible();
-  const entry = panel.locator("summary").filter({ hasText: "Project workflow" });
+  const entry = panel.locator(".memory-store").filter({ has: page.getByRole("heading", { name: /^Claude/ }) }).locator("summary").filter({ hasText: "Project workflow" });
   await expect(entry).toContainText("How this project is maintained");
   await entry.click();
   await expect(panel.getByRole("heading", { name: "Workflow details" })).toBeVisible();

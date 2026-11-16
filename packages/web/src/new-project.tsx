@@ -2,6 +2,10 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Project } from "@casm/protocol";
 import type { Rpc } from "./state";
+import { windowsAbsolute } from "./file-paths.ts";
+
+const normalized = (path: string) => windowsAbsolute(path) ? path.replace(/\\/g, "/") : path;
+const absoluteFolder = (path: string) => path.startsWith("/") || windowsAbsolute(path);
 
 function homeFromProjects(projects: Project[]) {
   return projects.map(project => project.path.match(/^\/(?:home|Users)\/[^/]+|^\/root(?=\/|$)/)?.[0]).find(Boolean);
@@ -15,6 +19,17 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
   const folderInput = useRef<HTMLInputElement>(null);
   const home = homeFromProjects(projects);
   const [path, setPath] = useState(() => (home || projects[0]?.path) ? `${(home ?? projects[0].path).replace(/\/+$/, "")}/` : "");
+  const [roots, setRoots] = useState<string[]>([]);
+  const touched = useRef(false);
+  useEffect(() => {
+    let active = true;
+    if (online && rpc) void rpc.call("server.info", {}, host).then(info => {
+      if (!active || !info.projectRoots?.length) return;
+      setRoots(info.projectRoots.map(normalized));
+      if (!touched.current) setPath(normalized(info.projectRoots[0]).replace(/\/+$/, "") + "/");
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [rpc, host, online]);
   const [projectName, setName] = useState("");
   const [group, setGroup] = useState("");
   const [tags, setTags] = useState("");
@@ -28,8 +43,8 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
   const [active, setActive] = useState(0);
   const listId = useId();
   const hintId = useId();
-  const folder = path.trim();
-  const absolute = folder.startsWith("/");
+  const folder = normalized(path.trim());
+  const absolute = absoluteFolder(folder);
   const defaultName = folder.split("/").filter(Boolean).at(-1) ?? "";
   const groups = [...new Set(projects.map(project => project.group).filter((value): value is string => !!value))].sort();
   useEffect(() => { dialog.current?.showModal(); folderInput.current?.focus(); }, []);
@@ -37,14 +52,14 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
     let current = true;
     setSuggestions([]); setActive(0); setSearchError("");
     const expanded = home && (folder === "~" || folder.startsWith("~/")) ? home + folder.slice(1) : folder;
-    if (!online || !rpc || !expanded.startsWith("/") || !showSuggestions || busy) return;
+    if (!online || !rpc || !absoluteFolder(expanded) || !showSuggestions || busy) return;
     const at = expanded.lastIndexOf("/");
     const cwd = expanded.slice(0, at) || "/";
     const query = expanded.slice(at + 1);
     const timer = setTimeout(() => {
       void rpc.call("fs.search", { cwd, query, limit: 40 }, host).then(result => {
         if (!current) return;
-        const base = result.root.replace(/\/+$/, "");
+        const base = normalized(result.root).replace(/\/+$/, "");
         setSuggestions(result.entries.filter(entry => entry.kind === "dir")
           .map(entry => `${base}/${entry.path}`).filter(value => value !== folder.replace(/\/+$/, "")).slice(0, 6));
       }).catch(error => { if (current) setSearchError(error instanceof Error ? error.message : String(error)); });
@@ -52,7 +67,7 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
     return () => { current = false; clearTimeout(timer); };
   }, [folder, home, host, online, rpc, showSuggestions, busy]);
   useEffect(() => { document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: "nearest" }); }, [active, listId]);
-  const pick = (value: string) => { setPath(value); setSuggestions([]); setShowSuggestions(false); setError(""); setMissing(false); setMkdir(false); folderInput.current?.focus(); };
+  const pick = (value: string) => { touched.current = true; setPath(value); setSuggestions([]); setShowSuggestions(false); setError(""); setMissing(false); setMkdir(false); folderInput.current?.focus(); };
   const submit = async () => {
     if (!absolute || !online || !rpc || busy) return;
     setBusy(true); setError("");
@@ -75,12 +90,17 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
     onClose={close} onCancel={event => { if (busy) event.preventDefault(); }}>
     <header><h2>New project</h2><button type="button" aria-label="Close new project" disabled={busy} onClick={close}>×</button></header>
     <form className="settings-content new-project-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
+      {!!roots.length && <><label htmlFor={`${listId}-base`}>Project area</label>
+        <select id={`${listId}-base`} defaultValue="" disabled={busy} onChange={event => { if (event.target.value) pick(event.target.value + "/"); }}>
+          <option value="">Choose a project area…</option>
+          {roots.map(root => <option key={root} value={root}>{root.split("/").at(-1)}</option>)}
+        </select></>}
       <label htmlFor={`${listId}-folder`}>Folder</label>
       <input ref={folderInput} id={`${listId}-folder`} role="combobox" aria-autocomplete="list" aria-expanded={expanded}
         aria-controls={listId} aria-activedescendant={expanded ? `${listId}-${active}` : undefined} aria-describedby={hintId}
         required autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} disabled={busy}
         value={path} placeholder={home ? `${home}/Projects/app` : "/absolute/path/to/project"}
-        onChange={event => { setPath(event.target.value); setShowSuggestions(true); setError(""); setMissing(false); setMkdir(false); }}
+        onChange={event => { touched.current = true; setPath(event.target.value); setShowSuggestions(true); setError(""); setMissing(false); setMkdir(false); }}
         onKeyDown={event => {
           if (expanded && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
             event.preventDefault(); setActive(index => (index + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length);
@@ -93,7 +113,7 @@ export function NewProject({ host, name, projects, rpc, online, close, created }
           onMouseDown={event => event.preventDefault()} onClick={() => pick(value)}><span aria-hidden="true">▱</span><span>{value}</span></button></li>)}
       </ul>}
       <p id={hintId} className="muted">A folder on {name}. It can't be changed later.</p>
-      {folder && !absolute && <p className="muted">Choose a suggestion or enter an absolute path starting with /.</p>}
+      {folder && !absolute && <p className="muted">Enter an absolute folder path, for example C:/Projects/app or /home/user/projects/app.</p>}
       {missing && <p className="muted" role="status">This folder doesn't exist on {name}.</p>}
       {missing && <label className="settings-toggle"><input type="checkbox" checked={mkdir} disabled={busy} onChange={event => setMkdir(event.target.checked)}/>Create folder</label>}
       {searchError && <p className="muted" role="status">Folder suggestions unavailable: {searchError}</p>}

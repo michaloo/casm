@@ -247,16 +247,21 @@ histories.set("files-history", [
 ]);
 store.updateAgent(filesAgent.id, { nativeSessionId: "files-history" });
 writeFileSync(`${home}/web-files-agent-id`, filesAgent.id);
+writeFileSync(`${home}/state/config.json`, JSON.stringify({ providerDefaults: {
+  codex: { model: "gpt-6.1-sol", effort: "high", mode: "auto-review" },
+} }));
 const server = await startServer({
   store,
-  providers: [provider],
+  providers: [provider, { ...provider, id: "codex", catalog: async () => ({
+    models: [{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol" }], modes: [{ id: "auto-review" }],
+  }) }],
   host: "127.0.0.1",
   port: testPort,
   version: "web-test",
   name: "Test host",
   // Inside the project folder: the Files tab lists it but never opens it.
   home: `${home}/state`,
-  webRoot: resolve("packages/web/dist"),
+  webRoot: resolve(process.env.CASM_WEB_TEST_DIST ?? "packages/web/dist"),
   // No real push service: deliveries are recorded; an endpoint containing "gone" has expired.
   pushSend: async (req) => {
     appendFileSync(`${home}/push-sent.jsonl`, JSON.stringify({ endpoint: req.endpoint }) + "\n");

@@ -6,6 +6,7 @@ import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
 import type { Scheduler } from "./schedules.ts";
 import { searchFiles } from "./fs-search.ts";
+import { assertProjectPath, configuredProjectRoots } from "./project-roots.ts";
 import type { Files } from "./files.ts";
 import type { Uploads } from "./attachments.ts";
 import { HostSampler } from "./host-stats.ts";
@@ -17,6 +18,7 @@ import type { PushService } from "./push.ts";
 import { browserHandlers, type BrowserHub } from "./browser.ts";
 import type { Settings } from "./settings.ts";
 import { DEFAULT_AGENT_PROMPT, PLACEHOLDERS, type AgentPromptState } from "./agent-prompt.ts";
+import { applyProviderDefaults, providerDefaults } from "./provider-defaults.ts";
 
 // `name`: the client token's name (or what started the call, e.g. a schedule).
 // `send`: writes to the client's socket (only direct connections have one).
@@ -64,6 +66,7 @@ export function createHandlers(
   const getProject = (id: string) => {
     const p = store.getProject(id);
     if (!p) throw new RpcError(ErrorCode.NotFound, `project ${id} not found`);
+    assertProjectPath(p.path);
     return p;
   };
   const getAgent = (id: string) => {
@@ -122,8 +125,8 @@ export function createHandlers(
   const costs = new CostReader(store, () => agents.installedProviders());
   return {
     "host.stats": async () => await sampler.read(agents.runningCount()),
-    "host.agentsMd": async () => ({ files: await hostAgentsMd() }),
-    "host.setAgentsMd": (p) => setHostAgentsMd(p.path, p.content, p.expectedSha256),
+    "host.agentsMd": async () => ({ files: await hostAgentsMd({ providers: agents.providerIds().length ? agents.providerIds() : undefined }) }),
+    "host.setAgentsMd": (p) => setHostAgentsMd(p.path, p.content, p.expectedSha256, { providers: agents.providerIds().length ? agents.providerIds() : undefined }),
     "server.agentPrompt": (p) => agentPromptInfo(agents.agentPrompt.state(), p.agentId),
     "server.setAgentPrompt": (p) => {
       if (!agents.agentPrompt.home) throw new RpcError(ErrorCode.Conflict, "this server keeps no state directory for an agent prompt");
@@ -137,15 +140,17 @@ export function createHandlers(
       if (!settings.home) throw new RpcError(ErrorCode.Conflict, "this server keeps no state directory for settings");
       return settings.set(p);
     },
-    "server.info": () => ({ ...identity, protocol: PROTOCOL_VERSION, providers: agents.providerIds() }),
+    "server.info": () => ({ ...identity, protocol: PROTOCOL_VERSION, providers: agents.providerIds(), projectRoots: configuredProjectRoots() }),
 
     "fs.search": async (p) => {
       const root = p.agentId ? getAgent(p.agentId).cwd : p.cwd;
       if (!root || !isAbsolute(root)) throw new RpcError(ErrorCode.InvalidParams, "give an agentId or an absolute cwd");
+      assertProjectPath(root);
       return { root, entries: await searchFiles(root, p.query, p.limit) };
     },
 
     "fs.read": (p) => files.read(p),
+    "fs.list": (p) => files.list(p),
     "fs.downloadLink": (p) => files.link(p),
     "upload.start": (p) => uploads.start(p),
     "upload.chunk": (p) => uploads.chunk(p),
@@ -161,13 +166,14 @@ export function createHandlers(
       ),
     }),
 
-    "provider.catalog": (p) => agents.catalog(p.provider, p.refresh),
+    "provider.catalog": async (p) => ({ ...await agents.catalog(p.provider, p.refresh), defaults: providerDefaults(agents.agentPrompt.home, p.provider) }),
     "provider.limits": async (p) => ({ limits: await agents.limits(p.provider, p.refresh) }),
     "provider.costs": (p) => costs.costs(p.days),
 
     "project.list": (p) => ({ projects: store.listProjects(p.includeArchived) }),
     "project.create": (p) => {
       if (!isAbsolute(p.path)) throw new RpcError(ErrorCode.InvalidParams, "path must be absolute");
+      assertProjectPath(p.path);
       const { createFolder, ...fields } = p;
       const existing = statSync(p.path, { throwIfNoEntry: false });
       if (existing && !existing.isDirectory()) throw new RpcError(ErrorCode.InvalidParams, `not a directory on this host: ${p.path}`);
@@ -206,8 +212,10 @@ export function createHandlers(
     "agent.list": (p) => ({ agents: store.listAgents(p).map((a) => agents.withStatus(a)) }),
     "agent.get": (p) => getAgent(p.id),
     "agent.create": async (p) => {
-      await checkMode(p.provider, p.config?.mode);
+      const config = applyProviderDefaults(providerDefaults(agents.agentPrompt.home, p.provider), p.config);
+      await checkMode(p.provider, config.mode);
       const project = getProject(p.projectId);
+      assertProjectPath(project.path);
       const cwd = p.cwd ? agentCwd(project.path, p.cwd) : project.path;
       if (p.attachments?.length) uploads.check(p.attachments, project.path);
       const stored = store.createAgent({
@@ -215,7 +223,7 @@ export function createHandlers(
         name: p.name ?? `${p.provider} · ${basename(cwd)}`,
         provider: p.provider,
         cwd,
-        config: p.config ?? {},
+        config,
         parent: p.parent,
         tags: p.tags,
       });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import type { Catalog, ProviderId } from "@casm/protocol";
 import { ProviderIcon, providerNames } from "./provider-icon";
-import { modelLabels } from "./model-label";
+import { modelLabels, modelDisplayName, modelCatalogEntry } from "./model-label";
 import { ChevronGlyph } from "./row-menu";
 
 const clean = (text: string) => text.replace(/\s*\((?:catalog(?: default)?|recommended)\)/gi, "").trim();
@@ -39,10 +39,10 @@ export function ComposerPickers({ provider, fixedProvider, catalog, model, confi
   const labels = modelLabels(model, effectiveModel, catalog.models, configuredModel ?? null);
   const session = labels.effective;
   const defaultLabel = session && !/^default\b/i.test(compactModel(labels.actual ?? "", session)) ? `Default · ${compactModel(labels.actual!, session)}` : "Default";
-  const selectedModel = catalog.models.find(item => item.id === (model || effectiveModel)) ?? (!model ? catalog.models.find(item => item.isDefault) : undefined);
+  const selectedModel = modelCatalogEntry(model || effectiveModel || "", catalog.models) ?? (!model ? catalog.models.find(item => item.isDefault) : undefined);
   const modelOptions: Option[] = [{ value: "", label: defaultLabel, description: effectiveModel ? labels.sessionTitle : "Use the provider's default model" },
     ...catalog.models.map(item => ({ value: item.id, label: clean(item.name || item.id), description: item.description }))];
-  if (model && !catalog.models.some(item => item.id === model)) modelOptions.push({ value: model, label: model });
+  if (model && !catalog.models.some(item => item.id === model)) modelOptions.push({ value: model, label: modelDisplayName(model, catalog.models) });
   const modes: Option[] = [{ value: "", label: "Default", description: "Use the provider's default mode" }, ...catalog.modes.map(item => ({ value: item.id, label: shortMode(item.id, item.name), description: [item.name, item.description].filter(Boolean).join(" — ") }))];
   if (mode && !catalog.modes.some(item => item.id === mode)) modes.push({ value: mode, label: shortMode(mode) });
   const efforts = selectedModel?.efforts ?? [];

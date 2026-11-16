@@ -2,7 +2,7 @@
 // .gitignore), falling back to a shallow walk, then ranks matches.
 import { execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -16,7 +16,7 @@ async function listFiles(root: string): Promise<string[]> {
   ] as const) {
     try {
       const { stdout } = await run(cmd, [...args], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
-      return stdout.split("\n").filter(Boolean).slice(0, MAX_FILES);
+      return stdout.split(/\r?\n/).filter(Boolean).slice(0, MAX_FILES).map(path => path.split(sep).join("/"));
     } catch {
       // not installed, or not a git repo
     }
@@ -28,7 +28,7 @@ async function listFiles(root: string): Promise<string[]> {
       if (SKIP.has(e.name)) continue;
       const full = join(dir, e.name);
       if (e.isDirectory()) await walk(full, depth + 1);
-      else if (e.isFile()) out.push(relative(root, full));
+      else if (e.isFile()) out.push(relative(root, full).split(sep).join("/"));
     }
   };
   await walk(root, 0);

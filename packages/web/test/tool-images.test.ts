@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { rolldown } from "rolldown";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 // Bundle TSX for a DOM-free render test; no browser or listening server.
 test("tool disclosure renders inline images and preserves text-only fallback", async () => {
   const dir = await mkdtemp(fileURLToPath(new URL(".tool-render-", import.meta.url)));
-  const bundle = await rolldown({ input: fileURLToPath(new URL("../src/transcript.tsx", import.meta.url)), external: (id) => !id.startsWith(".") && !id.startsWith("/"), transform: { jsx: "react-jsx" } });
+  const bundle = await rolldown({ input: fileURLToPath(new URL("../src/transcript.tsx", import.meta.url)), external: (id) => !id.startsWith(".") && !isAbsolute(id), transform: { jsx: "react-jsx" } });
   try {
     const file = join(dir, "transcript.mjs");
     await bundle.write({ file, format: "esm", codeSplitting: false });

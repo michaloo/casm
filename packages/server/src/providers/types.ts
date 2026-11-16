@@ -68,6 +68,8 @@ export type OpenOptions = {
 
 // One live provider process bound to one native session.
 export interface ProviderSession {
+  // Reuse the already initialized provider connection when reading this session.
+  history?(): Promise<Item[]>;
   // Starts a turn, or folds the text into the running turn (steer).
   send(text: string, itemId: string, images?: ImageData[], turnId?: string): void | Promise<void>;
   // Runs a user shell command as its own turn: emit a tool item with id

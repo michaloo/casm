@@ -18,7 +18,9 @@ import { toolImages } from "./tool-images.ts";
 // Item.plan when they use the shape of pi's example extensions: a tool result
 // with `details.todos` (examples/extensions/todo.ts) or a custom entry with
 // `data.todos` (examples/extensions/plan-mode).
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import spawn from "cross-spawn";
+import { stopProcess } from "../platform.ts";
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -488,7 +490,7 @@ function piQuery(cmds: Rec[], cwd?: string): Promise<Map<string, Rec>> {
   return new Promise((resolve, reject) => {
     const args = ["--mode", "rpc", "--no-session"];
     if (process.env.CASM_PI_ARGS) args.push(...process.env.CASM_PI_ARGS.split(" ").filter(Boolean));
-    const proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, env: providerEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    const proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, env: providerEnv(), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }) as ChildProcessWithoutNullStreams;
     const responses = new Map<string, Rec>();
     let buf = "";
     let stderr = "";
@@ -498,7 +500,7 @@ function piQuery(cmds: Rec[], cwd?: string): Promise<Map<string, Rec>> {
       done = true;
       clearTimeout(timer);
       proc.stdin.end();
-      if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGTERM");
+      if (proc.exitCode === null && proc.signalCode === null) stopProcess(proc);
       if (err) reject(err);
       else resolve(responses);
     };
@@ -626,7 +628,7 @@ class PiSession implements ProviderSession {
     }
     if (process.env.CASM_PI_ARGS) args.push(...process.env.CASM_PI_ARGS.split(" ").filter(Boolean));
     const env = this.casmServers.size ? { ...config.env, [CASM_MCP_ENV]: JSON.stringify(mcpServers) } : config.env;
-    this.proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, env: providerEnv(env) });
+    this.proc = spawn(process.env.CASM_PI_PATH ?? "pi", args, { cwd, env: providerEnv(env), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }) as ChildProcessWithoutNullStreams;
     this.proc.stdout.setEncoding("utf8");
     this.proc.stdout.on("data", (chunk: string) => this.read(chunk));
     this.proc.stderr.setEncoding("utf8");
@@ -1015,7 +1017,7 @@ class PiSession implements ProviderSession {
     if (this.proc.exitCode !== null || this.proc.signalCode !== null) return;
     const exited = new Promise<void>((r) => this.proc.once("exit", () => r()));
     this.proc.stdin.end();
-    const timer = setTimeout(() => this.proc.kill("SIGTERM"), 3000);
+    const timer = setTimeout(() => stopProcess(this.proc), 3000);
     await exited;
     clearTimeout(timer);
   }

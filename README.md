@@ -12,8 +12,10 @@ machine and its peers. It does not impose a workflow.
 
 ## Quick start
 
-You need Linux or macOS, Node.js 24+ and at least one coding agent CLI
+You need Linux, macOS or Windows, Node.js 24+ and at least one coding agent CLI
 installed and signed in: `claude`, `codex`, `opencode` or `pi`.
+
+Native Windows support is experimental; see [Windows setup and limitations](docs/windows.md).
 
 1. Install casm and start the server:
 
@@ -109,7 +111,7 @@ models. pi has no permission system, so its tools run without asking.
 
 ## Install and quick start
 
-Requires Linux or macOS, Node.js 24+ and npm.
+Requires Linux, macOS or Windows (experimental), Node.js 24+ and npm.
 
 ```sh
 npm install -g casm-cli
@@ -118,7 +120,8 @@ casm serve
 
 The npm package includes the server, CLI and built web app. Install and log in
 to your preferred provider CLIs separately. Installation does not start a
-service; use `casm service install` when you want it to run in the background.
+service; use `casm service install` on Linux/macOS when you want it to run in the
+background. On Windows, see [Task Scheduler setup and limitations](docs/windows.md).
 
 **Upgrading from casm-cli 0.x:** version 1 is the new orchestrator, with different
 commands. The old SSH/container/session-manager implementation remains on the

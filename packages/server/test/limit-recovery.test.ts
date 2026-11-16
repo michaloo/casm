@@ -220,3 +220,37 @@ test("legacy pending limits seed a provider gate once without overwriting recove
     assert.equal(store.providerAvailability()[0].windows[0].status, "ok");
   } finally { await server.close(); store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
+
+// Independent premium entitlements must not block the standard Codex bucket.
+test("premium exhaustion does not deny standard Codex or relabel unrelated failures", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "casm-bucket-limits-"));
+  const store = new Store(join(dir, "db"));
+  store.saveProviderAvailability({ provider: "codex", updatedAt: new Date().toISOString(), windows: [
+    { id: "codex:primary", usedPercent: 9, status: "ok" },
+    { id: "premium", status: "exhausted" },
+  ] });
+  const provider: Provider = {
+    id: "codex",
+    open(opts) { return {
+      send() { setImmediate(() => {
+        opts.emit({ type: "limits", limits: { windows: [{ id: "premium", status: "exhausted" }] } });
+        opts.emit({ type: "turnEnded", outcome: "failed", error: "Invalid model configuration" });
+      }); }, shell() {}, async interrupt() {}, async close() {},
+    }; },
+    async history() { return []; }, async usage() { return null; },
+    async commands() { return []; }, async catalog() { return { models: [], modes: [] }; },
+  };
+  const server = await startServer({ store, providers: [provider], host: "127.0.0.1", port: 0, version: "test" });
+  const client = await CasmClient.connect(server.url, store.createToken("test"));
+  try {
+    const p = await client.call("project.create", { path: dir });
+    const a = await client.call("agent.create", { projectId: p.id, provider: "codex", config: { model: "gpt-6.1-sol" } });
+    const sent = await client.call("agent.send", { id: a.id, text: "hello" });
+    assert.equal(sent.queued, false);
+    await client.call("agent.wait", { id: a.id });
+    const pending = (await client.call("agent.pending", { id: a.id })).messages;
+    assert.equal(pending[0].reason, "failed");
+    assert.match(pending[0].note!, /Invalid model/);
+    assert.equal((await client.call("agent.get", { id: a.id })).deferred, null);
+  } finally { client.close(); await server.close(); store.close(); rmSync(dir, { recursive: true, force: true }); }
+});

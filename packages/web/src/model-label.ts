@@ -61,6 +61,16 @@ export function modelDisplayName(id: string, models: ModelInfo[]): string {
   return id;
 }
 
+/** Resolve explicit versioned IDs to a unique catalog alias, including its supported efforts. */
+export function modelCatalogEntry(id: string, models: ModelInfo[]): ModelInfo | undefined {
+  const exact = models.find(model => model.id === id);
+  if (exact) return exact;
+  const label = modelDisplayName(id, models);
+  if (label === id) return undefined;
+  const aliases = models.filter(model => model.name === label);
+  return aliases.length === 1 ? aliases[0] : undefined;
+}
+
 /**
  * The model an id names (its catalog name, so an alias and the id it resolves
  * to agree) and its 1M context when the id says so. Without a [1m] suffix the

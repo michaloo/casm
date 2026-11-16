@@ -10,7 +10,7 @@ import { parseArgs } from "node:util";
 import { Store } from "./db.ts";
 import { startServer } from "./server.ts";
 import { PeerPool, verifyPeer } from "./peers.ts";
-import { execFileSync } from "node:child_process";
+import { findExecutable } from "./platform.ts";
 import { claudeProvider } from "./providers/claude.ts";
 import { codexProvider } from "./providers/codex.ts";
 import { opencodeProvider } from "./providers/opencode.ts";
@@ -37,12 +37,7 @@ function readConfig(): { listen?: string; name?: string; peerTimeoutMs?: number;
 function installed(bin: string): boolean {
   const override = process.env[`CASM_${bin.toUpperCase()}_PATH`];
   if (override) return true;
-  try {
-    execFileSync("which", [bin], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
+  return !!findExecutable(bin);
 }
 
 function availableProviders(): Provider[] {

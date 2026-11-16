@@ -75,3 +75,10 @@ export function mergeWindows(prev: Window[], update: Window[]): Window[] {
   }
   return [...windows.values()];
 }
+
+// Named Codex buckets (e.g. premium) are independent entitlements. They are
+// useful diagnostics, but cannot deny admission to every model of the provider.
+// Unknown buckets are enforced by the provider on the request that uses them.
+export function admissionWindows(provider: string, windows: ProviderLimits["windows"]): ProviderLimits["windows"] {
+  return provider === "codex" ? windows.filter(w => /^(?:codex:|primary$|secondary$|five_hour$|seven_day$|account$|usage$|limit$)/.test(w.id)) : windows;
+}

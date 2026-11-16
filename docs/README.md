@@ -14,6 +14,8 @@
 
 - [CLI reference](cli.md), with real examples.
 - [Web client](web-client.md), including installing it as an app.
+- [Browser extension](browser-extension.md): let agents steer tabs you share
+  (spike).
 - [Troubleshooting](troubleshooting.md).
 
 **Reference**

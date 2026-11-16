@@ -3,7 +3,7 @@
 // (the Swift apps generate their Codable types from it).
 import { writeFileSync } from "node:fs";
 import { z } from "zod";
-import { PROTOCOL_VERSION, ErrorCode, methods, notifications } from "../src/index.ts";
+import { PROTOCOL_VERSION, ErrorCode, BROWSER_COMMAND_METHOD, BrowserCommand, methods, notifications } from "../src/index.ts";
 
 // Clients must ignore unknown fields, so the spec never forbids them.
 function allowExtra(node: unknown): unknown {
@@ -24,6 +24,8 @@ const spec = {
     Object.entries(methods).map(([name, m]) => [name, { params: schema(m.params, "input"), result: schema(m.result, "output") }]),
   ),
   notifications: Object.fromEntries(Object.entries(notifications).map(([name, s]) => [name, schema(s, "output")])),
+  // Requests the server sends to a client: only to a browser extension connection, after browser.share.
+  clientRequests: { [BROWSER_COMMAND_METHOD]: { params: schema(BrowserCommand, "output") } },
 };
 
 const out = new URL("../../../spec/protocol.json", import.meta.url);

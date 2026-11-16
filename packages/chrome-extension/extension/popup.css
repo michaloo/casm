@@ -1,0 +1,23 @@
+body { font: 13px/1.4 system-ui, sans-serif; width: 320px; margin: 0; padding: 12px; color: #222; }
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.status { margin-left: auto; font-size: 12px; color: #777; }
+.status.connected { color: #1a7f37; }
+.status.refused, .status.disconnected { color: #b42318; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #777; margin: 14px 0 6px; }
+button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid #d9730d; background: #d9730d; color: #fff; cursor: pointer; }
+button.secondary, button.unshare { background: #fff; color: #d9730d; }
+button:disabled { opacity: .5; cursor: default; }
+#toggle { width: 100%; }
+ul { list-style: none; padding: 0; margin: 0; }
+li { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #eee; }
+li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+li button { padding: 2px 8px; font-size: 12px; }
+.hint { color: #777; font-size: 12px; margin: 6px 0 0; }
+.error { color: #b42318; font-size: 12px; }
+details { margin-top: 14px; }
+summary { cursor: pointer; color: #555; }
+form { display: grid; gap: 8px; margin-top: 8px; }
+label { display: grid; gap: 2px; font-size: 12px; color: #555; }
+input { font: inherit; padding: 5px 6px; border: 1px solid #ccc; border-radius: 5px; }
+.warning { background: #fff4e5; border: 1px solid #f0b46c; border-radius: 6px; padding: 8px; margin-bottom: 10px; font-size: 12px; }
+.warning p { margin: 0 0 6px; }

@@ -79,6 +79,7 @@ Errors use the standard codes plus casm's own:
 | Schedules | `schedule.list` (`projectId?`, `agentId?` filters), `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.runNow`; each schedule carries its derived `projectId` |
 | Files | `fs.read`, `fs.search`, `fs.downloadLink` |
 | Notifications | `push.list`, `push.subscribe`, `push.unsubscribe`, `push.test`, `push.notify` |
+| Browser | `browser.list`, `browser.tabs`, `browser.open`, `browser.snapshot`, `browser.click`, `browser.type`, `browser.press`, `browser.screenshot`, `browser.eval`, `browser.dialog`, `browser.upload`, `browser.downloads`, `browser.download`; `browser.share` (from the extension) |
 
 Notifications: `agent.event` (for subscribed agents), `agent.status`,
 `agent.changed`, `agent.removed`, `project.changed`, `project.removed`,
@@ -196,6 +197,15 @@ status: idle
 
 Pass a peer's name as the third argument of `call` to do the same on another
 host.
+
+## Browser extension connections
+
+The casm browser extension is a client that also answers requests. After
+`browser.share {browserId, label?, tabs}` the server sends it
+`browser.command` requests (ids `"browser:<n>"`, params in
+`clientRequests` of the JSON Schema) for the agents' `browser.*` calls, and
+the extension replies with a normal JSON-RPC result or error. See
+[browser extension](browser-extension.md).
 
 ## Files over HTTP
 

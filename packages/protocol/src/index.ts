@@ -564,6 +564,101 @@ export const FileContent = z.object({
 export type FileContent = z.infer<typeof FileContent>;
 
 // ---------------------------------------------------------------------------
+// Browser (the casm browser extension; see docs/browser-extension.md)
+
+// A tab the user shared from a browser running the casm extension. `id` is
+// short and given by this server; it stays the same while the server runs and
+// is unique across browsers, so it also names the browser.
+// Only shared tabs exist here: the rest of the browser is never reported.
+export const BrowserTab = z.object({
+  id: z.string(),
+  // The browser's name: the extension's label, made unique on this server.
+  browser: z.string(),
+  title: z.string(),
+  url: z.string(),
+  sharedAt: z.string(),
+  // The shared tab that opened this one (window.open, target=_blank, an OAuth popup).
+  openedBy: z.string().optional(),
+});
+export type BrowserTab = z.infer<typeof BrowserTab>;
+
+export const BrowserInfo = z.object({ name: z.string(), connectedAt: z.string(), tabs: z.number() });
+export type BrowserInfo = z.infer<typeof BrowserInfo>;
+
+// Which shared tab a browser.* call acts on: `tab` (which implies its browser),
+// else the most recently shared tab of `browser`, else of the only connected
+// browser. With several browsers connected and neither given, the call fails
+// and names them.
+const BrowserTarget = z.object({ tab: z.string().optional(), browser: z.string().optional() });
+
+// A JavaScript dialog (alert, confirm, prompt, beforeunload) open in a shared
+// tab. It blocks the page until answered with browser.dialog; casm never
+// answers one by itself.
+export const BrowserDialog = z.object({
+  type: z.enum(["alert", "confirm", "prompt", "beforeunload"]),
+  message: z.string(),
+  defaultPrompt: z.string().optional(),
+  url: z.string().optional(),
+});
+export type BrowserDialog = z.infer<typeof BrowserDialog>;
+
+// What every command on a tab returns: the tab after it, a dialog it left
+// open, and tabs that shared tabs opened since the browser last reported them.
+const BrowserResult = z.object({ tab: BrowserTab, dialog: BrowserDialog.optional(), opened: z.array(BrowserTab).optional() });
+
+// A download a shared tab started. `id` is "<tab>.<n>".
+export const BrowserDownload = z.object({
+  id: z.string(),
+  tab: z.string(),
+  url: z.string(),
+  filename: z.string(),
+  state: z.enum(["inProgress", "completed", "canceled", "interrupted"]),
+  receivedBytes: z.number().optional(),
+  totalBytes: z.number().optional(),
+  startedAt: z.string(),
+  // Why it's stuck or stopped: a save-as prompt waiting, paused, flagged as dangerous, a network error.
+  note: z.string().optional(),
+});
+export type BrowserDownload = z.infer<typeof BrowserDownload>;
+
+// Uploads and fetched downloads travel inside one message: at most this many bytes in total.
+export const BROWSER_FILE_MAX_BYTES = 10 * 1024 * 1024;
+export const BrowserFile = z.object({ name: z.string().min(1), mimeType: z.string().optional(), data: z.string() });
+export type BrowserFile = z.infer<typeof BrowserFile>;
+
+// What the extension reports in browser.share: its own tab ids.
+export const SharedTab = z.object({
+  tabId: z.number().int(),
+  title: z.string(),
+  url: z.string(),
+  sharedAt: z.string(),
+  openerTabId: z.number().int().optional(),
+});
+export type SharedTab = z.infer<typeof SharedTab>;
+
+// Requests the server sends to an extension connection (JSON-RPC requests
+// from server to client, ids "browser:<n>"), one per browser.* call. The
+// extension acts only on tabs it shares, and answers with a result or an
+// error. Results may carry `dialog` and `opened` (Chrome tab ids).
+export const BrowserCommand = z.discriminatedUnion("action", [
+  // Without tabId: a new tab, in the casm group of `near`'s window (else the last shared tab's).
+  z.object({ action: z.literal("open"), tabId: z.number().int().optional(), url: z.string(), near: z.number().int().optional() }),
+  z.object({ action: z.literal("snapshot"), tabId: z.number().int() }),
+  z.object({ action: z.literal("click"), tabId: z.number().int(), ref: z.string(), newTab: z.boolean().optional() }),
+  z.object({ action: z.literal("type"), tabId: z.number().int(), ref: z.string(), text: z.string(), submit: z.boolean().optional() }),
+  z.object({ action: z.literal("press"), tabId: z.number().int(), key: z.string() }),
+  z.object({ action: z.literal("screenshot"), tabId: z.number().int() }),
+  z.object({ action: z.literal("eval"), tabId: z.number().int(), expression: z.string() }),
+  z.object({ action: z.literal("dialog"), tabId: z.number().int(), response: z.enum(["accept", "dismiss"]).optional(), text: z.string().optional() }),
+  z.object({ action: z.literal("upload"), tabId: z.number().int(), ref: z.string(), files: z.array(BrowserFile) }),
+  z.object({ action: z.literal("downloads") }),
+  z.object({ action: z.literal("download"), tabId: z.number().int(), n: z.number().int(), maxBytes: z.number().int() }),
+  z.object({ action: z.literal("cancelDownload"), tabId: z.number().int(), n: z.number().int() }),
+]);
+export type BrowserCommand = z.infer<typeof BrowserCommand>;
+export const BROWSER_COMMAND_METHOD = "browser.command";
+
+// ---------------------------------------------------------------------------
 // Methods
 
 const Empty = z.object({});
@@ -912,6 +1007,50 @@ export const methods = {
     z.object({ id: z.string(), requestId: z.string(), decision: PermissionDecision, message: z.string().optional() }),
     Ok,
   ),
+  // The casm browser extension: agents act on tabs the user shared, through
+  // the extension connected to this server. Each call fails at once when no
+  // extension is connected (Unreachable), the tab isn't shared (NotFound), the
+  // target is ambiguous (InvalidParams) or a dialog is waiting (Busy); nothing
+  // is queued.
+  // See BrowserTarget for which tab a call acts on.
+  "browser.list": method(Empty, z.object({ browsers: z.array(BrowserInfo) })),
+  "browser.tabs": method(z.object({ browser: z.string().optional() }), z.object({ tabs: z.array(BrowserTab), browsers: z.array(BrowserInfo) })),
+  // Navigates a shared tab to an http(s) URL, or opens a new background tab
+  // (`newTab`, or when the browser shares none yet) in the casm group of the
+  // target tab's window, which it then reports in `opened` too.
+  "browser.open": method(BrowserTarget.extend({ url: z.string(), newTab: z.boolean().optional() }), BrowserResult),
+  // The page's accessibility tree as text, iframes included; [eN] marks refs
+  // for click, type and upload, valid until the next snapshot or navigation.
+  "browser.snapshot": method(BrowserTarget, BrowserResult.extend({ text: z.string() })),
+  // `newTab`: a Control-click (Command on macOS), so a link opens in a new tab,
+  // which joins the casm group and comes back in `opened`.
+  "browser.click": method(BrowserTarget.extend({ ref: z.string(), newTab: z.boolean().optional() }), BrowserResult),
+  // Focuses the element and inserts the text (replacing an input's value); `submit` presses Enter after.
+  "browser.type": method(BrowserTarget.extend({ ref: z.string(), text: z.string(), submit: z.boolean().optional() }), BrowserResult),
+  // A key ("Enter", "Tab", "ArrowDown", "a"), with modifiers as "Control+a", "Shift+Tab".
+  "browser.press": method(BrowserTarget.extend({ key: z.string() }), BrowserResult),
+  // The visible part of the page, base64 PNG. Fails when the tab isn't in
+  // front: casm never switches tabs, the user does.
+  "browser.screenshot": method(BrowserTarget, BrowserResult.extend({ mediaType: z.string(), data: z.string() })),
+  // A JavaScript expression in the page (promises awaited); its JSON value.
+  "browser.eval": method(BrowserTarget.extend({ expression: z.string() }), BrowserResult.extend({ value: z.unknown() })),
+  // Without `response`: the open dialog, if any. With it: accepts (with
+  // `text` for a prompt) or dismisses it.
+  "browser.dialog": method(BrowserTarget.extend({ response: z.enum(["accept", "dismiss"]).optional(), text: z.string().optional() }), BrowserResult),
+  // Sets files on a file input (`ref` is the input, an element holding one,
+  // or anything when its frame has exactly one). BROWSER_FILE_MAX_BYTES in all.
+  "browser.upload": method(BrowserTarget.extend({ ref: z.string(), files: z.array(BrowserFile).min(1) }), BrowserResult),
+  // Downloads the shared tabs started, of every browser (or of `browser`).
+  "browser.downloads": method(z.object({ browser: z.string().optional() }), z.object({ downloads: z.array(BrowserDownload) })),
+  // A download's content, fetched again inside the page that started it (so
+  // with its cookies), at most BROWSER_FILE_MAX_BYTES.
+  "browser.download": method(z.object({ id: z.string() }), z.object({ download: BrowserDownload, mimeType: z.string(), data: z.string() })),
+  // Cancels a download still in progress in the browser (chrome.downloads.cancel),
+  // e.g. one waiting for the user at a save dialog after its content was fetched.
+  "browser.cancelDownload": method(z.object({ id: z.string() }), z.object({ download: BrowserDownload })),
+  // From the extension: this connection is a browser sharing exactly `tabs`.
+  // Sent on connect and after every change; `browserId` is stable per install.
+  "browser.share": method(z.object({ browserId: z.string().min(1), label: z.string().optional(), tabs: z.array(SharedTab) }), Ok),
   // Resolves when the agent is idle (or waiting for permission or an answer) or the timeout passes.
   // `lastTurn`: how the agent's last turn since the server started ended; `kept`: the
   // pending messages it kept as failed (prompts nothing came back for), oldest first.

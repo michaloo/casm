@@ -115,6 +115,12 @@ extension, for that session only). An agent started on a peer runs and keeps
 its state on that peer: forwarding coordinates work, it does not move it. When
 a peer disconnects, its subscriptions end and clients reconnect and reload.
 
+## Browser extension
+
+The casm Chrome extension is another client. It shares only the tabs the user
+puts in its casm tab group, and the server routes agents' `browser.*` calls to
+it as requests down its own connection ([browser extension](browser-extension.md)).
+
 ## Web client
 
 The web client is served at `/` by every server and can be installed as a PWA

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>casm</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/icon-32.png" alt="" width="20" height="20">
+    <strong>casm</strong>
+    <span id="status" class="status"></span>
+  </header>
+
+  <section id="perm" class="warning" hidden>
+    <p>Chrome may block the connection to the server once it enforces its local network rules: this extension has no access to <strong id="permHost"></strong>.</p>
+    <button id="permAllow" type="button" class="secondary">Allow access</button>
+  </section>
+
+  <section id="current">
+    <button id="toggle" type="button"></button>
+    <p id="hint" class="hint"></p>
+  </section>
+
+  <section>
+    <h2>Shared tabs</h2>
+    <ul id="shared"></ul>
+    <p id="none" class="hint">Nothing is shared. Agents see no tab of this browser.</p>
+    <button id="stopAll" type="button" class="secondary">Stop sharing all</button>
+  </section>
+
+  <details id="settingsBox">
+    <summary>Server</summary>
+    <form id="settings">
+      <label>Server URL <input name="url" placeholder="ws://my-server:7373" autocomplete="off" required></label>
+      <label>Client token <input name="token" type="password" autocomplete="off" placeholder="casm token create chrome"></label>
+      <label>Browser name <input name="label" autocomplete="off"></label>
+      <button type="submit">Save and connect</button>
+      <p id="error" class="error"></p>
+    </form>
+  </details>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

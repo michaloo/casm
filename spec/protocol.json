@@ -6714,6 +6714,1514 @@
         ]
       }
     },
+    "browser.list": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {}
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "browsers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "connectedAt": {
+                  "type": "string"
+                },
+                "tabs": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "name",
+                "connectedAt",
+                "tabs"
+              ]
+            }
+          }
+        },
+        "required": [
+          "browsers"
+        ]
+      }
+    },
+    "browser.tabs": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "browser": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tabs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          },
+          "browsers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "connectedAt": {
+                  "type": "string"
+                },
+                "tabs": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "name",
+                "connectedAt",
+                "tabs"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tabs",
+          "browsers"
+        ]
+      }
+    },
+    "browser.open": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "newTab": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              },
+              "openedBy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "dialog": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "alert",
+                  "confirm",
+                  "prompt",
+                  "beforeunload"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "defaultPrompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message"
+            ]
+          },
+          "opened": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      }
+    },
+    "browser.snapshot": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              },
+              "openedBy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "dialog": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "alert",
+                  "confirm",
+                  "prompt",
+                  "beforeunload"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "defaultPrompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message"
+            ]
+          },
+          "opened": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tab",
+          "text"
+        ]
+      }
+    },
+    "browser.click": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "newTab": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ref"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              },
+              "openedBy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "dialog": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "alert",
+                  "confirm",
+                  "prompt",
+                  "beforeunload"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "defaultPrompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message"
+            ]
+          },
+          "opened": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      }
+    },
+    "browser.type": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "submit": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ref",
+          "text"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              },
+              "openedBy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "dialog": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "alert",
+                  "confirm",
+                  "prompt",
+                  "beforeunload"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "defaultPrompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message"
+            ]
+          },
+          "opened": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      }
+    },
+    "browser.press": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              },
+              "openedBy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "dialog": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "alert",
+                  "confirm",
+                  "prompt",
+                  "beforeunload"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "defaultPrompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message"
+            ]
+          },
+          "opened": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      }
+    },
+    "browser.screenshot": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              },
+              "openedBy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "dialog": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "alert",
+                  "confirm",
+                  "prompt",
+                  "beforeunload"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "defaultPrompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message"
+            ]
+          },
+          "opened": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tab",
+          "mediaType",
+          "data"
+        ]
+      }
+    },
+    "browser.eval": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              },
+              "openedBy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "dialog": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "alert",
+                  "confirm",
+                  "prompt",
+                  "beforeunload"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "defaultPrompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message"
+            ]
+          },
+          "opened": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          },
+          "value": {}
+        },
+        "required": [
+          "tab",
+          "value"
+        ]
+      }
+    },
+    "browser.dialog": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "response": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "dismiss"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              },
+              "openedBy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "dialog": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "alert",
+                  "confirm",
+                  "prompt",
+                  "beforeunload"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "defaultPrompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message"
+            ]
+          },
+          "opened": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      }
+    },
+    "browser.upload": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "files": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "mimeType": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "data"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ref",
+          "files"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "browser": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "sharedAt": {
+                "type": "string"
+              },
+              "openedBy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "browser",
+              "title",
+              "url",
+              "sharedAt"
+            ]
+          },
+          "dialog": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "alert",
+                  "confirm",
+                  "prompt",
+                  "beforeunload"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "defaultPrompt": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message"
+            ]
+          },
+          "opened": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "browser": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "browser",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      }
+    },
+    "browser.downloads": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "browser": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "downloads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "tab": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "inProgress",
+                    "completed",
+                    "canceled",
+                    "interrupted"
+                  ]
+                },
+                "receivedBytes": {
+                  "type": "number"
+                },
+                "totalBytes": {
+                  "type": "number"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "tab",
+                "url",
+                "filename",
+                "state",
+                "startedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "downloads"
+        ]
+      }
+    },
+    "browser.download": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "download": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "tab": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "inProgress",
+                  "completed",
+                  "canceled",
+                  "interrupted"
+                ]
+              },
+              "receivedBytes": {
+                "type": "number"
+              },
+              "totalBytes": {
+                "type": "number"
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "tab",
+              "url",
+              "filename",
+              "state",
+              "startedAt"
+            ]
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "download",
+          "mimeType",
+          "data"
+        ]
+      }
+    },
+    "browser.cancelDownload": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "download": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "tab": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "inProgress",
+                  "completed",
+                  "canceled",
+                  "interrupted"
+                ]
+              },
+              "receivedBytes": {
+                "type": "number"
+              },
+              "totalBytes": {
+                "type": "number"
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "tab",
+              "url",
+              "filename",
+              "state",
+              "startedAt"
+            ]
+          }
+        },
+        "required": [
+          "download"
+        ]
+      }
+    },
+    "browser.share": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "tabs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tabId": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sharedAt": {
+                  "type": "string"
+                },
+                "openerTabId": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "tabId",
+                "title",
+                "url",
+                "sharedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "browserId",
+          "tabs"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
     "agent.wait": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8136,6 +9644,314 @@
         "host",
         "connected"
       ]
+    }
+  },
+  "clientRequests": {
+    "browser.command": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "open"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "url": {
+                "type": "string"
+              },
+              "near": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "action",
+              "url"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "snapshot"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "action",
+              "tabId"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "click"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "ref": {
+                "type": "string"
+              },
+              "newTab": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "ref"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "type"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "ref": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "submit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "ref",
+              "text"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "press"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "key"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "screenshot"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "action",
+              "tabId"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "eval"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "expression": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "expression"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "dialog"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "response": {
+                "type": "string",
+                "enum": [
+                  "accept",
+                  "dismiss"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "tabId"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "upload"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "ref": {
+                "type": "string"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "data"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "ref",
+              "files"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "downloads"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "download"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "n": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "maxBytes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "n",
+              "maxBytes"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "cancelDownload"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "n": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "n"
+            ]
+          }
+        ]
+      }
     }
   }
 }

@@ -111,7 +111,12 @@ On a phone the sidebar is behind the **Agents** button.
 
 The transcript shows prompts, replies (Markdown with highlighted code), reasoning
 (collapsed as **Thinking**), tool calls with their status, duration and
-output, plans, subagents and notices. Long histories load as you scroll up;
+output, plans, subagents and notices. A command an agent left running in the
+background (Claude's background Bash or Monitor) is a **Background** row: what
+it is for, the command, and Running until it ends as Done, Failed or Stopped.
+Opening it shows the end of its output, updated while it runs. Rows with
+nothing to open (no output, a subagent with no summary yet) are a single line
+without a chevron. Long histories load as you scroll up;
 while you're at the bottom, it follows new output.
 
 The composer has pickers for the provider (new agents), model, mode and

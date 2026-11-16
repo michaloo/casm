@@ -240,7 +240,7 @@ function shortInput(input: unknown) {
   return input ? JSON.stringify(input) : "";
 }
 export type ToolTime = { start: number; end?: number };
-export function ToolStatus({ status, time }: { status: Extract<Item, { kind: "tool" }>["status"]; time?: ToolTime }) {
+export function ToolStatus({ status, time, stopped }: { status: Extract<Item, { kind: "tool" }>["status"]; time?: ToolTime; stopped?: boolean }) {
   const [, tick] = useState(0);
   useEffect(() => {
     if (!time || time.end) return;
@@ -252,8 +252,8 @@ export function ToolStatus({ status, time }: { status: Extract<Item, { kind: "to
     : undefined;
   return (
     <>
-      <span className={`status ${status}`}>
-        {status === "done" ? "Done" : status === "error" ? "Failed" : "Running"}
+      <span className={`status ${stopped ? "stopped" : status}`}>
+        {stopped ? "Stopped" : status === "done" ? "Done" : status === "error" ? "Failed" : "Running"}
       </span>
       {elapsed !== undefined && (
         <time title="Elapsed since this client observed the tool start">
@@ -340,6 +340,70 @@ function ToolRow({
     </div>
   );
 }
+// A command left running in the background: what it is for, the command, and
+// the end of its output. With no output yet there is nothing to open.
+function BackgroundCommandRow({
+  item,
+  time,
+  expansion,
+}: {
+  item: Extract<Item, { kind: "tool" }>;
+  time?: ToolTime;
+  expansion: Record<string, boolean>;
+}) {
+  const [open, setOpen] = useState(expansion[item.id] ?? false);
+  const input = (item.input ?? {}) as Record<string, unknown>;
+  const command = typeof input.command === "string" ? input.command : shortInput(item.input);
+  const description = typeof input.description === "string" && input.description.trim() ? input.description : undefined;
+  // The output is a tail: show its newest lines, as a terminal would.
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const pre = body.current?.querySelector("pre");
+    if (pre) pre.scrollTop = pre.scrollHeight;
+  }, [open, item.output]);
+  const head = (
+    <>
+      <span className="tool-icon" aria-hidden="true">
+        &amp;
+      </span>
+      <span className="row-kind">{item.name === "Bash" ? "Background" : item.name}</span>
+      <span className="background-text">
+        <strong title={description ?? command}>{description ?? command}</strong>
+        {description && command && (
+          <span className="tool-argument" title={command}>
+            {command}
+          </span>
+        )}
+      </span>
+      <ToolStatus status={item.status} time={time} stopped={item.background?.stopped} />
+    </>
+  );
+  if (!item.output)
+    return (
+      <div className="item tool background-command">
+        <div className="tool-line">{head}</div>
+      </div>
+    );
+  return (
+    <div className="item tool background-command">
+      <details
+        open={open}
+        onClick={rememberToggle(item.id, expansion)}
+        onToggle={(e) => {
+          expansion[item.id] = e.currentTarget.open;
+          setOpen(e.currentTarget.open);
+        }}
+      >
+        <summary>{head}</summary>
+        {open && (
+          <div className="tool-body" ref={body}>
+            <CodeBlock text={item.output} expansion={expansion} expansionKey={`${item.id}:output`} truncate />
+          </div>
+        )}
+      </details>
+    </div>
+  );
+}
 function Disclosure({
   id,
   expansion,
@@ -375,6 +439,7 @@ export function Row({
   if (item.kind === "tool") {
     const calls = casmToolCalls(item.name, item.input);
     if (calls) return <CasmToolRow item={item} calls={calls} time={time} expansion={expansion} />;
+    if (item.background) return <BackgroundCommandRow item={item} time={time} expansion={expansion} />;
     return <ToolRow item={item} time={time} expansion={expansion} />;
   }
   if (item.kind === "reasoning")
@@ -388,23 +453,34 @@ export function Row({
         </Disclosure>
       </div>
     );
-  if (item.kind === "subagent")
+  if (item.kind === "subagent") {
+    const head = (
+      <>
+        <span className="subagent-icon" aria-hidden="true">
+          ↗
+        </span>
+        <span className="row-kind">Subagent</span>
+        <strong title={item.title}>{item.title}</strong>
+        <span className={`status ${item.status}`}>{item.status}</span>
+      </>
+    );
+    // Nothing to unfold: one line, no chevron.
+    if (!item.activity && !item.summary?.trim())
+      return (
+        <div className="item subagent">
+          <div className="subagent-line">{head}</div>
+        </div>
+      );
     return (
       <div className="item subagent">
         <Disclosure id={item.id} expansion={expansion}>
-          <summary>
-            <span className="subagent-icon" aria-hidden="true">
-              ↗
-            </span>
-            <span className="row-kind">Subagent</span>
-            <strong title={item.title}>{item.title}</strong>
-            <span className={`status ${item.status}`}>{item.status}</span>
-          </summary>
-          <p className="muted">{item.activity}</p>
-          <Prose text={item.summary ?? ""} />
+          <summary>{head}</summary>
+          {item.activity && <p className="muted">{item.activity}</p>}
+          {item.summary?.trim() && <Prose text={item.summary} />}
         </Disclosure>
       </div>
     );
+  }
   if (item.kind === "plan")
     return (
       <div className="item plan">

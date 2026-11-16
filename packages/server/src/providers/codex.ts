@@ -1377,50 +1377,76 @@ async function readThreadHistory(rpc: Rpc, threadId: string): Promise<Item[]> {
   return [...byId.values()];
 }
 
+// Live, a child's last message becomes its card's summary; the parent's
+// history has no such item, so read it from the child's own thread.
+const MAX_CHILD_ANSWERS = 20;
+async function withChildAnswers(rpc: Rpc, items: Item[]): Promise<Item[]> {
+  const missing = items.filter((i): i is SubagentItem => i.kind === "subagent" && !i.summary).slice(-MAX_CHILD_ANSWERS);
+  for (const child of missing) {
+    let cursor: string | null = null;
+    let answer = "";
+    try {
+      do {
+        const page: { data: { item: CodexItem }[]; nextCursor: string | null } = await rpc.request("thread/items/list", { threadId: child.id, cursor, limit: 500 });
+        for (const { item } of page.data) if (item.type === "agentMessage" && str(item.text).trim()) answer = str(item.text);
+        cursor = page.nextCursor;
+      } while (cursor);
+    } catch {
+      continue; // A child Codex no longer has, or a store without item pages.
+    }
+    if (answer) items[items.indexOf(child)] = { ...child, summary: truncate(answer) };
+  }
+  return items;
+}
+
 export async function readHistory(sessionId: string, cwd: string, context?: ProviderContext): Promise<Item[]> {
   const rpc = new Rpc(cwd, providerEnv(context?.env));
   try {
     await rpc.initialize();
-    const byId = new Map<string, Item>();
-    const subagents = new Map<string, SubagentItem>();
-    // Last item id of each turn, to place a failed turn's error after it.
-    const lastOfTurn = new Map<string, string>();
-    let cursor: string | null = null;
-    try {
-      do {
-        const page: { data: { item: CodexItem; turnId?: string; startedAtMs?: number | null; completedAtMs?: number | null }[]; nextCursor: string | null } = await rpc.request("thread/items/list", {
-          threadId: sessionId,
-          cursor,
-          limit: 500,
-        });
-        for (const { item, turnId, startedAtMs, completedAtMs } of page.data) {
-          for (const raw of normalizeItems(item, subagents)) {
-            const prev = byId.get(raw.id);
-            const it = timed(prev && seen(prev), raw, isoTime(startedAtMs ?? completedAtMs), isoTime(completedAtMs));
-            byId.set(it.id, it);
-            if (turnId) lastOfTurn.set(turnId, it.id);
-          }
-        }
-        cursor = page.nextCursor;
-      } while (cursor);
-    } catch (error) {
-      if (rec(error).code !== -32601) throw error;
-      // Await before finally closes the RPC process. Other errors stay visible.
-      return await readThreadHistory(rpc, sessionId);
-    }
-    const errors = await failedTurns(rpc, sessionId);
-    if (!errors.size) return [...byId.values()];
-    const out: Item[] = [];
-    const after = new Map([...lastOfTurn].map(([turn, item]) => [item, turn]));
-    for (const it of byId.values()) {
-      out.push(it);
-      const turn = after.get(it.id);
-      if (turn && errors.has(turn)) out.push(errors.get(turn)!);
-    }
-    return out;
+    return await withChildAnswers(rpc, await readParentHistory(rpc, sessionId));
   } finally {
     rpc.kill();
   }
+}
+
+async function readParentHistory(rpc: Rpc, sessionId: string): Promise<Item[]> {
+  const byId = new Map<string, Item>();
+  const subagents = new Map<string, SubagentItem>();
+  // Last item id of each turn, to place a failed turn's error after it.
+  const lastOfTurn = new Map<string, string>();
+  let cursor: string | null = null;
+  try {
+    do {
+      const page: { data: { item: CodexItem; turnId?: string; startedAtMs?: number | null; completedAtMs?: number | null }[]; nextCursor: string | null } = await rpc.request("thread/items/list", {
+        threadId: sessionId,
+        cursor,
+        limit: 500,
+      });
+      for (const { item, turnId, startedAtMs, completedAtMs } of page.data) {
+        for (const raw of normalizeItems(item, subagents)) {
+          const prev = byId.get(raw.id);
+          const it = timed(prev && seen(prev), raw, isoTime(startedAtMs ?? completedAtMs), isoTime(completedAtMs));
+          byId.set(it.id, it);
+          if (turnId) lastOfTurn.set(turnId, it.id);
+        }
+      }
+      cursor = page.nextCursor;
+    } while (cursor);
+  } catch (error) {
+    if (rec(error).code !== -32601) throw error;
+    // Await before finally closes the RPC process. Other errors stay visible.
+    return await readThreadHistory(rpc, sessionId);
+  }
+  const errors = await failedTurns(rpc, sessionId);
+  if (!errors.size) return [...byId.values()];
+  const out: Item[] = [];
+  const after = new Map([...lastOfTurn].map(([turn, item]) => [item, turn]));
+  for (const it of byId.values()) {
+    out.push(it);
+    const turn = after.get(it.id);
+    if (turn && errors.has(turn)) out.push(errors.get(turn)!);
+  }
+  return out;
 }
 
 export async function readCommands(cwd: string, context?: ProviderContext): Promise<Command[]> {

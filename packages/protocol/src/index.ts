@@ -993,6 +993,11 @@ export type Attachment = { name: string; mediaType: string; size: string; path?:
 export function attachmentLine(a: Attachment): string {
   return `Attached file: ${a.name} (${a.mediaType}, ${a.size})${a.path ? ` saved at ${a.path}` : ""}`;
 }
+// The text a message is sent as: its own, a blank line, then the lines.
+export function appendAttachmentLines(text: string, lines: string[]): string {
+  if (!lines.length) return text;
+  return text.trim() ? `${text.trimEnd()}\n\n${lines.join("\n")}` : lines.join("\n");
+}
 const ATTACHMENT_LINE = /^Attached file: (.+) \(([^\s,()]+), (\d+(?:\.\d+)? (?:B|KB|MB))\)(?: saved at (\/.*|[A-Za-z]:\\.*))?$/;
 // Splits the attachment lines off the end of a message's text.
 export function splitAttachments(text: string): { text: string; attachments: Attachment[] } {

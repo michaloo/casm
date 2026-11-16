@@ -1,5 +1,5 @@
 import { testHome } from "./config.ts";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { test, expect, openNewAgent } from "./fixtures.ts";
 import { openAgents } from "./phone.ts";
@@ -41,18 +41,18 @@ async function transfer(page: Page, kind: "small" | "large", type: "paste" | "dr
 for (const width of [1440, 375]) test(`attach images by picker, paste and drop, then remove at ${width}px mobile`, async ({ page }) => {
   await login(page, width);
   await page.getByRole("button", { name: /Agent 00/ }).click();
-  const attach = page.getByRole("button", { name: "Attach images", exact: true });
+  const attach = page.getByRole("button", { name: "Attach files", exact: true });
   await expect(attach).toBeEnabled();
   const box = (await attach.boundingBox())!;
   if (width === 375) expect([box.width, box.height]).toEqual([44, 44]);
   else expect(box.height).toBe(32);
 
-  // The picker: images only, several at once.
+  // The picker: any file, several at once.
   const chooser = page.waitForEvent("filechooser");
   await attach.click();
   const picker = await chooser;
   expect(picker.isMultiple()).toBe(true);
-  expect(await picker.element().getAttribute("accept")).toBe("image/*");
+  expect(await picker.element().getAttribute("accept")).toBeNull();
   const bytes = Buffer.from(png, "base64");
   await picker.setFiles([{ name: "one.png", mimeType: "image/png", buffer: bytes }, { name: "two.png", mimeType: "image/png", buffer: bytes }]);
   await expect(thumbs(page)).toHaveCount(2);
@@ -113,14 +113,44 @@ for (const width of [1440, 375]) test(`large photos are downscaled; the new-agen
   await expect(thumbs(page)).toHaveCount(0);
 });
 
-test("only images attach, with a clear message", async ({ page }) => {
+for (const width of [1440, 375]) test(`other files are saved in the project folder and show as chips at ${width}px mobile`, async ({ page }) => {
+  await login(page, width);
+  await page.getByRole("button", { name: /Agent 00/ }).click();
+  const name = `notes-${width}-${test.info().project.name}.csv`;
+  // A test home kept from an earlier run would make it "(1)".
+  rmSync(`${testHome}/${name}`, { force: true });
+  await page.evaluate((name) => {
+    const data = new DataTransfer();
+    data.items.add(new File(["a,b\n1,2\n"], name, { type: "text/csv" }));
+    document.querySelector("form.composer")!.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }));
+  }, name);
+  const chips = page.locator("form.composer .file-attachments li");
+  await expect(chips).toHaveCount(1);
+  await expect(chips.first()).toContainText(name);
+  await expect(chips.first()).toContainText("8 B");
+  await expect(thumbs(page)).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  await page.locator("form.composer").screenshot({ path: test.info().outputPath(`composer-files-${width}.png`) });
+  await page.getByLabel("Message").fill("sum column b");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(chips).toHaveCount(0);
+  // The transcript shows the text and a chip linking to the saved file, not the line.
+  const sent = page.locator(".item.user").filter({ hasText: "sum column b" }).last();
+  const link = sent.locator("a.file-attachment");
+  await expect(link).toHaveAttribute("href", `/f${testHome}/${name}`);
+  await expect(sent).not.toContainText("Attached file:");
+  expect(readFileSync(`${testHome}/${name}`, "utf8")).toBe("a,b\n1,2\n");
+});
+
+test("a file over 50 MB is refused with a clear message", async ({ page }) => {
   await login(page, 1440);
   await page.getByRole("button", { name: /Agent 00/ }).click();
   await page.evaluate(() => {
     const data = new DataTransfer();
-    data.items.add(new File(["hello"], "notes.txt", { type: "text/plain" }));
+    // Sparse: only its size matters.
+    data.items.add(new File([new Uint8Array(50 * 1024 * 1024 + 1)], "huge.zip", { type: "application/zip" }));
     document.querySelector("form.composer")!.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }));
   });
-  await expect(page.getByRole("alert")).toContainText("Only images can be attached.");
-  await expect(thumbs(page)).toHaveCount(0);
+  await expect(page.getByRole("alert")).toContainText("huge.zip is 50.0 MB, over the 50 MB limit for a file attachment.");
+  await expect(page.locator("form.composer .file-attachments li")).toHaveCount(0);
 });

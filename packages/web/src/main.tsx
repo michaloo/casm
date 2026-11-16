@@ -15,7 +15,7 @@ import { ConnectionBanner, offlineNote } from "./connection";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { Row, Images, type ToolTime } from "./transcript";
+import { Row, Images, FileChips, type ToolTime } from "./transcript";
 import { EntryTime, entryTimes } from "./entry-time";
 import type {
   Agent,
@@ -49,7 +49,8 @@ import { ChatWorking } from "./chat-working";
 import { RECALL_HINT_MS, newMessageId, recallable, sendMode, visiblePending } from "./outbox";
 import { PendingRows } from "./pending-strip";
 import { AttachGlyph, ChevronGlyph, PlusGlyph } from "./row-menu";
-import { MAX_IMAGES, imageFiles, prepareImage } from "./attach";
+import { appendAttachmentLines, attachmentLine } from "@casm/protocol";
+import { MAX_IMAGES, draftAttachment, droppedFiles, isImageFile, prepareImage, tooLarge, uploadFiles, type DraftFile } from "./attach";
 import { NewAgentKeys, NewAgentWelcome } from "./new-agent";
 import { SignOut } from "./sign-out";
 import { DeviceSettings } from "./device-settings";
@@ -558,13 +559,28 @@ function App() {
   // The transparent pill row over the transcript's end (Working, queue, Latest).
   const [pillRow, setPillRow] = useState<HTMLDivElement | null>(null);
   const [attaching, setAttaching] = useState(0);
+  // "Uploading report.pdf · 40%" while a sent message's files go up.
+  const [uploading, setUploading] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
-  // Adds images (picked, pasted or dropped) to a draft, downscaled; problems show in the banner.
-  async function attachImages(files: File[], target = c) {
-    if (!files.length) return;
+  // Adds files (picked, pasted or dropped) to a draft: images go inline,
+  // downscaled; any other file is uploaded to the project folder on send.
+  // Problems show in the banner.
+  async function attachFiles(all: File[], target = c) {
+    if (!all.length) return;
+    if (!online) { setError("Offline: attach files after reconnecting."); return; }
+    const others = all.filter((f) => !isImageFile(f));
+    const big = others.map(tooLarge).filter((x): x is string => !!x);
+    const fit = others.filter((f) => !tooLarge(f));
+    if (fit.length) {
+      target.files = [...target.files, ...fit.map((file) => ({ file }))];
+      redraw();
+    }
+    await attachImages(all.filter(isImageFile), target, big);
+  }
+  async function attachImages(files: File[], target = c, problems: string[] = []) {
+    if (!files.length) { if (problems.length) setError(problems.join(" ")); return; }
     if (!online) { setError("Offline: attach images after reconnecting."); return; }
     const room = MAX_IMAGES - target.images.length;
-    const problems: string[] = [];
     if (files.length > room) problems.push(`A message holds at most ${MAX_IMAGES} images; ${files.length - Math.max(room, 0)} not attached.`);
     setAttaching((n) => n + 1);
     try {
@@ -585,7 +601,7 @@ function App() {
   const recallNoteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Keyboards only: on touch, the queue panel's Cancel and Interrupt do it.
   const recallHint = recallNote?.key === ckey ? { key: recallNote.text, text: recallNote.text }
-    : !coarsePointer.matches && !c.input && !c.images.length && c.recall && Date.now() - c.recall.at < RECALL_HINT_MS
+    : !coarsePointer.matches && !c.input && !c.images.length && !c.files.length && c.recall && Date.now() - c.recall.at < RECALL_HINT_MS
       && recallable(c, agent?.status) ? { key: c.recall.id, text: <><kbd>Esc</kbd> to edit the message you just sent</> } : undefined;
   const busy = !!agent && agent.status !== "idle";
   const primary = sendMode(agent?.status, rows.length);
@@ -714,11 +730,12 @@ function App() {
   // the transcript, or in the queue. The server's copy replaces it by id.
   async function send(steer = false) {
     // Offline the draft stays in the composer (and on this device) instead.
-    if (!online || !selection || (!c.input.trim() && !c.images.length) || creating || commandBusy.has(ckey) || attaching > 0) return;
+    if (!online || !selection || (!c.input.trim() && !c.images.length && !c.files.length) || creating || commandBusy.has(ckey) || attaching > 0) return;
     if (slash.sendAction()) return;
     const s = selection;
     const text = c.input;
     const images = c.images;
+    const files = c.files;
     let id = s.id;
     let target = c;
     if (!id) {
@@ -729,7 +746,7 @@ function App() {
           {
             projectId: s.project,
             provider,
-            name: text.trim().slice(0, 70) || "Image message",
+            name: text.trim().slice(0, 70) || files[0]?.file.name.slice(0, 70) || "Image message",
             config: { model, mode, effort },
           },
           s.host,
@@ -758,9 +775,11 @@ function App() {
         );
         target.input = text;
         target.images = images;
+        target.files = files;
         saveDraft(target, true);
         if (c.input === text) c.input = "";
         if (c.images === images) c.images = [];
+        if (c.files === files) c.files = [];
         saveDraft(c, true);
         choose({ ...s, id });
       } catch (e) {
@@ -773,14 +792,16 @@ function App() {
     const agentId = id;
     const current = hostsRef.current.find((h) => h.id === s.host)?.agents.find((a) => a.id === agentId);
     const messageId =
-      target.retry && target.retry.text === text && target.retry.images === images ? target.retry.id : newMessageId();
+      target.retry && target.retry.text === text && target.retry.images === images && target.retry.files === files ? target.retry.id : newMessageId();
     target.retry = undefined;
     const queued = !steer && sendMode(current?.status, visiblePending(target).length) === "queue";
-    const row = { id: messageId, agentId, text, ...(images.length ? { imageCount: images.length } : {}), reason: "queued" as const, createdAt: new Date().toISOString() };
-    const item: Item = { kind: "user", id: messageId, text, ...(images.length ? { images } : {}) };
+    // Files show as chips at once; the server's copy says where they were saved.
+    const shown = files.length ? appendAttachmentLines(text, files.map((f) => attachmentLine(draftAttachment(f)))) : text;
+    const row = { id: messageId, agentId, text: shown, ...(images.length ? { imageCount: images.length } : {}), reason: "queued" as const, createdAt: new Date().toISOString() };
+    const item: Item = { kind: "user", id: messageId, text: shown, ...(images.length ? { images } : {}) };
     // Esc can take it back while it waits or runs its own turn; a steer joins another turn.
     let settle: (queued: boolean | undefined) => void = () => {};
-    const recall = steer ? undefined : { id: messageId, text, images, at: Date.now(), ended: target.turnsEnded ?? 0,
+    const recall = steer ? undefined : { id: messageId, text, images, files, at: Date.now(), ended: target.turnsEnded ?? 0,
       sent: new Promise<boolean | undefined>((done) => (settle = done)) };
     target.recall = recall;
     if (recall) setTimeout(redraw, RECALL_HINT_MS);
@@ -789,6 +810,7 @@ function App() {
     else if (!target.items.some((i) => i.id === messageId)) target.items = [...target.items, item];
     if (target.input === text) target.input = "";
     if (target.images === images) target.images = [];
+    if (target.files === files) target.files = [];
     saveDraft(target, true);
     redraw();
     try {
@@ -796,9 +818,14 @@ function App() {
       // Only a real change: an unset model is "" in the picker.
       if (current && ((current.config.model ?? "") !== model || (current.config.mode ?? "") !== mode || (current.config.effort ?? "") !== effort))
         await rpc.current!.call("agent.update", { id: agentId, config: { model, mode, effort } }, s.host);
+      const attachments = files.length
+        ? await uploadFiles(files, (method, params) => rpc.current!.call(method, params, s.host, 120_000), (sent, total) => {
+            setUploading(sent < total ? `Uploading ${files.length === 1 ? files[0].file.name : `${files.length} files`} · ${Math.floor(sent / total * 100)}%` : "");
+          }).finally(() => setUploading(""))
+        : undefined;
       const result = await rpc.current!.call(
         "agent.send",
-        { id: agentId, text, images, messageId, whenBusy: steer ? "steer" : "queue" },
+        { id: agentId, text, images, attachments, messageId, whenBusy: steer ? "steer" : "queue" },
         s.host,
       );
       target.inFlight?.delete(messageId);
@@ -823,10 +850,11 @@ function App() {
       // same message sent again keeps its id, in case this one did arrive.
       target.outbox = target.outbox?.filter((o) => o.id !== messageId);
       target.items = target.items.filter((i) => i !== item);
-      if (!target.input && !target.images.length) {
+      if (!target.input && !target.images.length && !target.files.length) {
         target.input = text;
         target.images = images;
-        target.retry = { id: messageId, text, images };
+        target.files = files;
+        target.retry = { id: messageId, text, images, files };
         saveDraft(target, true);
       }
       setError(String((e as Error).message));
@@ -850,9 +878,10 @@ function App() {
     redraw();
     const restore = () => {
       // Something typed meanwhile wins; the message is out of the queue or stopped either way.
-      if (target.input || target.images.length) return;
+      if (target.input || target.images.length || target.files.length) return;
       target.input = r.text;
       target.images = r.images;
+      target.files = r.files;
       saveDraft(target, true);
       redraw();
       requestAnimationFrame(() => {
@@ -1246,11 +1275,10 @@ function App() {
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false); }}
               onDrop={(e) => {
                 setDropping(false);
-                const files = imageFiles(e.dataTransfer);
+                const files = droppedFiles(e.dataTransfer);
                 if (!e.dataTransfer.types.includes("Files")) return;
                 e.preventDefault();
-                if (!files.length) { setError("Only images can be attached."); return; }
-                void attachImages(files);
+                void attachFiles(files);
               }}
             >
               {slash.palette}
@@ -1261,6 +1289,10 @@ function App() {
               {c.images.length > 0 && <Images images={c.images} remove={(index) => {
                 c.images = c.images.filter((_, i) => i !== index);
                 saveDraft(c);
+                redraw();
+              }} />}
+              {c.files.length > 0 && <FileChips attachments={c.files.map(draftAttachment)} remove={(index) => {
+                c.files = c.files.filter((_, i) => i !== index);
                 redraw();
               }} />}
               <textarea
@@ -1274,7 +1306,7 @@ function App() {
                   redraw();
                 }}
                 onPaste={(e) => {
-                  const files = imageFiles(e.clipboardData);
+                  const files = droppedFiles(e.clipboardData);
                   if (!files.length) return;
                   e.preventDefault();
                   const target = c;
@@ -1285,12 +1317,12 @@ function App() {
                     saveDraft(target);
                     redraw();
                   }
-                  void attachImages(files, target);
+                  void attachFiles(files, target);
                 }}
                 onKeyDown={(e) => {
                   if (slash.onKeyDown(e)) return;
                   // Enter by mistake: Esc takes the message back (the composer must be empty).
-                  if (e.key === "Escape" && !e.nativeEvent.isComposing && c.recall && !c.input && !c.images.length) {
+                  if (e.key === "Escape" && !e.nativeEvent.isComposing && c.recall && !c.input && !c.images.length && !c.files.length) {
                     e.preventDefault();
                     void takeBack();
                     return;
@@ -1309,15 +1341,15 @@ function App() {
                 }}
               />
               <div className="actions">
-                <button type="button" className="attach" aria-label="Attach images" disabled={!online || attaching > 0} aria-busy={attaching > 0}
-                  title={online ? "Attach images (you can also paste or drop them)" : offlineNote} onClick={() => fileInput.current?.click()}>
+                <button type="button" className="attach" aria-label="Attach files" disabled={!online || attaching > 0} aria-busy={attaching > 0}
+                  title={online ? "Attach images or files (you can also paste or drop them). Files are saved in the project folder" : offlineNote} onClick={() => fileInput.current?.click()}>
                   <AttachGlyph />
                 </button>
-                <input ref={fileInput} type="file" accept="image/*" multiple hidden aria-hidden="true" tabIndex={-1}
-                  onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void attachImages(files); }} />
+                <input ref={fileInput} type="file" multiple hidden aria-hidden="true" tabIndex={-1}
+                  onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void attachFiles(files); }} />
                 <small className="send-hint">
                   {recallHint && <span className="recall-hint" key={recallHint.key} role="status">{recallHint.text} · </span>}
-                  {attaching > 0 ? "Preparing image…" : !online ? "Offline · your draft is kept on this device and can be sent after reconnecting" : busy
+                  {uploading ? uploading : attaching > 0 ? "Preparing image…" : !online ? "Offline · your draft is kept on this device and can be sent after reconnecting" : busy
                     ? <>Enter to queue · <kbd>{mac ? "⌘" : "Ctrl"}+Enter</kbd> to steer · Shift+Enter for newline</>
                     : primary === "queue"
                       ? "Enter to queue after the waiting messages · Shift+Enter for newline"
@@ -1345,7 +1377,7 @@ function App() {
                     <button
                       type="button"
                       className="steer"
-                      disabled={!online || (!c.input.trim() && !c.images.length) || creating || attaching > 0}
+                      disabled={!online || (!c.input.trim() && !c.images.length && !c.files.length) || creating || attaching > 0}
                       title={online ? `Send into the running turn (${mac ? "⌘" : "Ctrl"}+Enter)` : offlineNote}
                       onClick={() => void send(true)}
                     >
@@ -1356,7 +1388,7 @@ function App() {
                 <button
                   className={primary === "queue" ? "queue" : "send"}
                   title={!online ? offlineNote : primary === "queue" ? "Send after the running turn and the waiting messages (Enter)" : "Send (Enter)"}
-                  disabled={!online || (!c.input.trim() && !c.images.length) || creating || attaching > 0}
+                  disabled={!online || (!c.input.trim() && !c.images.length && !c.files.length) || creating || attaching > 0}
                 >
                   {primary === "queue" ? "Queue" : "Send"}
                 </button>

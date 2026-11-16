@@ -1,7 +1,7 @@
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { mkdirSync, realpathSync, statSync } from "node:fs";
-import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
+import { ErrorCode, PROTOCOL_VERSION, appendAttachmentLines, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
 import type { Scheduler } from "./schedules.ts";
@@ -73,7 +73,7 @@ export function createHandlers(
     const agent = getAgent(agentId);
     if (agent.archivedAt) throw new RpcError(ErrorCode.Conflict, "agent is archived");
     const lines = await uploads.save(attachments, getProject(agent.projectId).path);
-    return text.trim() ? `${text.trimEnd()}\n\n${lines.join("\n")}` : lines.join("\n");
+    return appendAttachmentLines(text, lines);
   };
   const sender = (source: Params<"agent.send">["sender"]) => {
     if (!source) return undefined;

@@ -713,6 +713,63 @@ footer > span:not(.error):before {
   scrollbar-width: thin;
   padding: 3px;
 }
+.file-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.file-attachments li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+.file-attachment {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: inherit;
+  text-decoration: none;
+}
+.file-attachment::before {
+  content: "📄";
+  flex: 0 0 auto;
+}
+a.file-attachment:hover { border-color: var(--accent); }
+.file-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-attachment small {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+.file-attachments button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  color: var(--muted);
+}
+.file-attachments button:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+@media (pointer: coarse) {
+  .file-attachments button { min-width: 44px; min-height: 44px; }
+}
+.composer .file-attachments { margin: 0 0 6px; padding: 3px; max-height: 120px; overflow-y: auto; }
 .prose > :first-child {
   margin-top: 0;
 }

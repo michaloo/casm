@@ -2215,6 +2215,86 @@
         ]
       }
     },
+    "upload.start": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mediaType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "size"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "uploadId": {
+            "type": "string"
+          },
+          "chunkSize": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "uploadId",
+          "chunkSize"
+        ]
+      }
+    },
+    "upload.chunk": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "uploadId": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "data": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uploadId",
+          "offset",
+          "data"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "received": {
+            "type": "number"
+          },
+          "size": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "received",
+          "size"
+        ]
+      }
+    },
     "push.list": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3553,6 +3633,12 @@
               "required": [
                 "mediaType"
               ]
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         },
@@ -5501,6 +5587,12 @@
               "required": [
                 "mediaType"
               ]
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "whenBusy": {

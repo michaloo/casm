@@ -5,14 +5,15 @@
 // elsewhere -H picks an entry of hosts.json.
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { parseArgs } from "node:util";
 import { CasmClient } from "@casm/client";
-import { BROWSER_FILE_MAX_BYTES } from "@casm/protocol";
+import { BROWSER_FILE_MAX_BYTES, MAX_ATTACHMENT_BYTES, formatBytes } from "@casm/protocol";
 import type { Agent, AgentEvent, BrowserDialog, BrowserTab, FindMatch, Item, Project, ProviderId, Usage } from "@casm/protocol";
 import { retryLabel } from "@casm/protocol/retry";
 
@@ -88,12 +89,14 @@ files (read-only, inside project folders on the host):
 agents:
   agents [--project p] [--all] [--usage]
   run --project p [--cwd dir] [--provider claude] [--name n] [--model m] [--mode m]
-      [--parent serverId/agentId] [--env K=V]... [--wait] <prompt>
+      [--parent serverId/agentId] [--env K=V]... [--file path]... [--wait] <prompt>
                                      --cwd: a folder inside the project (relative to it, or absolute),
                                      e.g. a worktree: --cwd .worktrees/<task>
                                      --env: the agent's environment, e.g. a provider's base URL
-  send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--message-id UUID]
+  send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--message-id UUID] [--file path]...
                                      queued while the agent is busy; --steer puts it into the running turn
+                                     --file: attach a file (any kind, at most 50 MB): it is saved in the
+                                     root of the agent's project folder and the message says where
                                      reuse --message-id after an uncertain response to avoid duplicates
   pending [agent]                    messages waiting for their agent (busy or over a limit),
                                      and agents waiting for a permission or answer
@@ -220,6 +223,7 @@ const options = {
   submit: { type: "boolean" },
   "new-tab": { type: "boolean" },
   cancel: { type: "boolean" },
+  file: { type: "string", multiple: true },
 } as const;
 
 // The first positional decides; flags (and the values of flags that take one) may
@@ -255,6 +259,36 @@ function envOption(): Record<string, string> | undefined {
     if (i < 1) fail(`--env needs NAME=value, got ${JSON.stringify(kv)}`);
     return [kv.slice(0, i), kv.slice(i + 1)];
   }));
+}
+
+// Uploads each --file to the host (through -H's peer too) for agent.send or
+// agent.create to attach. All are checked before any is sent.
+async function uploadFiles(c: CasmClient): Promise<string[] | undefined> {
+  if (!opt.file?.length) return undefined;
+  const files = opt.file.map((path) => {
+    const st = statSync(path, { throwIfNoEntry: false });
+    if (!st?.isFile()) fail(`--file ${path}: no such file`);
+    if (st.size > MAX_ATTACHMENT_BYTES) fail(`--file ${path} is ${formatBytes(st.size)}, over the ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB limit for a file attachment`);
+    return { path, size: st.size };
+  });
+  const ids: string[] = [];
+  for (const { path, size } of files) {
+    const { uploadId, chunkSize } = await c.call("upload.start", { name: basename(path), size });
+    const f = await open(path);
+    try {
+      const buf = Buffer.alloc(Math.min(chunkSize, Math.max(size, 1)));
+      for (let offset = 0; offset < size; ) {
+        const { bytesRead } = await f.read(buf, 0, buf.length, offset);
+        if (!bytesRead) fail(`--file ${path} got shorter while it was being sent`);
+        await c.call("upload.chunk", { uploadId, offset, data: buf.subarray(0, bytesRead).toString("base64") });
+        offset += bytesRead;
+      }
+    } finally {
+      await f.close();
+    }
+    ids.push(uploadId);
+  }
+  return ids;
 }
 
 function out(json: unknown, human: () => void) {
@@ -788,7 +822,7 @@ async function run(c: CasmClient) {
     case "run": {
       const prompt = args.join(" ");
       if (!opt.project) fail("run needs --project");
-      if (!prompt) fail("run needs a prompt");
+      if (!prompt && !opt.file?.length) fail("run needs a prompt");
       const project = pick(await projects(c), opt.project, "project");
       const a = await c.call("agent.create", {
         projectId: project.id,
@@ -800,6 +834,7 @@ async function run(c: CasmClient) {
         parent: runParent(),
         sender: messageSender(),
         prompt,
+        attachments: await uploadFiles(c),
       });
       if (opt.wait) return waitAndPrint(c, a.id);
       return out(a, () => console.log(a.id));
@@ -810,7 +845,8 @@ async function run(c: CasmClient) {
       if (opt.at) fail(`send has no --at; for later, schedule it: casm schedule add --at ${JSON.stringify(opt.at)} --agent ${args[0] ?? "<agent>"} "<text>"`);
       const a = await agentRef(c, args[0]);
       const text = args.slice(1).join(" ");
-      if (!text) fail("send needs text");
+      if (!text && !opt.file?.length) fail("send needs text");
+      const attachments = await uploadFiles(c);
       const r = await c.call("agent.send", {
         id: a.id,
         messageId: opt["message-id"] ?? randomUUID(),
@@ -818,6 +854,7 @@ async function run(c: CasmClient) {
         sender: messageSender(),
         whenBusy: opt.steer ? "steer" : "queue",
         whenLimited: opt["fail-if-limited"] ? "fail" : "queue",
+        attachments,
       });
       if (r.deferredUntil) {
         out(r, () => console.error(`${a.provider} is over its usage limit; queued until ${new Date(r.deferredUntil!).toLocaleString()}`));

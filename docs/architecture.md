@@ -77,8 +77,11 @@ it.
 
 ### Files
 
-Files inside project folders are readable, never writable, through casm:
-`fs.read` (text previews up to 1 MiB) and `fs.downloadLink`. Paths must stay
+Files inside project folders are readable through casm: `fs.read` (text
+previews up to 1 MiB) and `fs.downloadLink`. The only write is a file attached
+to a message: `upload.start`/`upload.chunk` stage it in `$CASM_HOME/uploads`,
+and accepting the `agent.send` that names it hard-links (or copies) it into the
+project root under a free name and adds an `Attached file:` line to the text. Paths must stay
 inside a registered project folder after symlinks and `..` are resolved.
 Downloads use `GET /dl/<token>`: an HMAC-signed link for one file, valid for
 about five minutes and signed with `$CASM_HOME/download-secret`, so no client
@@ -129,5 +132,5 @@ The web client is served at `/` by every server and can be installed as a PWA
 ([web client](web-client.md), [PWA](pwa.md)). Navigation follows hosts, then
 projects, then agents, and routes are shareable. Transcripts are virtualized;
 model, mode and effort controls, pending requests, Queue, Steer and Interrupt
-sit in the composer. Drafts and small image attachments are kept in the
+sit in the composer. Drafts with their images and attached files are kept in the
 browser; history and live state always come from the server.

@@ -2,7 +2,7 @@
 // Cancel. Each action hides or changes the row at once and reconciles with the
 // server's queue by id; a row already gone on the server is simply dropped.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import type { PendingMessage } from "@casm/protocol";
+import { appendAttachmentLines, attachmentLine, splitAttachments, type PendingMessage } from "@casm/protocol";
 import { pendingLabel, queueHeld } from "./outbox";
 import { offlineNote } from "./connection";
 import { EntryTime } from "./entry-time";
@@ -39,6 +39,8 @@ export function PendingRows({ rows, unconfirmed, online, labels, actions }: {
         const { status, action } = pendingLabel(p);
         const local = unconfirmed.has(p.id);
         const edit = editing?.id === p.id ? editing : null;
+        // Attached files stay with the message; only its text is edited.
+        const { text, attachments } = splitAttachments(p.text);
         return (
           <div className={`pending-row ${p.reason}`} key={p.id} data-pending-id={p.id}>
             {edit ? (
@@ -46,8 +48,8 @@ export function PendingRows({ rows, unconfirmed, online, labels, actions }: {
                 className="pending-edit"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (!edit.text.trim() && !p.imageCount) return;
-                  actions.edit(p, edit.text);
+                  if (!edit.text.trim() && !p.imageCount && !attachments.length) return;
+                  actions.edit(p, appendAttachmentLines(edit.text, attachments.map(attachmentLine)));
                   setEditing(null);
                 }}
               >
@@ -71,8 +73,9 @@ export function PendingRows({ rows, unconfirmed, online, labels, actions }: {
               <>
                 <div className="pending-body">
                   <ClampedText>
-                    {p.text}
+                    {text}
                     {p.imageCount ? <em> · {p.imageCount} image{p.imageCount > 1 ? "s" : ""}</em> : null}
+                    {attachments.length ? <em> · {attachments.map((a) => a.name).join(", ")}</em> : null}
                   </ClampedText>
                   <small>
                     {local ? "Sending…" : labels?.get(p.id) ?? status}
@@ -82,7 +85,7 @@ export function PendingRows({ rows, unconfirmed, online, labels, actions }: {
                 </div>
                 <div className="pending-actions">
                   <button type="button" disabled={!online || local} title={online ? undefined : offlineNote} onClick={() => actions.cancel(p)}>Cancel</button>
-                  <button type="button" disabled={!online || local} title={online ? undefined : offlineNote} onClick={() => setEditing({ id: p.id, text: p.text })}>Edit</button>
+                  <button type="button" disabled={!online || local} title={online ? undefined : offlineNote} onClick={() => setEditing({ id: p.id, text })}>Edit</button>
                   <button
                     type="button"
                     className="pending-primary"

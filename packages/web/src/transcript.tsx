@@ -13,11 +13,11 @@ import {
 import Markdown, { type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { userLineBreaks } from "./user-line-breaks";
-import type { ImageData, Item } from "@casm/protocol";
+import { splitAttachments, type Attachment, type ImageData, type Item } from "@casm/protocol";
 import { messageAuthor } from "./message-author";
 import { casmToolCalls } from "./casm-command";
 import { CasmToolRow } from "./casm-tool";
-import { FileLinksContext, MarkdownLink, linkifyHtml, linkifyText, openFromClick, remarkFilePaths } from "./file-links";
+import { FileLinksContext, MarkdownLink, fileHref, linkifyHtml, linkifyText, openFromClick, remarkFilePaths } from "./file-links";
 const aliases: Record<string, string> = {
   js: "javascript",
   ts: "typescript",
@@ -451,13 +451,39 @@ export function Row({
             </>
           )}
         </small>
-        <Prose text={item.text} preserveLineBreaks={item.kind === "user"} />
+        {item.kind === "user" ? <UserText text={item.text} /> : <Prose text={item.text} />}
         {item.kind === "user" && item.images?.length ? (
           <Images images={item.images} />
         ) : null}
       </div>
     </article>
   );
+}
+
+// The "Attached file: …" lines a message ends with show as chips under it.
+function UserText({ text }: { text: string }) {
+  const split = splitAttachments(text);
+  return <>
+    {split.text && <Prose text={split.text} preserveLineBreaks />}
+    {split.attachments.length > 0 && <FileChips attachments={split.attachments} />}
+  </>;
+}
+
+// Files attached to a message: a saved one opens in the file preview (and
+// downloads from there); one still uploading, or in the composer, has no path yet.
+export function FileChips({ attachments, remove }: { attachments: Attachment[]; remove?: (index: number) => void }) {
+  const links = useContext(FileLinksContext);
+  return <ul className="file-attachments" aria-label="Attached files">
+    {attachments.map((a, index) => {
+      const label = <><span className="file-attachment-name">{a.name}</span><small>{a.size}</small></>;
+      return <li key={index}>
+        {a.path
+          ? <a className="file-link file-attachment" href={fileHref(a.path)} title={a.path} onClick={(e) => openFromClick(e, links)}>{label}</a>
+          : <span className="file-attachment" title={a.mediaType}>{label}</span>}
+        {remove && <button type="button" aria-label={`Remove ${a.name}`} onClick={() => remove(index)}>×</button>}
+      </li>;
+    })}
+  </ul>;
 }
 
 // Provider paths never become browser URLs; only validated inline image data does.

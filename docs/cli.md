@@ -166,7 +166,7 @@ work/
 
 ```text
 casm run --project p [--cwd dir] [--provider claude] [--name n] [--model m] [--mode m]
-         [--parent serverId/agentId|none] [--env K=V]... [--wait] <prompt>
+         [--parent serverId/agentId|none] [--env K=V]... [--file path]... [--wait] <prompt>
 ```
 
 Creates an agent and sends it the first prompt. Prints the new agent's ID, or
@@ -179,6 +179,8 @@ with `--wait`, its reply.
 - `--cwd`: a folder inside the project, relative or absolute, such as a git
   worktree: `--cwd .worktrees/feature-x`.
 - `--env K=V`: the agent's environment, for example a provider base URL.
+- `--file path`: attach a file to the first prompt, as with
+  [`casm send`](#attaching-files). With files the prompt may be left out.
 
 ```console
 $ casm run --project acme-api --provider claude --model haiku --name reviewer "Read src/orders.js and tell me in two sentences what it does."
@@ -218,7 +220,7 @@ process: the next message resumes its session
 ### casm send
 
 ```text
-casm send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--message-id UUID]
+casm send <agent> <text> [--steer] [--wait] [--fail-if-limited] [--message-id UUID] [--file path]...
 ```
 
 Starts a turn when the agent is idle (prints nothing), queues the message when
@@ -237,6 +239,29 @@ $ casm send reviewer "Actually, stop at 10." --steer
   server reconciles instead of delivering twice.
 
 ![queue, steer and cancel](media/cli-queue-steer.svg)
+
+#### Attaching files
+
+`--file path` (repeatable) attaches any file of up to 50 MB: a PDF, a zip, a
+CSV, a spreadsheet, a log. casm saves it in the **root of the agent's project
+folder** on the agent's host (not its `--cwd`), under its own name, or
+`name (1).ext`, `name (2).ext`… when that name is taken; nothing is
+overwritten. The message gains one line per file, which the agent reads with
+its own tools:
+
+```console
+$ casm send reviewer "Which customers are missing from the export?" --file ~/Downloads/customers.csv
+$ casm history reviewer -n 1
+> Which customers are missing from the export?
+>
+> Attached file: customers.csv (text/csv, 18.4 KB) saved at /tmp/code/acme-api/customers.csv
+```
+
+With `-H`, the file travels to the peer and is saved in the project folder
+there. The file is saved as soon as the server accepts the message, even if the
+message is queued, so cancelling a queued message leaves the file in place.
+Without text, the files alone are the message. Images given with `--file` are
+saved like any other file; the web client sends pasted images inline instead.
 
 ### casm wait
 

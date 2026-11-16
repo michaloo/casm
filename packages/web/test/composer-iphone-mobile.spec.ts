@@ -41,7 +41,7 @@ for (const [width, height] of [[375, 812], [390, 844]]) test(`iPhone composer pi
   expect(await row.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   await expect(row).toHaveAttribute("data-more", "end");
   const send = page.getByRole("button", { name: "Send", exact: true });
-  const attach = page.getByRole("button", { name: "Attach images", exact: true });
+  const attach = page.getByRole("button", { name: "Attach files", exact: true });
   const [sendBefore, attachBefore] = [(await send.boundingBox())!, (await attach.boundingBox())!];
   await row.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
   await expect(row).toHaveAttribute("data-more", "start");

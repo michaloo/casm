@@ -797,6 +797,22 @@ export const methods = {
     z.object({ url: z.string(), name: z.string(), size: z.number(), expiresAt: z.string() }),
   ),
 
+  // File attachments: any file a message carries, sent in chunks so a big one
+  // fits the socket's frame limit (16 MiB) and travels through a peer like any
+  // other call. `upload.start` stages one file (at most MAX_ATTACHMENT_BYTES);
+  // `upload.chunk` appends base64 `data` at `offset` (the bytes received so
+  // far), at most `chunkSize` bytes each. A finished upload goes to
+  // agent.send or agent.create as one of `attachments`, which saves it in the
+  // root of the agent's project folder. Unused uploads expire after an hour.
+  "upload.start": method(
+    z.object({ name: z.string().min(1), size: z.number().int().nonnegative(), mediaType: z.string().optional() }),
+    z.object({ uploadId: z.string(), chunkSize: z.number() }),
+  ),
+  "upload.chunk": method(
+    z.object({ uploadId: z.string(), offset: z.number().int().nonnegative(), data: z.string() }),
+    z.object({ received: z.number(), size: z.number() }),
+  ),
+
   // Web Push (RFC 8030/8291/8292): notifications agents send on request
   // (push.notify) reach every browser subscribed on this server. `publicKey`:
   // the VAPID application server key (base64url) for PushManager.subscribe.
@@ -894,6 +910,8 @@ export const methods = {
       sender: MessageSender.optional(),
       prompt: z.string().optional(),
       images: z.array(ImageData).optional(),
+      // Finished uploads (upload.start), saved like agent.send's.
+      attachments: z.array(z.string()).optional(),
     }),
     Agent,
   ),
@@ -956,6 +974,11 @@ export const methods = {
       messageId: z.string().uuid().optional(),
       sender: MessageSender.optional(),
       images: z.array(ImageData).optional(),
+      // Finished uploads (upload.start). Each is saved in the root of the
+      // agent's project folder when the message is accepted (queued ones too),
+      // under its own name or "name (1).ext" when that is taken, and the text
+      // gains one ATTACHMENT_LINE per file for the agent to read it from there.
+      attachments: z.array(z.string()).optional(),
       whenBusy: z.enum(["queue", "steer"]).optional(),
       // While the provider is known to be over its limit: "queue" (default)
       // defers the prompt until the reset; "fail" rejects with code 1004.
@@ -1114,6 +1137,43 @@ export type NotificationParams<N extends NotificationName> = z.infer<Notificatio
 
 // ---------------------------------------------------------------------------
 // JSON-RPC envelope
+
+// The largest file one attachment can be.
+export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+
+// A file attached to a message reaches the agent as a line of the message
+// text, after a blank line: `Attached file: <name> (<media type>, <size>)
+// saved at <absolute path>`. The text is the record (provider transcripts keep
+// it), so clients show the lines as attachments by parsing them back.
+export type Attachment = { name: string; mediaType: string; size: string; path?: string };
+export function attachmentLine(a: Attachment): string {
+  return `Attached file: ${a.name} (${a.mediaType}, ${a.size})${a.path ? ` saved at ${a.path}` : ""}`;
+}
+// The text a message is sent as: its own, a blank line, then the lines.
+export function appendAttachmentLines(text: string, lines: string[]): string {
+  if (!lines.length) return text;
+  return text.trim() ? `${text.trimEnd()}\n\n${lines.join("\n")}` : lines.join("\n");
+}
+const ATTACHMENT_LINE = /^Attached file: (.+) \(([^\s,()]+), (\d+(?:\.\d+)? (?:B|KB|MB))\)(?: saved at (\/.*|[A-Za-z]:\\.*))?$/;
+// Splits the attachment lines off the end of a message's text.
+export function splitAttachments(text: string): { text: string; attachments: Attachment[] } {
+  const lines = text.split("\n");
+  const attachments: Attachment[] = [];
+  let end = lines.length;
+  while (end > 0) {
+    const m = ATTACHMENT_LINE.exec(lines[end - 1]);
+    if (!m) break;
+    attachments.unshift({ name: m[1], mediaType: m[2], size: m[3], ...(m[4] ? { path: m[4] } : {}) });
+    end--;
+  }
+  if (!attachments.length) return { text, attachments };
+  return { text: lines.slice(0, end).join("\n").replace(/\n+$/, ""), attachments };
+}
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 export const ErrorCode = {
   ParseError: -32700,

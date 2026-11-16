@@ -273,9 +273,10 @@ It is metadata for display and auditing, not authorization. Details:
 
 ## Files
 
-Files inside project folders are **readable, never writable**, through casm:
-`casm cat` prints a text file, `casm get` downloads any file, and the web client
-previews paths that agents mention. Paths must resolve (after symlinks and `..`)
+Files inside project folders are **readable** through casm: `casm cat` prints
+a text file, `casm get` downloads any file, and the web client previews paths
+that agents mention. The one thing casm writes there is a file you attach to a
+message (below). Paths must resolve (after symlinks and `..`)
 inside a registered project folder on that host, and the server's own state
 directory is never served:
 
@@ -287,6 +288,35 @@ casm: /etc/hostname is not inside a project folder on this host
 Downloads use short-lived signed links (`GET /dl/<token>`, about five minutes),
 so no client token appears in a URL. A peer's file streams through the server
 you're connected to.
+
+### Attached files
+
+A message can carry files: `casm send --file` and `casm run --file`, or the
+web client's paperclip, paste and drop. Images the web client attaches go to
+the provider inline, as before, and are not saved. **Any other file** (PDF,
+zip, CSV, spreadsheet, log, up to 50 MB each) is saved in the root of the
+agent's project folder, and the message tells the agent where:
+
+```text
+Attached file: report.pdf (application/pdf, 2.3 MB) saved at /home/me/acme-api/report.pdf
+```
+
+The agent opens it with its own tools, so this works the same for every
+provider. A few things follow from that:
+
+- The original name is kept, made safe: no folders, no leading dot, no control
+  characters. A name that exists gets `report (1).pdf`, `report (2).pdf`, like a
+  browser download; nothing is overwritten.
+- The file is saved when the server accepts the message, also when the message
+  is queued or steered. Cancelling a queued message, or taking it back with Esc,
+  leaves the file in the project folder; delete it there if you don't want it.
+- The file goes to the host where the agent runs. Through a peer it travels over
+  the casm connection and is saved on the peer.
+- Whether an agent can read a format depends on the agent. Claude Code reads
+  PDFs itself; other agents may need a tool such as `pdftotext` (poppler-utils)
+  on the host for PDFs, or Python for spreadsheets.
+- The line is part of the message, so it stays in the agent's history. The web
+  client shows it as a chip that opens the saved file.
 
 ## Agents running agents
 

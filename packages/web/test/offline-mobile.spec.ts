@@ -52,7 +52,7 @@ test("offline mobile: losing the server shows the banner and makes the view read
   signal("SIGKILL"); // at once: a graceful close waits for the running turn
   await context.setOffline(true);
   await expect(banner(page)).toHaveText(/^Offline · saved copy from \d/);
-  for (const name of ["Allow", "Deny", "Cancel", "Edit", "Send now", "Attach images"])
+  for (const name of ["Allow", "Deny", "Cancel", "Edit", "Send now", "Attach files"])
     await expect(page.getByRole("button", { name, exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Allow", exact: true })).toHaveAttribute("title", /^Offline: reconnect/);
   await openAgents(page);

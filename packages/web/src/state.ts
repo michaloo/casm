@@ -12,6 +12,7 @@ import type {
   Project,
 } from "@casm/protocol";
 import { holdImage } from "./image-preview";
+import type { DraftFile } from "./attach";
 export type Chat = {
   expanded?: Record<string, boolean>;
   failed?: boolean;
@@ -32,15 +33,17 @@ export type Chat = {
   hidden?: Set<string>;
   // A message whose send failed and was put back in the composer: sending the
   // same text and images again reuses its id, so the server sends it once.
-  retry?: { id: string; text: string; images: ImageData[] };
+  retry?: { id: string; text: string; images: ImageData[]; files: DraftFile[] };
   // The last message sent from here, which Esc can take back while it waits
   // or runs its own turn (see recallable()). `ended`: turnsEnded at the send;
   // `sent` settles with whether the server queued it (undefined: it failed).
-  recall?: { id: string; text: string; images: ImageData[]; at: number; ended: number; sent: Promise<boolean | undefined> };
+  recall?: { id: string; text: string; images: ImageData[]; files: DraftFile[]; at: number; ended: number; sent: Promise<boolean | undefined> };
   // Turns seen ending live, to tell whether the one a message started is over.
   turnsEnded?: number;
   input: string;
   images: ImageData[];
+  // Other files, kept in memory only (see attach.ts).
+  files: DraftFile[];
   draftStorageKey?: string;
   scroll?: number;
   atBottom?: boolean;
@@ -81,6 +84,7 @@ export function chat(k: string): Chat {
       pending: [],
       input: "",
       images: [],
+      files: [],
     });
   return chats.get(k)!;
 }

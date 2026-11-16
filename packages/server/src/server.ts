@@ -27,6 +27,7 @@ import { createHandlers, type Conn } from "./methods.ts";
 import { Scheduler } from "./schedules.ts";
 import { PeerPool } from "./peers.ts";
 import { Files } from "./files.ts";
+import { Uploads } from "./attachments.ts";
 import { AgentPrompt } from "./agent-prompt.ts";
 import { Settings } from "./settings.ts";
 import { IdleUnloader } from "./idle-unload.ts";
@@ -115,8 +116,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const push = new PushService({ store: opts.store, home: opts.home, log, send: opts.pushSend });
   const browsers = new BrowserHub({ log, timeoutMs: opts.browserTimeoutMs });
   let scheduler: Scheduler | undefined;
+  const uploads = new Uploads({ home: opts.home });
   const settings = new Settings(opts.home ?? null);
-  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!, files, push, browsers, settings);
+  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!, files, push, browsers, settings, uploads);
   const idleUnloader = new IdleUnloader(agents, () => settings.get().idleUnloadMinutes);
   scheduler = new Scheduler(opts.store, agents, notify, (p) =>
     (handlers["agent.create"] as (p: Params<"agent.create">, c: Conn) => Promise<Agent>)(p, { subscriptions: new Set(), name: "schedule" }),

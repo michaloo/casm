@@ -1,4 +1,4 @@
-import type { ImageData } from "@casm/protocol";
+import { MAX_ATTACHMENT_BYTES, formatBytes, type Attachment, type ImageData, type Params, type Result } from "@casm/protocol";
 
 // Phone photos are 4000px+ and several MB; agents read 2000px fine, and a
 // message must stay well under the server's 16 MB socket frame.
@@ -12,20 +12,6 @@ const passthrough = new Set(["image/png", "image/jpeg", "image/webp", "image/gif
 const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 const base64Bytes = (data: string) => Math.floor(data.length * 3 / 4);
 
-/** Image files of a paste or drop: `files` and `items` (iOS fills only one of them), once each. */
-export function imageFiles(data: DataTransfer | null): File[] {
-  if (!data) return [];
-  const all = [...Array.from(data.files), ...Array.from(data.items).filter((i) => i.kind === "file").map((i) => i.getAsFile())];
-  const seen = new Set<string>();
-  return all.filter((file): file is File => {
-    if (!file || !isImage(file)) return false;
-    const id = `${file.name}\n${file.size}\n${file.type}\n${file.lastModified}`;
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-}
-
 // iOS may hand over HEIC photos with an empty type; trust the extension then.
 const isImage = (file: File) => file.type.startsWith("image/") || (!file.type && /\.(heic|heif|png|jpe?g|webp|gif)$/i.test(file.name));
 
@@ -33,7 +19,7 @@ function read(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-    reader.onerror = () => reject(new Error("Could not read the image"));
+    reader.onerror = () => reject(new Error("Could not read the file"));
     reader.readAsDataURL(blob);
   });
 }
@@ -91,4 +77,57 @@ export async function prepareImage(file: File): Promise<ImageData> {
   } finally {
     image.close();
   }
+}
+
+// Any other file goes to the agent's project folder: uploaded in chunks when
+// the message is sent, then named in agent.send (see upload.start). It stays
+// in memory only: a reload drops it from the draft. `uploadId` once uploaded,
+// so a retry or a message taken back and sent again reuses the saved file.
+export type DraftFile = { file: File; uploadId?: string };
+
+export const isImageFile = (file: File) => isImage(file);
+
+/** The files of a paste or drop, images or not: `files` and `items`, once each. */
+export function droppedFiles(data: DataTransfer | null): File[] {
+  if (!data) return [];
+  const all = [...Array.from(data.files), ...Array.from(data.items).filter((i) => i.kind === "file").map((i) => i.getAsFile())];
+  const seen = new Set<string>();
+  return all.filter((file): file is File => {
+    if (!file) return false;
+    const id = `${file.name}\n${file.size}\n${file.type}\n${file.lastModified}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+/** The attachment as the message will show it until the server says where it was saved. */
+export const draftAttachment = (f: DraftFile): Attachment =>
+  ({ name: f.file.name || "attachment", mediaType: f.file.type || "application/octet-stream", size: formatBytes(f.file.size) });
+
+export function tooLarge(file: File): string | null {
+  return file.size > MAX_ATTACHMENT_BYTES
+    ? `${file.name || "The file"} is ${formatBytes(file.size)}, over the ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB limit for a file attachment.`
+    : null;
+}
+
+type Call = <M extends "upload.start" | "upload.chunk">(method: M, params: Params<M>) => Promise<Result<M>>;
+
+/** Uploads the files not uploaded yet, in chunks; `progress` gets the bytes sent of the total. */
+export async function uploadFiles(files: DraftFile[], call: Call, progress: (sent: number, total: number) => void): Promise<string[]> {
+  const total = files.reduce((n, f) => n + (f.uploadId ? 0 : f.file.size), 0);
+  let sent = 0;
+  for (const f of files) {
+    if (f.uploadId) continue;
+    const { uploadId, chunkSize } = await call("upload.start", { name: f.file.name || "attachment", size: f.file.size, mediaType: f.file.type || undefined });
+    for (let offset = 0; offset < f.file.size; ) {
+      const piece = f.file.slice(offset, offset + chunkSize);
+      await call("upload.chunk", { uploadId, offset, data: await read(piece) });
+      offset += piece.size;
+      sent += piece.size;
+      progress(sent, total);
+    }
+    f.uploadId = uploadId;
+  }
+  return files.map((f) => f.uploadId!);
 }

@@ -77,7 +77,7 @@ Errors use the standard codes plus casm's own:
 | MCP | `agent.mcpStatus`, `agent.mcpReconnect`, `agent.mcpToggle` |
 | Host-wide | `pending.list`, `provider.limits`, `provider.costs`, `provider.catalog`, `host.stats` |
 | Schedules | `schedule.list` (`projectId?`, `agentId?` filters), `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.runNow`; each schedule carries its derived `projectId` |
-| Files | `fs.read`, `fs.search`, `fs.downloadLink` |
+| Files | `fs.read`, `fs.search`, `fs.downloadLink`, `upload.start`, `upload.chunk` |
 | Notifications | `push.list`, `push.subscribe`, `push.unsubscribe`, `push.test`, `push.notify` |
 | Browser | `browser.list`, `browser.tabs`, `browser.open`, `browser.snapshot`, `browser.click`, `browser.type`, `browser.press`, `browser.screenshot`, `browser.eval`, `browser.dialog`, `browser.upload`, `browser.downloads`, `browser.download`; `browser.share` (from the extension) |
 
@@ -212,6 +212,35 @@ the extension replies with a normal JSON-RPC result or error. See
 `fs.downloadLink` returns a short-lived signed URL, `GET /dl/<token>`, valid
 for about five minutes, that needs no client token. `fs.read` returns text
 previews up to 1 MiB. Paths must resolve inside a registered project folder.
+
+## Attaching files
+
+A file goes up in chunks before the message that carries it, so a big one
+fits the 16 MiB WebSocket frame and works through a peer like any request
+(give each call the same `host`):
+
+```json
+{"method":"upload.start","params":{"name":"report.pdf","size":2411520,"mediaType":"application/pdf"}}
+→ {"uploadId":"5f0c…","chunkSize":4194304}
+{"method":"upload.chunk","params":{"uploadId":"5f0c…","offset":0,"data":"<base64, at most chunkSize bytes>"}}
+→ {"received":2411520,"size":2411520}
+{"method":"agent.send","params":{"id":"83b4f029-…","text":"Summarize this","attachments":["5f0c…"]}}
+```
+
+- `size` is at most 50 MiB (`MAX_ATTACHMENT_BYTES`); `upload.start` refuses
+  more with `-32602`. Chunks go in order: `offset` is the bytes received so
+  far; resending the last chunk is harmless, a gap is `1003`.
+- `agent.send` and `agent.create` (`attachments`) refuse an unfinished upload
+  before saving anything. Accepting the message saves each file in the root of
+  the agent's project folder, never overwriting (`name (1).ext`), and appends
+  to the text a blank line and one line per file:
+  `Attached file: <name> (<media type>, <size>) saved at <absolute path>`.
+  The user item, pending message and native transcript all carry that text;
+  `splitAttachments` in the protocol package parses the lines back.
+- Sending the same upload again (the same `messageId` after a lost response,
+  or a message taken back and sent again) reuses the saved file. Uploads not
+  used within an hour expire, and a server restart drops them.
+- Images in `images` are unaffected: they still go inline to the provider.
 
 ## Notifications (Web Push)
 

@@ -1,12 +1,13 @@
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { mkdirSync, realpathSync, statSync } from "node:fs";
-import { ErrorCode, PROTOCOL_VERSION, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
+import { ErrorCode, PROTOCOL_VERSION, appendAttachmentLines, type MethodName, type Params, type ProviderId, type Result } from "@casm/protocol";
 import { RpcError, type AgentManager, type Notify } from "./agents.ts";
 import type { Store } from "./db.ts";
 import type { Scheduler } from "./schedules.ts";
 import { searchFiles } from "./fs-search.ts";
 import type { Files } from "./files.ts";
+import type { Uploads } from "./attachments.ts";
 import { HostSampler } from "./host-stats.ts";
 import { CostReader } from "./costs.ts";
 import { hostAgentsMd, setHostAgentsMd } from "./host-details.ts";
@@ -58,6 +59,7 @@ export function createHandlers(
   push: PushService,
   browsers: BrowserHub,
   settings: Settings,
+  uploads: Uploads,
 ): Handlers {
   const getProject = (id: string) => {
     const p = store.getProject(id);
@@ -68,6 +70,15 @@ export function createHandlers(
     const a = store.getAgent(id);
     if (!a) throw new RpcError(ErrorCode.NotFound, `agent ${id} not found`);
     return agents.withStatus(a);
+  };
+  // The message text with a line for each attached file, saved first in the
+  // root of the agent's project folder.
+  const withAttachments = async (agentId: string, text: string, attachments: string[] | undefined) => {
+    if (!attachments?.length) return text;
+    const agent = getAgent(agentId);
+    if (agent.archivedAt) throw new RpcError(ErrorCode.Conflict, "agent is archived");
+    const lines = await uploads.save(attachments, getProject(agent.projectId).path);
+    return appendAttachmentLines(text, lines);
   };
   const sender = (source: Params<"agent.send">["sender"]) => {
     if (!source) return undefined;
@@ -136,6 +147,8 @@ export function createHandlers(
 
     "fs.read": (p) => files.read(p),
     "fs.downloadLink": (p) => files.link(p),
+    "upload.start": (p) => uploads.start(p),
+    "upload.chunk": (p) => uploads.chunk(p),
 
     "peer.list": async (p) => ({
       peers: await Promise.all(
@@ -196,6 +209,7 @@ export function createHandlers(
       await checkMode(p.provider, p.config?.mode);
       const project = getProject(p.projectId);
       const cwd = p.cwd ? agentCwd(project.path, p.cwd) : project.path;
+      if (p.attachments?.length) uploads.check(p.attachments, project.path);
       const stored = store.createAgent({
         projectId: p.projectId,
         name: p.name ?? `${p.provider} · ${basename(cwd)}`,
@@ -206,7 +220,8 @@ export function createHandlers(
         tags: p.tags,
       });
       notify("agent.changed", { agent: agents.withStatus(stored) });
-      if (p.prompt || p.images?.length) agents.send(stored.id, { text: p.prompt ?? "", images: p.images, sender: sender(p.sender) });
+      const prompt = await withAttachments(stored.id, p.prompt ?? "", p.attachments);
+      if (prompt || p.images?.length) agents.send(stored.id, { text: prompt, images: p.images, sender: sender(p.sender) });
       return getAgent(stored.id);
     },
     "agent.update": async (p) => {
@@ -242,8 +257,10 @@ export function createHandlers(
       conn.subscriptions.delete(p.id);
       return { ok: true };
     },
-    "agent.send": (p) =>
-      agents.send(p.id, { text: p.text, images: p.images, sender: sender(p.sender), ...(p.messageId ? { id: p.messageId } : {}) }, p.whenBusy, p.whenLimited),
+    "agent.send": async (p) => {
+      const text = await withAttachments(p.id, p.text, p.attachments);
+      return agents.send(p.id, { text, images: p.images, sender: sender(p.sender), ...(p.messageId ? { id: p.messageId } : {}) }, p.whenBusy, p.whenLimited);
+    },
     "schedule.list": (p) => ({ schedules: schedules().list(p) }),
     "schedule.create": (p) => schedules().create(p),
     "schedule.update": (p) => schedules().update(p),

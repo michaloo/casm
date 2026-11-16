@@ -75,8 +75,11 @@ it.
 
 ### Files
 
-Files inside project folders are readable, never writable, through casm:
-`fs.read` (text previews up to 1 MiB) and `fs.downloadLink`. Paths must stay
+Files inside project folders are readable through casm: `fs.read` (text
+previews up to 1 MiB) and `fs.downloadLink`. The only write is a file attached
+to a message: `upload.start`/`upload.chunk` stage it in `$CASM_HOME/uploads`,
+and accepting the `agent.send` that names it hard-links (or copies) it into the
+project root under a free name and adds an `Attached file:` line to the text. Paths must stay
 inside a registered project folder after symlinks and `..` are resolved.
 Downloads use `GET /dl/<token>`: an HMAC-signed link for one file, valid for
 about five minutes and signed with `$CASM_HOME/download-secret`, so no client

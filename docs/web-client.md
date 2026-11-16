@@ -113,9 +113,15 @@ output, plans, subagents and notices. Long histories load as you scroll up;
 while you're at the bottom, it follows new output.
 
 The composer has pickers for the provider (new agents), model, mode and
-effort. Attach images with the paperclip (on an iPhone: Photo Library, Take
-Photo or Choose File), by pasting, or by dropping them on the composer; photos
-over 2000px are scaled down, up to 10 images and 5 MB each. Type `/` for commands: casm's own
+effort. Attach images and files with the paperclip (on an iPhone: Photo
+Library, Take Photo or Choose File), by pasting, or by dropping them on the
+composer. Images go to the agent inline; photos over 2000px are scaled down, up
+to 10 images and 5 MB each. Any other file (PDF, zip, CSV, spreadsheet, log, up
+to 50 MB) shows as a chip and is uploaded when you send: it is saved in the
+root of the agent's project folder and the agent is told where
+([attached files](concepts.md#attached-files)). In the transcript the chip opens
+the saved file in the preview. Unlike images, files are not kept in the draft
+across a page reload. Type `/` for commands: casm's own
 `/mcp`, `/reload`, `/restart` and `/interrupt`, then the provider's commands and
 skills (see [MCP controls](mcp-controls.md#mcp-controls-and-composer-commands)).
 
@@ -131,7 +137,9 @@ Sent with Enter by mistake? **Escape** in the empty composer, within 30 seconds,
 takes the message you just sent from this browser back for editing (a hint
 **Esc to edit** shows for a few seconds after sending):
 
-- Still queued: it is cancelled from the queue; text and images return.
+- Still queued: it is cancelled from the queue; text, images and files return.
+  An attached file stays saved in the project folder, and sending the message
+  again reuses it rather than saving a copy.
 - Running the turn it started: that turn is interrupted and the text returns.
   The message stays in the transcript, because the agent keeps it in its own
   history; a notice says so.
@@ -291,7 +299,8 @@ folder completion as you type, a name, a group and tags.
 Paths that agents mention inside a project folder become links. Clicking one
 opens a preview: syntax-highlighted code, rendered Markdown, pretty JSON,
 images, with **Download** and **Copy path**. `/f/<absolute path>` opens a
-preview directly. Files are read-only through casm. Links inside a rendered
+preview directly. Files are read-only through casm, except those you attach
+to a message. Links inside a rendered
 HTML page open in a new browser tab, never inside casm.
 
 Images attached to messages or tool output open in that same preview (click or

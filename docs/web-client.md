@@ -72,13 +72,15 @@ Hosts, then their projects, then agents. Hosts are section headers (server
 icon with a status dot, the name in small caps; hover for its status and how
 many agents are working); projects are indented rows below them.
 Each agent shows its provider icon,
-model and status: idle (○), working, waiting for you, queued messages. Agents
+model and status: idle (○), unloaded (dashed ○: no process until the next
+message), working, waiting for you, queued messages. Agents
 other agents created are nested under their parent, also across hosts.
 
 ![an agent that split its work across agents on two hosts](media/web-orchestration.png)
 
 - **Host options** (⋯ next to a host) opens the host's window: Usage,
-  Resources, AGENTS.md, System Prompt and Notifications.
+  Resources (with the idle unload setting), AGENTS.md, System Prompt and
+  Notifications.
 - **Mini bars** (two thin bars before a host's chevron) show its CPU and RAM,
   filling from the bottom: amber from 80%, red from 95%. Hover for the numbers
   (`CPU 42% · RAM 6.5 of 16.0 GB`); click to open **Resources**. Every online

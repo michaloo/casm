@@ -1,6 +1,6 @@
 import { InstructionEditor, SettingsDialog, TextEditor } from "./settings-shared";
 import { useEffect, useRef, useState } from "react";
-import type { AgentPromptInfo, HostAgentsMdFile } from "@casm/protocol";
+import type { AgentPromptInfo, HostAgentsMdFile, ServerSettings } from "@casm/protocol";
 import { HostIdentity, type HostState } from "./host-menu";
 import { HostResources, HostUsage } from "./host-usage";
 import { HostNotifications } from "./host-notifications";
@@ -25,7 +25,8 @@ export function HostSettings({ host, name, state, rpc, online, initialSection = 
         <HostUsage host={host} rpc={rpc} online={online} /></section>}
       {section === "resources" && <section aria-label="Resources"><h3>Resources</h3>
         <p className="settings-lede">CPU, load and memory on this host, refreshed every 10 seconds while this tab is open.</p>
-        <HostResources host={host} rpc={rpc} online={online} /></section>}
+        <HostResources host={host} rpc={rpc} online={online} />
+        <IdleUnload host={host} rpc={rpc} /></section>}
       <div hidden={section !== "agents-md"}><Instructions host={host} rpc={rpc} /></div>
       <div hidden={section !== "system-prompt"}><HostPrompt host={host} rpc={rpc} /></div>
       {/* A browser subscribes on the host serving this page; a peer's agents notify the peer's own devices. */}
@@ -37,6 +38,37 @@ export function HostSettings({ host, name, state, rpc, online, initialSection = 
     {/* About this browser's page, so only on the host that serves it. */}
     {!host && !window.isSecureContext && <p className="settings-note http-note">Served over HTTP: cold offline start and notifications need HTTPS (everything else works).</p>}
   </SettingsDialog>;
+}
+
+const IDLE_CHOICES = [0, 5, 15, 30, 60, 120, 240];
+const idleLabel = (m: number) => m === 0 ? "Never" : m < 60 ? `After ${m} min idle` : `After ${m / 60} h idle`;
+
+// Stops the provider process (and its MCP servers) of agents left idle; the next message resumes them.
+function IdleUnload({ host, rpc }: { host: string; rpc: Rpc }) {
+  const [settings, setSettings] = useState<ServerSettings>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void rpc.call("server.settings", {}, host).then((r) => { if (active) setSettings(r); }).catch((e) => { if (active) setError(message(e)); });
+    return () => { active = false; };
+  }, [host, rpc]);
+  const save = (idleUnloadMinutes: number) => {
+    setBusy(true); setError("");
+    void rpc.call("server.setSettings", { idleUnloadMinutes }, host).then(setSettings).catch((e) => setError(message(e))).finally(() => setBusy(false));
+  };
+  const current = settings?.idleUnloadMinutes;
+  const choices = current === undefined || IDLE_CHOICES.includes(current) ? IDLE_CHOICES : [...IDLE_CHOICES, current].sort((a, b) => a - b);
+  return <div className="settings-card">
+    <label className="settings-inline-field"><span>Unload idle agents</span>
+      <select aria-label="Unload idle agents" value={current ?? ""} disabled={busy || current === undefined} onChange={(e) => save(Number(e.target.value))}>
+        {current === undefined && <option value="">Loading…</option>}
+        {choices.map((m) => <option key={m} value={m}>{idleLabel(m)}</option>)}
+      </select>
+    </label>
+    <p className="settings-note">Stops the process of an agent idle this long, with its MCP servers, to free memory. The session is kept: the next message resumes it, a few seconds slower once. Agents running, waiting on you, or with pending messages stay loaded.</p>
+    {error && <p role="alert" className="error">{error}</p>}
+  </div>;
 }
 
 function Instructions({ host, rpc }: { host: string; rpc: Rpc }) {

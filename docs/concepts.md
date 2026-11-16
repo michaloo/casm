@@ -98,7 +98,13 @@ agent can be continued in the provider's own tool.
 [Providers](providers.md) has the verified per-provider feature matrix.
 
 An agent's status is `idle`, `running` or `waiting` (blocked on a permission or
-a question). **Reload** reopens the provider process on the same session;
+a question). An idle agent is also **unloaded** when no provider process is open
+for it: it hasn't run since the server started, or it sat idle longer than the
+host's [idle unload](host-settings.md#idle-unload) setting (15 minutes by
+default) and casm stopped its process. The session is kept; the next message
+starts a process and resumes it, as after a reload. `casm agents` shows
+`unloaded` in the status column, the web client a dashed ring, and the protocol
+sets `loaded: false` on the agent (`status` stays `idle`). **Reload** reopens the provider process on the same session;
 **restart** starts a fresh native session on the next turn; **archive** hides
 an agent but keeps it; **rm** deletes the record (not the provider's files).
 Archiving and removing an agent (or archiving or deleting its project) stop its

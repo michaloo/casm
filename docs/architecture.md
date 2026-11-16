@@ -45,7 +45,9 @@ peers. A machine that only runs clients can instead list direct connections in
   project.
 - **Agent:** a saved provider configuration, working directory and native
   session ID. Reload opens a new provider process for the same session; restart
-  starts a new native session on the next turn. Parent links identify
+  starts a new native session on the next turn. Agents idle past the host's
+  idle unload setting lose their process the same way and resume on the next
+  message. Parent links identify
   orchestrated children, including children on peers. Provider-internal
   subagents keep their history separate from their parent's transcript.
 - **Message:** a send queues behind an active turn; an explicit steer enters

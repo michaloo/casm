@@ -64,6 +64,9 @@ server (this machine only; refused with -H):
   agent-prompt --edit | --reset      edit the host's agent-prompt.md in $EDITOR (seeded with the
                                      default) | delete it, back to the default
   agent-prompt --enable | --disable  turn it on or off ("agentPrompt" in the host's config.json)
+  settings                           the host's settings
+  settings idle-unload <minutes|off> stop the process of agents idle that long (default 15); the
+                                     next message resumes the session ("unloaded" in casm agents)
 
 hosts (only for a CLI on a machine without a server):
   host stats                         same as stats
@@ -288,6 +291,9 @@ function pick<T extends { id: string; name: string }>(list: T[], ref: string, wh
 }
 
 const shortId = (id: string) => id.slice(0, 8);
+// An idle agent with no provider process shows as unloaded (the next message resumes it).
+const agentState = (a: Pick<Agent, "status" | "loaded" | "archivedAt">) => (a.status === "idle" && a.loaded === false && !a.archivedAt ? "unloaded" : a.status);
+const idleUnloadText = (minutes: number) => (minutes ? `after ${minutes} min idle` : "off");
 
 // A peer probe (peer.list probe): "reachable 120 ms", "slow: 4.2 s ...", "unreachable: ...".
 function probeText(s: { reachable?: boolean; latencyMs?: number; slow?: boolean; error?: string }): string {
@@ -478,6 +484,18 @@ async function run(c: CasmClient) {
       });
     }
 
+    case "settings": {
+      if (!args.length) {
+        const r = await c.call("server.settings", {});
+        return out(r, () => console.log(`idle-unload  ${idleUnloadText(r.idleUnloadMinutes)}`));
+      }
+      if (args[0] !== "idle-unload" || args.length !== 2) fail("usage: casm settings [idle-unload <minutes|off>]");
+      const minutes = args[1] === "off" ? 0 : Number(args[1]);
+      if (!Number.isInteger(minutes) || minutes < 0) fail(`not a number of minutes: ${args[1]}`);
+      const r = await c.call("server.setSettings", { idleUnloadMinutes: minutes });
+      return out(r, () => console.error(`idle-unload ${idleUnloadText(r.idleUnloadMinutes)}`));
+    }
+
     case "agent-prompt": {
       if (opt.enable || opt.disable) {
         const r = await c.call("server.setAgentPrompt", { enabled: !!opt.enable });
@@ -631,7 +649,7 @@ async function run(c: CasmClient) {
       return out(rows, () => {
         for (const a of agents)
           console.log(
-            `${shortId(a.id)}  ${a.status.padEnd(7)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}${a.deferred ? `  limited, retries ${new Date(a.deferred.until).toLocaleTimeString()}` : ""}${a.pending?.count && !a.deferred ? `  ${a.pending.count} pending` : ""}${a.subagents?.running ? `  ${a.subagents.running} subagent${a.subagents.running === 1 ? "" : "s"}` : ""}${opt.usage ? `  ${usage.get(a.id) ? formatUsage(usage.get(a.id)!) : "-"}` : ""}`,
+            `${shortId(a.id)}  ${agentState(a).padEnd(8)}  ${a.provider.padEnd(8)}  ${names.get(a.projectId) ?? "?"} / ${a.name}${a.archivedAt ? "  (archived)" : ""}${a.deferred ? `  limited, retries ${new Date(a.deferred.until).toLocaleTimeString()}` : ""}${a.pending?.count && !a.deferred ? `  ${a.pending.count} pending` : ""}${a.subagents?.running ? `  ${a.subagents.running} subagent${a.subagents.running === 1 ? "" : "s"}` : ""}${opt.usage ? `  ${usage.get(a.id) ? formatUsage(usage.get(a.id)!) : "-"}` : ""}`,
           );
       });
     }

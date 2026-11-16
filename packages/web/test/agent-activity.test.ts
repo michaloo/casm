@@ -27,3 +27,17 @@ test("one status dot represents execution, held queues, and offline state", asyn
     { kind: "limited", label: "Queue retrying", detail: "Queue retrying · agent process exited" });
   assert.equal(agentStatus({ ...agent, pending: { count: 2, held: { reason: "limit" } } }, "failed").kind, "failed");
 });
+
+test("an idle agent without a provider process shows as unloaded", async () => {
+  const { agentStatus } = await import("../src/agent-activity.ts");
+  const agent = { status: "idle" as const, deferred: null, loaded: false };
+  assert.deepEqual(agentActivity(agent), { label: "Unloaded", working: false });
+  assert.deepEqual(agentStatus(agent), { kind: "unloaded", label: "Unloaded", detail: "Unloaded" });
+  // Older servers leave `loaded` out; archived agents never have a process.
+  assert.equal(agentActivity({ status: "idle", deferred: null }).label, "Idle");
+  assert.equal(agentActivity({ ...agent, archivedAt: "2026-11-16T10:00:00Z" }).label, "Idle");
+  assert.equal(agentActivity({ ...agent, loaded: true }).label, "Idle");
+  // A turn starting opens one: the status wins until the agent says otherwise.
+  assert.equal(agentStatus(agent, "running").kind, "running");
+  assert.equal(agentStatus({ ...agent, pending: { count: 1, held: { reason: "limit" } } }).kind, "limited");
+});

@@ -14,6 +14,7 @@ import { listMemories, readAgentsMd, writeAgentsMd } from "./project-details.ts"
 import type { PeerPool } from "./peers.ts";
 import type { PushService } from "./push.ts";
 import { browserHandlers, type BrowserHub } from "./browser.ts";
+import type { Settings } from "./settings.ts";
 import { DEFAULT_AGENT_PROMPT, PLACEHOLDERS, type AgentPromptState } from "./agent-prompt.ts";
 
 // `name`: the client token's name (or what started the call, e.g. a schedule).
@@ -56,6 +57,7 @@ export function createHandlers(
   files: Files,
   push: PushService,
   browsers: BrowserHub,
+  settings: Settings,
 ): Handlers {
   const getProject = (id: string) => {
     const p = store.getProject(id);
@@ -119,6 +121,11 @@ export function createHandlers(
     // Answered by the transport (server.ts), which owns the connection's auth state.
     auth: () => ({ ok: true }),
 
+    "server.settings": () => settings.get(),
+    "server.setSettings": (p) => {
+      if (!settings.home) throw new RpcError(ErrorCode.Conflict, "this server keeps no state directory for settings");
+      return settings.set(p);
+    },
     "server.info": () => ({ ...identity, protocol: PROTOCOL_VERSION, providers: agents.providerIds() }),
 
     "fs.search": async (p) => {

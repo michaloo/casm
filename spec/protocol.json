@@ -463,6 +463,54 @@
         ]
       }
     },
+    "server.settings": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {}
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "idleUnloadMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "idleUnloadMinutes"
+        ]
+      }
+    },
+    "server.setSettings": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "idleUnloadMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "idleUnloadMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "idleUnloadMinutes"
+        ]
+      }
+    },
     "peer.list": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3052,6 +3100,9 @@
                     "waiting"
                   ]
                 },
+                "loaded": {
+                  "type": "boolean"
+                },
                 "deferred": {
                   "anyOf": [
                     {
@@ -3277,6 +3328,9 @@
               "running",
               "waiting"
             ]
+          },
+          "loaded": {
+            "type": "boolean"
           },
           "deferred": {
             "anyOf": [
@@ -3628,6 +3682,9 @@
               "waiting"
             ]
           },
+          "loaded": {
+            "type": "boolean"
+          },
           "deferred": {
             "anyOf": [
               {
@@ -3893,6 +3950,9 @@
               "running",
               "waiting"
             ]
+          },
+          "loaded": {
+            "type": "boolean"
           },
           "deferred": {
             "anyOf": [
@@ -9137,6 +9197,9 @@
                 "running",
                 "waiting"
               ]
+            },
+            "loaded": {
+              "type": "boolean"
             },
             "deferred": {
               "anyOf": [

@@ -295,7 +295,7 @@ for (const scheme of ["light", "dark"] as const)
       if (device === "mobile")
         await openAgents(page);
       await page
-        .getByRole("button", { name: /Claude Visual review .*Idle/, exact: true })
+        .getByRole("button", { name: /Claude Visual review .*(Idle|Unloaded)/, exact: true })
         .click();
       const scroller = page.locator("[data-virtuoso-scroller]");
       await expect(page.locator(".item").first()).toBeVisible();

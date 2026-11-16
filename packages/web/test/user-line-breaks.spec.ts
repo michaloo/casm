@@ -63,10 +63,13 @@ for (const fromAgent of [false, true]) for (const source of ["live", "history"])
     expect(lines[1]).toBeGreaterThan(lines[0]);
     await expect(user.locator("pre code")).toHaveText("code first\ncode second");
     await expect(user.locator("pre br")).toHaveCount(0);
-    const assistant = page.locator(".item.assistant").filter({ hasText: "echo: First line" }).last();
-    await expect(assistant.locator(".prose > p br")).toHaveCount(0);
-    await expect(assistant.locator("li br")).toHaveCount(0);
+    // Live inter-agent prompts are wrapped in a "[CASM agent message v1]" envelope, so the echo
+    // does not start with the payload; match the echo prefix and the payload's last line instead.
+    const assistant = page.locator(".item.assistant").filter({ hasText: "echo:" }).filter({ hasText: "code second" }).last();
     await expect(assistant.locator("strong")).toHaveText("bold");
     await expect(assistant.locator("pre code")).toHaveText("code first\ncode second");
+    if (source === "live" && fromAgent) await expect(assistant).toContainText("[CASM agent message v1]");
+    await expect(assistant.locator(".prose > p br")).toHaveCount(0);
+    await expect(assistant.locator("li br")).toHaveCount(0);
   });
 }

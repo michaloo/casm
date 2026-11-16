@@ -17,6 +17,7 @@ import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { Row, Images, FileChips, type ToolTime } from "./transcript";
 import { EntryTime, entryTimes } from "./entry-time";
+import { swipeTimes } from "./swipe-times";
 import type {
   Agent,
   Catalog,
@@ -1520,6 +1521,7 @@ function Transcript({
     });
   };
   const box = useRef<HTMLDivElement>(null);
+  const swipe = useRef<ReturnType<typeof swipeTimes>>(undefined);
   const resized = useRef<ResizeObserver>(undefined);
   useEffect(() => {
     if (!box.current) return;
@@ -1565,7 +1567,9 @@ function Transcript({
     const mutated = new MutationObserver(() => stick());
     if (el) mutated.observe(el, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style"] });
     const wrapper = box.current;
+    const times = (swipe.current = swipeTimes(wrapper));
     return () => {
+      times.stop();
       observer.disconnect(); mutated.disconnect(); wrapper.removeEventListener("scroll", settle, { capture: true });
       chatEl?.style.removeProperty("--chat-scrollbar");
       delete chatEl?.dataset.gutter;
@@ -1640,12 +1644,14 @@ function Transcript({
   return (
     <div
       ref={box}
+      className="transcript-box"
       style={{ height: "100%", position: "relative" }}
       onWheelCapture={(e) => {
         if (e.deltaY < 0) following.current = false;
       }}
       onTouchMoveCapture={() => {
-        following.current = false;
+        // A sideways swipe revealing times doesn't scroll.
+        if (!swipe.current?.swiping()) following.current = false;
       }}
       onKeyDownCapture={(e) => {
         if (["ArrowUp", "PageUp", "Home"].includes(e.key))

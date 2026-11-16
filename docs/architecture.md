@@ -124,5 +124,5 @@ The web client is served at `/` by every server and can be installed as a PWA
 ([web client](web-client.md), [PWA](pwa.md)). Navigation follows hosts, then
 projects, then agents, and routes are shareable. Transcripts are virtualized;
 model, mode and effort controls, pending requests, Queue, Steer and Interrupt
-sit in the composer. Drafts and small image attachments are kept in the
+sit in the composer. Drafts with their images and attached files are kept in the
 browser; history and live state always come from the server.

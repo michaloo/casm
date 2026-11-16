@@ -120,8 +120,12 @@ to 10 images and 5 MB each. Any other file (PDF, zip, CSV, spreadsheet, log, up
 to 50 MB) shows as a chip and is uploaded when you send: it is saved in the
 root of the agent's project folder and the agent is told where
 ([attached files](concepts.md#attached-files)). In the transcript the chip opens
-the saved file in the preview. Unlike images, files are not kept in the draft
-across a page reload. Type `/` for commands: casm's own
+the saved file in the preview. Like images, attached files stay in the draft
+across a page reload: they are kept in this browser's IndexedDB, up to 200 MB
+for all drafts together (the most recently edited drafts keep theirs; beyond
+that a draft's files last until the page is closed), and deleted when the
+message is sent, the file is removed, or the draft has not changed for 30
+days. Type `/` for commands: casm's own
 `/mcp`, `/reload`, `/restart` and `/interrupt`, then the provider's commands and
 skills (see [MCP controls](mcp-controls.md#mcp-controls-and-composer-commands)).
 

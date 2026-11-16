@@ -154,3 +154,49 @@ test("a file over 50 MB is refused with a clear message", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText("huge.zip is 50.0 MB, over the 50 MB limit for a file attachment.");
   await expect(page.locator("form.composer .file-attachments li")).toHaveCount(0);
 });
+
+// The draft-file records in IndexedDB, by draft key: how many files each holds.
+const storedDrafts = (page: Page) => page.evaluate(() => new Promise<number[]>((done) => {
+  const open = indexedDB.open("casm-drafts", 1);
+  open.onupgradeneeded = () => open.result.createObjectStore("files");
+  open.onsuccess = () => {
+    const r = open.result.transaction("files").objectStore("files").getAll();
+    r.onsuccess = () => { done(r.result.map((x: { files: unknown[] }) => x.files.length)); open.result.close(); };
+  };
+}));
+
+test("draft files survive a reload and are cleared when sent or removed", async ({ page }) => {
+  await login(page, 1440);
+  await page.getByRole("button", { name: /Agent 01/ }).click();
+  const name = `kept-${test.info().project.name}.log`;
+  rmSync(`${testHome}/${name}`, { force: true });
+  const drop = (file: string) => page.evaluate((file) => {
+    const data = new DataTransfer();
+    data.items.add(new File(["line one\n"], file, { type: "text/plain" }));
+    document.querySelector("form.composer")!.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }));
+  }, file);
+  const chips = page.locator("form.composer .file-attachments li");
+  await drop(name);
+  await page.getByLabel("Message").fill("check the log");
+  await expect.poll(() => storedDrafts(page)).toEqual([1]);
+
+  await page.reload();
+  await expect(chips).toHaveCount(1);
+  await expect(chips.first()).toContainText(name);
+  await expect(page.getByLabel("Message")).toHaveValue("check the log");
+
+  // Removing the chip deletes the stored file.
+  await page.getByRole("button", { name: `Remove ${name}` }).click();
+  await expect.poll(() => storedDrafts(page)).toEqual([]);
+  await drop(name);
+  await expect.poll(() => storedDrafts(page)).toEqual([1]);
+
+  // Sending uploads the restored file and clears the record.
+  await page.reload();
+  await expect(chips).toHaveCount(1);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(chips).toHaveCount(0);
+  await expect(page.locator(".item.user").filter({ hasText: "check the log" }).last().locator("a.file-attachment")).toHaveAttribute("href", `/f${testHome}/${name}`);
+  expect(readFileSync(`${testHome}/${name}`, "utf8")).toBe("line one\n");
+  await expect.poll(() => storedDrafts(page)).toEqual([]);
+});

@@ -32,7 +32,7 @@ import { FileLinksContext, insideRoot } from "./file-links";
 import { CasmAgentsContext } from "./casm-tool";
 import { findAgent } from "./casm-command";
 import "./casm-tool.css";
-import { restoreDraft, saveDraft, flushDrafts } from "./drafts";
+import { restoreDraft, saveDraft, flushDrafts, onDraftFiles } from "./drafts";
 import { ProviderIcon } from "./provider-icon";
 import { HostSection } from "./host-section";
 import { HostActions, HostIdentity, hostStateLabel, type HostState } from "./host-menu";
@@ -209,6 +209,7 @@ function App() {
   selected.current = selection;
   const [, render] = useState(0);
   const redraw = () => render((x) => x + 1);
+  onDraftFiles(redraw);
   const [error, setError] = useState("");
   const [mcp, setMcp] = useState<{ host: string; id: string; name: string }>();
   // Per chat key: a slash action's result belongs to the agent it ran for.
@@ -573,6 +574,7 @@ function App() {
     const fit = others.filter((f) => !tooLarge(f));
     if (fit.length) {
       target.files = [...target.files, ...fit.map((file) => ({ file }))];
+      saveDraft(target);
       redraw();
     }
     await attachImages(all.filter(isImageFile), target, big);
@@ -1293,6 +1295,7 @@ function App() {
               }} />}
               {c.files.length > 0 && <FileChips attachments={c.files.map(draftAttachment)} remove={(index) => {
                 c.files = c.files.filter((_, i) => i !== index);
+                saveDraft(c);
                 redraw();
               }} />}
               <textarea

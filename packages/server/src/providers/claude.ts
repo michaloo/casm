@@ -44,6 +44,7 @@ import type {
 import type { OpenOptions, ProviderContext, Provider, ProviderSession } from "./types.ts";
 import { claudeMemories } from "./claude-memory.ts";
 import { ClaudeTasks } from "./claude-tasks.ts";
+import { BackgroundCommands, backgroundTask, commandEnd, parseTaskNotice, readOutputTail, stoppedTask, type CommandEnd } from "./claude-commands.ts";
 import { isoTime, TimedItems } from "../item-times.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -140,7 +141,7 @@ function historyImage(b: Block): ImageData {
 export type Entry = {
   type: string;
   parent_tool_use_id?: string | null;
-  origin?: { kind?: string; runId?: string };
+  origin?: { kind?: string; runId?: string; producer?: string };
   uuid?: string;
   subtype?: string;
   message?: unknown;
@@ -157,7 +158,7 @@ export type Entry = {
   compact_metadata?: { trigger?: string; pre_tokens?: number; post_tokens?: number };
   retryAttempt?: number;
   maxRetries?: number;
-  attachment?: { type?: string; prompt?: unknown; commandMode?: string };
+  attachment?: { type?: string; prompt?: unknown; commandMode?: string; runId?: string };
 };
 
 type TaskCall = { tool: "TaskCreate" | "TaskUpdate" | "TodoWrite"; input: Record<string, unknown> };
@@ -173,6 +174,7 @@ export class Normalizer {
   private inputStreams = new Map<number, { id: string; json: string; truncated: boolean; emitted: number }>();
   private draftingTools = new Set<string>();
   private readonly backgroundTasks = new ClaudeTasks();
+  private readonly commands = new BackgroundCommands();
   private calls = new Map<string, TaskCall>();
   private plan: PlanItem | null = null;
   private tasks = new Map<string, { text: string; status: PlanEntry["status"] }>();
@@ -188,6 +190,8 @@ export class Normalizer {
     // its prompt a string or, with images, content blocks.
     if (e.type === "attachment") {
       const a = e.attachment;
+      // A task notice delivered within a running turn.
+      if (a?.type === "queued_command" && a.commandMode === "task-notification" && typeof a.prompt === "string") return this.taskNotice(a.prompt, a.runId);
       if (a?.type !== "queued_command" || a.commandMode !== "prompt" || !e.uuid) return [];
       if (typeof a.prompt === "string") return a.prompt.trim() ? [{ kind: "user", id: e.uuid, text: a.prompt }] : [];
       const bs = Array.isArray(a.prompt) ? blocks(a.prompt) : [];
@@ -209,9 +213,11 @@ export class Normalizer {
     if (e.type === "user" && e.origin?.kind === "task-notification") {
       const text = blocks(m.content).filter((b) => b.type === "text").map((b) => String(b.text)).join("\n");
       // It opened a turn of its own: the live session shows the same notice.
-      const summary = /<summary>([\s\S]*?)<\/summary>/.exec(text)?.[1]?.trim();
-      const notice: Item = { kind: "notice", id: `wake:${uuid}`, level: "info", text: summary ? `Woken by a background task: ${summary}` : "Woken by a background task" };
-      return [notice, ...this.backgroundTasks.notification(text, e.origin.runId)];
+      // An orphan notice rides along with the next prompt instead.
+      const parsed = parseTaskNotice(text);
+      const summary = parsed?.summary;
+      const notice: Item[] = parsed?.orphan && !e.origin.producer ? [] : [{ kind: "notice", id: `wake:${uuid}`, level: "info", text: summary ? `Woken by a background task: ${summary}` : "Woken by a background task" }];
+      return [...notice, ...this.taskNotice(text, e.origin.runId)];
     }
     if (e.type !== "user" || e.isMeta || e.isCompactSummary) return [];
     return this.user(e, uuid, blocks(m.content));
@@ -224,7 +230,7 @@ export class Normalizer {
       case "task_updated":
       case "task_progress":
       case "task_notification":
-        return this.backgroundTasks.observe(e);
+        return this.taskEvent(e);
       case "compact_boundary": {
         const c = e.compactMetadata;
         const s = e.compact_metadata;
@@ -353,7 +359,7 @@ export class Normalizer {
         }
         const previous = this.tools.get(String(b.id));
         const item: ToolItem = { kind: "tool", id: String(b.id), name, input: b.input, status: previous?.status ?? "running",
-          ...(previous?.output !== undefined ? { output: previous.output } : {}) };
+          ...(previous?.output !== undefined ? { output: previous.output } : {}), ...(previous?.background ? { background: previous.background } : {}) };
         this.tools.set(item.id, item);
         out.push(item);
       }
@@ -408,9 +414,82 @@ export class Normalizer {
     return { ...prev, ...bashResult(text) };
   }
 
+  // Background shells and monitors are task events of the tool call that
+  // started them; other tasks are subagents.
+  private taskEvent(e: Entry): Item[] {
+    const t = e as Entry & { task_id?: string; tool_use_id?: string; task_type?: string; status?: string; output_file?: string; is_backgrounded?: boolean; patch?: { status?: string; is_backgrounded?: boolean } };
+    const tool = this.commands.toolOf(t.task_id) ?? (t.tool_use_id && this.tools.has(t.tool_use_id) ? t.tool_use_id : undefined);
+    if (!tool) return t.task_type === "local_bash" ? [] : this.backgroundTasks.observe(e);
+    // A foreground command is a task too; it counts once it is in the background.
+    if (t.task_id && ((t.subtype === "task_started" && t.is_backgrounded !== false) || t.patch?.is_backgrounded)) this.commands.start(tool, t.task_id, t.output_file);
+    if (!this.commands.get(tool)) return [];
+    const end = commandEnd(t.subtype === "task_updated" ? t.patch?.status : t.subtype === "task_notification" ? t.status : undefined);
+    if (end) return this.commandEnded(tool, end, t.output_file);
+    return t.subtype === "task_started" || t.patch?.is_backgrounded ? this.commandItem(tool) : [];
+  }
+
+  private taskNotice(text: string, runId?: string): Item[] {
+    const n = parseTaskNotice(text);
+    if (!n) return [];
+    const end = commandEnd(n.status);
+    const out: Item[] = [];
+    const rest: string[] = [];
+    for (const taskId of n.taskIds) {
+      const tool = this.commands.toolOf(taskId) ?? (n.taskIds.length === 1 && n.toolUseId && this.tools.has(n.toolUseId) ? n.toolUseId : undefined);
+      if (!tool) rest.push(taskId);
+      else if (end) {
+        this.commands.start(tool, taskId, n.outputFile);
+        out.push(...this.commandEnded(tool, end, n.outputFile));
+      }
+    }
+    // An orphan notice lists ids without their calls: only those already shown.
+    if (n.orphan) for (const taskId of rest) { if (this.backgroundTasks.has(taskId)) out.push(...this.backgroundTasks.observe({ type: "system", subtype: "task_notification", task_id: taskId, status: n.status, summary: n.result ?? n.summary })); }
+    else if (rest.length) out.push(...this.backgroundTasks.notification(text, runId));
+    return out;
+  }
+
+  private commandEnded(tool: string, end: CommandEnd, outputFile?: string): Item[] {
+    return this.commands.end(tool, end, outputFile) ? this.commandItem(tool) : [];
+  }
+
+  // The tool item of a background command: its status and output follow the
+  // command, not the call that started it.
+  private commandItem(id: string): ToolItem[] {
+    const c = this.commands.get(id);
+    const prev = this.tools.get(id);
+    if (!c || !prev) return [];
+    const { output: _, ...base } = prev;
+    const item: ToolItem = {
+      ...base,
+      status: !c.end ? "running" : c.end === "completed" ? "done" : "error",
+      ...(c.output ? { output: c.output } : {}),
+      background: { taskId: c.taskId, ...(c.end === "stopped" ? { stopped: true } : {}) },
+    };
+    this.tools.set(id, item);
+    return [item];
+  }
+
+  // The latest tail of a background command's output file.
+  commandOutput(id: string, text: string): ToolItem[] {
+    return this.commands.output(id, text) ? this.commandItem(id) : [];
+  }
+
+  // Background commands whose output file is known: tool id, task and file.
+  commandFiles(): { id: string; taskId: string; file: string; running: boolean }[] {
+    return [...this.commands.all()].flatMap(([id, c]) => (c.outputFile ? [{ id, taskId: c.taskId, file: c.outputFile, running: !c.end }] : []));
+  }
+
   private toolResult(b: Block, structured: unknown): Item[] {
     const id = String(b.tool_use_id);
     this.finishInput(id);
+    const prevTool = this.tools.get(id);
+    if (prevTool && !b.is_error) {
+      const started = backgroundTask(structured, toolOutput(b.content));
+      if (started) {
+        this.commands.start(id, started.taskId, started.outputFile);
+        return this.commandItem(id);
+      }
+    }
     const child = this.backgroundTasks.result(id, toolOutput(b.content), !!b.is_error, structured);
     if (child) return child;
     const call = this.calls.get(id);
@@ -418,6 +497,8 @@ export class Normalizer {
       this.calls.delete(id);
       return call.tool === "TodoWrite" ? [] : this.taskResult(id, call, structured, toolOutput(b.content));
     }
+    // It finished in the foreground after all.
+    this.commands.forget(id);
     const prev = this.tools.get(id);
     const done: ToolItem = {
       kind: "tool",
@@ -430,7 +511,9 @@ export class Normalizer {
     };
     this.calls.delete(id);
     this.tools.set(id, done);
-    return [done];
+    // TaskStop/KillShell end a background command without a notice of its own.
+    const stopped = !b.is_error && (done.name === "TaskStop" || done.name === "KillShell") ? this.commands.toolOf(stoppedTask(structured)) : undefined;
+    return [done, ...(stopped ? this.commandEnded(stopped, "stopped") : [])];
   }
 
   private planItem(): Item[] {
@@ -557,10 +640,26 @@ export function chain(lines: Line[]): Line[] {
 }
 
 export function historyItems(lines: Line[]): Item[] {
+  return normalizeHistory(lines).items.values();
+}
+
+function normalizeHistory(lines: Line[]) {
   const n = new Normalizer();
   const items = new TimedItems();
   // An updated item (tool result, plan change) replaces it in place.
   for (const l of chain(lines)) for (const item of n.entry(l)) items.put(item, isoTime(l.timestamp));
+  return { n, items };
+}
+
+// The newest background commands get the tail of their output file, while
+// Claude keeps it (it lives in the temporary directory).
+const MAX_HISTORY_OUTPUT_FILES = 50;
+export async function historyWithOutputs(lines: Line[], sessionId: string): Promise<Item[]> {
+  const { n, items } = normalizeHistory(lines);
+  await Promise.all(n.commandFiles().slice(-MAX_HISTORY_OUTPUT_FILES).map(async (c) => {
+    const text = await readOutputTail(c.file, sessionId, c.taskId);
+    if (text) for (const item of n.commandOutput(c.id, text)) items.put(item);
+  }));
   return items.values();
 }
 
@@ -844,6 +943,7 @@ class ClaudeSession implements ProviderSession {
     // A new session gets its id from us, so the agent points at it before
     // Claude stores the first prompt there, even if the server stops right away.
     const sessionId = resumeId ? undefined : (opts.resumeId ?? randomUUID());
+    this.nativeId = resumeId ?? sessionId;
     const options: Options = {
       cwd,
       resume: resumeId ?? undefined,
@@ -929,10 +1029,12 @@ class ClaudeSession implements ProviderSession {
       for await (const m of this.q) this.handle(m);
       for (const item of this.n.endTurn()) this.item(item);
       this.finishHooks();
+      this.stopOutputs();
       emit({ type: "closed" });
     } catch (e) {
       for (const item of this.n.endTurn()) this.item(item);
       this.finishHooks();
+      this.stopOutputs();
       emit({ type: "closed", error: e instanceof Error ? e.message : String(e) });
     }
   }
@@ -943,6 +1045,45 @@ class ClaudeSession implements ProviderSession {
 
   private item(item: Item) {
     this.opts.emit({ type: "item", item });
+    if (item.kind === "tool" && item.background && !this.outputs.has(item.id)) {
+      this.outputs.set(item.id, false);
+      this.followOutputs();
+    }
+  }
+
+  // Background commands this process started: their output file tails, read
+  // every second until each has ended and been read once more (true).
+  private outputs = new Map<string, boolean>();
+  private outputTimer: NodeJS.Timeout | null = null;
+  private readingOutputs = false;
+  private nativeId: string | undefined;
+
+  private followOutputs() {
+    if (this.outputTimer) return;
+    this.outputTimer = setInterval(() => void this.readOutputs(), 1000);
+    this.outputTimer.unref();
+    void this.readOutputs();
+  }
+
+  private stopOutputs() {
+    if (this.outputTimer) clearInterval(this.outputTimer);
+    this.outputTimer = null;
+  }
+
+  private async readOutputs() {
+    if (this.readingOutputs) return;
+    this.readingOutputs = true;
+    try {
+      const files = this.n.commandFiles().filter((c) => this.outputs.get(c.id) === false);
+      if (!this.outputs.size || [...this.outputs.values()].every(Boolean)) return this.stopOutputs();
+      for (const c of files) {
+        const text = this.nativeId ? await readOutputTail(c.file, this.nativeId, c.taskId) : null;
+        if (!c.running) this.outputs.set(c.id, true);
+        if (text) for (const item of this.n.commandOutput(c.id, text)) this.opts.emit({ type: "item", item });
+      }
+    } finally {
+      this.readingOutputs = false;
+    }
   }
 
   private diagnostics = new Diagnostics();
@@ -959,6 +1100,7 @@ class ClaudeSession implements ProviderSession {
       case "conversation_reset":
         for (const item of this.n.endTurn()) this.item(item);
         // /clear or leaving plan mode moves Claude to a new transcript.
+        this.nativeId = m.new_conversation_id;
         emit({ type: "sessionId", id: m.new_conversation_id });
         this.item({ kind: "notice", id: m.uuid, text: `Conversation reset${m.trigger ? ` (${m.trigger})` : ""}` });
         return;
@@ -1045,6 +1187,7 @@ class ClaudeSession implements ProviderSession {
         // A turn after a background subagent reports back starts with init
         // alone: the session stays running while background agents do.
         this.ownTurn(false);
+        this.nativeId = m.session_id;
         this.opts.emit({ type: "sessionId", id: m.session_id });
         if (m.permissionMode) this.opts.emit({ type: "mode", mode: m.permissionMode });
         if (m.model) {
@@ -1247,6 +1390,7 @@ class ClaudeSession implements ProviderSession {
   }
 
   async close() {
+    this.stopOutputs();
     if (this.shellRun) killGroup(this.shellRun.proc, "SIGKILL");
     this.input.end();
     this.q.close();
@@ -1402,7 +1546,7 @@ export function claudeProvider(): Provider {
     catalog: () => fetchCatalog(executable),
     commands: (cwd, context) => fetchCommands(executable, cwd, context),
     async history(sessionId, cwd, context) {
-      return historyItems(await readLines(sessionId, cwd, context));
+      return historyWithOutputs(await readLines(sessionId, cwd, context), sessionId);
     },
     async usage(sessionId, cwd, context) {
       const u = usageFromLines(await readLines(sessionId, cwd, context), windowsFor(context));

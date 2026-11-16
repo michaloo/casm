@@ -85,6 +85,9 @@ about five minutes and signed with `$CASM_HOME/download-secret`, so no client
 token appears in a URL. A link to a peer's file wraps the peer's own link, and
 the file streams through the server the client is connected to. The server's
 state directory is never served, even when it sits inside a project folder.
+Provider adapters read their own stores outside project folders, such as
+Claude's transcripts and the output file Claude names for a background
+command (that session's task only).
 
 A project's AGENTS.md is editable, with a content-hash conflict check.
 Provider memories are read-only views of the providers' own stores.

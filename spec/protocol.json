@@ -4270,6 +4270,20 @@
                           "mediaType"
                         ]
                       }
+                    },
+                    "background": {
+                      "type": "object",
+                      "properties": {
+                        "taskId": {
+                          "type": "string"
+                        },
+                        "stopped": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "taskId"
+                      ]
                     }
                   },
                   "required": [
@@ -4804,6 +4818,20 @@
                                   "mediaType"
                                 ]
                               }
+                            },
+                            "background": {
+                              "type": "object",
+                              "properties": {
+                                "taskId": {
+                                  "type": "string"
+                                },
+                                "stopped": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "taskId"
+                              ]
                             }
                           },
                           "required": [
@@ -5808,6 +5836,20 @@
                           "mediaType"
                         ]
                       }
+                    },
+                    "background": {
+                      "type": "object",
+                      "properties": {
+                        "taskId": {
+                          "type": "string"
+                        },
+                        "stopped": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "taskId"
+                      ]
                     }
                   },
                   "required": [
@@ -8571,6 +8613,20 @@
                               "mediaType"
                             ]
                           }
+                        },
+                        "background": {
+                          "type": "object",
+                          "properties": {
+                            "taskId": {
+                              "type": "string"
+                            },
+                            "stopped": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "taskId"
+                          ]
                         }
                       },
                       "required": [

@@ -356,8 +356,8 @@ function renderItem(i: Item): string {
       return `  (thinking) ${i.text.split("\n")[0].slice(0, 120)}`;
     case "tool": {
       const input = JSON.stringify(i.input ?? {});
-      const mark = i.status === "running" ? "…" : i.status === "error" ? "✗" : "✓";
-      return `  ${mark} ${i.name} ${input.length > 120 ? input.slice(0, 117) + "..." : input}`;
+      const mark = i.background?.stopped ? "■" : i.status === "running" ? "…" : i.status === "error" ? "✗" : "✓";
+      return `  ${mark} ${i.name}${i.background ? " (background)" : ""} ${input.length > 120 ? input.slice(0, 117) + "..." : input}`;
     }
     case "notice":
       return `  [${i.text}]`;

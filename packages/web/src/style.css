@@ -1047,7 +1047,8 @@ details[open] > summary:before {
   padding-bottom: 5px;
 }
 /* Tool rows read like a terminal log: mono, quiet chrome, colored state. */
-.tool details {
+.tool details,
+.tool .tool-line {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: color-mix(in srgb, var(--surface) 65%, var(--bg));
@@ -1063,16 +1064,20 @@ details[open] > summary:before {
   background: var(--surface);
   box-shadow: var(--shadow);
 }
-.tool:has(.status.running) details {
+.tool:has(.status.running) details,
+.tool:has(.status.running) .tool-line {
   border-color: color-mix(in srgb, var(--accent-bright) 45%, var(--line));
   box-shadow: inset 3px 0 var(--accent-bright);
 }
-.tool:has(.status.error) details {
+.tool:has(.status.error) details,
+.tool:has(.status.error) .tool-line {
   border-color: color-mix(in srgb, var(--attention-bright) 40%, var(--line));
   box-shadow: inset 3px 0 var(--attention-bright);
 }
 .tool summary,
-.subagent summary {
+.tool .tool-line,
+.subagent summary,
+.subagent .subagent-line {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1081,18 +1086,67 @@ details[open] > summary:before {
   min-width: 0;
   line-height: 1.5;
 }
+/* A row with nothing to unfold keeps the chevron's room, so titles line up. */
+.tool .tool-line:before,
+.subagent .subagent-line:before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-left: 2px;
+  border: solid transparent;
+  border-width: 0 1.5px 1.5px 0;
+  flex-shrink: 0;
+}
 .tool summary:before,
 .subagent summary:before {
   margin-right: 0;
   flex-shrink: 0;
 }
-.tool summary {
+.tool summary,
+.tool .tool-line {
   font-family: var(--mono);
 }
+/* Background commands: what it is for over the command it runs. */
+.background-command .row-kind {
+  color: var(--muted);
+  font-family: var(--sans);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.background-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.background-text strong {
+  font-family: var(--sans);
+  font-weight: 600;
+}
+.background-text .tool-argument {
+  flex: none;
+}
+.background-command .tool-icon {
+  font-family: var(--mono);
+  font-weight: 650;
+}
+.status.stopped {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+}
+.tool:has(.status.stopped) details,
+.tool:has(.status.stopped) .tool-line {
+  border-color: var(--line);
+  box-shadow: none;
+}
 .tool summary .status,
+.tool .tool-line .status,
 .subagent summary .status,
+.subagent .subagent-line .status,
 .subagent summary .row-kind,
+.subagent .subagent-line .row-kind,
 .tool summary time,
+.tool .tool-line time,
 .tool-icon {
   white-space: nowrap;
   flex-shrink: 0;
@@ -1101,7 +1155,8 @@ details[open] > summary:before {
   color: var(--faint);
   font: 13px/1 var(--sans);
 }
-.tool summary strong {
+.tool summary strong,
+.tool .tool-line strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1118,7 +1173,8 @@ details[open] > summary:before {
   color: var(--muted);
   font: 11.5px/1.5 var(--mono);
 }
-.tool summary time {
+.tool summary time,
+.tool .tool-line time {
   font: 10.5px/1.5 var(--mono);
   color: var(--faint);
   font-variant-numeric: tabular-nums;
@@ -1214,7 +1270,8 @@ details[open] > summary:before {
   padding-top: 8px;
   padding-bottom: 8px;
 }
-.subagent details {
+.subagent details,
+.subagent .subagent-line {
   border: 1px solid color-mix(in srgb, var(--agent-bright) 28%, var(--line));
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-soft) 55%, var(--bg));
@@ -1233,7 +1290,8 @@ details[open] > summary:before {
 .subagent .status {
   text-transform: capitalize;
 }
-.subagent summary strong {
+.subagent summary strong,
+.subagent .subagent-line strong {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1915,18 +1973,21 @@ textarea::placeholder {
     padding-top: 4px;
     padding-bottom: 4px;
   }
-  .tool summary {
+  .tool summary,
+  .tool .tool-line {
     min-height: 44px;
     padding: 8px 10px;
     gap: 8px;
   }
-  .tool summary strong {
+  .tool summary strong,
+  .tool .tool-line strong {
     font-size: 14px;
   }
   .tool-argument {
     font-size: 13px;
   }
-  .tool summary time {
+  .tool summary time,
+  .tool .tool-line time {
     display: none;
   }
   .tool-icon {
@@ -1954,7 +2015,8 @@ textarea::placeholder {
   .thinking .prose {
     margin-inline: 10px;
   }
-  .subagent summary {
+  .subagent summary,
+  .subagent .subagent-line {
     min-height: 44px;
     padding: 9px;
     gap: 8px;

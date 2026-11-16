@@ -54,6 +54,10 @@ function terminal(status: TaskState["status"]): boolean {
 export class ClaudeTasks {
   private readonly tasks = new Map<string, TaskState>();
 
+  has(id: string): boolean {
+    return this.tasks.has(id);
+  }
+
   start(id: string, input: Record<string, unknown>): Item[] {
     return this.observe({ type: "system", subtype: "task_started", task_id: id,
       description: input.description ?? "Subagent", subagent_type: input.subagent_type });

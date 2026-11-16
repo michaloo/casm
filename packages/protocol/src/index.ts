@@ -278,6 +278,12 @@ export const Item = z.discriminatedUnion("kind", [
     status: z.enum(["running", "done", "error"]),
     output: z.string().optional(),
     images: z.array(ImageData).optional(),
+    // A command the tool left running in the background (Claude's Bash with
+    // run_in_background, Monitor). `status` then follows that process, ending
+    // when the provider reports it; `output` is the tail of what it wrote so
+    // far. `stopped`: it was killed or abandoned rather than finishing (status
+    // "error").
+    background: z.object({ taskId: z.string(), stopped: z.boolean().optional() }).optional(),
   }),
   SubagentItem,
   // Status lines: interrupts, retries, compaction, warnings. Upserted by id, so

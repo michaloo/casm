@@ -158,6 +158,34 @@ four-provider comparison, required resume semantics and deferred Codex reset gap
 - pi ✗: none in core (only an example extension that spawns separate
   processes).
 
+### Background commands
+
+A command a tool leaves running stays that tool's card (a tool item with
+`background`), not a subagent; its status follows the command.
+
+- Claude: Bash with `run_in_background` (or moved to the background after its
+  timeout) and Monitor return a task ID (`toolUseResult.backgroundTaskId`,
+  Monitor's `taskId`) and the output file
+  (`<tmp>/claude-<uid>/<project>/<session>/tasks/<task>.output`). Live,
+  `task_started` (`task_type: "local_bash"`), `task_updated` and
+  `task_notification` name the tool call and end it as soon as the process
+  does. History has the `<task-notification>` records Claude delivered: user
+  messages for those that opened a turn, `queued_command` attachments
+  (`commandMode: "task-notification"`) for those delivered mid-turn, a TaskStop
+  (or KillShell) result, and the orphan notice a resumed session writes for
+  tasks the previous process left (`stopped`; several task IDs and no
+  tool-use-id when it sums up more than one). Completed is Done, failed is
+  Failed, killed/stopped is Stopped. The card's output is the end of the output
+  file (16 KiB), read by the adapter: live every second while it runs, and in
+  history while Claude keeps the file. Only that exact path for this session
+  and task is read (no symlinks); a file holding just Claude's
+  `[exited with code N]`/`[killed]` marker counts as no output. A command still
+  running when its process ends shows Running until the next session's orphan
+  notice.
+- Codex: background terminals (unified exec) are `commandExecution` items
+  that Codex completes when the process exits (see Background jobs).
+- OpenCode, pi: no background shell commands.
+
 ### User shell commands
 
 Claude runs them itself and records them with `shouldQuery: false` (Claude

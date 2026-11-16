@@ -326,6 +326,7 @@ async function command(p) {
         eval: () => act.evaluate(t, p.expression),
         upload: () => act.upload(t, p.ref, p.files ?? []),
         download: () => act.fetchDownload(t, p.n, p.maxBytes),
+        cancelDownload: () => act.cancelDownload(t, p.n),
       }[p.action];
       if (!run && p.action !== "dialog") throw new act.ActionError(`unknown action ${p.action}`, -32601);
       await attach(t);

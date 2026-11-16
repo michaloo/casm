@@ -532,8 +532,22 @@ async function refresh(d) {
   delete d.note;
   if (d.state === "interrupted") d.note = `stopped: ${i.error}`;
   else if (d.state === "inProgress" && i.paused) d.note = "paused in the browser";
-  else if (d.state === "inProgress" && !i.filename) d.note = "waiting for the user to choose where to save it";
+  // A save-as dialog (on when the browser asks where to save each file): only the user can answer it.
+  else if (d.state === "inProgress" && !i.filename) d.note = "waiting for the user: save dialog";
   else if (i.danger && !["safe", "accepted"].includes(i.danger)) d.note = `Chrome flagged it (${i.danger}): the user has to keep or discard it`;
+}
+
+// Cancels it in the browser, e.g. after its content was fetched while a save dialog waits.
+export async function cancelDownload(tabId, n) {
+  const d = tabs.get(tabId)?.downloads.find((x) => x.n === n);
+  if (!d) throw new ActionError(`the tab has no download ${n} (casm browser downloads lists them)`);
+  await refresh(d);
+  if (d.downloadId === undefined) throw new ActionError("the browser has no matching entry for it in its downloads", -32603);
+  if (d.state !== "inProgress") throw new ActionError(`it is ${d.state} already: nothing to cancel`, 1003);
+  await chrome.downloads.cancel(d.downloadId);
+  await refresh(d);
+  const { guid: _, frame: __, downloadId: ___, ...info } = d;
+  return { download: { ...info, tabId } };
 }
 
 export async function downloads(tabId) {

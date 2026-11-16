@@ -653,6 +653,7 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   z.object({ action: z.literal("upload"), tabId: z.number().int(), ref: z.string(), files: z.array(BrowserFile) }),
   z.object({ action: z.literal("downloads") }),
   z.object({ action: z.literal("download"), tabId: z.number().int(), n: z.number().int(), maxBytes: z.number().int() }),
+  z.object({ action: z.literal("cancelDownload"), tabId: z.number().int(), n: z.number().int() }),
 ]);
 export type BrowserCommand = z.infer<typeof BrowserCommand>;
 export const BROWSER_COMMAND_METHOD = "browser.command";
@@ -1044,6 +1045,9 @@ export const methods = {
   // A download's content, fetched again inside the page that started it (so
   // with its cookies), at most BROWSER_FILE_MAX_BYTES.
   "browser.download": method(z.object({ id: z.string() }), z.object({ download: BrowserDownload, mimeType: z.string(), data: z.string() })),
+  // Cancels a download still in progress in the browser (chrome.downloads.cancel),
+  // e.g. one waiting for the user at a save dialog after its content was fetched.
+  "browser.cancelDownload": method(z.object({ id: z.string() }), z.object({ download: BrowserDownload })),
   // From the extension: this connection is a browser sharing exactly `tabs`.
   // Sent on connect and after every change; `browserId` is stable per install.
   "browser.share": method(z.object({ browserId: z.string().min(1), label: z.string().optional(), tabs: z.array(SharedTab) }), Ok),

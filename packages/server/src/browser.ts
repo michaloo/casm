@@ -209,6 +209,12 @@ export function browserHandlers(hub: BrowserHub) {
     if (u.protocol !== "http:" && u.protocol !== "https:") throw new RpcError(ErrorCode.InvalidParams, `only http and https URLs can be opened, not ${u.protocol}`);
     return u.href;
   };
+  // "3.1": tab 3's first download.
+  const downloadOf = (id: string) => {
+    const m = id.match(/^(\d+)\.(\d+)$/);
+    if (!m) throw new RpcError(ErrorCode.InvalidParams, `download ids look like 3.1 (tab 3, its first download), not ${id}`);
+    return { ...hub.target({ tab: m[1] }), n: Number(m[2]) };
+  };
   // One command on the target tab; `extra` picks the command's own fields from the answer.
   async function onTab<T extends Seen, X extends object>(which: Which, cmd: (tabId: number) => BrowserCommand, extra?: (r: T) => X) {
     const { browser, tabId } = hub.target(which);
@@ -256,14 +262,17 @@ export function browserHandlers(hub: BrowserHub) {
       );
       return { downloads: lists.flat().sort((a, b) => a.startedAt.localeCompare(b.startedAt)) };
     },
+    "browser.cancelDownload": async (p: Params<"browser.cancelDownload">) => {
+      const { browser, tabId, n } = downloadOf(p.id);
+      const r = await hub.command<{ download: RawDownload }>(browser, { action: "cancelDownload", tabId, n });
+      return { download: hub.download(r.download, browser) };
+    },
     "browser.download": async (p: Params<"browser.download">) => {
-      const m = p.id.match(/^(\d+)\.(\d+)$/);
-      if (!m) throw new RpcError(ErrorCode.InvalidParams, `download ids look like 3.1 (tab 3, its first download), not ${p.id}`);
-      const { browser, tabId } = hub.target({ tab: m[1] });
+      const { browser, tabId, n } = downloadOf(p.id);
       const r = await hub.command<{ download: RawDownload; mimeType: string; data: string }>(browser, {
         action: "download",
         tabId,
-        n: Number(m[2]),
+        n,
         maxBytes: BROWSER_FILE_MAX_BYTES,
       });
       return { download: hub.download(r.download, browser), mimeType: r.mimeType, data: r.data };

@@ -555,6 +555,7 @@ casm browser dialog [accept [text] | dismiss]    show or answer an alert, confir
 casm browser upload <ref> <file>...              files from this machine, 10 MiB in all
 casm browser downloads [--browser b]             downloads the shared tabs started
 casm browser download <id> [-o path]             fetch one (10 MiB at most)
+casm browser download <id> --cancel              cancel it in the browser (e.g. left at a save dialog)
 ```
 
 Each command on a tab takes `--tab <id>` (from `casm browser tabs`; it implies

@@ -8088,6 +8088,75 @@
         ]
       }
     },
+    "browser.cancelDownload": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "download": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "tab": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "inProgress",
+                  "completed",
+                  "canceled",
+                  "interrupted"
+                ]
+              },
+              "receivedBytes": {
+                "type": "number"
+              },
+              "totalBytes": {
+                "type": "number"
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "tab",
+              "url",
+              "filename",
+              "state",
+              "startedAt"
+            ]
+          }
+        },
+        "required": [
+          "download"
+        ]
+      }
+    },
     "browser.share": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9855,6 +9924,30 @@
               "tabId",
               "n",
               "maxBytes"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "cancelDownload"
+              },
+              "tabId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "n": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "action",
+              "tabId",
+              "n"
             ]
           }
         ]

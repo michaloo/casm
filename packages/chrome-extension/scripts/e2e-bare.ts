@@ -131,10 +131,20 @@ try {
     list = ((await hi.command({ action: "downloads" })) as { downloads: typeof list }).downloads;
   }
   assert.equal(list[0]?.state, "inProgress");
-  assert.equal(list[0]?.note, "waiting for the user to choose where to save it");
+  assert.equal(list[0]?.note, "waiting for the user: save dialog");
   const fetched = (await hi.command({ action: "download", tabId: tools, n: list[0].n, maxBytes: 1 << 20 })) as { data: string };
   assert.equal(Buffer.from(fetched.data, "base64").toString(), "quarterly numbers");
   console.log("downloads behind a save-as prompt: reported as waiting for it, content fetched anyway");
+  // With the save dialog still up, a JS dialog in the same tab still opens and is reported.
+  const asked2 = (await hi.command({ action: "click", tabId: tools, ref: ref(/button "Ask"/) })) as { dialog?: { message: string } };
+  assert.equal(asked2.dialog?.message, "Leave?", "a confirm opens and is reported while the save dialog waits");
+  await hi.command({ action: "dialog", tabId: tools, response: "dismiss" });
+  console.log("a JS dialog while the save dialog waits: opens and is reported (Linux file chooser)");
+  // The agent has the content; it cancels the download the save dialog holds.
+  const canceled = (await hi.command({ action: "cancelDownload", tabId: tools, n: list[0].n })) as { download: { state: string } };
+  assert.equal(canceled.download.state, "canceled");
+  assert.match(String(await hi.command({ action: "cancelDownload", tabId: tools, n: list[0].n })), /^ERR it is canceled already: nothing to cancel/);
+  console.log("cancel: the waiting download is canceled; a second cancel says there's nothing to cancel");
   console.log("e2e-bare: all checks passed");
 } finally {
   for (const b of browsers) b.close();

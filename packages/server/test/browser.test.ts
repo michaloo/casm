@@ -353,7 +353,9 @@ test("downloads of every browser, and fetching one", async () => {
         ? { downloads: [d(2, 2, "b.zip")] }
         : cmd.action === "download"
           ? { download: d(2, 2, "b.zip"), mimeType: "application/zip", data: Buffer.from("zip!").toString("base64") }
-          : {};
+          : cmd.action === "cancelDownload"
+            ? { download: { ...d(2, 2, "b.zip"), state: "canceled" } }
+            : {};
     const { tabs } = await alpha.client.call("browser.tabs", {});
     const chromeTab = tabs.find((t) => t.browser === "chrome")!.id;
     const chromiumTab = tabs.find((t) => t.browser === "chromium" && t.url.endsWith("/2"))!.id;
@@ -368,6 +370,11 @@ test("downloads of every browser, and fetching one", async () => {
     assert.equal(readFileSync(out, "utf8"), "zip!");
     assert.deepEqual(chromium.commands.at(-1), { action: "download", tabId: 2, n: 2, maxBytes: 10 * 1024 * 1024 });
     await rejects(alpha.client.call("browser.download", { id: "x" }), ErrorCode.InvalidParams, /look like 3.1/);
+
+    const canceled = await cli(alpha, "browser", "download", `${chromiumTab}.2`, "--cancel");
+    assert.equal(canceled.code, 0, canceled.stderr);
+    assert.match(canceled.stderr, new RegExp(`^${chromiumTab}\\.2 canceled`));
+    assert.deepEqual(chromium.commands.at(-1), { action: "cancelDownload", tabId: 2, n: 2 });
   } finally {
     chrome.close();
     chromium.close();

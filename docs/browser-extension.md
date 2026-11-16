@@ -143,9 +143,21 @@ Refs are forgotten on the next snapshot and on navigation.
   (`Page.downloadWillBegin`), and follows each one in Chrome's own list
   (`chrome.downloads`, matched by URL), which keeps counting with the debugger
   detached; ids are `<tab>.<n>`. A download Chrome hasn't finished says why:
-  "waiting for the user to choose where to save it" (ungoogled Chromium asks
-  for every file by default), paused, flagged as dangerous, or stopped with
-  Chrome's error. `casm browser download <id> -o path` fetches the file
+  "waiting for the user: save dialog", paused, flagged as dangerous, or
+  stopped with Chrome's error.
+- **Save dialogs.** With "Ask where to save each file" on (ungoogled
+  Chromium's default), a download opens the browser's native save dialog (a
+  sheet on macOS), and it stays in progress until the user answers it. The
+  extension can't drive that dialog. An agent seeing "waiting for the user:
+  save dialog" should tell the user a save dialog is waiting in their
+  browser. It can still fetch the content (`download <id> -o path`), then
+  cancel the download in the browser with `casm browser download <id>
+  --cancel` (`chrome.downloads.cancel`) so nothing is left half-saved; the
+  user may still have to close the dialog itself. A pending save dialog
+  doesn't stop JavaScript dialogs: on Linux a `confirm()` in the same tab
+  still opens and is reported, and on macOS Michal saw one reported while
+  the sheet stayed open (the first click that seemed to miss it had gone to
+  a background tab). `casm browser download <id> -o path` fetches the file
   **again**, inside the page that started it (so with its cookies), and
   writes it on the agent's machine, 10 MiB at most. That works for ordinary
   links and blob: URLs still alive. It fails for one-time links, downloads a
@@ -273,8 +285,9 @@ the popup then shows a warning with an *Allow access* button.
   extension's service worker, and checks that clicks and key presses in a
   background tab are refused while typing works, that the first click in a
   front tab reports its confirm, that clicks land in both iframes, also at
-  device scale 2, and that a download behind a save-as prompt says so and can
-  still be fetched.
+  device scale 2, and that a download behind a save-as prompt says so, can
+  still be fetched and then canceled, while a JS dialog in the same tab still
+  opens and is reported.
 - Not tested here: real Chrome and ungoogled Chromium on macOS (Michal
   tested those by hand), and the permission prompt itself (no one to click it).
 

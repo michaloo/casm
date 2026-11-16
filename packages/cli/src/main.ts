@@ -111,6 +111,7 @@ browser (tabs the user shared from the casm browser extension; nothing else in t
   browser upload <ref> <file>...     set files from this machine on a file input (10 MiB in all)
   browser downloads [--browser b]    downloads the shared tabs started
   browser download <id> [-o path]    fetch a download's content (10 MiB at most)
+  browser download <id> --cancel     cancel it in the browser (e.g. one left waiting at a save dialog)
                                      each takes --tab t (an id from "browser tabs", which implies its
                                      browser) or --browser b; default: the last shared tab of the only
                                      connected browser
@@ -215,6 +216,7 @@ const options = {
   new: { type: "boolean" },
   submit: { type: "boolean" },
   "new-tab": { type: "boolean" },
+  cancel: { type: "boolean" },
 } as const;
 
 // The first positional decides; flags (and the values of flags that take one) may
@@ -732,10 +734,16 @@ async function run(c: CasmClient) {
             if (!r.downloads.length) console.error("no downloads from shared tabs");
             for (const d of r.downloads)
               console.log(`${d.id.padEnd(5)}  ${d.state.padEnd(11)}  ${d.filename}  ${d.totalBytes ? `${d.totalBytes} bytes  ` : ""}${d.url}${d.note ? `  (${d.note})` : ""}`);
+            if (r.downloads.some((d) => d.note === "waiting for the user: save dialog"))
+              console.error("a save dialog is waiting in the browser: tell the user. The content can still be fetched (download <id> -o path), then the download canceled (download <id> --cancel)");
           });
         }
         case "download": {
-          const id = rest[0] ?? fail("usage: casm browser download <id> [-o path]");
+          const id = rest[0] ?? fail("usage: casm browser download <id> [-o path | --cancel]");
+          if (opt.cancel) {
+            const r = await c.call("browser.cancelDownload", { id });
+            return out(r, () => console.error(`${id} ${r.download.state}${r.download.note ? ` (${r.download.note})` : ""}`));
+          }
           const r = await c.call("browser.download", { id });
           const target = resolve(opt.output ?? (basename(r.download.filename) || `download-${id}`));
           save(target, r.data);

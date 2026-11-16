@@ -114,6 +114,14 @@ The transcript shows prompts, replies (Markdown with highlighted code), reasonin
 output, plans, subagents and notices. Long histories load as you scroll up;
 while you're at the bottom, it follows new output.
 
+Each entry's time (`HH:MM:SS`, local; earlier days add the date) shows left of
+it on hover or keyboard focus. On a touch screen, swipe the transcript right:
+the rows slide over and every visible entry's time appears in the uncovered
+gutter, springing back on release (with reduced motion it just shows and
+hides). Only a clearly sideways swipe counts, so vertical scrolling is
+unaffected; swipes from the screen's left 24px are left to the system's back
+gesture, and a code block or table that can still scroll keeps the swipe.
+
 The composer has pickers for the provider (new agents), model, mode and
 effort. Attach images with the paperclip (on an iPhone: Photo Library, Take
 Photo or Choose File), by pasting, or by dropping them on the composer; photos

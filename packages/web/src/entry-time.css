@@ -39,3 +39,22 @@
 @media (hover: none) {
   .entry-time { display: none; }
 }
+/* Touch: swiping the transcript right slides the rows over and shows every
+   time in the uncovered left gutter, laid out as on a wide desktop window
+   whatever the width (swipe-times.ts sets --times-x and --times-shown). */
+.transcript-box[data-times] [data-virtuoso-scroller] { overflow-x: hidden; }
+.transcript-box[data-times] [data-virtuoso-scroller] > * { transform: translateX(var(--times-x)); }
+.transcript-box[data-times="release"] [data-virtuoso-scroller] > * { transition: transform 0.24s var(--ease); }
+.transcript-box[data-times] .entry-time:not(.inline) {
+  display: block;
+  top: var(--entry-time-top, 19px);
+  right: calc((100% + var(--entry-column)) / 2 + 14px);
+  opacity: var(--times-shown);
+  transition: opacity 0.24s var(--ease);
+}
+.transcript-box[data-times="drag"] .entry-time:not(.inline) { transition: none; }
+.transcript-box[data-times] .entry-time:not(.inline) .entry-date { position: absolute; margin-right: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .transcript-box[data-times] [data-virtuoso-scroller] > *,
+  .transcript-box[data-times] .entry-time:not(.inline) { transition: none; }
+}

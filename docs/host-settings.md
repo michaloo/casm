@@ -1,7 +1,8 @@
 # Host settings
 
 The ⋯ button on a host row (Host options) opens the host modal: Usage,
-Resources, AGENTS.md, System Prompt and Notifications. The ⋯ on a project
+Resources (with [idle unload](#idle-unload)), AGENTS.md, System Prompt and
+Notifications. The ⋯ on a project
 row (Project options) opens the project modal: AGENTS.md, Memories and
 Schedules (see [web client: schedules](web-client.md#schedules)), with
 the project's path (Copy), host and group under its title and **New agent** in
@@ -10,6 +11,44 @@ screens, scrolling tabs and a full-screen sheet on phones) and ask before
 closing with unsaved edits. The + on a host row adds a project; the two mini bars
 beside the host's chevron (CPU, RAM) open its Resources tab. Every RPC
 carries its host ID, so peer settings are read and saved on the selected peer.
+
+## Idle unload
+
+An idle agent keeps its provider process, and the MCP servers that process
+started, until something closes it: on ubuntu about 1.15 GB per Claude agent
+and 0.9 GB per Codex agent, mostly MCP servers. **Unload idle agents** (in the
+Resources tab; `casm settings idle-unload <minutes|off>` on the CLI) stops the
+process tree of agents idle longer than that many minutes. The default is 15;
+0 (Never, `off`) turns it off. The value is `idleUnloadMinutes` in the host's
+`config.json`, read through `server.settings` and saved with
+`server.setSettings`; a change applies from the next check, every 15 seconds.
+
+Unloading is a reload without a message: the native session stays, and the next
+message, schedule run or MCP panel opens a process and resumes it. That costs
+a couple of seconds once (measured: Claude +2 s, Codex +2.8 s, pi +2 s) and about no
+extra tokens: the provider's prompt cache lives on its servers, so a resume
+within its lifetime reads it, and after hours idle even a process that stayed
+up writes it again. The agent shows as `unloaded` until then
+([agent status](concepts.md#agents)).
+
+An agent keeps its process while any of these hold:
+
+- a turn is running, or input is still being handed to the provider;
+- it waits on a permission request or a question;
+- it has pending messages of any kind: queued, waiting for a limit, or failed;
+- its provider reports subagents or background tasks still running;
+- it is being archived or deleted, or reloads once its turn ends;
+- a schedule is delivering to it.
+
+Idle time counts from the last sign of life: a turn starting or ending, any
+provider event, a session opened, the MCP panel.
+
+Per provider: Claude, Codex and pi run one process per agent, so each agent
+unloads on its own. OpenCode runs one `opencode serve` for all its agents on
+the host, which per-agent unloading would not free; its agents unload together,
+only once every loaded OpenCode agent is past the threshold, and the shared
+server then exits after its usual 30-second grace. A message to any of them
+starts it again.
 
 ## Global instructions
 

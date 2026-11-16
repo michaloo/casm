@@ -34,6 +34,7 @@ import { classifyFailure, MAX_RETRIES, nextRetryAt, type FailureKind, type Failu
 import { providerStoreContext } from "./providers/env.ts";
 import { mergeHistorySupplements } from "./history-supplements.ts";
 import { displayMessage, providerMessage } from "./message-provenance.ts";
+import type { IdleFacts } from "./idle-unload.ts";
 
 // What sessions are told about the server that runs them.
 export type SessionContext = { serverId: string; serverName: string };
@@ -93,6 +94,8 @@ type Live = {
   // Subagent items the provider reported since the server started, by id, kept
   // across turns: background ones finish while the agent is idle.
   subagents: Map<string, Tracked>;
+  // Epoch ms of the last sign of life, for idle unload.
+  lastActive: number;
 };
 
 // The latest subagent item and when it was seen. `stale`: it was running when
@@ -124,6 +127,8 @@ export class AgentManager {
   private stopped = false;
   // Agents being archived or deleted.
   private closing = new Set<string>();
+  // Agents a schedule is delivering to (see scheduling()).
+  private scheduled = new Set<string>();
 
   private store: Store;
   private providers: Map<ProviderId, Provider>;
@@ -230,6 +235,7 @@ export class AgentManager {
     return {
       ...a,
       status: this.status(a.id),
+      loaded: !!this.live.get(a.id)?.session,
       deferred: limit ? { until: limit.notBefore!, reason: limit.note ?? "usage limit" } : null,
       pending: {
         count: pending.length, ...(times[0] ? { next: times[0] } : {}),
@@ -447,7 +453,7 @@ export class AgentManager {
   private liveFor(id: string): Live {
     let l = this.live.get(id);
     if (!l) {
-      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), asyncQuestions: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, answers: 0, steered: [], sending: new Map(), retained: new Map(), delivered: [], statusWaiters: new Set(), subagents: new Map(), times: new Map() };
+      l = { session: null, generation: 0, turnId: null, turn: [], pending: new Map(), asyncQuestions: new Map(), reloadAfterTurn: false, lastReply: null, lastUsage: null, prompt: null, turnStartedAt: 0, lastTurn: null, answers: 0, steered: [], sending: new Map(), retained: new Map(), delivered: [], statusWaiters: new Set(), subagents: new Map(), times: new Map(), lastActive: Date.now() };
       this.live.set(id, l);
     }
     return l;
@@ -490,7 +496,9 @@ export class AgentManager {
   private statusChanged(id: string) {
     this.notify("agent.status", { agentId: id, status: this.status(id) });
     const l = this.live.get(id);
-    if (l) for (const w of [...l.statusWaiters]) w();
+    if (!l) return;
+    l.lastActive = Date.now();
+    for (const w of [...l.statusWaiters]) w();
   }
 
   // --- turns
@@ -650,10 +658,13 @@ export class AgentManager {
         askQuestion: (req, signal) =>
           gen === l.generation ? this.askQuestion(a.id, l, req, signal) : Promise.reject(new Error("session replaced")),
       });
+      l.lastActive = Date.now();
+      this.changed(a.id);
     }
   }
 
   private onProviderEvent(id: string, l: Live, e: ProviderEvent) {
+    l.lastActive = Date.now();
     switch (e.type) {
       case "asyncQuestion": {
         const nativeId = this.agent(id).nativeSessionId;
@@ -766,6 +777,7 @@ export class AgentManager {
         l.generation++;
         if (l.turnId) this.endTurn(id, l, "failed", e.error ?? "agent process exited", null, "process");
         this.sessionEnded(id, l);
+        this.changed(id);
         return;
     }
   }
@@ -979,6 +991,7 @@ export class AgentManager {
     l.generation++;
     void s?.close().catch(() => {});
     this.sessionEnded(id, l);
+    if (s) this.changed(id);
   }
 
   // A new config applies when the session is next opened: now if idle,
@@ -995,6 +1008,7 @@ export class AgentManager {
     if (a.archivedAt) throw new RpcError(1003, "agent is archived");
     const l = this.liveFor(id);
     this.openSession(a, l);
+    l.lastActive = Date.now();
     return l.session!;
   }
 
@@ -1037,7 +1051,48 @@ export class AgentManager {
     l.generation++;
     if (l.turnId) this.endTurn(id, l, "interrupted");
     this.sessionEnded(id, l);
+    if (s && !this.stopped) this.changed(id);
     await s?.close();
+  }
+
+  // --- idle unload (idle-unload.ts decides; see there)
+
+  idleFacts(): IdleFacts[] {
+    return [...this.live.entries()].flatMap(([id, l]) => {
+      const a = l.session && this.store.getAgent(id);
+      if (!a) return [];
+      return [{
+        agentId: id,
+        provider: a.provider,
+        busy: !!l.turnId || l.sending.size > 0,
+        blocked: l.pending.size + l.asyncQuestions.size,
+        pending: this.store.listPending(id).length,
+        subagents: this.runningSubagents(id),
+        closing: this.closing.has(id) || l.reloadAfterTurn,
+        scheduled: this.scheduled.has(id),
+        lastActive: l.lastActive,
+      }];
+    });
+  }
+
+  sharedProviders(): ReadonlySet<ProviderId> {
+    return new Set([...this.providers.values()].filter((p) => p.sharedProcess).map((p) => p.id));
+  }
+
+  // Closes the processes of agents picked as idle. Nothing else changes: the
+  // next send resumes the same native session.
+  unloadIdle(ids: string[]) {
+    for (const id of ids) {
+      const l = this.live.get(id);
+      if (!l?.session || l.turnId || l.sending.size || l.pending.size) continue;
+      this.dropSession(id, l);
+    }
+  }
+
+  // Agents a schedule is delivering to keep their process meanwhile.
+  scheduling(id: string, on: boolean) {
+    if (on) this.scheduled.add(id);
+    else this.scheduled.delete(id);
   }
 
   // Like reload, but the next send starts a new native session. The old one

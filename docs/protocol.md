@@ -69,7 +69,7 @@ Errors use the standard codes plus casm's own:
 
 | Family | Methods |
 | --- | --- |
-| Server | `server.info`, `server.agentPrompt`, `server.setAgentPrompt`, `peer.list`, `host.agentsMd`, `host.setAgentsMd` |
+| Server | `server.info`, `server.agentPrompt`, `server.setAgentPrompt`, `server.settings`, `server.setSettings`, `peer.list`, `host.agentsMd`, `host.setAgentsMd` |
 | Projects | `project.list`, `project.create`, `project.update`, `project.delete`, `project.agentsMd`, `project.setAgentsMd`, `project.memories` |
 | Agents | `agent.list`, `agent.get`, `agent.create`, `agent.update`, `agent.delete`, `agent.history`, `agent.find`, `agent.subscribe`, `agent.unsubscribe`, `agent.wait`, `agent.usage`, `agent.subagents`, `agent.subagentHistory`, `agent.commands`, `agent.shell` |
 | Messages | `agent.send`, `agent.pending`, `agent.retryPending`, `agent.steerPending`, `agent.editPending`, `agent.cancelPending`, `agent.interrupt`, `agent.reload`, `agent.restart` |

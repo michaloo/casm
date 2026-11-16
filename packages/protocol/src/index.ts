@@ -83,6 +83,11 @@ export const Agent = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   status: AgentStatus,
+  // Whether a provider process is open for the agent. False while idle without
+  // one: not opened since the server started, or unloaded after idling longer
+  // than the host's idleUnloadMinutes. The next message opens one and resumes
+  // the same native session. Absent from older servers.
+  loaded: z.boolean().optional(),
   // A prompt waiting for a provider limit to reset; the server sends it then.
   deferred: z.object({ until: z.string(), reason: z.string() }).nullable().optional(),
   // Messages waiting to be sent (see agent.pending): how many, and when the
@@ -521,6 +526,14 @@ export const AgentPromptInfo = z.object({
 });
 export type AgentPromptInfo = z.infer<typeof AgentPromptInfo>;
 
+// Host-wide settings kept in the host's config.json.
+export const ServerSettings = z.object({
+  // Stop the provider process of agents idle this long (minutes); 0 turns it
+  // off. Agents running, waiting on you, or with pending messages stay loaded.
+  idleUnloadMinutes: z.number().int().min(0),
+});
+export type ServerSettings = z.infer<typeof ServerSettings>;
+
 export const FileType = z.enum(["file", "dir", "other"]);
 export type FileType = z.infer<typeof FileType>;
 
@@ -610,6 +623,10 @@ export const methods = {
     z.object({ content: z.string().nullable().optional(), enabled: z.boolean().optional() }),
     AgentPromptInfo,
   ),
+
+  "server.settings": method(Empty, ServerSettings),
+  // Saves the given settings; applies from the next idle check.
+  "server.setSettings": method(ServerSettings.partial(), ServerSettings),
 
   // Peer servers (edited with `casm peer add|rm` on the server). `probe`
   // connects to each one to report `reachable`.

@@ -28,6 +28,8 @@ import { Scheduler } from "./schedules.ts";
 import { PeerPool } from "./peers.ts";
 import { Files } from "./files.ts";
 import { AgentPrompt } from "./agent-prompt.ts";
+import { Settings } from "./settings.ts";
+import { IdleUnloader } from "./idle-unload.ts";
 import { PushService, type PushSend } from "./push.ts";
 import type { Provider } from "./providers/types.ts";
 
@@ -109,7 +111,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const files = new Files({ store: opts.store, peers, home: opts.home });
   const push = new PushService({ store: opts.store, home: opts.home, log, send: opts.pushSend });
   let scheduler: Scheduler | undefined;
-  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!, files, push);
+  const settings = new Settings(opts.home ?? null);
+  const handlers = createHandlers(opts.store, agents, notify, identity, peers, () => scheduler!, files, push, settings);
+  const idleUnloader = new IdleUnloader(agents, () => settings.get().idleUnloadMinutes);
   scheduler = new Scheduler(opts.store, agents, notify, (p) =>
     (handlers["agent.create"] as (p: Params<"agent.create">, c: Conn) => Promise<Agent>)(p, { subscriptions: new Set(), name: "schedule" }),
   );
@@ -308,6 +312,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     async close() {
       clearInterval(revokeCheck);
       scheduler?.stop();
+      idleUnloader.stop();
       await agents.shutdown();
       peers.close();
       for (const ws of wss.clients) ws.close();

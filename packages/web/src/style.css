@@ -557,6 +557,8 @@ nav .agent.selected .agent-name {
   box-shadow: none;
 }
 .dot.limited { background: var(--faint); box-shadow: none; }
+/* No provider process: the idle ring, broken. */
+.dot.unloaded { box-shadow: none; border: 1px dashed var(--faint); box-sizing: border-box; }
 @keyframes dot-breathe {
   50% {
     box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-bright) 8%, transparent);
@@ -2486,6 +2488,8 @@ nav .row-more:hover, nav .row-more:focus-visible, nav .row-more[aria-expanded="t
 .settings-dialog > .settings-content > :last-child { padding-bottom: 24px; }
 .settings-content h3 { margin-bottom: 4px; font-size: 17px; letter-spacing: -0.015em; }
 .settings-lede { margin: 0 0 14px; color: var(--muted); max-width: 68ch; }
+.settings-content .settings-inline-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; font-weight: 600; }
+.settings-inline-field + .settings-note { margin: 10px 0 0; }
 .settings-note { color: var(--muted); }
 .settings-card-head { min-height: 0; padding: 0; border-bottom: 0; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 16px; }
 .settings-card-head > div { min-width: 0; flex: 1 1 16em; }

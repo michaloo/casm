@@ -4,6 +4,7 @@
 // default; "agentPrompt": false in $CASM_HOME/config.json turns it off.
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { readConfig, updateConfig } from "./settings.ts";
 
 export const AGENT_PROMPT_FILE = "agent-prompt.md";
 
@@ -47,19 +48,6 @@ export class AgentPrompt {
     return this.home && join(this.home, AGENT_PROMPT_FILE);
   }
 
-  private configFile() {
-    return this.home && join(this.home, "config.json");
-  }
-
-  private readConfig(): Record<string, unknown> {
-    const file = this.configFile();
-    try {
-      return file ? JSON.parse(readFileSync(file, "utf8")) : {};
-    } catch {
-      return {};
-    }
-  }
-
   // Read on every session open, so edits apply to the next session without a restart.
   state(): AgentPromptState {
     const path = this.path;
@@ -68,7 +56,7 @@ export class AgentPrompt {
       if (path) custom = readFileSync(path, "utf8");
     } catch {}
     return {
-      enabled: this.readConfig().agentPrompt !== false,
+      enabled: readConfig(this.home).agentPrompt !== false,
       content: custom.trim() ? custom : DEFAULT_AGENT_PROMPT,
       custom: !!custom.trim(),
       path,
@@ -80,7 +68,7 @@ export class AgentPrompt {
     if (!this.home) throw new Error("this server has no state directory to keep the agent prompt in");
     if (update.content === null) rmSync(this.path!, { force: true });
     else if (update.content !== undefined) atomicWrite(this.path!, update.content.endsWith("\n") ? update.content : update.content + "\n");
-    if (update.enabled !== undefined) atomicWrite(this.configFile()!, JSON.stringify({ ...this.readConfig(), agentPrompt: update.enabled }, null, 2) + "\n");
+    if (update.enabled !== undefined) updateConfig(this.home, { agentPrompt: update.enabled });
     return this.state();
   }
 

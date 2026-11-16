@@ -86,6 +86,9 @@ export interface ProviderSession {
 
 export interface Provider {
   readonly id: ProviderId;
+  // One process serves all its agents (OpenCode's `opencode serve`): closing one
+  // agent's session frees nothing until all of them are closed.
+  readonly sharedProcess?: boolean;
   open(opts: OpenOptions): ProviderSession;
   // Reads the transcript from the provider's own store.
   history(sessionId: string, cwd: string, context?: ProviderContext): Promise<Item[]>;

@@ -208,8 +208,14 @@ export class Scheduler {
       if (!a) return { at, outcome: "failed", error: "agent no longer exists" };
       if (t.whenBusy === "skip" && (this.agents.status(a.id) !== "idle" || this.store.listPending(a.id).length > 0))
         return { at, outcome: "skipped", agentId: a.id };
-      const r = this.agents.send(a.id, { text: x.prompt, sender });
-      return { at, outcome: r.queued ? "queued" : "sent", agentId: a.id };
+      // Idle unload leaves the agent alone while the run delivers.
+      this.agents.scheduling(a.id, true);
+      try {
+        const r = this.agents.send(a.id, { text: x.prompt, sender });
+        return { at, outcome: r.queued ? "queued" : "sent", agentId: a.id };
+      } finally {
+        this.agents.scheduling(a.id, false);
+      }
     }
     const stamp = now.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const created = await this.createAgent({

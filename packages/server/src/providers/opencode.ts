@@ -1122,6 +1122,7 @@ export function opencodeProvider(server = new OpencodeServer(), dataDir = openco
   const stamps = new Map<string, { db: string; stamp: string }>();
   return {
     id: "opencode",
+    sharedProcess: true,
     open: (opts) => new OpencodeSession(opts, server),
     async history(sessionId, cwd) {
       const release = await server.acquire();

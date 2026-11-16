@@ -19,6 +19,7 @@ setup: a server named `studio` with a peer named `worker`, a demo project
 - [Files: cat, get](#files)
 - [Subagents, shell, MCP](#subagents-shell-and-mcp)
 - [The agent prompt](#the-agent-prompt)
+- [Host settings: idle unload](#host-settings)
 - [Agents running agents](#agents-running-agents)
 - [Lifecycle: reload, restart, archive, rm](#lifecycle)
 - [Exit codes and scripting](#exit-codes-and-scripting)
@@ -202,14 +203,16 @@ casm agents [--project p] [--all] [--usage]
 
 ```console
 $ casm agents
-2a468d3a  idle     opencode  acme-api / pickle
-83b4f029  running  claude    acme-api / reviewer  2 pending  1 subagent
+2a468d3a  unloaded  opencode  acme-api / pickle
+83b4f029  running   claude    acme-api / reviewer  2 pending  1 subagent
 $ casm agents --usage
-2a468d3a  idle     opencode  acme-api / pickle  ctx 14k/200k (7%)  opencode/big-pickle
-83b4f029  idle     claude    acme-api / reviewer  ctx 33k/200k (16%)  $0.10  claude-haiku-4-5-20251001
+2a468d3a  unloaded  opencode  acme-api / pickle  ctx 14k/200k (7%)  opencode/big-pickle
+83b4f029  idle      claude    acme-api / reviewer  ctx 33k/200k (16%)  $0.10  claude-haiku-4-5-20251001
 ```
 
-`--all` includes archived agents.
+`--all` includes archived agents. `unloaded` is an idle agent with no provider
+process: the next message resumes its session
+([idle unload](host-settings.md#idle-unload)).
 
 ### casm send
 
@@ -437,6 +440,16 @@ previous run finished. An `--at` schedule leaves the list once its run goes thro
 stays, disabled with the error, for `schedule run` or `rm`.
 
 ![schedules, limits, usage](media/cli-schedules.svg)
+
+## Host settings
+
+```text
+casm settings                              show them
+casm settings idle-unload <minutes|off>    stop the process of agents idle that long (default 15)
+```
+
+See [idle unload](host-settings.md#idle-unload). `-H peer` reads and changes a
+peer's settings.
 
 ## Host load
 

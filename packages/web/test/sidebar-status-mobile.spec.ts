@@ -24,6 +24,8 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
             agent.name += " · Research a very long task with multiple providers and queues";
             agent.config.model = "a-very-long-model-name-with-context-and-provider-details";
             agent.status = i === 0 || i === 5 ? "running" : i === 1 ? "waiting" : "idle";
+            // Agent 06 has no provider process; the rest have one.
+            agent.loaded = i !== 6;
             if (i !== 3) {
               agent.pending = { count: i + 1, ...(i === 2 ? { held: { reason: "failed", note: "Provider failed to resume this queued work" } } : {}) };
               agent.subagents = { running: 2, total: 2 };
@@ -53,7 +55,7 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
       const agent = row(i);
       await expect(agent.locator(".dot")).toHaveCount(1);
       await expect(agent.locator(".activity-spinner")).toHaveCount(0);
-      expect(await agent.innerText()).not.toMatch(/Working|Idle|Needs you/);
+      expect(await agent.innerText()).not.toMatch(/Working|Idle|Unloaded|Needs you/);
       const dot = (await agent.locator(".dot").boundingBox())!;
       expect(Math.abs(dot.x + dot.width / 2 - menuBox.x - menuBox.width / 2)).toBeLessThanOrEqual(1.5);
       const box = (await agent.boundingBox())!;
@@ -70,6 +72,8 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
     await expect(row(1).locator(".dot")).toHaveClass(/waiting/);
     await expect(row(3).locator(".dot")).toHaveClass(/idle/);
     await expect(row(4).locator(".dot")).toHaveClass(/limited/);
+    await expect(row(6).locator(".dot")).toHaveClass(/unloaded/);
+    await expect(row(6).locator(".dot")).toHaveAttribute("aria-label", "Unloaded");
     for (let i = 0; i < 3; i++) await expect(row(i)).toHaveAttribute("data-depth", String(i));
     const icons = await Promise.all([0, 1, 2].map(i => row(i).locator(".provider-icon").boundingBox()));
     expect(icons[1]!.x - icons[0]!.x).toBe(14);

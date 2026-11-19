@@ -152,7 +152,12 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (name && token === query) log(`client ${name} sent its token in the URL (?token=), which is deprecated: update the client`);
     wss.handleUpgrade(req, socket, head, (ws) => {
       const client: Client = { ws, subscriptions: new Set(), remote: new Map(), send: (raw) => ws.send(raw) };
-      const timer = name ? undefined : setTimeout(() => ws.close(CLOSE_UNAUTHORIZED, "authenticate first"), opts.authTimeoutMs ?? AUTH_TIMEOUT_MS);
+      const timer = name
+        ? undefined
+        : setTimeout(() => {
+            log(`closing a connection that sent no auth within ${(opts.authTimeoutMs ?? AUTH_TIMEOUT_MS) / 1000} s`);
+            ws.close(CLOSE_UNAUTHORIZED, "authenticate first");
+          }, opts.authTimeoutMs ?? AUTH_TIMEOUT_MS);
       if (name) admit(client, name, token!);
       ws.on("close", () => {
         clearTimeout(timer);

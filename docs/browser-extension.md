@@ -288,6 +288,15 @@ the popup then shows a warning with an *Allow access* button.
   device scale 2, and that a download behind a save-as prompt says so, can
   still be fetched and then canceled, while a JS dialog in the same tab still
   opens and is reported.
+- `node packages/chrome-extension/scripts/e2e-reconnect.ts` (about 30 s):
+  the server has the tabs the casm group shows, however the extension
+  reconnects. Two overlapping connects open one socket only (a second one,
+  never authenticated, used to be closed with 4401 and turn the live
+  connection's status to "refused", which silently dropped every later
+  share while agent commands still worked: the server saw 0 tabs, the user 3);
+  a share the server refuses shows in the popup; and after the session
+  storage is lost (as on an extension reload) and the alarm wakes the worker,
+  the leftover casm group is ungrouped rather than shown as shared.
 - Not tested here: real Chrome and ungoogled Chromium on macOS (Michal
   tested those by hand), and the permission prompt itself (no one to click it).
 

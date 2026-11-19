@@ -79,6 +79,11 @@ async function render() {
     $("settingsBox").open = !s.settings.url || s.status === "refused";
   }
   if (s.status === "refused" || s.status === "unconfigured") $("error").textContent = s.detail;
+  // A failed share shows until one gets through (then only that message goes).
+  else if (s.shareError || $("error").dataset.share) {
+    $("error").textContent = s.shareError;
+    $("error").dataset.share = s.shareError ? "1" : "";
+  }
 }
 
 async function act(msg) {

@@ -31,6 +31,8 @@ type Browser = {
   label: string;
   connectedAt: string;
   tabs: Map<number, SharedTab>;
+  // Set by its first browser.share.
+  shared?: boolean;
   waiting: Map<string, Waiter>;
 };
 type Target = { browser: Browser; tabId: number };
@@ -74,6 +76,9 @@ export class BrowserHub {
       if (!b.label) this.log(`browser connected: ${label}`);
       b.label = label;
     }
+    // The count, when it changes: what the server has, to hold against what the user sees.
+    if (p.tabs.length !== b.tabs.size || !b.shared) this.log(`browser ${b.label}: ${p.tabs.length} shared tab${p.tabs.length === 1 ? "" : "s"}`);
+    b.shared = true;
     b.tabs = new Map(p.tabs.map((t) => [t.tabId, t]));
     for (const t of p.tabs) this.idFor(b.browserId, t.tabId);
     return { ok: true as const };
@@ -168,6 +173,11 @@ export class BrowserHub {
     return { tab, ...(seen.dialog ? { dialog: seen.dialog } : {}), ...(opened.length ? { opened } : {}) };
   }
 
+  // A command left a tab the browser never shared: logged, the server's side of a share that went missing.
+  unshared(browser: Browser, tabId: number) {
+    this.log(`browser ${browser.label}: answered with tab ${tabId}, which it hasn't shared (${browser.tabs.size} shared)`);
+  }
+
   download(raw: RawDownload, browser: Browser): BrowserDownload {
     const { tabId, n, ...rest } = raw;
     const tab = this.idFor(browser.browserId, tabId);
@@ -235,6 +245,14 @@ export function browserHandlers(hub: BrowserHub) {
         ? { action: "open", url, ...(target === undefined ? {} : { near: target }) }
         : { action: "open", url, tabId: target! };
       const r = await hub.command<Seen & { tabId: number }>(browser, cmd);
+      // The extension shares a tab it opens before answering: one it didn't share has no id for agents.
+      if (!browser.tabs.has(r.tabId)) {
+        hub.unshared(browser, r.tabId);
+        throw new RpcError(
+          ErrorCode.Unreachable,
+          `${browser.label} opened the page but didn't share the tab with this server: open the casm extension's popup to see why`,
+        );
+      }
       return hub.result(browser, r.tabId, r);
     },
     "browser.snapshot": (p: Params<"browser.snapshot">) => onTab(p, (tabId) => ({ action: "snapshot", tabId }), (r: Seen & { text: string }) => ({ text: r.text })),

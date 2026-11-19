@@ -198,6 +198,19 @@ test("open navigates the shared tab, or opens a new one when none is shared", as
   }
 });
 
+test("open fails when the browser answers with a tab it never shared", async () => {
+  const ext = await FakeExtension.connect(alpha.url, alpha.token);
+  try {
+    await ext.share([]);
+    // An extension whose shares don't reach the server still opens the tab.
+    ext.answer = (cmd) => ({ tabId: 400, url: (cmd as { url: string }).url, title: "" });
+    await rejects(alpha.client.call("browser.open", { url: "https://example.org/", newTab: true }), ErrorCode.Unreachable, /opened the page but didn't share the tab/);
+    assert.deepEqual((await alpha.client.call("browser.tabs", {})).tabs, []);
+  } finally {
+    ext.close();
+  }
+});
+
 test("a browser that disconnects or stays silent fails the waiting call", async () => {
   const ext = await FakeExtension.connect(alpha.url, alpha.token);
   await ext.share([tab(5, "2026-11-10T12:00:00Z")]);

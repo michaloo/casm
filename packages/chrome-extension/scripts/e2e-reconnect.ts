@@ -80,7 +80,7 @@ try {
   // dropped every share after it while agent commands still worked.
   await sw("casm.reconnect(), casm.reconnect()");
   await sleep(AUTH_TIMEOUT_MS + 1000);
-  assert.deepEqual(log.filter((l) => l.includes("sent no auth")), [], "no second, unauthenticated socket");
+  assert.deepEqual(log.filter((l) => l.includes("no auth request")), [], "no second, unauthenticated socket");
   await share("/");
   await share("/next");
   await until("the server has both tabs", async () => (await serverTabs()) === 2);
@@ -117,7 +117,7 @@ try {
   }, 60_000);
   await sleep(AUTH_TIMEOUT_MS + 500);
   // The alarm woke it (Playwright doesn't), and connects too.
-  assert.deepEqual(log.filter((l) => l.includes("sent no auth")), [], "no second socket after the alarm woke the worker");
+  assert.deepEqual(log.filter((l) => l.includes("no auth request")), [], "no second socket after the alarm woke the worker");
   await until("the stray casm group is gone", async () => (await groupOf("/").catch(() => 0)) === -1 && (await groupOf("/next")) === -1);
   await until("connected again", async () => (await state().catch(() => null))?.status === "connected");
   await until("the server has no tabs", async () => (await serverTabs()) === 0);
@@ -127,6 +127,28 @@ try {
   await until("the server has the tab", async () => (await serverTabs()) === 1);
   await sleep(300);
   assert.notEqual(await groupOf("/"), -1);
+
+  // A refused token: the popup says the shared tab isn't reaching agents, the
+  // server logs who it refused, and the extension tries again, slowly.
+  await sw("casm.setRefusedRetryMs(2500)");
+  await sw(`casm.saveSettings({ url: ${JSON.stringify(server.url)}, token: "not-a-token", label: "chromemacbook" })`);
+  await until("refused", async () => (await state()).status === "refused");
+  const refusals = () => log.filter((l) => /^refused a connection from 127\.0\.0\.1 \(chrome-extension:\/\/\w+\): unknown or revoked token$/.test(l)).length;
+  assert.equal(refusals(), 1, log.join("\n"));
+  assert.equal(await sw<string>("chrome.action.getBadgeText({})"), "!");
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${new URL(worker.url()).host}/popup.html`);
+  await popup.locator("#offline:not([hidden])").waitFor();
+  assert.match(await popup.locator("#offline").innerText(), /Agents can't reach these tabs.*token refused.*shared tab is not reaching any agent/s);
+  await popup.close();
+  await sleep(1000);
+  assert.equal(refusals(), 1, "no quick retries");
+  await until("tried again", async () => refusals() === 2, 5000);
+  // The token becomes valid (here: the right one, stored without a save): the next try connects.
+  await sw(`chrome.storage.local.get("settings").then(({ settings }) => chrome.storage.local.set({ settings: { ...settings, token: ${JSON.stringify(token)} } }))`);
+  await until("connected after a refusal", async () => (await state()).status === "connected", 5000);
+  await until("the server has the tab again", async () => (await serverTabs()) === 1);
+  assert.equal(await sw<string>("chrome.action.getBadgeText({})"), "1");
   console.log("e2e-reconnect: all checks passed");
 } finally {
   await context.close();

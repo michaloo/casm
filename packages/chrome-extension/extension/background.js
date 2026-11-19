@@ -31,6 +31,8 @@ const PING_MS = 20_000;
 const CALL_TIMEOUT_MS = 10_000;
 const RETRY_MIN_MS = 1000;
 const RETRY_MAX_MS = 30_000;
+// A refused token is tried again this rarely, in case it is created again on the server.
+let REFUSED_RETRY_MS = 5 * 60_000;
 const NEW_TAB_LOAD_MS = 10_000;
 let IDLE_DETACH_MS = 30_000;
 
@@ -43,6 +45,8 @@ const conn = {
   epoch: 0,
   // Why the last browser.share failed, shown in the popup until one succeeds.
   shareError: "",
+  // How many tabs the casm groups hold, for the badge.
+  sharedCount: 0,
   retryMs: RETRY_MIN_MS,
   retryTimer: undefined,
   pingTimer: undefined,
@@ -237,8 +241,8 @@ async function syncNow() {
   await chrome.storage.session.set({ sharedAt });
   for (const id of new Set([...Object.keys(before).map(Number), ...attached])) if (!(id in sharedAt)) await detach(id, { forget: true });
   await dropLoose(Object.keys(before).map(Number).filter((id) => !(id in sharedAt)));
-  await chrome.action.setBadgeText({ text: tabs.length ? String(tabs.length) : "" });
-  await chrome.action.setBadgeBackgroundColor({ color: conn.status === "connected" ? "#d9730d" : "#888888" });
+  conn.sharedCount = tabs.length;
+  badge();
   await publish(tabs, sharedAt);
   changed();
 }
@@ -424,23 +428,40 @@ function call(method, params, timeoutMs = CALL_TIMEOUT_MS, ws = conn.ws) {
   });
 }
 
+// Shared tabs whose sharing doesn't reach the server get "!": the group alone would look fine.
+const offline = () => ["refused", "disconnected", "unconfigured"].includes(conn.status);
+
+function badge() {
+  const n = conn.sharedCount;
+  void chrome.action.setBadgeText({ text: !n ? "" : offline() ? "!" : String(n) });
+  void chrome.action.setBadgeBackgroundColor({ color: conn.status === "connected" ? "#d9730d" : offline() && n ? "#b42318" : "#888888" });
+}
+
 function setStatus(status, detail = "") {
   conn.status = status;
   conn.detail = detail;
-  void chrome.action.setBadgeBackgroundColor({ color: status === "connected" ? "#d9730d" : "#888888" });
+  badge();
   changed();
 }
 
 async function connect() {
   clearTimeout(conn.retryTimer);
-  if (conn.ws || conn.status === "refused") return;
+  if (conn.ws) return;
   const epoch = conn.epoch;
   const s = await settings();
+  // Kept in the session storage: the worker may restart meanwhile.
+  const { refusedAt = 0 } = await chrome.storage.session.get("refusedAt");
   // Checked again after the wait: connects can overlap (the alarm, a retry,
   // a save, the worker starting), and only one may open a socket. A second,
   // never authenticated, would be closed by the server with 4401.
-  if (conn.ws || conn.status === "refused" || epoch !== conn.epoch) return;
+  if (conn.ws || epoch !== conn.epoch) return;
   if (!s.url || !s.token) return setStatus("unconfigured", "set the casm server URL and a client token");
+  const wait = refusedAt + REFUSED_RETRY_MS - Date.now();
+  if (wait > 0) {
+    setStatus("refused", REFUSED_DETAIL);
+    conn.retryTimer = setTimeout(connect, wait);
+    return;
+  }
   setStatus("connecting", s.url);
   let ws;
   try {
@@ -459,6 +480,7 @@ async function connect() {
       return;
     }
     if (conn.ws !== ws) return;
+    void chrome.storage.session.remove("refusedAt");
     conn.retryMs = RETRY_MIN_MS;
     setStatus("connected", s.url);
     clearInterval(conn.pingTimer);
@@ -472,11 +494,15 @@ async function connect() {
     // auth request (a worker suspended right after the socket opened, a laptop
     // waking up). Only a rejected or revoked token stops the retries.
     if (ev.code === 4401 && /unauthorized|revoked/.test(ev.reason)) {
+      // Stored first: the retry lost() schedules sees it and waits REFUSED_RETRY_MS.
+      void chrome.storage.session.set({ refusedAt: Date.now() });
       lost(ws, "the server refused the token");
-      setStatus("refused", "the server refused the token: create one with casm token create <name> and save it here");
+      setStatus("refused", REFUSED_DETAIL);
     } else lost(ws, ev.reason || `the connection closed (${ev.code})`);
   };
 }
+
+const REFUSED_DETAIL = "the server refused the token: create one with casm token create <name> and save it here (tried again every few minutes)";
 
 // Drops `ws` (if it is still ours) and fails everything waiting on it.
 function lost(ws, why) {
@@ -505,6 +531,7 @@ function reconnect() {
   const ws = conn.ws;
   conn.ws = null;
   conn.epoch++;
+  void chrome.storage.session.remove("refusedAt");
   conn.status = "idle";
   conn.retryMs = RETRY_MIN_MS;
   ws?.close();
@@ -595,6 +622,7 @@ globalThis.casm = {
   share: shareTab, unshare: unshareTab, unshareAll, sync, reconnect, state, saveSettings, command,
   attached: () => [...attached],
   setIdleDetachMs: (ms) => (IDLE_DETACH_MS = ms),
+  setRefusedRetryMs: (ms) => (REFUSED_RETRY_MS = ms),
 };
 
 void connect();

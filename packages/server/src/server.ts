@@ -84,7 +84,7 @@ export type RunningServer = {
 // `remote`: subscriptions forwarded to peers, keyed "<peer>\n<agentId>", with
 // the host the client named (relayed notifications carry it back).
 // `token` is set once authenticated, and checked again for revocation.
-type Client = Conn & { ws: WebSocket; token?: string; remote: Map<string, { ref: string; stop: () => void }> };
+type Client = Conn & { ws: WebSocket; from: string; token?: string; remote: Map<string, { ref: string; stop: () => void }> };
 
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? (() => {});
@@ -145,17 +145,21 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : query;
     // A token given on the upgrade must be right; none at all waits for `auth`.
     const name = token ? opts.store.checkToken(token) : undefined;
+    // Where a connection comes from, for the log: its address, and its origin
+    // when a browser opened it (an extension's says which install it is).
+    const from = `${req.socket.remoteAddress ?? "?"}${req.headers.origin ? ` (${req.headers.origin})` : ""}`;
     if (token && !name) {
+      log(`refused a connection from ${from}: unknown or revoked token`);
       socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       return;
     }
     if (name && token === query) log(`client ${name} sent its token in the URL (?token=), which is deprecated: update the client`);
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const client: Client = { ws, subscriptions: new Set(), remote: new Map(), send: (raw) => ws.send(raw) };
+      const client: Client = { ws, subscriptions: new Set(), remote: new Map(), send: (raw) => ws.send(raw), from };
       const timer = name
         ? undefined
         : setTimeout(() => {
-            log(`closing a connection that sent no auth within ${(opts.authTimeoutMs ?? AUTH_TIMEOUT_MS) / 1000} s`);
+            log(`refused a connection from ${from}: no auth request within ${(opts.authTimeoutMs ?? AUTH_TIMEOUT_MS) / 1000} s`);
             ws.close(CLOSE_UNAUTHORIZED, "authenticate first");
           }, opts.authTimeoutMs ?? AUTH_TIMEOUT_MS);
       if (name) admit(client, name, token!);
@@ -178,6 +182,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         const given = req?.method === "auth" && typeof (req.params as { token?: unknown })?.token === "string" ? (req.params as { token: string }).token : undefined;
         const who = given ? opts.store.checkToken(given) : undefined;
         if (!who) {
+          log(`refused a connection from ${from}: ${given ? "unknown or revoked token" : `${req?.method ?? "a message"} before auth`}`);
           reply(client, { jsonrpc: "2.0", id, error: { code: ErrorCode.Unauthorized, message: given ? "unauthorized (check the token)" : "authenticate first: send auth" } });
           ws.close(CLOSE_UNAUTHORIZED, "unauthorized");
           return;
@@ -193,7 +198,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     client.name = name;
     client.token = token;
     clients.add(client);
-    log(`client connected: ${name}`);
+    log(`client connected: ${name} from ${client.from}`);
     peers.watch();
   }
 

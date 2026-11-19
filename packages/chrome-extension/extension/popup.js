@@ -39,6 +39,11 @@ async function render() {
   $("perm").hidden = !origins || (await chrome.permissions.contains({ origins }).catch(() => false));
   $("permHost").textContent = origins ? new URL(s.settings.url).hostname : "";
 
+  // The casm group looks the same whether or not the server gets it: say so when it doesn't.
+  const offline = ["refused", "disconnected", "unconfigured"].includes(s.status);
+  $("offline").hidden = !offline || !s.shared.length;
+  $("offlineWhy").textContent = `The extension isn't connected to the casm server (${STATUS[s.status]}), so the ${s.shared.length === 1 ? "shared tab is" : `${s.shared.length} shared tabs are`} not reaching any agent.`;
+
   const toggle = $("toggle");
   const cur = s.current;
   const shareable = cur && /^https?:\/\//.test(cur.url);
@@ -46,7 +51,9 @@ async function render() {
   toggle.textContent = cur?.shared ? "Stop sharing this tab" : "Share this tab with agents";
   toggle.className = cur?.shared ? "secondary" : "";
   $("hint").textContent = cur?.shared
-    ? "Agents can read and control this tab, with your logged-in session."
+    ? offline
+      ? "Shared, but not reaching agents until the extension connects."
+      : "Agents can read and control this tab, with your logged-in session."
     : shareable
       ? "Agents will be able to read and control this tab, with your logged-in session."
       : "Only http and https pages can be shared.";

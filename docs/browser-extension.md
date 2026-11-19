@@ -201,8 +201,13 @@ casm CLI (agent's shell) ── browser.snapshot {tab?, browser?} ──▶ casm
   the worker alive (Chrome 116+), so the extension sends `server.info` every
   20 s and treats a missed answer as a lost connection. A lost connection retries with backoff
   (1 s to 30 s); a `chrome.alarms` tick every 30 s restarts the worker and
-  reconnects after the browser slept. A refused token stops retrying until the
-  settings are saved again.
+  reconnects after the browser slept. A refused token is tried again every
+  5 minutes (the time is kept in the session storage, so worker restarts
+  don't shorten it), or at once when the settings are saved. While the
+  extension isn't connected and tabs are shared, the badge shows a red "!"
+  and the popup says the shared tabs are not reaching agents. The server logs
+  every refused connection with its address and origin (an extension's
+  origin names the install), and each connect with its address.
 
 ### Local network access
 
@@ -296,7 +301,10 @@ the popup then shows a warning with an *Allow access* button.
   share while agent commands still worked: the server saw 0 tabs, the user 3);
   a share the server refuses shows in the popup; and after the session
   storage is lost (as on an extension reload) and the alarm wakes the worker,
-  the leftover casm group is ungrouped rather than shown as shared.
+  the leftover casm group is ungrouped rather than shown as shared; a refused
+  token shows "!" and the popup's warning, is logged by the server with the
+  extension's origin, is tried again only after the retry delay, and
+  connects once the token is valid.
 - Not tested here: real Chrome and ungoogled Chromium on macOS (Michal
   tested those by hand), and the permission prompt itself (no one to click it).
 

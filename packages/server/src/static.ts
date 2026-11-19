@@ -48,7 +48,7 @@ export function serveStatic(root: string, req: IncomingMessage, res: ServerRespo
     size = file(path);
     if (size === undefined) return false;
   }
-  const immutable = rel.startsWith("assets/");
+  const immutable = rel.startsWith(`assets${sep}`);
   res.writeHead(200, {
     "content-type": types[extname(path)] ?? "application/octet-stream",
     "content-length": size,

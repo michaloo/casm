@@ -14,7 +14,9 @@ import { toolImages } from "./tool-images.ts";
 // The agent's env reaches its sessions through casm's plugin
 // (opencode-plugin.ts); config.mcpServers are not applied, since OpenCode's
 // MCP servers belong to the whole server.
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
+import spawn from "cross-spawn";
+import { stopProcess } from "../platform.ts";
 import { randomInt } from "node:crypto";
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -549,6 +551,7 @@ export class OpencodeServer {
     const bin = process.env.CASM_OPENCODE_PATH ?? "opencode";
     const stateDir = (this.stateDir = mkdtempSync(join(tmpdir(), "casm-opencode-")));
     const proc = spawn(bin, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+      windowsHide: true,
       env: serveEnv(providerEnv(), stateDir),
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -563,7 +566,7 @@ export class OpencodeServer {
     });
     proc.once("exit", (code, signal) => this.died(`opencode serve exited (${signal ?? code})`));
     process.once("exit", () => {
-      proc.kill();
+      stopProcess(proc);
       rmSync(stateDir, { recursive: true, force: true });
     });
     await listening;
@@ -645,7 +648,7 @@ export class OpencodeServer {
   stop() {
     const p = this.proc;
     this.died("opencode serve stopped");
-    p?.kill();
+    if (p) stopProcess(p);
   }
 
   alias(nativeId: string, itemId: string) {

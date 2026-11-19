@@ -6,6 +6,7 @@ import { toolImages } from "./tool-images.ts";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { findExecutable, shellCommand, killProcessTree } from "../platform.ts";
 import { existsSync, readdirSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { constants as osConstants, homedir } from "node:os";
@@ -874,7 +875,7 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
 // Like the other providers, Claude Code comes from PATH (or CASM_CLAUDE_PATH), never
 // from the SDK's bundled binary, which the npm package leaves out.
 function findClaude(): string {
-  return process.env.CASM_CLAUDE_PATH ?? "claude";
+  return process.env.CASM_CLAUDE_PATH ?? findExecutable("claude") ?? "claude";
 }
 
 const LIMIT_LABELS: Record<string, string> = {
@@ -1302,7 +1303,8 @@ class ClaudeSession implements ProviderSession {
     const item: ToolItem = { kind: "tool", id: itemId, name: "shell", origin: "user", input: { command }, status: "running" };
     this.item(item);
     const env = providerEnv(config.env);
-    const proc = spawn(shellPath(env.SHELL), ["-c", command], { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    const [shell, args] = shellCommand(command, env);
+    const proc = spawn(shell, args, { cwd, env, detached: process.platform !== "win32", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     const run = { proc, interrupted: false };
     this.shellRun = run;
     let stdout = "";
@@ -1380,8 +1382,8 @@ class ClaudeSession implements ProviderSession {
     if (run) {
       // The whole process group: the shell and what it started.
       run.interrupted = true;
-      killGroup(run.proc, "SIGTERM");
-      setTimeout(() => this.shellRun === run && killGroup(run.proc, "SIGKILL"), 2000).unref();
+      killProcessTree(run.proc, "SIGTERM");
+      setTimeout(() => this.shellRun === run && killProcessTree(run.proc, "SIGKILL"), 2000).unref();
       return;
     }
     if (this.shellEnd) return;
@@ -1391,22 +1393,9 @@ class ClaudeSession implements ProviderSession {
 
   async close() {
     this.stopOutputs();
-    if (this.shellRun) killGroup(this.shellRun.proc, "SIGKILL");
+    if (this.shellRun) killProcessTree(this.shellRun.proc, "SIGKILL");
     this.input.end();
     this.q.close();
-  }
-}
-
-// The user's shell when it takes `-c` like sh, else bash.
-function shellPath(shell: string | undefined): string {
-  return shell && /\/(?:ba|z|k|da)?sh$/.test(shell) ? shell : "/bin/bash";
-}
-
-function killGroup(proc: ChildProcess, signal: NodeJS.Signals) {
-  try {
-    if (proc.pid) process.kill(-proc.pid, signal);
-  } catch {
-    // Already gone.
   }
 }
 

@@ -11,7 +11,7 @@
     "test:npm": "node --test scripts/package-npm.test.ts",
     "build": "npm run build -w @casm/web",
     "typecheck": "node node_modules/typescript/bin/tsc -p tsconfig.json && npm run typecheck -w @casm/web",
-    "test": "node --test 'packages/*/test/*.test.ts'",
+    "test": "node --test \"packages/*/test/*.test.ts\"",
     "dev": "node scripts/dev.ts",
     "dev:server": "node scripts/dev.ts serve",
     "schema": "node packages/protocol/scripts/export-schema.ts",
@@ -23,6 +23,7 @@
     "node": ">=24"
   },
   "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^26.6.5",
     "@types/ws": "^8.18.2",
     "typescript": "^7.0.2"

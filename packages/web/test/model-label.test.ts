@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { modelLabels, modelsDiffer, sessionModel } from "../src/model-label.ts";
+import { modelLabels, modelsDiffer, sessionModel, modelCatalogEntry } from "../src/model-label.ts";
+
+test("version-pinned Claude models retain the matching catalog effort controls", () => {
+  const catalog = [{ id: "opus", name: "Opus 5.5", efforts: ["low", "medium", "high"] }];
+  assert.deepEqual(modelCatalogEntry("claude-opus-5-5", catalog)?.efforts, ["low", "medium", "high"]);
+  assert.equal(modelCatalogEntry("claude-opus-5", catalog), undefined);
+  assert.equal(modelCatalogEntry("unknown", catalog), undefined);
+});
 
 const models = [{ id: "sonnet", name: "Sonnet", isDefault: true }, { id: "opus", name: "Opus" }];
 test("default selection shows reported session model before catalog default", () => {

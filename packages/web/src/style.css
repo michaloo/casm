@@ -59,6 +59,13 @@
   color: var(--text);
   background: var(--bg);
 }
+
+.file-directory { display: grid; gap: 12px; width: 100%; min-width: 0; }
+.file-directory > input { width: 100%; box-sizing: border-box; }
+.file-directory ul { list-style: none; margin: 0; padding: 0; }
+.file-directory li + li { border-top: 1px solid var(--line); }
+.file-directory li button { display: block; width: 100%; min-height: 44px; padding: 10px 12px; text-align: left; overflow-wrap: anywhere; white-space: normal; border: 0; border-radius: 0; background: transparent; color: var(--text); }
+.file-directory li button:hover { background: var(--raised); }
 * {
   box-sizing: border-box;
 }
@@ -1547,6 +1554,8 @@ textarea::placeholder {
 .actions button.interrupt:hover {
   background: var(--attention-soft);
 }
+.attention-banner { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 16px; border-bottom: 2px solid #bd843b; background: var(--bg); max-height: 25dvh; overflow: auto; }
+.attention-banner button { min-height: 44px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .pending {
   flex-shrink: 0;
   max-height: 28dvh;
@@ -3226,3 +3235,36 @@ footer .device-settings .exit-glyph { width: 16px; height: 16px; }
   background: var(--accent);
   color: var(--on-accent);
 }
+
+/* Technical activity stays behind one compact disclosure between messages. */
+.work-details { color: var(--muted); padding-top: 5px; padding-bottom: 5px; }
+.work-details > details > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-height: 44px; padding: 6px 10px; cursor: pointer; list-style: none; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.work-details > details > summary::-webkit-details-marker { display: none; }
+.work-details > details > summary::before { flex-shrink: 0; margin: 0 2px; }
+.work-details > details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.work-count { margin-right: auto; font-size: 12px; }
+.work-details-body { margin: 8px 0 0; border-left: 1px solid var(--line); padding-left: 10px; }
+.work-details-body .item { width: 100%; margin-left: 0; margin-right: 0; }
+.work-details-body .entry-time { position: static; width: auto; margin: 0 0 6px; }
+.device-dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
+
+/* Chat management controls and compact unread indicators. */
+.chat-options { max-width: min(480px, calc(100vw - 24px)); }
+.chat-options-name { font-weight: 650; overflow-wrap: anywhere; }
+.archived-chat { display: grid; gap: 10px; }
+.archived-chat > strong { overflow-wrap: anywhere; }
+.archive-delete-confirm label { display: grid; gap: 6px; }
+.archive-delete-confirm input { width: 100%; min-height: 44px; }
+.archive-delete-confirm .settings-actions { margin-top: 10px; }
+
+.chat > header > .chat-options-trigger { display: inline-flex; margin-left: 0; }
+
+.chat-sidebar-tools { display: grid; gap: 4px; padding: 0 12px 8px; }
+.chat-sidebar-tools button { min-height: 32px; padding: 4px 8px; font-size: 12px; text-align: left; }
+.chat-sidebar-tools button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.chat-sidebar-tools small { color: var(--muted); font-size: 10.5px; }
+@media (max-width: 650px) { .chat-sidebar-tools button { min-height: 40px; } }
+
+.archived-chat > small { color: var(--muted); }
+
+.dot.unread { background: var(--success); border-color: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 18%, transparent); animation: none; }

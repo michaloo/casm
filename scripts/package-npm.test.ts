@@ -5,13 +5,14 @@ import { once } from "node:events";
 import { promisify } from "node:util";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const exec = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
+const windows = process.platform === "win32";
 
-test("the npm tarball works outside the workspace", { timeout: 180_000 }, async (t) => {
+test("the npm tarball works outside the workspace", { timeout: windows ? 600_000 : 180_000 }, async (t) => {
   const temp = mkdtempSync(join(tmpdir(), "casm-npm-"));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const env = { ...process.env };
@@ -19,8 +20,14 @@ test("the npm tarball works outside the workspace", { timeout: 180_000 }, async 
   Object.assign(env, { HOME: join(temp, "home"), CASM_HOME: join(temp, "state"), XDG_CONFIG_HOME: join(temp, "config") });
   delete env.NODE_ENV;
   mkdirSync(env.HOME!, { recursive: true });
-  const run = (file: string, args: string[], extra: Record<string, string> = {}) =>
-    exec(file, args, { cwd: temp, env: { ...env, ...extra }, timeout: 90_000, maxBuffer: 4 * 1024 * 1024 });
+  // Native Windows cannot exec npm.cmd or a shebang launcher directly.
+  const command = (file: string, args: string[]): [string, string[]] => windows && (file === "npm" || file.endsWith(".mjs"))
+    ? [process.execPath, [file === "npm" ? process.env.npm_execpath ?? join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js") : file, ...args]]
+    : [file, args];
+  const run = (file: string, args: string[], extra: Record<string, string> = {}) => {
+    const [binary, argv] = command(file, args);
+    return exec(binary, argv, { cwd: temp, env: { ...env, ...extra }, windowsHide: true, timeout: windows ? 240_000 : 90_000, maxBuffer: 4 * 1024 * 1024 });
+  };
   const pack = JSON.parse((await run("npm", ["pack", join(root, "dist/npm"), "--json", "--pack-destination", temp])).stdout)[0];
   const files = pack.files.map((f: { path: string }) => f.path);
   assert(files.includes("packages/web/dist/index.html"));
@@ -35,8 +42,8 @@ test("the npm tarball works outside the workspace", { timeout: 180_000 }, async 
   assert(readme.includes(`https://raw.githubusercontent.com/michaloo/casm/v${pack.version}/docs/media/`));
   const prefix = join(temp, "prefix");
   await run("npm", ["install", "--global", "--prefix", prefix, "--ignore-scripts", "--no-audit", "--no-fund", join(temp, pack.filename)]);
-  const cli = join(prefix, "bin/casm");
-  const installed = join(prefix, "lib/node_modules/casm-cli");
+  const installed = join(prefix, windows ? "node_modules/casm-cli" : "lib/node_modules/casm-cli");
+  const cli = windows ? join(installed, "bin/casm.mjs") : join(prefix, "bin/casm");
   assert(realpathSync(installed).startsWith(temp));
   const manifest = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
   // Claude Code comes from PATH, like the other providers: no bundled native binary.
@@ -47,7 +54,7 @@ test("the npm tarball works outside the workspace", { timeout: 180_000 }, async 
     assert.match((await run(cli, ["--help"])).stdout, /casm/);
     const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(e =>
       e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]);
-    for (const file of walk(join(installed, "packages")).filter(f => f.endsWith(".js") && !f.includes("/web/"))) {
+    for (const file of walk(join(installed, "packages")).filter(f => f.endsWith(".js") && !f.split(sep).includes("web"))) {
       const source = readFileSync(file, "utf8");
       assert.doesNotMatch(source, /(?:from\s*|import\s*\()\s*["']@casm\//, file);
       assert.doesNotMatch(source, /(?:from\s*|import\s*\()\s*["'][^"']+\.ts["']/, file);
@@ -78,7 +85,8 @@ test("the npm tarball works outside the workspace", { timeout: 180_000 }, async 
   });
 
   await t.test("isolated server, authenticated CLI and built web assets", async () => {
-    const child = spawn(cli, ["serve", "--listen", "127.0.0.1:0"], { cwd: temp, env, stdio: ["ignore", "pipe", "pipe"] });
+    const [binary, argv] = command(cli, ["serve", "--listen", "127.0.0.1:0"]);
+    const child = spawn(binary, argv, { cwd: temp, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let logs = "";
     child.stdout.on("data", b => { logs += b; });
     child.stderr.on("data", b => { logs += b; });
@@ -106,7 +114,11 @@ test("the npm tarball works outside the workspace", { timeout: 180_000 }, async 
     }
   });
 
-  await t.test("service files reference installed JavaScript on Linux and macOS", async () => {
+  await t.test("Windows service command explains Task Scheduler instead of launching Bash", { skip: !windows }, async () => {
+    await assert.rejects(run(cli, ["service", "install"]), /Windows Task Scheduler/);
+  });
+
+  await t.test("service files reference installed JavaScript on Linux and macOS", { skip: windows }, async () => {
     const bin = join(temp, "fake-bin");
     mkdirSync(bin);
     const stub = (name: string, body: string) => writeFileSync(join(bin, name), "#!/bin/sh\n" + body + "\n", { mode: 0o755 });

@@ -1,7 +1,7 @@
 import { createPortal } from "react-dom";
 import { ImagePreviewContext, type ImageSelection } from "./image-preview";
 import { Launcher, LauncherDestination, SearchGlyph, CloseGlyph, type LauncherAction } from "./launcher";
-import { rememberAgent } from "./launcher-search";
+import { rememberAgent, readRecent, agentRecentKey } from "./launcher-search";
 import "./register-service-worker";
 import "./input-modality";
 import { ComposerPickers } from "./composer-pickers";
@@ -15,7 +15,7 @@ import { ConnectionBanner, offlineNote } from "./connection";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { Row, Images, FileChips, type ToolTime } from "./transcript";
+import { Row, Images, FileChips, WorkDetails, type ToolTime } from "./transcript";
 import { EntryTime, entryTimes } from "./entry-time";
 import { swipeTimes } from "./swipe-times";
 import type {
@@ -40,7 +40,11 @@ import { HostActions, HostIdentity, hostStateLabel, type HostState } from "./hos
 import { schedulesChanged } from "./project-schedules";
 import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
+import { waitingAgents } from "./attention";
 import { agentHierarchy } from "./agent-hierarchy";
+import { agentStatus } from "./agent-activity";
+import { ChatOptions } from "./chat-options";
+import { readSignals, saveSignals, signalKey, observeSignal, liveSignal, sampleSignal, type ChatSignals } from "./chat-signals";
 import { modelLabels } from "./model-label";
 import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type CollapsedProjects } from "./project-collapse";
 import { ViewportDebug } from "./viewport-debug";
@@ -55,6 +59,9 @@ import { MAX_IMAGES, draftAttachment, droppedFiles, isImageFile, prepareImage, t
 import { NewAgentKeys, NewAgentWelcome } from "./new-agent";
 import { SignOut } from "./sign-out";
 import { DeviceSettings } from "./device-settings";
+import { readChatAppearance, writeChatAppearance } from "./chat-appearance";
+import { readNewChatProvider, writeNewChatProvider } from "./new-chat-provider";
+import { readWorkView, writeWorkView, transcriptRows, rowAt, anchorRows, type WorkView, type RowAnchor } from "./work-details";
 import { readChatMemory, recentChats, writeChatMemory, type ChatMemory } from "./chat-memory";
 import { FindBar, FindGlyph, findPattern, revealMatch, useFindHighlights, type FindState } from "./find-in-chat";
 import { pageAround, shownIndex, showPage, windowNewer, windowOlder, WINDOW_PAGE } from "./find-window";
@@ -65,19 +72,19 @@ const SLOW_HOST_MS = 2000;
 const noModels: ModelInfo[] = [];
 const coarsePointer = matchMedia("(pointer: coarse)");
 // Memoized: transcript deltas re-render App often, and the sidebar can hold 100+ agents.
-const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, online, models, onChoose }: {
-  agent: Agent; host: string; depth: number; status: string; selected: boolean; online: boolean; models: ModelInfo[];
+const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, online, models, unread, onChoose }: {
+  agent: Agent; host: string; depth: number; status: string; selected: boolean; online: boolean; models: ModelInfo[]; unread: boolean;
   onChoose: (s: Selection) => void;
 }) {
   return (
     <button
-      className={`agent ${selected ? "selected" : ""}`}
+      className={`agent ${selected ? "selected" : ""}${unread ? " unread" : ""}`}
       data-depth={depth}
       aria-current={selected ? "page" : undefined}
       style={{ "--agent-depth": depth } as React.CSSProperties}
       onClick={() => onChoose({ host, project: agent.projectId, id: agent.id })}
     >
-      <AgentSummary agent={agent} status={status} online={online} models={models} />
+      <AgentSummary agent={agent} status={status} online={online} models={models} unread={unread} />
     </button>
   );
 });
@@ -184,7 +191,10 @@ function App() {
     select(view.selection);
   }, [path, hosts]);
   useEffect(() => {
-    if (selection?.id) rememberAgent(localStorage, selection.host, selection.id);
+    if (selection?.id) {
+      rememberAgent(localStorage, selection.host, selection.id);
+      knownVisits[agentRecentKey(selection.host, selection.id)] = Date.now();
+    }
   }, [selection?.host, selection?.id]);
   // The open file preview: from a file link (host of the open chat) or the /f/ route.
   const [imagePreview, setImagePreview] = useState<ImageSelection>();
@@ -219,6 +229,40 @@ function App() {
   // Status text of pending rows with an action in flight, by key(host, id).
   const rowNotes = useRef(new Map<string, string>()).current;
   const [sidebar, showSidebar] = useState(false);
+  const [attentionOnly, setAttentionOnly] = useState(false);
+  const sidebarRef = useRef(sidebar);
+  sidebarRef.current = sidebar;
+  function isReading(host: string, id: string) {
+    const view = selected.current;
+    const conversation = chats.get(key(host, id));
+    const scroller = document.querySelector<HTMLElement>(".transcript [data-virtuoso-scroller]");
+    const atEnd = !!scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 24;
+    return atEnd && document.visibilityState === "visible" && document.hasFocus() && !sidebarRef.current
+      && view?.host === host && view?.id === id && !!conversation?.loaded
+      && conversation.atBottom !== false && !conversation.window;
+  }
+  const [signals, setSignals] = useState<ChatSignals>(() => readSignals(localStorage));
+  const knownVisits = useMemo(() => readRecent(localStorage), []);
+  const signalsRef = useRef(signals);
+  signalsRef.current = signals;
+  const tailReads = useRef(new Map<string, symbol>()).current;
+  const tailRuns = useRef(new Map<string, Rpc>()).current;
+  const loadRequests = useRef(new Map<string, symbol>()).current;
+  const tailChecked = useRef(new Map<string, number>()).current;
+  const [pageVisible, setPageVisible] = useState(document.visibilityState === "visible" && document.hasFocus());
+  useEffect(() => {
+    const changed = () => setPageVisible(document.visibilityState === "visible" && document.hasFocus());
+    document.addEventListener("visibilitychange", changed);
+    window.addEventListener("focus", changed); window.addEventListener("blur", changed);
+    return () => { document.removeEventListener("visibilitychange", changed); window.removeEventListener("focus", changed); window.removeEventListener("blur", changed); };
+  }, []);
+  useEffect(() => {
+    const timer = setTimeout(() => saveSignals(localStorage, signals), 200);
+    const flush = () => saveSignals(localStorage, signals);
+    window.addEventListener("pagehide", flush);
+    return () => { clearTimeout(timer); window.removeEventListener("pagehide", flush); };
+  }, [signals]);
+  const [workView, setWorkView] = useState<WorkView>(() => readWorkView(localStorage));
   const [chatMemory, setChatMemory] = useState<ChatMemory>(() => readChatMemory(localStorage));
   const [viewportDebug, setViewportDebug] = useState(false);
   const [collapsed, setCollapsed] = useState<CollapsedProjects>(() => readCollapsed(localStorage));
@@ -236,7 +280,11 @@ function App() {
   const chooseRef = useRef<(s: Selection) => void>(null);
   chooseRef.current = choose;
   const chooseAgent = useCallback((s: Selection) => chooseRef.current!(s), []);
-  const [provider, setProvider] = useState<ProviderId>("claude");
+  const [appearance, setAppearance] = useState(() => readChatAppearance(localStorage));
+  const appearanceRef = useRef(appearance);
+  appearanceRef.current = appearance;
+  const [defaultProvider, setDefaultProvider] = useState<ProviderId>(() => readNewChatProvider(localStorage));
+  const [provider, setProvider] = useState<ProviderId>(defaultProvider);
   const [model, setModel] = useState("");
   const [mode, setMode] = useState("");
   const [effort, setEffort] = useState("");
@@ -267,22 +315,27 @@ function App() {
   async function load(host: string, id: string, reconnect = false) {
     const c = chat(key(host, id));
     if (c.loading) return;
-    // Cached history remains valid, but the queue can change while unselected.
-    if (c.loaded && !reconnect) return refreshPending(host, id);
+    // Always resubscribe on selection: cached history is not proof that live
+    // permissions/questions are current. Buffer events during the snapshot below.
     c.loading = true;
+    const request = Symbol();
+    const k = key(host, id);
+    const r = rpc.current!;
+    const started = performance.now();
+    loadRequests.set(k, request);
     redraw();
     try {
       // Subscribe first; buffer notifications during the history snapshot to avoid losing deltas.
       const buffered: any[] = [];
       buffers.set(key(host, id), buffered);
-      const sub = await rpc.current!.call("agent.subscribe", { id }, host);
+      const sub = await r.call("agent.subscribe", { id }, host);
       buffered.length = 0;
-      const history = await rpc.current!.call(
+      const [history] = await Promise.all([r.call(
         "agent.history",
         { id, limit: 100 },
         host,
-      );
-      await refreshPending(host, id);
+      ), refreshPending(host, id, r)]);
+      if (loadRequests.get(k) !== request || rpc.current !== r) return;
       const merged = reconcile(c.items, c.start, history.items.map(hold), history.start);
       replaceHistory(c, merged.items);
       c.start = merged.start;
@@ -295,11 +348,24 @@ function App() {
       sub.turn.forEach((e) => event(c, e, true));
       buffered.forEach((e) => event(c, e));
       c.loaded = true;
+      const h = hostsRef.current.find(h => h.id === host);
+      const a = h?.agents.find(a => a.id === id);
+      if (h && a) {
+        const marker = signalKey(h.serverId ?? h.id, id);
+        tailReads.delete(marker);
+        const reading = isReading(host, id);
+        setSignals(old => ({ ...old, [marker]: sampleSignal(old[marker], a, c.items.findLast(item => item.kind === "assistant" && !!item.text.trim()), reading) }));
+      }
       persistChat(key(host, id), 0);
     } finally {
-      buffers.delete(key(host, id));
-      c.loading = false;
-      redraw();
+      if (loadRequests.get(k) === request) {
+        loadRequests.delete(k);
+        buffers.delete(k);
+        c.loading = false;
+        if (performance.getEntriesByName("casm:chat-load").length >= 50) performance.clearMeasures("casm:chat-load");
+        performance.measure("casm:chat-load", { start: started, end: performance.now() });
+        redraw();
+      }
     }
   }
   const buffers = useRef(new Map<string, any[]>()).current;
@@ -319,47 +385,89 @@ function App() {
     if (h?.latencyMs === undefined || (h.latencyMs > SLOW_HOST_MS) === (ms > SLOW_HOST_MS)) return hs;
     return hs.map((x) => (x === h ? { ...x, latencyMs: ms } : x));
   })), []);
+  async function sampleTail(h: Host, a: Agent, r: Rpc, force = false) {
+    if (!appearanceRef.current.unreadIndicators) return;
+    if (a.archivedAt || a.status === "running" || a.status === "waiting") return;
+    const selectedChat = selected.current;
+    if (selectedChat?.host === h.id && selectedChat.id === a.id) return;
+    const id = signalKey(h.serverId ?? h.id, a.id);
+    if (!force && (tailReads.has(id) || Date.now() - (tailChecked.get(id) ?? 0) < 30_000)) return;
+    const request = Symbol(); tailReads.set(id, request);
+    try {
+      let before: number | undefined;
+      let reply: Item | undefined;
+      do {
+        const result = await r.call("agent.history", { id: a.id, limit: 40, ...(before !== undefined ? { before } : {}) }, h.id);
+        if (rpc.current !== r || tailReads.get(id) !== request) return;
+        reply = result.items.findLast(item => item.kind === "assistant" && !!item.text.trim());
+        if (reply || result.start === 0 || result.start === before) break;
+        before = result.start;
+      } while (r.open);
+      tailChecked.set(id, Date.now());
+      const reading = isReading(h.id, a.id);
+      setSignals(old => ({ ...old, [id]: sampleSignal(old[id], a, reply, reading) }));
+    } catch { /* Offline or inaccessible history never clears an unread marker. */ }
+    finally { if (tailReads.get(id) === request) tailReads.delete(id); }
+  }
+  async function sampleHost(h: Host, r: Rpc) {
+    if (!appearanceRef.current.unreadIndicators) return;
+    const owner = h.serverId ?? h.id;
+    if (tailRuns.get(owner) === r) return;
+    tailRuns.set(owner, r);
+    try {
+      const agents = h.agents.filter(a => !a.archivedAt && a.nativeSessionId && a.status === "idle" && (signalsRef.current[signalKey(h.serverId ?? h.id, a.id)]?.tail !== undefined || knownVisits[agentRecentKey(h.id, a.id)] !== undefined));
+      for (const a of agents) {
+        if (rpc.current !== r || !r.open || document.visibilityState !== "visible") break;
+        await sampleTail(h, a, r);
+      }
+    } finally { if (tailRuns.get(owner) === r) tailRuns.delete(owner); }
+  }
   async function refresh() {
     const r = rpc.current!;
-    const info = await r.call("server.info", {});
-    const peers = await r.call("peer.list", {});
-    const list = [
-      { id: "", name: info.name, serverId: info.id },
-      ...peers.peers.map((p) => ({ id: p.name, name: p.name, serverId: p.serverId })),
-    ];
     const generation = ++refreshes.current;
-    // List every host at once; each fills in as it answers (a sleeping peer can take seconds).
-    const previous = new Map(hostsRef.current.map((h) => [h.id, h]));
-    setHosts(list.map((h) => ({ projects: [], agents: [], ...previous.get(h.id), ...h, error: undefined, loading: true })));
-    await Promise.all(
-      list.map(async (h) => {
-        const started = performance.now();
-        let next: Host;
-        try {
-          const [p, a, identity] = await Promise.all([
-            r.call("project.list", {}, h.id),
-            r.call("agent.list", {}, h.id),
-            h.id ? r.call("server.info", {}, h.id) : Promise.resolve(info),
-          ]);
-          next = { ...h, serverId: identity.id, projects: p.projects, agents: a.agents, latencyMs: performance.now() - started };
-        } catch (e) {
-          next = {
-            ...h,
-            projects: [],
-            agents: [],
-            error: (e as Error).message,
-          };
-        }
-        if (generation === refreshes.current)
-          setHosts((hs) => hs.map((x) => (x.id === h.id ? next : x)));
-      }),
-    );
+    // Peer discovery and sleeping peers must never hold up the open chat.
+    const peers = r.call("peer.list", {});
+    peers.catch(() => {});
+    const info = await r.call("server.info", {});
+    const local = { id: "", name: info.name, serverId: info.id };
+    const fill = async (h: { id: string; name: string; serverId?: string | null }) => {
+      const started = performance.now();
+      let next: Host;
+      try {
+        const [p, a, identity] = await Promise.all([
+          r.call("project.list", {}, h.id), r.call("agent.list", {}, h.id),
+          h.id ? r.call("server.info", {}, h.id) : Promise.resolve(info),
+        ]);
+        next = { ...h, serverId: identity.id, projects: p.projects, agents: a.agents, latencyMs: performance.now() - started };
+      } catch (e) {
+        next = { ...h, projects: [], agents: [], error: (e as Error).message };
+      }
+      if (generation !== refreshes.current || rpc.current !== r) return;
+      setHosts(hs => hs.some(x => x.id === h.id) ? hs.map(x => x.id === h.id ? next : x) : [...hs, next]);
+      // Give the selected transcript priority over sidebar history sampling.
+      const s = selected.current;
+      if (!next.error && s?.id && s.host === h.id) await load(s.host, s.id, true);
+      const sample = () => {
+        if (generation !== refreshes.current || rpc.current !== r || !r.open || document.visibilityState !== "visible") return;
+        const s = selected.current;
+        if (s?.id && chat(key(s.host, s.id)).loading) { setTimeout(sample, 1000); return; }
+        void sampleHost(next, r);
+      };
+      if (!next.error) setTimeout(sample, 1500);
+    };
+    const localReady = fill(local);
+    void peers.then(async result => {
+      if (generation !== refreshes.current || rpc.current !== r) return;
+      const list = result.peers.map(p => ({ id: p.name, name: p.name, serverId: p.serverId }));
+      setHosts(hs => hs.filter(h => !h.id || list.some(p => p.id === h.id)));
+      await Promise.all(list.map(fill));
+    }).catch(failed);
     const s = selected.current;
     try {
-      if (s?.id) await load(s.host, s.id, true);
+      await Promise.all([localReady, s?.id ? load(s.host, s.id, true) : undefined]);
     } finally {
-      // A chat whose peer is down reports its own error; the rest is current.
-      if (rpc.current === r && r.open) setFresh(true);
+      // An unavailable peer reports its own error; the local connection is ready.
+      if (generation === refreshes.current && rpc.current === r && r.open) setFresh(true);
     }
   }
   useEffect(() => {
@@ -383,7 +491,9 @@ function App() {
         if (v) everOnline.current = true;
         setOnline(v);
         if (!v) {
-          for (const c of chats.values()) c.loaded = false;
+          loadRequests.clear();
+          buffers.clear();
+          for (const c of chats.values()) { c.loaded = false; c.loading = false; }
           if (freshRef.current) setSavedAt(r.lastSeen || Date.now());
           setFresh(false);
         }
@@ -393,6 +503,14 @@ function App() {
         const p = n.params;
         const k = key(host, p?.agentId ?? p?.agent?.id ?? "");
         if (n.method === "agent.event") {
+          const a = hostsRef.current.find(h => h.id === host)?.agents.find(a => a.id === p.agentId);
+          if (a && p.event.type === "item" && (p.event.item.kind === "assistant" || p.event.item.kind === "user")) {
+            const h = hostsRef.current.find(h => h.id === host)!;
+            const id = signalKey(h.serverId ?? host, a.id);
+            tailReads.delete(id);
+            const reading = isReading(host, a.id);
+            setSignals(old => ({ ...old, [id]: liveSignal(old[id], a, reading, Date.now(), p.event.item) }));
+          }
           if (buffers.has(k)) buffers.get(k)!.push(p.event);
           else {
             event(chat(k), p.event);
@@ -401,6 +519,19 @@ function App() {
           redraw();
         }
         if (n.method === "agent.status" || n.method === "agent.changed") {
+          // Status changes update recency, but never mark a message unread.
+          if (n.method === "agent.status") {
+            const h = hostsRef.current.find(h => h.id === host);
+            const a = h?.agents.find(a => a.id === p.agentId);
+            if (h && a) {
+              const id = signalKey(h.serverId ?? h.id, a.id);
+              const reading = isReading(host, a.id);
+              setSignals(old => {
+                const value = observeSignal(old[id], { ...a, status: p.status }, reading);
+                return value === old[id] ? old : { ...old, [id]: value };
+              });
+            }
+          }
           // A /restart (here or from another client) ended the native session:
           // read the history again for its divider.
           const before = hostsRef.current.find((h) => h.id === host)?.agents.find((a) => a.id === p.agent?.id);
@@ -427,6 +558,14 @@ function App() {
                   },
             ),
           );
+          if (n.method === "agent.status" && p.status === "idle") {
+            const h = hostsRef.current.find(h => h.id === host);
+            const a = h?.agents.find(a => a.id === p.agentId);
+            if (h && a) {
+              tailChecked.delete(signalKey(h.serverId ?? h.id, a.id));
+              void sampleTail(h, { ...a, status: "idle" }, r, true);
+            }
+          }
           const s = selected.current;
           if (s?.id && s.host === host && (p.agentId ?? p.agent?.id) === s.id)
             void refreshPending(host, s.id, r).catch(() => {});
@@ -462,9 +601,20 @@ function App() {
   useEffect(() => {
     // A sleeping laptop or a phone app in the background may come back with a
     // socket that looks open but is dead: confirm it on every way back.
-    const check = () => rpc.current?.check(timing.resume);
+    let resumed = 0;
+    const check = () => {
+      const r = rpc.current;
+      if (!r || document.visibilityState !== "visible" || Date.now() - resumed < 1000) return;
+      resumed = Date.now();
+      void r.check(timing.resume).then(ok => {
+        const s = selected.current;
+        if (ok && rpc.current === r && s?.id) void load(s.host, s.id, true).catch(failed);
+      });
+    };
     const visible = () => {
-      if (document.visibilityState === "visible") check();
+      if (document.visibilityState === "visible") {
+        check();
+      }
     };
     const network = () => {
       setNetworkOffline(!navigator.onLine);
@@ -511,6 +661,33 @@ function App() {
     ? key(selection.host, selection.id ?? `new:${selection.project}`)
     : "";
   const c = chat(ckey);
+  useEffect(() => {
+    setSignals(old => {
+      let next = old;
+      for (const h of hosts) for (const a of h.agents) {
+        if (h.loading || h.error || a.archivedAt) continue;
+        const id = signalKey(h.serverId ?? h.id, a.id);
+        const reading = isReading(h.id, a.id);
+        const value = observeSignal(old[id], a, reading);
+        if (value !== old[id]) { if (next === old) next = { ...old }; next[id] = value; }
+      }
+      return next;
+    });
+  }, [hosts, selection?.host, selection?.id, pageVisible, sidebar, c.loaded, c.atBottom, c.window]);
+  const needsAttention = (h: Host, a: Agent) => {
+    const cached = chats.get(key(h.id, a.id));
+    const status = a.status === "idle" && (cached?.failed || cached?.pending.some(p => p.reason === "failed")) ? "failed" : a.status;
+    const indicator = agentStatus(a, status);
+    return indicator.kind === "waiting" || indicator.kind === "failed" || (appearance.unreadIndicators && !!signals[signalKey(h.serverId ?? h.id, a.id)]?.unread);
+  };
+  const attentionCount = hosts.reduce((total, h) => total + h.agents.filter(a => !a.archivedAt && needsAttention(h, a)).length, 0);
+  const markCurrentRead = () => {
+    if (!host || !agent) return;
+    const id = signalKey(host.serverId ?? host.id, agent.id);
+    requestAnimationFrame(() => {
+      if (isReading(host.id, agent.id)) setSignals(old => old[id]?.unread ? { ...old, [id]: { ...old[id], unread: false } } : old);
+    });
+  };
   const finding = find?.key === ckey && !!selection?.id ? find : undefined;
   const openFind = () => {
     if (!selection?.id) return;
@@ -652,8 +829,12 @@ function App() {
       setModel(agent.config.model ?? "");
       setMode(agent.config.mode ?? "");
       setEffort(agent.config.effort ?? "");
+    } else if (selection && !selection.id) {
+      // An existing Claude chat must not become the next new chat's default.
+      setProvider(defaultProvider);
+      setModel(""); setMode(""); setEffort("");
     }
-  }, [ckey, online]);
+  }, [ckey, online, defaultProvider]);
   useEffect(() => {
     if (!selection || !online) return;
     let active = true;
@@ -661,13 +842,20 @@ function App() {
     void rpc
       .current!.call("provider.catalog", { provider }, selection.host)
       .then((v) => {
-        if (active) setCatalog(v);
+        if (active) {
+          setCatalog(v);
+          if (!selection.id) {
+            setModel(v.defaults?.model ?? "");
+            setEffort(v.defaults?.effort ?? "");
+            setMode(v.defaults?.mode ?? "");
+          }
+        }
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [provider, selection?.host, online]);
+  }, [provider, selection?.host, online, ckey]);
   useEffect(() => {
     if (!online) {
       rowModelsAsked.current.clear();
@@ -969,13 +1157,16 @@ function App() {
           <p>Enter a token from this server to connect.</p>
           <input
             aria-label="Server token"
+            name="password"
             type="password"
+            autoComplete="current-password"
             required
             value={entry}
             onChange={(e) => setEntry(e.target.value)}
             autoFocus
           />
           <button>Connect</button>
+          <p>This browser remembers your token. You can also save it as a password in your password manager.</p>
         </form>
       </main>
     );
@@ -1006,7 +1197,12 @@ function App() {
             </button>
           )}
         </header>
+        <div className="chat-sidebar-tools">
+          <button type="button" aria-pressed={attentionOnly} onClick={() => setAttentionOnly(value => !value)}>Needs attention ({attentionCount})</button>
+          <small>{attentionOnly ? (appearance.unreadIndicators ? "Waiting, failed or new activity" : "Waiting or failed") : (appearance.recentFirst ? "Recent activity first" : "Alphabetical order")}</small>
+        </div>
         <nav aria-label="Agents">
+          {attentionOnly && attentionCount === 0 && <p className="sidebar-empty">No chats need attention.</p>}
           {hosts.map((h) => {
             const state: HostState = !online || h.error ? "offline"
               : h.loading && h.latencyMs === undefined ? "connecting"
@@ -1033,7 +1229,8 @@ function App() {
                 .map((p) => {
                   const expanded = projectExpanded(collapsed, h.id, p.id, selection);
                   const pinned = !!(selection?.id && selection.host === h.id && selection.project === p.id);
-                  const agents = agentHierarchy(h.agents, p.id, h.serverId);
+                  const agents = agentHierarchy(attentionOnly ? h.agents.filter(a => needsAttention(h, a)) : h.agents, p.id, h.serverId, a => appearance.recentFirst ? signals[signalKey(h.serverId ?? h.id, a.id)]?.activity ?? (Date.parse(a.updatedAt) || 0) : 0);
+                  if (attentionOnly && !agents.length) return null;
                   return (
                   <div key={p.id} className="project-group">
                     {/* The whole row folds; + starts a new agent, ⋯ opens the project modal. */}
@@ -1067,8 +1264,9 @@ function App() {
                             ? "failed"
                             : a.status;
                         return (
-                          <AgentRow key={a.id} agent={a} host={h.id} depth={depth} status={status} online={online}
+                          <AgentRow key={a.id} agent={a} host={h.id} depth={depth} status={status} online={online && !h.error}
                             selected={selection?.id === a.id && selection.host === h.id}
+                            unread={appearance.unreadIndicators && !!signals[signalKey(h.serverId ?? h.id, a.id)]?.unread}
                             models={h.id === selection?.host && a.provider === provider && catalog.models.length ? catalog.models : rowModels[`${h.id}\n${a.provider}`] ?? noModels}
                             onChoose={chooseAgent} />
                         );
@@ -1085,7 +1283,7 @@ function App() {
             {online ? fresh ? "Connected" : "Syncing…" : "Offline · reconnecting…"}
           </span>
           {viewportDebug && <ViewportDebug close={() => setViewportDebug(false)} />}
-          <DeviceSettings memory={chatMemory} change={(value) => { writeChatMemory(localStorage, value); setChatMemory(value); }} />
+          <DeviceSettings appearance={appearance} changeAppearance={value => { writeChatAppearance(localStorage, value); setAppearance(value); }} defaultProvider={defaultProvider} changeDefaultProvider={value => { writeNewChatProvider(localStorage, value); setDefaultProvider(value); }} memory={chatMemory} workView={workView} changeWorkView={(value) => { writeWorkView(localStorage, value); setWorkView(value); }} change={(value) => { writeChatMemory(localStorage, value); setChatMemory(value); }} />
           <SignOut host={hosts.find((h) => !h.id)?.name ?? ""} signOut={() => {
             localStorage.removeItem("casm.token");
             void cache.current?.clear();
@@ -1104,12 +1302,13 @@ function App() {
             </strong>
             <small className="chat-model" title={agent ? sessionModel.sessionTitle : undefined}>
               {agent
-                ? <><ProviderIcon provider={agent.provider} /> <span className="chat-model-label">{sessionModel.sessionLabel}</span> <AgentActivity agent={agent} status={agent.status === "idle" && (c.failed || c.pending.some(p => p.reason === "failed")) ? "failed" : agent.status} online={online} announce /></>
+                ? <><ProviderIcon provider={agent.provider} /> <span className="chat-model-label">{sessionModel.sessionLabel}</span> <AgentActivity agent={agent} status={agent.status === "idle" && (c.failed || c.pending.some(p => p.reason === "failed")) ? "failed" : agent.status} online={online} unread={appearance.unreadIndicators && !!signals[signalKey(host!.serverId ?? host!.id, agent.id)]?.unread} announce /></>
                 : project
                   ? "New agent"
                   : "Choose a project to start a conversation"}
             </small>
           </div>
+          {agent && <ChatOptions key={agent.id} agent={agent} rpc={rpc.current} host={host!.id} online={online && !host?.error} archived={() => choose({ host: host!.id, project: agent.projectId })} />}
           {agent && <button type="button" className="find-trigger" aria-label="Find in chat" aria-pressed={!!finding} title={`Find in chat: ${mac ? "⌘" : "Ctrl+"}F`}
             onClick={() => finding ? closeFind() : openFind()}><FindGlyph /></button>}
           <button type="button" className="launcher-trigger" aria-label="Open launcher" title="Launcher: Cmd/Ctrl+K" onClick={() => setLauncher(true)}><SearchGlyph /></button>
@@ -1117,6 +1316,17 @@ function App() {
         </header>
         <ConnectionBanner online={online} fresh={fresh} checking={checking} networkOffline={networkOffline}
           connected={everOnline.current} savedAt={c.cachedAt ?? savedAt} />
+        {online && fresh && waitingAgents(hosts).length > 0 && (
+          <section className="attention-banner" aria-label="Conversations needing your decision" aria-live="polite">
+            <strong>Needs your decision</strong>
+            {waitingAgents(hosts).map(a => (
+              <button key={key(a.host, a.id)} type="button" onClick={() => {
+                choose(a);
+                void run(() => load(a.host, a.id, true));
+              }}>Open request: {a.name} ({a.hostName})</button>
+            ))}
+          </section>
+        )}
         {error && (
           <div role="alert" className="error banner">
             {error}
@@ -1141,7 +1351,9 @@ function App() {
             <ImagePreviewContext.Provider value={setImagePreview}><FileLinksContext.Provider value={fileLinks}>
             <CasmAgentsContext.Provider value={casmAgents}>
             <Transcript
-              key={ckey}
+              workView={workView}
+              read={markCurrentRead}
+              key={`${ckey}:${workView}`}
               ckey={ckey}
               pillRow={pillRow}
               pills={(online && agent?.status === "running") || rows.length > 0}
@@ -1442,6 +1654,8 @@ function Entry({ item, time, expansion, earlier }: { item: Item; time?: ToolTime
   </div>;
 }
 function Transcript({
+  read,
+  workView,
   ckey,
   older,
   pillRow,
@@ -1449,6 +1663,8 @@ function Transcript({
   find,
   history,
 }: {
+  read: () => void;
+  workView: WorkView;
   ckey: string;
   older: () => Promise<void>;
   pillRow: HTMLElement | null;
@@ -1588,6 +1804,10 @@ function Transcript({
   useFindHighlights(scrollerEl, find);
   const shown = c.window?.items ?? items;
   const shownStart = c.window?.start ?? c.start;
+  const visibleRows = transcriptRows(shown, workView);
+  const anchor = useRef<RowAnchor>(undefined);
+  const anchored = anchorRows(visibleRows, shownStart, anchor.current);
+  anchor.current = anchored;
   const opening = useRef<number>(undefined);
   const paging = useRef(false);
   const target = find?.target;
@@ -1618,9 +1838,9 @@ function Transcript({
       }
       if (at < 0) return;
       if (remount) {
-        opening.current = at;
+        opening.current = rowAt(transcriptRows(c.window?.items ?? items, workView), at);
         setView((v) => v + 1);
-      } else ref.current?.scrollToIndex({ index: at, align: "center" });
+      } else ref.current?.scrollToIndex({ index: rowAt(transcriptRows(c.window?.items ?? items, workView), at), align: "center" });
       await revealMatch(() => scroller.current, target, findPattern(find.query), live);
     })().catch(() => {});
   }, [target?.seq]);
@@ -1640,7 +1860,7 @@ function Transcript({
       paging.current = false;
     }
   };
-  const first = 100000 + shownStart;
+  const first = anchored.first;
   return (
     <div
       ref={box}
@@ -1665,13 +1885,13 @@ function Transcript({
       <Virtuoso
         key={view}
         ref={ref}
-        data={shown}
+        data={visibleRows}
         firstItemIndex={first}
         initialTopMostItemIndex={
           opening.current !== undefined
             ? { index: opening.current, align: "center" }
             : c.scroll !== undefined
-            ? { index: Math.max(first, c.scroll) }
+            ? { index: first + rowAt(visibleRows, c.scroll - 100000 - shownStart) }
             : { index: "LAST" }
         }
         computeItemKey={(_, i) => i.id}
@@ -1692,18 +1912,24 @@ function Transcript({
           if (v) following.current = true;
           setBottom(v);
           c.atBottom = v;
+          if (v) read();
         }}
         rangeChanged={(r) => {
-          c.scroll = r.startIndex;
+          c.scroll = 100000 + shownStart + (visibleRows[r.startIndex - first]?.start ?? 0);
         }}
         startReached={() => {
           if (c.window) { if (c.window.start > 0) void page("older"); }
           else if (c.loaded && c.start > 0) void older();
         }}
         endReached={() => { if (c.window) void page("newer"); }}
-        itemContent={(i, item) => (
-          <Entry item={item} time={c.toolTimes?.[item.id]} expansion={(c.expanded ??= {})} earlier={i - 100000 < restartAt} />
-        )}
+        itemContent={(_, row) => {
+          const expansion = (c.expanded ??= {});
+          const entries = row.items.map((item, index) => <Entry key={item.id} item={item} time={c.toolTimes?.[item.id]} expansion={expansion} earlier={shownStart + row.start + index < restartAt} />);
+          return row.work
+            ? <WorkDetails id={row.id} items={row.items} expansion={expansion}
+                reveal={find?.target && row.items.some((item) => item.id === find.target!.match.itemId) ? find.target.seq : undefined}>{entries}</WorkDetails>
+            : entries;
+        }}
         context={{
           start: shownStart,
           loading: c.loading,

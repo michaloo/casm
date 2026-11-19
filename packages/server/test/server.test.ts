@@ -336,8 +336,8 @@ test("an agent can work in a folder inside its project, never outside it", async
   const dir = join(root, "repo");
   mkdirSync(join(dir, ".worktrees", "task-1"), { recursive: true });
   mkdirSync(join(root, "elsewhere"));
-  symlinkSync(join(root, "elsewhere"), join(dir, "escape"));
-  symlinkSync(join(dir, ".worktrees"), join(dir, "wt"));
+  symlinkSync(join(root, "elsewhere"), join(dir, "escape"), process.platform === "win32" ? "junction" : "dir");
+  symlinkSync(join(dir, ".worktrees"), join(dir, "wt"), process.platform === "win32" ? "junction" : "dir");
   const p = await client.call("project.create", { path: dir, name: "Worktrees" });
   const create = (cwd: string) => client.call("agent.create", { projectId: p.id, provider: "claude", cwd });
 

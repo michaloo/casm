@@ -427,6 +427,32 @@ function Disclosure({
     </details>
   );
 }
+// Closed groups do not mount tool output, code highlighting or images.
+// Each child keeps its own expansion state across virtual row remounts.
+export function WorkDetails({ id, items, expansion, reveal, children }: {
+  id: string; items: Item[]; expansion: Record<string, boolean>; reveal?: number; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(expansion[id] ?? false);
+  useEffect(() => {
+    if (reveal !== undefined) { expansion[id] = true; setOpen(true); }
+  }, [reveal]);
+  const failed = items.filter((item) => (item.kind === "tool" || item.kind === "subagent") && item.status === "error").length;
+  const running = items.some((item) => item.kind === "tool" ? item.status === "running"
+    : item.kind === "subagent" ? item.status === "running" : item.id === "draft-reasoning");
+  return <div className="item work-details">
+    <details open={open} onClick={rememberToggle(id, expansion)} onToggle={(event) => {
+      expansion[id] = event.currentTarget.open; setOpen(event.currentTarget.open);
+    }}>
+      <summary>
+        <strong>Work details</strong>
+        <span className="work-count">{items.length} {items.length === 1 ? "activity" : "activities"}</span>
+        {running && <span className="status running">Running</span>}
+        {failed > 0 && <span className="status error">{failed} failed</span>}
+      </summary>
+      {open && <div className="work-details-body">{children}</div>}
+    </details>
+  </div>;
+}
 export function Row({
   item,
   time,

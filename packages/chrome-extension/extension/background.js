@@ -431,7 +431,10 @@ async function connect() {
   };
   ws.onmessage = (ev) => void onMessage(ws, ev.data);
   ws.onclose = (ev) => {
-    if (ev.code === 4401) {
+    // 4401 also means "authenticate first": the server timed out waiting for the
+    // auth request (a worker suspended right after the socket opened, a laptop
+    // waking up). Only a rejected or revoked token stops the retries.
+    if (ev.code === 4401 && /unauthorized|revoked/.test(ev.reason)) {
       lost(ws, "the server refused the token");
       setStatus("refused", "the server refused the token: create one with casm token create <name> and save it here");
     } else lost(ws, ev.reason || `the connection closed (${ev.code})`);

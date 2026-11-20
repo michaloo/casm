@@ -5,7 +5,8 @@ import { stripTypeScriptTypes } from "node:module";
 import { readChatMemory, recentChats, writeChatMemory } from "../src/chat-memory.ts";
 const source = readFileSync(new URL("../src/state.ts", import.meta.url), "utf8");
 const output = stripTypeScriptTypes(source.slice(0, source.indexOf("export class Rpc")))
-  .replace('"./image-preview"', JSON.stringify(new URL("../src/image-preview.ts", import.meta.url).href));
+  .replace('"./image-preview"', JSON.stringify(new URL("../src/image-preview.ts", import.meta.url).href))
+  .replace('"@casm/protocol"', JSON.stringify(new URL("../../protocol/src/index.ts", import.meta.url).href));
 const { chat, chats, event, evict, hold, leave } = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
 const { imageSource } = await import("../src/image-preview.ts");
 

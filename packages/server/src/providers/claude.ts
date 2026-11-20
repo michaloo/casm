@@ -44,7 +44,8 @@ import type {
 import type { OpenOptions, ProviderContext, Provider, ProviderSession } from "./types.ts";
 import { claudeMemories } from "./claude-memory.ts";
 import { ClaudeTasks } from "./claude-tasks.ts";
-import { BackgroundCommands, backgroundTask, commandEnd, parseTaskNotice, readOutputTail, stoppedTask, type CommandEnd } from "./claude-commands.ts";
+import { BackgroundCommands, backgroundTask, commandEnd, findOutputFile, parseTaskNotice, readOutputTail, stoppedTask, type CommandEnd } from "./claude-commands.ts";
+import { outputDelta } from "./output.ts";
 import { isoTime, TimedItems } from "../item-times.ts";
 
 const MAX_TOOL_OUTPUT = 8000;
@@ -175,6 +176,9 @@ export class Normalizer {
   private draftingTools = new Set<string>();
   private readonly backgroundTasks = new ClaudeTasks();
   private readonly commands = new BackgroundCommands();
+  // Foreground commands still running, by tool call: their task, whose
+  // output file the live session tails.
+  private readonly foreground = new Map<string, string>();
   private calls = new Map<string, TaskCall>();
   private plan: PlanItem | null = null;
   private tasks = new Map<string, { text: string; status: PlanEntry["status"] }>();
@@ -334,6 +338,7 @@ export class Normalizer {
     }
     this.draftingTools.clear();
     this.inputStreams.clear();
+    this.foreground.clear();
     return interrupted;
   }
 
@@ -418,10 +423,15 @@ export class Normalizer {
   // started them; other tasks are subagents.
   private taskEvent(e: Entry): Item[] {
     const t = e as Entry & { task_id?: string; tool_use_id?: string; task_type?: string; status?: string; output_file?: string; is_backgrounded?: boolean; patch?: { status?: string; is_backgrounded?: boolean } };
-    const tool = this.commands.toolOf(t.task_id) ?? (t.tool_use_id && this.tools.has(t.tool_use_id) ? t.tool_use_id : undefined);
+    const tool = this.commands.toolOf(t.task_id) ?? this.foregroundTool(t.task_id) ?? (t.tool_use_id && this.tools.has(t.tool_use_id) ? t.tool_use_id : undefined);
     if (!tool) return t.task_type === "local_bash" ? [] : this.backgroundTasks.observe(e);
     // A foreground command is a task too; it counts once it is in the background.
-    if (t.task_id && ((t.subtype === "task_started" && t.is_backgrounded !== false) || t.patch?.is_backgrounded)) this.commands.start(tool, t.task_id, t.output_file);
+    if (t.task_id && t.subtype === "task_started" && t.is_backgrounded === false && t.task_type === "local_bash" && this.tools.get(tool)?.status === "running") this.foreground.set(tool, t.task_id);
+    else if (t.subtype === "task_notification" || commandEnd(t.patch?.status)) this.foreground.delete(tool);
+    if (t.task_id && ((t.subtype === "task_started" && t.is_backgrounded !== false) || t.patch?.is_backgrounded)) {
+      this.foreground.delete(tool);
+      this.commands.start(tool, t.task_id, t.output_file);
+    }
     if (!this.commands.get(tool)) return [];
     const end = commandEnd(t.subtype === "task_updated" ? t.patch?.status : t.subtype === "task_notification" ? t.status : undefined);
     if (end) return this.commandEnded(tool, end, t.output_file);
@@ -474,6 +484,16 @@ export class Normalizer {
     return this.commands.output(id, text) ? this.commandItem(id) : [];
   }
 
+  private foregroundTool(taskId: string | undefined): string | undefined {
+    for (const [tool, task] of this.foreground) if (task === taskId) return tool;
+    return undefined;
+  }
+
+  // Foreground commands running now: tool id and task.
+  runningCommands(): { id: string; taskId: string }[] {
+    return [...this.foreground].map(([id, taskId]) => ({ id, taskId }));
+  }
+
   // Background commands whose output file is known: tool id, task and file.
   commandFiles(): { id: string; taskId: string; file: string; running: boolean }[] {
     return [...this.commands.all()].flatMap(([id, c]) => (c.outputFile ? [{ id, taskId: c.taskId, file: c.outputFile, running: !c.end }] : []));
@@ -482,6 +502,7 @@ export class Normalizer {
   private toolResult(b: Block, structured: unknown): Item[] {
     const id = String(b.tool_use_id);
     this.finishInput(id);
+    this.foreground.delete(id);
     const prevTool = this.tools.get(id);
     if (prevTool && !b.is_error) {
       const started = backgroundTask(structured, toolOutput(b.content));
@@ -1054,6 +1075,9 @@ class ClaudeSession implements ProviderSession {
   // Background commands this process started: their output file tails, read
   // every second until each has ended and been read once more (true).
   private outputs = new Map<string, boolean>();
+  // Foreground commands running now, by tool call: the output file once found
+  // and the tail streamed so far. Their tool result replaces it at the end.
+  private running = new Map<string, { taskId: string; file: string | null; text: string }>();
   private outputTimer: NodeJS.Timeout | null = null;
   private readingOutputs = false;
   private nativeId: string | undefined;
@@ -1074,8 +1098,9 @@ class ClaudeSession implements ProviderSession {
     if (this.readingOutputs) return;
     this.readingOutputs = true;
     try {
+      await this.readRunning();
       const files = this.n.commandFiles().filter((c) => this.outputs.get(c.id) === false);
-      if (!this.outputs.size || [...this.outputs.values()].every(Boolean)) return this.stopOutputs();
+      if (!this.running.size && (!this.outputs.size || [...this.outputs.values()].every(Boolean))) return this.stopOutputs();
       for (const c of files) {
         const text = this.nativeId ? await readOutputTail(c.file, this.nativeId, c.taskId) : null;
         if (!c.running) this.outputs.set(c.id, true);
@@ -1083,6 +1108,24 @@ class ClaudeSession implements ProviderSession {
       }
     } finally {
       this.readingOutputs = false;
+    }
+  }
+
+  // New output of foreground commands, as tool output deltas. Only while the
+  // command still runs: once its result is in, a late read would repeat it.
+  private async readRunning() {
+    const now = new Map(this.n.runningCommands().map((c) => [c.id, c.taskId]));
+    for (const id of this.running.keys()) if (!now.has(id)) this.running.delete(id);
+    for (const [id, taskId] of now) {
+      let c = this.running.get(id);
+      if (c?.taskId !== taskId) this.running.set(id, (c = { taskId, file: null, text: "" }));
+      if (!this.nativeId) continue;
+      c.file ??= await findOutputFile(this.nativeId, taskId);
+      const text = c.file ? await readOutputTail(c.file, this.nativeId, taskId) : null;
+      if (!text || this.running.get(id) !== c || !this.n.runningCommands().some((r) => r.id === id)) continue;
+      const delta = outputDelta(c.text, text);
+      c.text = text;
+      if (delta) this.opts.emit({ type: "toolOutput", itemId: id, text: delta });
     }
   }
 
@@ -1230,6 +1273,7 @@ class ClaudeSession implements ProviderSession {
       case "task_notification":
         if (m.subtype === "task_notification" && !this.owned && !m.ambient && m.summary) this.wakeReason = m.summary;
         for (const item of this.n.entry(m as Entry)) this.item(item);
+        if (m.subtype === "task_started" && this.n.runningCommands().length) this.followOutputs();
         return;
       case "local_command_output":
         if (m.content.trim()) this.item({ kind: "assistant", id: m.uuid, text: m.content });

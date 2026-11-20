@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
-import { open } from "node:fs/promises";
-import { isAbsolute, normalize } from "node:path";
+import { open, readdir, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, normalize } from "node:path";
 
 // How a background command ended, as Claude's task events and notices say it.
 export type CommandEnd = "completed" | "failed" | "stopped";
@@ -96,6 +97,23 @@ export async function readOutputTail(file: string, sessionId: string, taskId: st
   } finally {
     await fh.close();
   }
+}
+
+// A foreground command's output file, which Claude doesn't name: the
+// session's tasks/<task>.output under <tmp>/claude-<uid>/<project>/, created
+// when the command starts and deleted when it ends. null until it exists.
+export async function findOutputFile(sessionId: string, taskId: string, tmpDirs: (string | undefined)[] = [process.env.CLAUDE_CODE_TMPDIR, process.env.CLAUDE_TMPDIR, tmpdir(), "/tmp"]): Promise<string | null> {
+  const uid = process.getuid?.();
+  if (uid === undefined || !/^[\w-]+$/.test(taskId) || !/^[\w-]+$/.test(sessionId)) return null;
+  for (const base of new Set(tmpDirs.filter((d): d is string => !!d))) {
+    const root = join(base, `claude-${uid}`);
+    const projects = await readdir(root).catch(() => [] as string[]);
+    for (const project of projects) {
+      const file = join(root, project, sessionId, "tasks", `${taskId}.output`);
+      if (outputPathAllowed(file, sessionId, taskId) && (await stat(file).then((s) => s.isFile(), () => false))) return file;
+    }
+  }
+  return null;
 }
 
 type Command = { taskId: string; outputFile?: string; end?: CommandEnd; output?: string };

@@ -42,6 +42,13 @@ class FakeSession implements ProviderSession {
       if (text.includes("held")) await fake.gate.promise;
       // Starts answering, then hangs until interrupted.
       if (text.includes("partial")) this.opts.emit({ type: "delta", kind: "assistant", text: "Let me" });
+      // A command still printing when the turn hangs.
+      if (text.includes("printing")) {
+        this.opts.emit({ type: "item", item: { kind: "tool", id: "live1", name: "Bash", input: {}, status: "running" } });
+        for (let i = 1; i <= 3; i++) this.opts.emit({ type: "toolOutput", itemId: "live1", text: `line ${i}\n` });
+        this.opts.emit({ type: "usage", usage: { contextTokens: 10 } });
+        this.opts.emit({ type: "toolOutput", itemId: "live1", text: "x".repeat(70 * 1024) + "\nlast\n" });
+      }
       if (text.includes("slow")) {
         await new Promise((r) => this.abort.signal.addEventListener("abort", r, { once: true }));
         // One turn ends once, however many slow prompts were steered into it.
@@ -413,6 +420,20 @@ test("interrupt ends a running turn", async () => {
   assert.equal((await client.call("agent.get", { id: a.id })).status, "running");
   await client.call("agent.interrupt", { id: a.id });
   assert.equal((await client.call("agent.wait", { id: a.id })).status, "idle");
+});
+
+test("a client joining mid-turn gets a running tool's output so far as one bounded event", async () => {
+  const p = await client.call("project.create", { name: "P4c", path: "/tmp" });
+  const a = await client.call("agent.create", { projectId: p.id, provider: "claude", prompt: "printing slow" });
+  await new Promise((r) => setTimeout(r, 30));
+  const sub = await client.call("agent.subscribe", { id: a.id });
+  const outputs = sub.turn.filter((e: AgentEvent) => e.type === "toolOutput") as Extract<AgentEvent, { type: "toolOutput" }>[];
+  assert.equal(outputs.length, 1);
+  assert.ok(sub.turn.findIndex((e: AgentEvent) => e.type === "item") < sub.turn.indexOf(outputs[0]));
+  assert.ok(outputs[0]!.text.startsWith("…\n") && outputs[0]!.text.endsWith("\nlast\n"));
+  assert.ok(outputs[0]!.text.length <= 64 * 1024 + 2);
+  await client.call("agent.interrupt", { id: a.id });
+  await client.call("agent.wait", { id: a.id });
 });
 
 test("wait after an interrupted turn has no reply rather than an older one", async () => {

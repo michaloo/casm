@@ -11,6 +11,7 @@ import type {
   QuestionRequest,
   Project,
 } from "@casm/protocol";
+import { outputTail } from "@casm/protocol";
 import { holdImage } from "./image-preview";
 import type { DraftFile } from "./attach";
 export type Chat = {
@@ -169,9 +170,10 @@ export function event(c: Chat, e: AgentEvent, replay = false) {
     if (e.kind === "assistant") c.draft += e.text;
     else c.reasoning += e.text;
   }
+  // Streamed output of a running tool; its finished item carries the result.
   if (e.type === "toolOutput") {
     const t = c.items.find((x) => x.id === e.itemId);
-    if (t?.kind === "tool") t.output = (t.output ?? "") + e.text;
+    if (t?.kind === "tool" && t.status === "running") t.output = outputTail((t.output ?? "") + e.text);
   }
   if (e.type === "permission")
     c.permissions = [

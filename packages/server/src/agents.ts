@@ -24,6 +24,7 @@ import type {
   SubagentItem,
   Usage,
 } from "@casm/protocol";
+import { outputTail } from "@casm/protocol";
 import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderContext, ProviderEvent, ProviderSession } from "./providers/types.ts";
 import { AgentPrompt, type PromptVars } from "./agent-prompt.ts";
@@ -482,7 +483,15 @@ export class AgentManager {
         const done = event.item.id;
         l.turn = l.turn.filter((e) => e.type !== "toolOutput" || e.itemId !== done);
       }
-      l.turn.push(event);
+      // A running tool's output so far is one event, bounded to its tail.
+      if (event.type === "toolOutput") {
+        const itemId = event.itemId;
+        const at = l.turn.findLastIndex((e) => e.type === "toolOutput" && e.itemId === itemId);
+        if (at >= 0) {
+          const prev = l.turn.splice(at, 1)[0] as Extract<AgentEvent, { type: "toolOutput" }>;
+          l.turn.push({ ...event, text: outputTail(prev.text + event.text) });
+        } else l.turn.push(event);
+      } else l.turn.push(event);
     }
     this.notify("agent.event", { agentId: id, event }, id);
   }

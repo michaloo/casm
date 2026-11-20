@@ -488,6 +488,15 @@ export const AgentMemories = z.object({
 });
 export type AgentMemories = z.infer<typeof AgentMemories>;
 
+// A running tool's streamed output keeps its newest part, from a line start.
+export const LIVE_OUTPUT_MAX = 64 * 1024;
+export function outputTail(text: string, max = LIVE_OUTPUT_MAX): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(-max);
+  const nl = cut.indexOf("\n");
+  return `…\n${nl >= 0 ? cut.slice(nl + 1) : cut}`;
+}
+
 // Live events for one agent. `delta` streams text into a transient draft that
 // the client drops when the next assistant/reasoning `item` arrives.
 export const AgentEvent = z.discriminatedUnion("type", [

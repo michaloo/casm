@@ -186,6 +186,32 @@ A command a tool leaves running stays that tool's card (a tool item with
   that Codex completes when the process exits (see Background jobs).
 - OpenCode, pi: no background shell commands.
 
+### Live tool output
+
+Running tools stream output as `toolOutput` events (appended to the running
+item; the finished tool item replaces it). The server keeps one merged event
+per tool for clients joining mid-turn, and clients keep the newest 64 KiB
+(`outputTail`).
+
+- Codex: `item/commandExecution/outputDelta` (and `fileChange`, MCP
+  progress). Codex 0.x was seen not to send a delta for a command's first
+  chunk; the final item has it.
+- OpenCode: running bash parts repeat the output so far in `metadata.output`.
+- pi: `tool_execution_update` partial results.
+- Claude: the SDK sends no output for a foreground command (and, in Claude Code
+  2.1.292, no `tool_progress` either). Claude writes it to the same
+  `tasks/<task>.output` file a background command uses, from the start, and
+  deletes it when the command ends. About 3 s in, a `task_started` with
+  `is_backgrounded: false` names the task and tool call (no `output_file`).
+  The adapter then finds that file in this session's folder under
+  `$CLAUDE_CODE_TMPDIR`, `$CLAUDE_TMPDIR`, the temp dir or `/tmp`
+  (`claude-<uid>/*/<session>/tasks/`, same access rules as background output)
+  and reads its 16 KiB tail every second, sending what is new until the
+  result, the task's notification, the end of the turn, or a move to the
+  background (then the background card takes over). Commands shorter than
+  ~3 s show only their result.
+  `scripts/e2e/live-output.ts` checks this end to end against a dev server.
+
 ### User shell commands
 
 Claude runs them itself and records them with `shouldQuery: false` (Claude

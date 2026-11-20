@@ -4,6 +4,7 @@ import {
   memo,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,7 +14,7 @@ import {
 import Markdown, { type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { userLineBreaks } from "./user-line-breaks";
-import { splitAttachments, type Attachment, type ImageData, type Item } from "@casm/protocol";
+import { outputTail, splitAttachments, type Attachment, type ImageData, type Item } from "@casm/protocol";
 import { messageAuthor } from "./message-author";
 import { casmToolCalls } from "./casm-command";
 import { CasmToolRow } from "./casm-tool";
@@ -273,6 +274,41 @@ function rememberToggle(id: string, expansion: Record<string, boolean>) {
       expansion[id] = !e.currentTarget.open;
   };
 }
+// A running command's newest output, kept scrolled to its end unless the
+// reader scrolls up. Its height is fixed, so arriving lines don't move the
+// transcript.
+function LiveOutput({ text }: { text: string }) {
+  const pre = useRef<HTMLPreElement>(null);
+  const pinned = useRef(true);
+  useLayoutEffect(() => {
+    if (pre.current && pinned.current) pre.current.scrollTop = pre.current.scrollHeight;
+  }, [text]);
+  return (
+    <div className="tool-live">
+      <pre
+        ref={pre}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+        }}
+      >
+        {text}
+      </pre>
+    </div>
+  );
+}
+// Output of a tool that has run for a second; quicker ones just finish.
+function useLiveOutput(item: Extract<Item, { kind: "tool" }>, time?: ToolTime): string {
+  const running = item.status === "running";
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    setSettled(false);
+    if (!running) return;
+    const timer = setTimeout(() => setSettled(true), Math.max(0, 1000 - (time ? Date.now() - time.start : 0)));
+    return () => clearTimeout(timer);
+  }, [running, time?.start]);
+  return running && settled && item.output ? outputTail(item.output, 4000) : "";
+}
 function ToolRow({
   item,
   time,
@@ -285,10 +321,19 @@ function ToolRow({
   const [open, setOpen] = useState(expansion[item.id] ?? false);
   const summary = shortInput(item.input);
   const [imageRendered, setImageRendered] = useState(false);
-  const output = imageRendered ? withoutImagePlaceholders(item.output ?? "") : item.output ?? "";
+  const live = useLiveOutput(item, time);
+  const running = item.status === "running";
+  const full = imageRendered ? withoutImagePlaceholders(item.output ?? "") : item.output ?? "";
+  // While it runs, the end of the output matters, as in a terminal.
+  const output = running ? outputTail(full, 4900) : full;
   const diff = /^(diff --git|@@|--- )/m.test(output);
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const pre = body.current?.querySelectorAll("pre")[1];
+    if (running && pre) pre.scrollTop = pre.scrollHeight;
+  }, [open, running, output]);
   return (
-    <div className="item tool">
+    <div className={`item tool${live && !open ? " live" : ""}`}>
       <details
         open={open}
         onClick={rememberToggle(item.id, expansion)}
@@ -308,7 +353,7 @@ function ToolRow({
           <ToolStatus status={item.status} time={time} />
         </summary>
         {open && (
-          <div className="tool-body">
+          <div className="tool-body" ref={body}>
             <CodeBlock
               text={JSON.stringify(item.input, null, 2) ?? ""}
               language="json"
@@ -337,6 +382,7 @@ function ToolRow({
           </div>
         )}
       </details>
+      {live && !open && <LiveOutput text={live} />}
     </div>
   );
 }

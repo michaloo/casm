@@ -1106,6 +1106,32 @@ details[open] > summary:before {
 .tool .tool-line {
   font-family: var(--mono);
 }
+/* A running command's newest lines hang under its closed card, at a fixed
+   height so the transcript doesn't move as they arrive. */
+.tool.live details {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.tool-live {
+  border: 1px solid color-mix(in srgb, var(--accent-bright) 45%, var(--line));
+  border-top: 1px dashed var(--line);
+  border-radius: 0 0 10px 10px;
+  background: color-mix(in srgb, var(--surface) 65%, var(--bg));
+  box-shadow: inset 3px 0 var(--accent-bright);
+}
+.tool-live pre {
+  height: calc(5 * 1.6em + 12px);
+  margin: 0;
+  padding: 6px 12px 6px 30px;
+  overflow: auto;
+  font: 11px/1.6 var(--mono);
+  font-variant-ligatures: none;
+  white-space: pre;
+  color: var(--muted);
+  scrollbar-width: thin;
+  /* Older lines scroll away under a fade rather than a cut. */
+  mask-image: linear-gradient(to bottom, transparent 2px, #000 16px);
+}
 /* Background commands: what it is for over the command it runs. */
 .background-command .row-kind {
   color: var(--muted);

@@ -1,4 +1,5 @@
 import { opencodeMcpServers } from "./mcp.ts";
+import { outputDelta } from "./output.ts";
 import { providerEnv } from "./env.ts";
 import { toolImages } from "./tool-images.ts";
 // OpenCode via one shared `opencode serve` per provider: HTTP API for sessions,
@@ -393,13 +394,6 @@ export function imageParts(images: ImageData[] | undefined) {
     }));
 }
 
-// The part of a cumulative tool output snapshot not yet streamed.
-export function outputDelta(prev: string, next: string): string {
-  if (next.startsWith(prev)) return next.slice(prev.length);
-  const tail = prev.slice(-200);
-  const i = tail ? next.lastIndexOf(tail) : -1;
-  return i >= 0 ? next.slice(i + tail.length) : next;
-}
 
 function errorText(e: OcError | undefined): string {
   return e?.data?.message || e?.name || "unknown error";
@@ -1208,3 +1202,5 @@ export function opencodeProvider(server = new OpencodeServer(), dataDir = openco
     },
   };
 }
+
+export { outputDelta };

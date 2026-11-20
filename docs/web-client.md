@@ -111,7 +111,10 @@ On a phone the sidebar is behind the **Agents** button.
 
 The transcript shows prompts, replies (Markdown with highlighted code), reasoning
 (collapsed as **Thinking**), tool calls with their status, duration and
-output, plans, subagents and notices. A command an agent left running in the
+output, plans, subagents and notices. A tool still running after a second
+shows its newest output lines under its card, at a fixed height and following
+the end unless you scroll up; opened, the card's output follows the end instead,
+and the finished result replaces the stream. A command an agent left running in the
 background (Claude's background Bash or Monitor) is a **Background** row: what
 it is for, the command, and Running until it ends as Done, Failed or Stopped.
 Opening it shows the end of its output, updated while it runs. Rows with

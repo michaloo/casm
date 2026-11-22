@@ -5,11 +5,13 @@ import { toolImages, viewedImage } from "./tool-images.ts";
 // Codex via `codex app-server`: JSON-RPC over stdio, one process per open
 // session. The native session id is the thread id; history comes from
 // `thread/items/list`, with `thread/read` for stores without item pagination.
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import spawn from "cross-spawn";
+import { stopProcess, codexExecutable } from "../platform.ts";
 import { createInterface } from "node:readline";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import type {
@@ -486,8 +488,8 @@ class Rpc {
   onExit: (error?: string) => void = () => {};
 
   constructor(cwd: string, env: Record<string, string>) {
-    const bin = process.env.CASM_CODEX_PATH ?? "codex";
-    this.child = spawn(bin, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const bin = codexExecutable();
+    this.child = spawn(bin, ["app-server"], { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }) as ChildProcessWithoutNullStreams;
     this.child.stderr.on("data", (d: Buffer) => (this.stderr = (this.stderr + d.toString()).slice(-2000)));
     createInterface({ input: this.child.stdout }).on("line", (line) => this.handle(line));
     let exited = false;
@@ -549,7 +551,7 @@ class Rpc {
   }
 
   kill() {
-    if (this.child.exitCode === null) this.child.kill();
+    if (this.child.exitCode === null) stopProcess(this.child);
   }
 }
 
@@ -826,6 +828,12 @@ class CodexSession implements ProviderSession {
   // Commands in a background terminal (unified exec): their process can
   // outlive the turn, and Codex completes the item when it exits.
   private terminals = new Set<string>();
+
+  async history(): Promise<Item[]> {
+    await this.chain;
+    if (!this.threadId || this.closing) throw new Error("Codex session is not ready");
+    return withChildAnswers(this.rpc, await readParentHistory(this.rpc, this.threadId));
+  }
 
   constructor(opts: OpenOptions) {
     this.opts = opts;
@@ -1399,7 +1407,49 @@ async function withChildAnswers(rpc: Rpc, items: Item[]): Promise<Item[]> {
   return items;
 }
 
+// Immutable snapshots are reused only while the native transcript is unchanged.
+// The fingerprint also notices changes made outside CASM and across app resumes.
+type HistoryStamp = { path: string; stamp: string };
+const fileStamp = async (path: string) => {
+  const meta = await stat(path).catch(() => null);
+  return meta ? `${meta.mtimeMs}:${meta.ctimeMs}:${meta.size}` : null;
+};
+const historySnapshots = new Map<string, { stamp: string; result: Promise<Item[]>; children?: HistoryStamp[] }>();
 export async function readHistory(sessionId: string, cwd: string, context?: ProviderContext): Promise<Item[]> {
+  const file = await findRollout(sessionId, context);
+  const stamp = file ? await fileStamp(file) : null;
+  if (!file || !stamp) return readNativeHistory(sessionId, cwd, context);
+  const key = JSON.stringify([file, cwd, context?.env]);
+  const known = historySnapshots.get(key);
+  if (known?.stamp === stamp) {
+    const valid = !known.children || (await Promise.all(known.children.map(async child => await fileStamp(child.path) === child.stamp))).every(Boolean);
+    if (valid) return known.result;
+  }
+  const entry: { stamp: string; result: Promise<Item[]>; children?: HistoryStamp[] } = { stamp, result: Promise.resolve([]) };
+  entry.result = (async () => {
+    const items = await readNativeHistory(sessionId, cwd, context);
+    // A background child's answer can change without changing its parent's file.
+    const children = await Promise.all(items.filter(i => i.kind === "subagent").map(async child => {
+      const path = await findRollout(child.id, context);
+      const childStamp = path ? await fileStamp(path) : null;
+      return path && childStamp ? { path, stamp: childStamp } : null;
+    }));
+    if (children.some(child => !child)) {
+      if (historySnapshots.get(key) === entry) historySnapshots.delete(key);
+    } else entry.children = children as HistoryStamp[];
+    return items;
+  })();
+  historySnapshots.delete(key);
+  historySnapshots.set(key, entry);
+  while (historySnapshots.size > 6) historySnapshots.delete(historySnapshots.keys().next().value!);
+  try { return await entry.result; }
+  catch (error) {
+    if (historySnapshots.get(key) === entry) historySnapshots.delete(key);
+    throw error;
+  }
+}
+
+async function readNativeHistory(sessionId: string, cwd: string, context?: ProviderContext): Promise<Item[]> {
   const rpc = new Rpc(cwd, providerEnv(context?.env));
   try {
     await rpc.initialize();

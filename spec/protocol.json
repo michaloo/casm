@@ -334,6 +334,12 @@
                 "opencode"
               ]
             }
+          },
+          "projectRoots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -641,6 +647,39 @@
               "required": [
                 "id"
               ]
+            }
+          },
+          "defaults": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string"
+              },
+              "systemPrompt": {
+                "type": "string"
+              },
+              "mcpServers": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "env": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
             }
           }
         },
@@ -2171,6 +2210,64 @@
           "binary",
           "truncated",
           "content"
+        ]
+      }
+    },
+    "fs.list": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "file",
+                    "dir",
+                    "other"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "kind"
+              ]
+            }
+          }
+        },
+        "required": [
+          "path",
+          "truncated",
+          "entries"
         ]
       }
     },

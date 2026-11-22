@@ -16,6 +16,7 @@ import { CasmClient } from "@casm/client";
 import { BROWSER_FILE_MAX_BYTES, MAX_ATTACHMENT_BYTES, formatBytes } from "@casm/protocol";
 import type { Agent, AgentEvent, BrowserDialog, BrowserTab, FindMatch, Item, Project, ProviderId, Usage } from "@casm/protocol";
 import { retryLabel } from "@casm/protocol/retry";
+import { defaultProvider } from "../../server/src/provider-defaults.ts";
 
 const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");
 const hostsFile = join(home, "hosts.json");
@@ -828,7 +829,7 @@ async function run(c: CasmClient) {
         projectId: project.id,
         // Relative to the project, which may be on another host: the server resolves it.
         cwd: opt.cwd,
-        provider: (opt.provider ?? "claude") as ProviderId,
+        provider: (opt.provider ?? defaultProvider(home)) as ProviderId,
         name: opt.name,
         config: { model: opt.model, mode: opt.mode, env: envOption() },
         parent: runParent(),
@@ -1083,7 +1084,7 @@ async function run(c: CasmClient) {
             ? {
                 type: "newAgent" as const,
                 projectId: pick(await projects(c), opt.project, "project").id,
-                provider: (opt.provider ?? "claude") as ProviderId,
+                provider: (opt.provider ?? defaultProvider(home)) as ProviderId,
                 config: { model: opt.model, mode: opt.mode, env: envOption() },
                 name: opt.name,
               }

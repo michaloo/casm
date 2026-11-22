@@ -28,7 +28,7 @@ import { outputTail } from "@casm/protocol";
 import type { StoredAgent, Store } from "./db.ts";
 import type { PermissionAnswer, Provider, ProviderContext, ProviderEvent, ProviderSession } from "./providers/types.ts";
 import { AgentPrompt, type PromptVars } from "./agent-prompt.ts";
-import { limitFromText, mergeWindows, retryAt, transientRateLimit, type LimitHit } from "./limits.ts";
+import { admissionWindows, limitFromText, mergeWindows, retryAt, transientRateLimit, type LimitHit } from "./limits.ts";
 import { seen, timed, type Seen } from "./item-times.ts";
 import { findInItems } from "./find.ts";
 import { classifyFailure, MAX_RETRIES, nextRetryAt, type FailureKind, type FailureSource } from "./failures.ts";
@@ -838,7 +838,7 @@ export class AgentManager {
     // A turn that went through means the limit has lifted, whatever was announced.
     if (outcome === "completed" && a) {
       const seen = this.limitsSeen.get(a.provider);
-      const blocked = seen?.windows.filter((w) => w.status === "exhausted") ?? [];
+      const blocked = admissionWindows(a.provider, seen?.windows ?? []).filter((w) => w.status === "exhausted");
       if (blocked.length) this.recordLimits(a.provider, { windows: blocked.map((w) => ({ ...w, status: "ok" as const })) });
       this.store.releaseLimited(id);
     }
@@ -1160,7 +1160,7 @@ export class AgentManager {
     const fromText = hits.find((h) => h.resetsAt) ?? hits[0] ?? null;
     const seen = a ? this.limitsSeen.get(a.provider) : undefined;
     const exhausted =
-      seen && Date.parse(seen.updatedAt) >= l.turnStartedAt - 1000 ? seen.windows.find((w) => w.status === "exhausted") : undefined;
+      seen && Date.parse(seen.updatedAt) >= l.turnStartedAt - 1000 ? admissionWindows(a!.provider, seen.windows).find((w) => w.status === "exhausted") : undefined;
     if (!fromText && !exhausted) return null;
     const hit: LimitHit = {
       message: fromText?.message ?? `${a?.provider} ${exhausted?.label ?? exhausted?.id} limit reached`,
@@ -1177,9 +1177,10 @@ export class AgentManager {
   // When the provider's limits say it's blocked, the time it resets (or a guess).
   private exhaustedUntil(provider: ProviderId): string | null {
     const seen = this.limitsSeen.get(provider);
-    const times = seen?.windows.filter((w) => w.status === "exhausted").map((w) =>
+    if (!seen) return null;
+    const times = admissionWindows(provider, seen.windows).filter((w) => w.status === "exhausted").map((w) =>
       w.resetsAt ? Date.parse(w.resetsAt) : Date.parse(seen.updatedAt) + 15 * 60_000,
-    ) ?? [];
+    );
     const reset = Math.max(0, ...times.filter(Number.isFinite));
     return reset > Date.now() ? new Date(reset).toISOString() : null;
   }
@@ -1289,7 +1290,8 @@ export class AgentManager {
           this.recordLimits(id, fresh, refresh && fresh.windows.length > 0);
           // A successful explicit account refresh can discover an upgraded plan
           // or an early reset. An unavailable/empty response cannot release work.
-          const available = fresh.windows.length > 0 && fresh.windows.every((w) =>
+          const applicable = admissionWindows(id, fresh.windows);
+          const available = applicable.length > 0 && applicable.every((w) =>
             w.status === "ok" || (w.status !== "exhausted" && w.usedPercent !== undefined && w.usedPercent < 100),
           );
           if (refresh && available) {
@@ -1380,8 +1382,10 @@ export class AgentManager {
     const provider = this.provider(a.provider);
     const readerContext = { env: { ...a.config.env, ...context?.env } };
     const aliases = await provider.historyAliases?.(nativeSessionId, a.cwd, readerContext) ?? {};
-    const native = await provider.history(nativeSessionId, a.cwd, readerContext);
     const live = this.live.get(a.id);
+    const native = !context && a.nativeSessionId === nativeSessionId && live?.session?.history
+      ? await live.session.history().catch(() => provider.history(nativeSessionId, a.cwd, readerContext))
+      : await provider.history(nativeSessionId, a.cwd, readerContext);
     const liveIds = a.nativeSessionId === nativeSessionId && live?.session ? new Set(live.times.keys()) : undefined;
     return mergeHistorySupplements(native, this.store.historySupplements(a.id, nativeSessionId), liveIds).map((item) => {
       if (item.kind !== "user") return item;

@@ -12,6 +12,43 @@ The screenshots on this page come from a demo server with fake providers
 ([`scripts/docs-media`](../scripts/docs-media/README.md)), so they show the
 real UI with made-up projects.
 
+## Conversation and work details
+
+By default, consecutive tool calls, thinking and subagent activity share one
+collapsed **Work details** row. Messages, progress updates, plans and actionable notices
+stay visible in order. Routine successful approval-review notices from older
+Codex sessions also join the group; review denials, timeouts, unknown outcomes
+and unrelated warnings stay visible. The summary shows the activity count,
+running tools and failed activity count. Expand the group, then any tool, to inspect its input
+and output. Find in chat opens the group and the matching row automatically.
+
+Under **This device > Work details in chat**, choose **Individual** to show
+each technical row separately. The preference is stored in this browser,
+including the installed PWA; other devices keep their own preference.
+
+## Finding and organizing chats
+
+Within a project, chats are ordered by recent activity. A parent's block moves
+up when one of its nested agents has newer activity. Chat rows keep two lines:
+name and model metadata. The dot carries the state, with an accessible label and
+tooltip: blue/teal for working, green for an unread assistant message, red/coral
+for a waiting decision or failure. Red has priority over unread green; unread
+green has priority over working blue. There is no extra status-text line.
+
+Unread means a new assistant message, not a tool event, own prompt, changed
+configuration or changed execution status. It clears after viewing the live
+end. On reconnect/resume, the client locates the latest assistant reply in
+previously visited idle chats, so technical logs after a reply do not hide it.
+Markers survive reload and belong to this browser/PWA. Existing history forms
+a baseline, and legacy generic-activity flags are cleared during migration.
+**Needs attention** filters to waiting/failed chats or unread replies.
+
+Open a chat's **Chat options** button in its header and choose **Archive chat**,
+then confirm. Archiving hides it on all devices and stops that agent, keeping
+its history. Under **Project options > Archived chats**, restore it or choose
+**Delete from CASM...**. Deletion requires typing the chat name. This removes the
+CASM entry; the provider's native transcript files are kept.
+
 ## Connecting
 
 1. On the server: `casm token create web` prints a token.
@@ -416,3 +453,24 @@ one line; nothing else changes.
 The client follows your system's light/dark setting.
 
 ![the agent view in dark mode](media/web-agent-dark.png)
+
+### Individual chat preferences
+
+The sidebar footer's **This device** dialog controls preferences stored only in
+this browser/PWA. They do not change another person's client or an agent's safety
+policy:
+
+- **Show unread reply indicators** enables the green unread-assistant-reply dot.
+  Disabling it also disables background history scans used solely for that marker.
+  Running, waiting, failed and unloaded status indicators continue to work.
+- **Recent activity first** sorts chat families by their latest activity. Turn it
+  off for alphabetical ordering while keeping parent/child relationships.
+- **Work details in chat** switches grouped technical activity and routine approval
+  notices to the original individual view. Errors and decisions remain visible.
+- **Default agent for new chats** is a device preference. Host configuration can
+  set provider-specific model/effort/mode defaults and the CLI default provider.
+
+Connection recovery, nonblocking process cleanup and quota-bucket corrections are
+reliability fixes and always enabled. Archiving is an explicit action shared across
+clients; it stops the agent and retains native history. Deletion requires a separate
+confirmation. The compact two-line chat row does not add status text rows.

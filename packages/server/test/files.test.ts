@@ -29,6 +29,8 @@ async function host(name: string): Promise<Host> {
 const root = mkdtempSync(join(tmpdir(), "casm-files-"));
 const project = join(root, "project");
 const outside = join(root, "outside");
+const escapePath = process.platform === "win32" ? join(project, "escape", "secret.txt") : join(project, "escape.txt");
+const aliasPath = process.platform === "win32" ? join(project, "alias", "data.json") : join(project, "alias.json");
 const json = '{"merged":[1,2,3]}\n';
 let alpha: Host;
 let beta: Host;
@@ -44,8 +46,14 @@ before(async () => {
   writeFileSync(join(project, "blob.bin"), Buffer.from([1, 2, 0, 3]));
   writeFileSync(join(project, "big.txt"), "ą".repeat(MAX_READ_BYTES));
   writeFileSync(join(outside, "secret.txt"), "not yours\n");
-  symlinkSync(join(outside, "secret.txt"), join(project, "escape.txt"));
-  symlinkSync(join(project, "data.json"), join(project, "alias.json"));
+  if (process.platform === "win32") {
+    // Directory junctions exercise traversal protection without Developer Mode/admin rights.
+    symlinkSync(outside, join(project, "escape"), "junction");
+    symlinkSync(project, join(project, "alias"), "junction");
+  } else {
+    symlinkSync(join(outside, "secret.txt"), escapePath);
+    symlinkSync(join(project, "data.json"), aliasPath);
+  }
   alpha = await host("alpha");
   beta = await host("beta");
   projectId = (await alpha.client.call("project.create", { path: project, name: "proj" })).id;
@@ -73,11 +81,11 @@ test("paths outside project folders are refused, including through .. and symlin
   await refused(alpha.client.call("fs.read", { path: "/etc/passwd" }), ErrorCode.InvalidParams, /not inside a project folder/);
   await refused(alpha.client.call("fs.read", { path: `${project}/../outside/secret.txt` }), ErrorCode.InvalidParams, /not inside a project folder/);
   await refused(alpha.client.call("fs.read", { path: "data.json" }), ErrorCode.InvalidParams, /must be absolute/);
-  await refused(alpha.client.call("fs.read", { path: join(project, "escape.txt") }), ErrorCode.InvalidParams, /outside every project folder/);
-  await refused(alpha.client.call("fs.downloadLink", { path: join(project, "escape.txt") }), ErrorCode.InvalidParams, /outside/);
+  await refused(alpha.client.call("fs.read", { path: escapePath }), ErrorCode.InvalidParams, /outside every project folder/);
+  await refused(alpha.client.call("fs.downloadLink", { path: escapePath }), ErrorCode.InvalidParams, /outside/);
   await refused(alpha.client.call("fs.read", { path: join(project, "missing.txt") }), ErrorCode.NotFound, /no such file/);
   // A symlink to a file inside the project is fine.
-  assert.equal((await alpha.client.call("fs.read", { path: join(project, "alias.json") })).content, json);
+  assert.equal((await alpha.client.call("fs.read", { path: aliasPath })).content, json);
 });
 
 test("the server's state directory is refused even inside a project", async () => {
@@ -116,6 +124,21 @@ test("fs.read: text, mime, truncation, binary and directories", async () => {
   assert.deepEqual([png.binary, png.content, png.mime], [true, null, "image/png"]);
   const dir = await alpha.client.call("fs.read", { path: join(project, "sub") });
   assert.deepEqual([dir.type, dir.content, dir.binary], ["dir", null, false]);
+});
+
+test("fs.list browses one project directory and refuses traversal, junction escapes and server state", async () => {
+  const listing = await alpha.client.call("fs.list", { path: project });
+  assert.equal(listing.truncated, false);
+  assert.ok(listing.entries.some(entry => entry.name === "sub" && entry.kind === "dir"));
+  assert.ok(listing.entries.some(entry => entry.path === join(project, "data.json") && entry.kind === "file"));
+  assert.ok(!listing.entries.some(entry => entry.name === "deeper"));
+  await refused(alpha.client.call("fs.list", { path: outside }), ErrorCode.InvalidParams, /not inside/);
+  await refused(alpha.client.call("fs.list", { path: join(project, "..", "outside") }), ErrorCode.InvalidParams, /not inside/);
+  if (process.platform === "win32") await refused(alpha.client.call("fs.list", { path: join(project, "escape") }), ErrorCode.InvalidParams, /outside every project/);
+  await refused(alpha.client.call("fs.list", { path: join(project, "data.json") }), ErrorCode.InvalidParams, /not a directory/);
+  const stateProject = await alpha.client.call("project.create", { path: alpha.home, name: "state-list" });
+  try { await refused(alpha.client.call("fs.list", { path: alpha.home }), ErrorCode.InvalidParams, /state directory/); }
+  finally { await alpha.client.call("project.delete", { id: stateProject.id }); }
 });
 
 test("download links stream the file as an attachment with safe headers", async () => {
@@ -174,7 +197,8 @@ test("tampered and foreign links are refused", async () => {
   const theirs = await beta.client.call("fs.downloadLink", { path: join(project, "data.json") });
   assert.equal((await fetch(alpha.http + theirs.url)).status, 403);
   // The secret persists in the state directory, private to this user.
-  assert.equal(statSync(join(alpha.home, "download-secret")).mode & 0o777, 0o600);
+  // Windows uses inherited NTFS ACLs rather than POSIX permission bits.
+  if (process.platform !== "win32") assert.equal(statSync(join(alpha.home, "download-secret")).mode & 0o777, 0o600);
 });
 
 test("links expire, and stop working when the file leaves every project", async () => {
@@ -234,7 +258,7 @@ test("a peer's files: reads forward, downloads stream through this server", asyn
     assert.equal((await fetch(alpha.http + dl.url.replace(/[^/]*$/, "evil.json"))).status, 403);
     // Beta itself would not take alpha's wrapper.
     assert.equal((await fetch(beta.http + link.url)).status, 403);
-    await refused(viaPeer.call("fs.downloadLink", { path: join(project, "escape.txt") }), ErrorCode.InvalidParams, /outside/);
+    await refused(viaPeer.call("fs.downloadLink", { path: escapePath }), ErrorCode.InvalidParams, /outside/);
   } finally {
     viaPeer.close();
   }
@@ -266,7 +290,7 @@ test("/f/ preview routes serve the web client", async () => {
   const store = new Store(join(dir, "casm.db"));
   const server = await startServer({ store, providers: [], host: "127.0.0.1", port: 0, version: "test", webRoot: dir });
   try {
-    const res = await fetch(`http://127.0.0.1:${server.port}/f${project}/data.json`);
+    const res = await fetch(`http://127.0.0.1:${server.port}/f/${encodeURIComponent(join(project, "data.json"))}`);
     assert.equal(res.status, 200);
     assert.match(await res.text(), /<title>casm/);
     assert.equal((await fetch(`http://127.0.0.1:${server.port}/missing.js`)).status, 426);
@@ -288,7 +312,7 @@ test("casm cat and casm get, here and on a peer", async () => {
   assert.equal((await casm("cat", join(project, "big.txt"))).stdout.length, 2 * MAX_READ_BYTES);
   await assert.rejects(casm("cat", join(project, "blob.bin")), /binary file \(application\/octet-stream, 4 bytes\); "casm get"/);
   assert.deepEqual((await casm("cat", "--force", join(project, "blob.bin"))).stdout, Buffer.from([1, 2, 0, 3]));
-  await assert.rejects(casm("cat", join(project, "escape.txt")), /outside every project folder/);
+  await assert.rejects(casm("cat", escapePath), /outside every project folder/);
 
   const saved = await casm("get", join(project, "sub", "zażółć plik.txt"));
   assert.match(String(saved.stderr), /saved .*zażółć plik.txt \(11 bytes\)/);
@@ -299,4 +323,16 @@ test("casm cat and casm get, here and on a peer", async () => {
   assert.deepEqual((await casm("get", join(project, "blob.bin"), "-o", "-")).stdout, Buffer.from([1, 2, 0, 3]));
   assert.ok(!readdirSync(cwd).some((f) => f.endsWith(".part")));
   assert.ok(!existsSync(join(cwd, "blob.bin")));
+});
+
+test("registered projects outside configured roots are excluded from reads and links", async () => {
+  const previous = process.env.CASM_PROJECT_ROOTS;
+  process.env.CASM_PROJECT_ROOTS = JSON.stringify([alpha.home]);
+  try {
+    await refused(alpha.client.call("fs.read", { path: join(project, "data.json") }), ErrorCode.InvalidParams, /not inside a project folder/);
+    await refused(alpha.client.call("fs.downloadLink", { path: join(project, "data.json") }), ErrorCode.InvalidParams, /not inside a project folder/);
+  } finally {
+    if (previous === undefined) delete process.env.CASM_PROJECT_ROOTS;
+    else process.env.CASM_PROJECT_ROOTS = previous;
+  }
 });

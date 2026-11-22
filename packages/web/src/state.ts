@@ -208,7 +208,7 @@ export function serverURL(): URL {
 // How the client notices a socket that died without closing (a sleeping
 // laptop, a dropped network): no message for `heartbeat` ms starts a probe,
 // and a probe or a connection attempt that takes too long drops the socket.
-export const timing = { heartbeat: 20_000, probe: 10_000, resume: 5_000, connect: 10_000, retry: 1_500 };
+export const timing = { heartbeat: 10_000, probe: 3_000, resume: 1_000, connect: 4_000, retry: 250 };
 // A call that failed because the connection did (not the server): the
 // connection banner already says so.
 export class ConnectionError extends Error {}
@@ -218,11 +218,13 @@ export class Rpc {
   authed?: WebSocket;
   next = 0;
   stopped = false;
+  private reconnects = 0;
   timer?: ReturnType<typeof setTimeout>;
   beat?: ReturnType<typeof setInterval>;
   // When the server last sent anything; 0 before the first connection.
   lastSeen = 0;
   probing = false;
+  private probePromise?: Promise<boolean>;
   pending = new Map<
     number,
     {
@@ -270,6 +272,7 @@ export class Rpc {
           if (s !== this.socket) return;
           clearTimeout(opening);
           this.authed = s;
+          this.reconnects = 0;
           this.lastSeen = Date.now();
           this.status(true);
           this.ready();
@@ -306,7 +309,7 @@ export class Rpc {
       p.reject(new ConnectionError("Connection lost"));
     }
     this.pending.clear();
-    if (!this.stopped) this.timer = setTimeout(() => this.connect(), timing.retry);
+    if (!this.stopped) this.timer = setTimeout(() => this.connect(), Math.min(timing.retry * 2 ** Math.min(this.reconnects++, 6), 15_000));
   }
   // A dead socket may never fire close (its closing handshake can't
   // complete): treat it as closed now and reconnect.
@@ -320,24 +323,27 @@ export class Rpc {
   }
   // Confirms the connection now (the page was resumed, focused, or the
   // network changed): reconnects at once when closed, probes when open.
-  check(timeout = timing.probe) {
-    if (this.stopped) return;
+  check(timeout = timing.probe): Promise<boolean> {
+    if (this.stopped) return Promise.resolve(false);
     const s = this.socket;
-    if (!s) return this.connect();
-    // Something arrived this very moment (focus events come in bursts).
-    if (s.readyState !== WebSocket.OPEN || this.probing || Date.now() - this.lastSeen < 1000) return;
-    if (Date.now() - this.lastSeen >= timing.heartbeat) this.suspect(true);
+    if (!s) { this.connect(); return Promise.resolve(false); }
+    if (this.probing) return this.probePromise ?? Promise.resolve(false);
+    if (!this.open) return Promise.resolve(false);
+    if (Date.now() - this.lastSeen < 1000) return Promise.resolve(true);
+    this.suspect(true);
     this.probing = true;
-    this.call("server.info", {}, "", timeout).then(
+    return this.probePromise = this.call("server.info", {}, "", timeout).then(
       () => {
-        if (s !== this.socket) return;
+        if (s !== this.socket) return false;
         this.probing = false;
         this.suspect(false);
+        return true;
       },
       () => {
-        if (s !== this.socket) return;
+        if (s !== this.socket) return false;
         this.probing = false;
         this.drop(s);
+        return false;
       },
     );
   }

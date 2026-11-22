@@ -56,6 +56,7 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
       await expect(agent.locator(".dot")).toHaveCount(1);
       await expect(agent.locator(".activity-spinner")).toHaveCount(0);
       expect(await agent.innerText()).not.toMatch(/Working|Idle|Unloaded|Needs you/);
+      await expect(agent.locator(".agent-summary > *")).toHaveCount(2);
       const dot = (await agent.locator(".dot").boundingBox())!;
       expect(Math.abs(dot.x + dot.width / 2 - menuBox.x - menuBox.width / 2)).toBeLessThanOrEqual(1.5);
       const box = (await agent.boundingBox())!;

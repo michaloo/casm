@@ -30,3 +30,11 @@ test("equal names sort by createdAt then id without mutating input", () => {
   assert.deepEqual(rows(agents), [["a", 0], ["b", 0], ["z", 0]]);
   assert.deepEqual(agents.map((agent) => agent.id), ["z", "b", "a"]);
 });
+
+test("newest activity sorts sibling/root blocks and a recent child brings its parent to the top", () => {
+  const agents = [agent("old-root"), agent("child", "old-root"), agent("new-root"), agent("old-child", "old-root")];
+  const activity: Record<string, number> = { "old-root": 1, child: 5, "new-root": 3, "old-child": 2 };
+  assert.deepEqual(agentHierarchy(agents, "project", "canonical", a => activity[a.id]).map(r => [r.agent.id, r.depth]),
+    [["old-root", 0], ["child", 1], ["old-child", 1], ["new-root", 0]]);
+  assert.deepEqual(agentHierarchy([agent("a", undefined, { updatedAt: "2026-11-01" }), agent("z", undefined, { updatedAt: "2026-11-02" })], "project", "canonical").map(r => r.agent.id), ["z", "a"]);
+});

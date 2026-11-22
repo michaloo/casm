@@ -11,6 +11,10 @@ const command = process.argv[2];
 if (command === "--version" || command === "-v" || command === "version") {
   console.log(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
 } else if (command === "service") {
+  if (process.platform === "win32") {
+    console.error("Windows service installation is not supported yet. Run casm serve in the foreground or use Windows Task Scheduler.");
+    process.exit(1);
+  }
   const child = spawnSync("bash", [fileURLToPath(new URL("../scripts/service.sh", import.meta.url)), ...process.argv.slice(3)], {
     stdio: "inherit",
     env: { ...process.env, CASM_NODE_BIN: process.execPath },

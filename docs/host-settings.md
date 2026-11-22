@@ -3,7 +3,7 @@
 The ⋯ button on a host row (Host options) opens the host modal: Usage,
 Resources (with [idle unload](#idle-unload)), AGENTS.md, System Prompt and
 Notifications. The ⋯ on a project
-row (Project options) opens the project modal: AGENTS.md, Memories and
+row (Project options) opens the project modal: Files, AGENTS.md, Memories and
 Schedules (see [web client: schedules](web-client.md#schedules)), with
 the project's path (Copy), host and group under its title and **New agent** in
 its header. They share one layout (a tab rail on wide
@@ -77,6 +77,31 @@ Discovery follows these provider conventions:
 
 This view covers global instruction files, not project or custom extra rules.
 Environment overrides are those inherited by the casm server.
+
+Only installed providers are shown when provider discovery is available. A
+Claude global file containing exactly one `@path` import is resolved to that
+file for editing. If Codex uses the same target, both providers share one editor
+and saves preserve Claude's import wrapper. Files mixing imports with other
+instructions remain separate. Start a new agent session after changing global
+instructions so that the provider loads the updated rules.
+
+## Project locations and files
+
+The optional `CASM_PROJECT_ROOTS` environment variable is a nonempty JSON array
+of absolute directories, for example `["C:/Projects/Work","C:/Projects/Personal"]`.
+It populates the new-project area selector and restricts project creation,
+agent creation and file RPCs to those roots. Existing ancestors are resolved
+before creating folders to reject junction or symlink escapes. Unset it to keep
+the default unrestricted project-location behavior. This is an application
+boundary, not an operating-system sandbox for provider shell commands.
+
+The project's Files tab lists one directory at a time with folders first and
+up to 1,000 entries. Filtering applies to that directory; hidden and generated
+files are hidden by default and can be shown. Files open in the existing
+preview with download support. HTML is rendered in a sandboxed iframe; use
+self-contained HTML because neighboring local assets are not automatically
+served. Full Windows paths, including paths with spaces in inline code or
+Markdown links, also open the file preview when they belong to a project root.
 
 ## System Prompt and project memories
 

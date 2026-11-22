@@ -2,7 +2,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { execFileSync } from "node:child_process";
+import spawn from "cross-spawn";
 
 const root = resolve(import.meta.dirname, "..");
 const out = join(root, "dist/npm");
@@ -22,7 +22,9 @@ for (const name of packages) {
   }
 }
 
-execFileSync("npm", ["run", "build"], { cwd: root, stdio: "inherit" });
+const build = spawn.sync("npm", ["run", "build"], { cwd: root, stdio: "inherit", windowsHide: true });
+if (build.error) throw build.error;
+if (build.status !== 0) throw new Error(`Web build failed (${build.status})`);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 function compile(dir: string) {
@@ -108,7 +110,7 @@ writeFileSync(join(out, "package.json"), JSON.stringify({
   type: "module",
   bin: { casm: "bin/casm.mjs" },
   engines: { node: ">=24" },
-  os: ["linux", "darwin"],
+  os: ["linux", "darwin", "win32"],
   license: "MIT",
   repository: { type: "git", url: "git+https://github.com/michaloo/casm.git" },
   homepage: "https://github.com/michaloo/casm#readme",

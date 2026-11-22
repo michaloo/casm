@@ -7,7 +7,7 @@ import { ErrorCode, type HostAgentsMdFile, type ProviderId } from "@casm/protoco
 import { RpcError } from "./agents.ts";
 import { readInstructionFile, writeInstructionFile } from "./project-details.ts";
 
-type Options = { home?: string; env?: NodeJS.ProcessEnv };
+type Options = { home?: string; env?: NodeJS.ProcessEnv; providers?: ProviderId[] };
 const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === "ENOENT";
 
 // Also resolve dangling links and nonexistent parents, so creating a missing
@@ -30,7 +30,7 @@ async function first(paths: string[], fallback: string, nonempty = false): Promi
   return fallback;
 }
 
-export async function hostAgentsMd({ home = homedir(), env = process.env }: Options = {}): Promise<HostAgentsMdFile[]> {
+export async function hostAgentsMd({ home = homedir(), env = process.env, providers }: Options = {}): Promise<HostAgentsMdFile[]> {
   const dir = (value: string | undefined, fallback: string) => value ? resolve(value.startsWith("~/") ? join(home, value.slice(2)) : value) : fallback;
   const claude = join(dir(env.CLAUDE_CONFIG_DIR, join(home, ".claude")), "CLAUDE.md");
   const codex = dir(env.CODEX_HOME, join(home, ".codex"));
@@ -45,7 +45,18 @@ export async function hostAgentsMd({ home = homedir(), env = process.env }: Opti
   ];
   const files = new Map<string, HostAgentsMdFile>();
   for (const source of sources) {
-    const path = await canonical(source.path);
+    if (providers && !providers.includes(source.provider)) continue;
+    let path = await canonical(source.path);
+    // A Claude file containing only an import is a shared-file wrapper, not a
+    // second editable copy. Mixed prose/imports retain their ordinary editor.
+    if (source.provider === "claude") {
+      const content = await readFile(path, "utf8").catch((e) => { if (missing(e)) return ""; throw e; });
+      const imported = /^@([^\r\n]+)$/.exec(content.trim())?.[1];
+      if (imported && !/["'`]/.test(imported)) {
+        const target = imported.replace(/\\ /g, " ");
+        if (!/(?<!\\)\s/.test(imported)) path = await canonical(target.startsWith("~/") ? join(home, target.slice(2)) : resolve(dirname(path), target));
+      }
+    }
     const existing = files.get(path);
     if (existing) existing.sources.push(source);
     else files.set(path, { ...await readInstructionFile(path), sources: [source] });

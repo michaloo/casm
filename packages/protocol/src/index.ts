@@ -375,7 +375,7 @@ export type ModelInfo = z.infer<typeof ModelInfo>;
 export const ModeInfo = z.object({ id: z.string(), name: z.string().optional(), description: z.string().optional() });
 export type ModeInfo = z.infer<typeof ModeInfo>;
 
-export const Catalog = z.object({ models: z.array(ModelInfo), modes: z.array(ModeInfo) });
+export const Catalog = z.object({ models: z.array(ModelInfo), modes: z.array(ModeInfo), defaults: AgentConfig.optional() });
 export type Catalog = z.infer<typeof Catalog>;
 
 
@@ -717,7 +717,7 @@ export const methods = {
 
   "server.info": method(
     Empty,
-    z.object({ id: z.string(), name: z.string(), version: z.string(), protocol: z.number(), providers: z.array(ProviderId) }),
+    z.object({ id: z.string(), name: z.string(), version: z.string(), protocol: z.number(), providers: z.array(ProviderId), projectRoots: z.array(z.string()).optional() }),
   ),
 
   // The host's agent prompt: put ahead of every agent's config.systemPrompt
@@ -803,6 +803,10 @@ export const methods = {
   // A file's info and, for text, its first `maxBytes` (default and at most
   // 1 MiB). `content` is null for binary files and directories.
   "fs.read": method(z.object({ path: z.string(), maxBytes: z.number().int().positive().optional() }), FileContent),
+  "fs.list": method(
+    z.object({ path: z.string() }),
+    z.object({ path: z.string(), truncated: z.boolean(), entries: z.array(z.object({ name: z.string(), path: z.string(), kind: z.enum(["file", "dir", "other"]) })) }),
+  ),
   // A short-lived URL path (/dl/<signed token>, about 5 minutes, this one file)
   // the HTTP server streams the file from, relative to the server the client is
   // connected to. With `host` it is a peer's file, streamed through this server.

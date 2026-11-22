@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -49,11 +52,24 @@ createInterface({input:process.stdin}).on('line', line => {
 });
 `, { mode: 0o755 });
   const oldPath = process.env.CASM_CODEX_PATH;
+  const oldBundle = process.env.CASM_CODEX_BIN_DIR;
+  delete process.env.CASM_CODEX_BIN_DIR;
   process.env.CASM_CODEX_PATH = binary;
-  t.after(() => {
+  // Windows cannot execute a shebang script directly. Keep the production
+  // executable resolver unchanged and launch only this fixture through Node.
+  if (process.platform === "win32") {
+    const original = childProcess.spawn;
+    t.mock.method(childProcess, "spawn", (file: string, args: string[], options: any) =>
+      file === binary ? original(process.execPath, [file, ...args], options) : original(file, args, options));
+    syncBuiltinESMExports();
+    t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  }
+  t.after(async () => {
+    if (oldBundle === undefined) delete process.env.CASM_CODEX_BIN_DIR;
+    else process.env.CASM_CODEX_BIN_DIR = oldBundle;
     if (oldPath === undefined) delete process.env.CASM_CODEX_PATH;
     else process.env.CASM_CODEX_PATH = oldPath;
-    rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   return { dir, requests: () => readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) };
 }
@@ -125,4 +141,39 @@ for (const code of [-32600, -32603]) {
 test("Codex history surfaces a missing thread from the fallback", async t => {
   const fake = setup(t, { readError: true });
   await assert.rejects(codexProvider().history("missing", fake.dir), /thread not loaded: missing/);
+});
+
+test("Codex reads live history over its existing connection", async t => {
+  const fake = setup(t);
+  const session = codexProvider().open({ cwd: fake.dir, config: {}, resumeId: null,
+    emit() {}, askPermission: async () => { throw new Error("unexpected"); }, askQuestion: async () => null,
+  });
+  try {
+    const items = await session.history!();
+    assert.ok(items.some(i => i.kind === "assistant" && i.id === "answer"));
+    assert.ok(items.some(i => i.kind === "notice" && i.id === "error-t3"));
+    assert.equal(fake.requests().filter(r => r.method === "initialize").length, 1);
+  } finally { await session.close(); }
+});
+
+test("Codex history snapshots coalesce reads and invalidate on external transcript changes", async t => {
+  const fake = setup(t);
+  mkdirSync(join(fake.dir, "sessions"));
+  const file = join(fake.dir, "sessions", "rollout-test-parent.jsonl");
+  writeFileSync(file, "first");
+  const childFile = join(fake.dir, "sessions", "rollout-test-child.jsonl");
+  writeFileSync(childFile, "child");
+  const provider = codexProvider();
+  const context = { env: { CODEX_HOME: fake.dir } };
+  const [one, two] = await Promise.all([provider.history("parent", fake.dir, context), provider.history("parent", fake.dir, context)]);
+  assert.deepEqual(one, two);
+  assert.equal(fake.requests().filter(r => r.method === "initialize").length, 1);
+  await provider.history("parent", fake.dir, context);
+  assert.equal(fake.requests().filter(r => r.method === "initialize").length, 1);
+  appendFileSync(file, "external change");
+  await provider.history("parent", fake.dir, context);
+  assert.equal(fake.requests().filter(r => r.method === "initialize").length, 2);
+  appendFileSync(childFile, "new child reply");
+  await provider.history("parent", fake.dir, context);
+  assert.equal(fake.requests().filter(r => r.method === "initialize").length, 3);
 });

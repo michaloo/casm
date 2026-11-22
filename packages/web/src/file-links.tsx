@@ -2,6 +2,8 @@
 // code and code blocks, become links that open the file preview. Their href is
 // the /f/<path> route, so opening one in a new tab works too.
 import { createContext, useContext, type AnchorHTMLAttributes, type MouseEvent, type ReactNode } from "react";
+import { insideRoot, fileHref, pathFromHref, windowsAbsolute } from "./file-paths.ts";
+export { insideRoot, fileHref, pathFromHref } from "./file-paths.ts";
 
 export type FileLinks = { roots: string[]; open: (path: string) => void };
 export const FileLinksContext = createContext<FileLinks | null>(null);
@@ -19,16 +21,13 @@ export function splitLine(ref: string): { path: string; line?: number } {
   return m && line > 0 ? { path: m[1], line } : { path: ref };
 }
 
-export const insideRoot = (path: string, roots: string[]) =>
-  roots.some((r) => {
-    const root = r.replace(/\/+$/, "");
-    return path === root || path.startsWith(`${root}/`);
-  });
+const WINDOWS_PATH = new RegExp(`(?<![\\p{L}\\p{N}_.:/\\\\])(?:[a-zA-Z]:[\\\\/]|\\\\\\\\${CHARS}+[\\\\/])${CHARS}+(?:[\\\\/]${CHARS}+)*(?::\\d+(?::\\d+)?|#L\\d+(?:-L?\\d+)?)?`, "gu");
 
 export function findPaths(text: string, roots: string[]): { index: number; path: string }[] {
-  if (!roots.length || !text.includes("/")) return [];
+  if (!roots.length || !/[\\/]/.test(text)) return [];
   const found: { index: number; path: string }[] = [];
-  for (const m of text.matchAll(PATH)) {
+  const matches = [...text.matchAll(PATH), ...text.matchAll(WINDOWS_PATH)].sort((a, b) => a.index - b.index);
+  for (const m of matches) {
     // Sentence punctuation after a path is not part of it.
     const path = m[0].replace(/[.,:;=-]+$/, "").replace(/(.)\/$/, "$1");
     if (insideRoot(splitLine(path).path, roots)) found.push({ index: m.index, path });
@@ -36,15 +35,6 @@ export function findPaths(text: string, roots: string[]): { index: number; path:
   return found;
 }
 
-export const fileHref = (path: string) => `/f${path.split("/").map(encodeURIComponent).join("/")}`;
-export function pathFromHref(href: string | null | undefined): string | null {
-  if (!href?.startsWith("/f/")) return null;
-  try {
-    return decodeURIComponent(href.slice(2));
-  } catch {
-    return null;
-  }
-}
 
 // A plain click opens the preview; modified clicks keep the browser's behaviour.
 export function openFromClick(e: MouseEvent, links: FileLinks | null) {
@@ -106,11 +96,14 @@ export function remarkFilePaths({ roots }: { roots: string[] }) {
     return nodes;
   };
   const walk = (node: MdNode) => {
+    if (node.type === "link" && node.url && windowsAbsolute(node.url) && insideRoot(splitLine(node.url).path, roots)) node.url = fileHref(node.url);
     if (!node.children || node.type === "link" || node.type === "linkReference") return;
     node.children = node.children.flatMap((child) => {
       if (child.type === "text") return split(child.value ?? "");
       if (child.type === "inlineCode") {
         const value = (child.value ?? "").trim();
+        if ((windowsAbsolute(value) || value.startsWith("/")) && !/[\r\n]/.test(value) && insideRoot(splitLine(value).path, roots))
+          return [{ type: "link", url: fileHref(value), children: [child] }];
         const [first] = findPaths(value, roots);
         if (first?.index === 0 && /^\/?$/.test(value.slice(first.path.length)))
           return [{ type: "link", url: fileHref(first.path), children: [child] }];
@@ -140,7 +133,7 @@ export function isExternalLink(href: string | undefined, base = globalThis.locat
 export function MarkdownLink({ href, children, node: _node, ...rest }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
   const links = useContext(FileLinksContext);
   if (isExternalLink(href)) return <a {...rest} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
-  const path = pathFromHref(href) ?? (href?.startsWith("/") && !href.startsWith("//") && links && insideRoot(splitLine(href).path, links.roots) ? href : null);
+  const path = pathFromHref(href) ?? (href && (windowsAbsolute(href) || (href.startsWith("/") && !href.startsWith("//"))) && links && insideRoot(splitLine(href).path, links.roots) ? href : null);
   if (!path || !links) return <a href={href} {...rest}>{children}</a>;
   return <a {...rest} className="file-link" href={fileHref(path)} onClick={(e) => openFromClick(e, links)}>{children}</a>;
 }

@@ -5,7 +5,7 @@ import { ImageCanvas, ImageSteps } from "./image-canvas";
 // the page is connected to, so they work for peers' files and on iPhone Safari.
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import type { FileContent } from "@casm/protocol";
+import type { FileContent, Result } from "@casm/protocol";
 import { serverURL, type Rpc } from "./state";
 import { CodeBlock, Prose, copy } from "./transcript";
 import { FileLinksContext, splitLine } from "./file-links";
@@ -18,7 +18,7 @@ const LANGUAGES: Record<string, string> = {
   css: "css", html: "xml", htm: "xml", xml: "xml", svg: "xml",
 };
 const extension = (name: string) => /\.([^./]+)$/.exec(name)?.[1]?.toLowerCase() ?? "";
-const baseName = (path: string) => path.replace(/\/+$/, "").split("/").pop() || path;
+const baseName = (path: string) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
 
 export function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -154,10 +154,34 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
         {images && images.length > 1 && <ImageSteps index={index} count={images.length} step={navigate} />}
       </ImageCanvas>}
       {!source && file && <FileLinksContext.Provider value={links}>
-        <FileBody file={file} line={line} view={view} />
+        {file.type === "dir" && rpc ? <DirectoryView rpc={rpc} host={host} path={file.path} open={go} /> : <FileBody file={file} line={line} view={view} />}
       </FileLinksContext.Provider>}
     </div>
   </dialog>, document.body);
+}
+
+export function DirectoryView({ rpc, host, path, open }: { rpc: Rpc; host: string; path: string; open: (path: string) => void }) {
+  const [listing, setListing] = useState<Result<"fs.list">>();
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("");
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setListing(undefined); setError(""); setFilter("");
+    void rpc.call("fs.list", { path }, host).then(value => { if (active) setListing(value); }).catch(error => { if (active) setError(message(error)); });
+    return () => { active = false; };
+  }, [rpc, host, path]);
+  const entries = listing?.entries.filter(entry => (hidden || (!entry.name.startsWith(".") && !["node_modules", "__pycache__"].includes(entry.name))) && entry.name.toLowerCase().includes(filter.toLowerCase()));
+  return <section className="file-directory" aria-label="Project files">
+    <p className="muted">Files on the host. Open a file to preview or download it.</p>
+    <input aria-label="Filter this folder" placeholder="Filter this folder" value={filter} onChange={event => setFilter(event.target.value)} />
+    <label className="settings-toggle"><input type="checkbox" checked={hidden} onChange={event => setHidden(event.target.checked)} />Show hidden and generated files</label>
+    {error && <p role="alert" className="error">{error}</p>}
+    {!listing && !error && <p role="status">Loading files…</p>}
+    {entries?.length === 0 && <p>No matching files.</p>}
+    <ul>{entries?.map(entry => <li key={entry.path}><button type="button" onClick={() => open(entry.path)}><span aria-hidden="true">{entry.kind === "dir" ? "▱" : "▤"}</span> {entry.name}</button></li>)}</ul>
+    {listing?.truncated && <p className="muted">Showing the first 1000 entries.</p>}
+  </section>;
 }
 
 // Scripts run so that self-contained pages (charts, reports) work, but the

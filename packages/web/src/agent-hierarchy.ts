@@ -5,7 +5,7 @@ const compare = (a: Agent, b: Agent) =>
   a.name.localeCompare(b.name) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
 
 /** Flatten only visible, same-server/project relationships. Each agent appears once. */
-export function agentHierarchy(agents: readonly Agent[], projectId: string, serverId: string | null | undefined): AgentHierarchyRow[] {
+export function agentHierarchy(agents: readonly Agent[], projectId: string, serverId: string | null | undefined, activity: (agent: Agent) => number = (a) => Date.parse(a.updatedAt) || 0): AgentHierarchyRow[] {
   const visible = agents.filter((agent) => agent.projectId === projectId && !agent.archivedAt).sort(compare);
   const byId = new Map(visible.map((agent) => [agent.id, agent]));
   const parents = new Map<string, string>();
@@ -42,6 +42,17 @@ export function agentHierarchy(agents: readonly Agent[], projectId: string, serv
       children.set(parent, siblings);
     }
   }
+  const latest = new Map(visible.map((agent) => [agent.id, activity(agent)]));
+  for (const agent of visible) {
+    let parent = parents.get(agent.id);
+    while (parent) {
+      latest.set(parent, Math.max(latest.get(parent) ?? 0, latest.get(agent.id) ?? 0));
+      parent = parents.get(parent);
+    }
+  }
+  const recent = (a: Agent, b: Agent) => (latest.get(b.id) ?? 0) - (latest.get(a.id) ?? 0) || compare(a, b);
+  roots.sort(recent);
+  for (const siblings of children.values()) siblings.sort(recent);
   const result: AgentHierarchyRow[] = [];
   const stack = roots.map((agent) => ({ agent, depth: 0 })).reverse();
   while (stack.length) {

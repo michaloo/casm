@@ -1,10 +1,10 @@
 import type { Agent, ModelInfo } from "@casm/protocol";
 import { ProviderIcon, providerNames } from "./provider-icon";
 import { AgentActivity } from "./agent-activity-view";
-import { agentStatus } from "./agent-activity";
 import { modelLabels } from "./model-label";
+import { agentStatus } from "./agent-activity";
 
-export function AgentSummary({ agent, status, models = [], online = true }: { agent: Agent; status: string; models?: ModelInfo[]; online?: boolean }) {
+export function AgentSummary({ agent, status, models = [], online = true, unread = false }: { agent: Agent; status: string; models?: ModelInfo[]; online?: boolean; unread?: boolean }) {
   const model = modelLabels(agent.config.model, agent.effectiveModel, models);
   // No reported identity: configured model is a selection, never a session claim.
   const label = model.actual ?? (agent.config.model ? `${model.selectedLabel} (selected)` : model.sessionLabel);
@@ -19,6 +19,6 @@ export function AgentSummary({ agent, status, models = [], online = true }: { ag
         {counts && <span className="agent-counts"> · {counts}</span>}
       </small>
     </span>
-    <span className="agent-end"><AgentActivity agent={agent} status={status} online={online} /></span>
+    <span className="agent-end"><AgentActivity agent={agent} status={status} online={online} unread={unread} /></span>
   </>;
 }

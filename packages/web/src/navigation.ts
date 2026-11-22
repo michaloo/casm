@@ -1,4 +1,5 @@
 import type { Host } from "./state";
+import { pathFromHref } from "./file-paths.ts";
 export type Selection = { host: string; project: string; id?: string };
 export function viewPath(s: Selection, hosts: Host[]): string {
   const host = hosts.find((h) => h.id === s.host)?.name ?? s.host;
@@ -49,10 +50,5 @@ export function resolveView(
 }
 // /f/<absolute path>: the file preview for a pasted path.
 export function filePathFromRoute(path: string): string | null {
-  if (!path.startsWith("/f/")) return null;
-  try {
-    return decodeURIComponent(path.slice(2));
-  } catch {
-    return null;
-  }
+  return pathFromHref(path);
 }

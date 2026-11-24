@@ -55,6 +55,7 @@ import { MAX_IMAGES, draftAttachment, droppedFiles, isImageFile, prepareImage, t
 import { NewAgentKeys, NewAgentWelcome } from "./new-agent";
 import { SignOut } from "./sign-out";
 import { DeviceSettings } from "./device-settings";
+import { chatTitle } from "./chat-title";
 import { readChatMemory, recentChats, writeChatMemory, type ChatMemory } from "./chat-memory";
 import { FindBar, FindGlyph, findPattern, revealMatch, useFindHighlights, type FindState } from "./find-in-chat";
 import { pageAround, shownIndex, showPage, windowNewer, windowOlder, WINDOW_PAGE } from "./find-window";
@@ -749,7 +750,7 @@ function App() {
           {
             projectId: s.project,
             provider,
-            name: text.trim().slice(0, 70) || files[0]?.file.name.slice(0, 70) || "Image message",
+            name: chatTitle(text, files[0]?.file.name),
             config: { model, mode, effort },
           },
           s.host,

@@ -213,6 +213,7 @@ aside nav {
 }
 /* Hosts are section headers (a tinted band: server glyph, small-caps name,
    chevron at its end); projects are lighter, indented fold rows below. */
+.chat-rename label { display: grid; gap: 6px; margin-block: 12px; }
 nav section.host {
   padding: 6px 0 6px;
 }

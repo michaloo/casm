@@ -60,6 +60,7 @@ import { FindBar, FindGlyph, findPattern, revealMatch, useFindHighlights, type F
 import { pageAround, shownIndex, showPage, windowNewer, windowOlder, WINDOW_PAGE } from "./find-window";
 import "./fonts/fonts.css";
 import "./style.css";
+import { SidebarResize, useSidebarWidth } from "./sidebar-resize";
 // Same threshold the server uses for a slow peer probe.
 const SLOW_HOST_MS = 2000;
 const noModels: ModelInfo[] = [];
@@ -219,6 +220,7 @@ function App() {
   // Status text of pending rows with an action in flight, by key(host, id).
   const rowNotes = useRef(new Map<string, string>()).current;
   const [sidebar, showSidebar] = useState(false);
+  const sidebarWidth = useSidebarWidth();
   const [chatMemory, setChatMemory] = useState<ChatMemory>(() => readChatMemory(localStorage));
   const [viewportDebug, setViewportDebug] = useState(false);
   const [collapsed, setCollapsed] = useState<CollapsedProjects>(() => readCollapsed(localStorage));
@@ -993,7 +995,8 @@ function App() {
       {preview && rpc.current && online && <FilePreview key={`${preview.host}\n${preview.path}`} rpc={rpc.current} host={preview.host} path={preview.path}
         roots={previewRoots} close={closePreview} />}
       {mcp && rpc.current && <McpPanel {...mcp} rpc={rpc.current} close={() => { setMcp(undefined); document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus(); }} />}
-      <aside className={sidebar || (!selection && path === "/") ? "open" : ""}>
+      <aside id="conversation-sidebar" className={sidebar || (!selection && path === "/") ? "open" : ""}
+        style={{ "--conversation-sidebar-width": `${sidebarWidth.width}px` } as React.CSSProperties}>
         <header>
           <strong className="brand">
             <span className="brand-glyph" aria-hidden="true" />
@@ -1093,6 +1096,7 @@ function App() {
           }} />
         </footer>
       </aside>
+      <SidebarResize {...sidebarWidth} />
       <main className={`chat${starting ? " start" : ""}`}>
         <header>
           <button type="button" className="mobile icon-button" aria-label="Agents" title="Agents" onClick={() => showSidebar(true)}>

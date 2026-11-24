@@ -1,0 +1,20 @@
+.sidebar-resize { display: none; }
+@media (min-width: 651px) {
+  #conversation-sidebar { width: var(--conversation-sidebar-width); }
+  .sidebar-resize {
+    display: block;
+    position: relative;
+    z-index: 2;
+    flex: 0 0 9px;
+    margin-inline: -5px -4px;
+    cursor: col-resize;
+    touch-action: none;
+    outline-offset: -2px;
+  }
+  .sidebar-resize::after {
+    content: "";
+    position: absolute;
+    inset: 0 4px 0 3px;
+  }
+  .sidebar-resize:is(:hover, :focus-visible, :active)::after { background: var(--accent); }
+}

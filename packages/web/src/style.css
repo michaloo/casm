@@ -345,6 +345,15 @@ nav .host-collapse .host-label { color: var(--text); }
   color: var(--muted);
   font-size: 12px;
 }
+nav .project-show-more {
+  color: var(--muted);
+  padding-left: 34px;
+  font-size: 12px;
+  min-height: 30px;
+}
+@media (max-width: 650px) {
+  nav .project-show-more { min-height: 44px; padding-left: 44px; font-size: 14px; }
+}
 .sidebar-empty.project-empty {
   margin: 0 8px 4px 34px;
   font-size: 11px;

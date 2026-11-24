@@ -16,6 +16,7 @@ async function login(page: any) {
 // Phones keep the sidebar behind the Agents button.
 async function openAgent(page: any, name: string) {
   await openAgents(page);
+  if (name === "Agent 05") await page.getByRole("button", { name: /Show \d+ more chats/ }).click();
   await page.getByRole("button", { name: new RegExp(name) }).click();
   await expect(page.locator("main header strong")).toHaveText(name);
 }

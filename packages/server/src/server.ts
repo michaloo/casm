@@ -27,6 +27,7 @@ import { createHandlers, type Conn } from "./methods.ts";
 import { Scheduler } from "./schedules.ts";
 import { PeerPool } from "./peers.ts";
 import { Files } from "./files.ts";
+import { localDesktopRequest } from "./open-file.ts";
 import { Uploads } from "./attachments.ts";
 import { AgentPrompt } from "./agent-prompt.ts";
 import { Settings } from "./settings.ts";
@@ -155,7 +156,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     }
     if (name && token === query) log(`client ${name} sent its token in the URL (?token=), which is deprecated: update the client`);
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const client: Client = { ws, subscriptions: new Set(), remote: new Map(), send: (raw) => ws.send(raw), from };
+      const client: Client = { ws, localDesktop: localDesktopRequest(req), subscriptions: new Set(), remote: new Map(), send: (raw) => ws.send(raw), from };
       const timer = name
         ? undefined
         : setTimeout(() => {
@@ -237,6 +238,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (host && req.method === "browser.share")
       return reply(client, { jsonrpc: "2.0", id, error: { code: ErrorCode.InvalidRequest, message: "a browser shares its tabs with the server it connects to, not through a peer" } });
     try {
+      if (host && req.method === "fs.openOnHost")
+        throw new RpcError(ErrorCode.InvalidRequest, "Opening a file requires a connection directly to its host.");
       const handler = handlers[req.method as MethodName] as (p: unknown, c: Conn) => unknown;
       const result = host ? await forward(client, host, req.method as MethodName, req.params ?? {}) : await handler(parsed.data, client);
       if (id !== null) reply(client, { jsonrpc: "2.0", id, result });

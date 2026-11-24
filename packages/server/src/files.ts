@@ -13,6 +13,7 @@ import { ErrorCode, type FileContent, type FileType, type Project, type Result }
 import { RpcError } from "./agents.ts";
 import type { Store, StoredPeer } from "./db.ts";
 import type { PeerPool } from "./peers.ts";
+import { canOpenDesktopFile, openDesktopFile } from "./open-file.ts";
 
 export const LINK_TTL_MS = 5 * 60_000;
 export const MAX_READ_BYTES = 1024 * 1024;
@@ -133,11 +134,27 @@ export class Files {
     return { real, project: match.project, root: match.real };
   }
 
-  async read(p: { path: string; maxBytes?: number }): Promise<FileContent> {
+  async openOnHost(path: string, localDesktop?: boolean) {
+    if (process.platform !== "win32" || !localDesktop)
+      throw new RpcError(ErrorCode.InvalidRequest, "Opening a file requires a local Windows browser connection.");
+    const { real } = await this.resolve(path);
+    if (!canOpenDesktopFile(real) || !(await stat(real)).isFile())
+      throw new RpcError(ErrorCode.InvalidParams, "This file type cannot be opened on the desktop.");
+    try {
+      await openDesktopFile(real);
+    } catch {
+      throw new RpcError(ErrorCode.InvalidRequest, "Windows could not open the file. If CASM runs in the background, check the desktop opener task.");
+    }
+    return { ok: true as const };
+  }
+
+  async read(p: { path: string; maxBytes?: number }, localDesktop?: boolean): Promise<FileContent> {
     const { real, project } = await this.resolve(p.path);
     const st = await stat(real);
     const mime = st.isDirectory() ? "inode/directory" : mimeOf(real);
-    const info = { path: resolve(p.path), projectId: project.id, type: typeOf(st), size: st.isFile() ? st.size : 0, mtime: st.mtime.toISOString(), mime };
+    const info = { path: resolve(p.path), projectId: project.id, type: typeOf(st),
+      ...(localDesktop && process.platform === "win32" && st.isFile() && canOpenDesktopFile(real) ? { openOnHost: true } : {}),
+      size: st.isFile() ? st.size : 0, mtime: st.mtime.toISOString(), mime };
     // Raster images are only ever shown through a download link.
     if (!st.isFile() || (mime.startsWith("image/") && !TEXTUAL.test(mime)))
       return { ...info, binary: st.isFile(), truncated: false, content: null };

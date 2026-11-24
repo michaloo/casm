@@ -578,6 +578,7 @@ export const UserNotification = z.object({
 export type UserNotification = z.infer<typeof UserNotification>;
 
 export const FileContent = z.object({
+  openOnHost: z.boolean().optional(),
   path: z.string(),
   projectId: z.string(),
   type: FileType,
@@ -802,6 +803,7 @@ export const methods = {
   // project folder once symlinks and ".." are resolved; anything else is refused.
   // A file's info and, for text, its first `maxBytes` (default and at most
   // 1 MiB). `content` is null for binary files and directories.
+  "fs.openOnHost": method(z.object({ path: z.string().min(1) }), Ok),
   "fs.read": method(z.object({ path: z.string(), maxBytes: z.number().int().positive().optional() }), FileContent),
   // A short-lived URL path (/dl/<signed token>, about 5 minutes, this one file)
   // the HTTP server streams the file from, relative to the server the client is

@@ -2103,6 +2103,34 @@
         ]
       }
     },
+    "fs.openOnHost": {
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
     "fs.read": {
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2125,6 +2153,9 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
+          "openOnHost": {
+            "type": "boolean"
+          },
           "path": {
             "type": "string"
           },

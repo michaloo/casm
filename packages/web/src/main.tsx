@@ -41,7 +41,7 @@ import { schedulesChanged } from "./project-schedules";
 import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
 import { agentHierarchy } from "./agent-hierarchy";
-import { recentProjectAgents } from "./recent-agents";
+import { agentActivity, recentProjectAgents } from "./recent-agents";
 import { modelLabels } from "./model-label";
 import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type CollapsedProjects } from "./project-collapse";
 import { ViewportDebug } from "./viewport-debug";
@@ -1043,12 +1043,12 @@ function App() {
                 .map((p) => {
                   const expanded = projectExpanded(collapsed, h.id, p.id, selection);
                   const pinned = !!(selection?.id && selection.host === h.id && selection.project === p.id);
-                  const agents = agentHierarchy(h.agents, p.id, h.serverId);
+                  const agents = agentHierarchy(h.agents, p.id, h.serverId, agentActivity);
                   const listKey = projectKey(h.id, p.id);
                   const showAll = fullProjects.has(listKey);
                   const recent = expanded ? recentProjectAgents(h.agents, p.id, pinned ? selection?.id : undefined) : [];
                   const hidden = agents.length - recent.length;
-                  const rows = showAll || !hidden ? agents : agentHierarchy(recent, p.id, h.serverId);
+                  const rows = showAll || !hidden ? agents : agentHierarchy(recent, p.id, h.serverId, agentActivity);
                   return (
                   <div key={p.id} className="project-group">
                     {/* The whole row folds; + starts a new agent, ⋯ opens the project modal. */}

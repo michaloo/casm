@@ -1,15 +1,24 @@
-import type { Agent } from "@casm/protocol";
+import type { Agent, Item } from "@casm/protocol";
 
 export const RECENT_AGENT_COUNT = 5;
 export type ChatActivity = (agent: Agent) => number;
 
-export function agentActivity(agent: Agent): number {
-  return Date.parse(agent.updatedAt) || Date.parse(agent.createdAt) || 0;
+export function agentActivity(agent: Agent, messageAt?: number): number {
+  return messageAt || Date.parse(agent.createdAt) || 0;
+}
+
+export function lastMessageTime(items: readonly Item[]): number {
+  let latest = 0;
+  for (const item of items) {
+    if (item.kind === "user" || (item.kind === "assistant" && item.text.trim())) {
+      latest = Math.max(latest, Date.parse(item.at ?? "") || 0);
+    }
+  }
+  return latest;
 }
 
 export function compareRecent(a: Agent, b: Agent, activity: ChatActivity): number {
-  return activity(b) - activity(a) || agentActivity(b) - agentActivity(a) ||
-    b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
+  return activity(b) - activity(a) || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
 }
 
 /** Keep the current conversation reachable even when it is older than the recent list. */

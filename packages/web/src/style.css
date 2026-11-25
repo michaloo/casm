@@ -3261,3 +3261,9 @@ footer .device-settings .exit-glyph { width: 16px; height: 16px; }
   background: var(--accent);
   color: var(--on-accent);
 }
+
+.chat-sort-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; padding: 0 12px 8px; }
+.chat-sort-options button { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+.chat-sort-options button:last-child { min-width: 44px; }
+.chat-sort-options button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+@media (max-width: 650px) { .chat-sort-options button { min-height: 40px; } }

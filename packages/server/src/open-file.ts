@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import type { IncomingMessage } from "node:http";
+import { networkInterfaces } from "node:os";
 import { extname, join } from "node:path";
 import { promisify } from "node:util";
 
@@ -12,13 +13,35 @@ const DOCUMENTS = new Set([
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+type TailscaleDesktop = { origin: string; addresses: ReadonlySet<string> };
+
+// Enable only for a loopback-bound CASM behind Tailscale Serve. Serve
+// replaces forwarding headers with the authenticated connection's source.
+export function tailscaleDesktop(origin: unknown, listenHost: string): TailscaleDesktop | undefined {
+  if (typeof origin !== "string" || !(LOOPBACK.has(listenHost) || listenHost === "localhost")) return;
+  try {
+    const url = new URL(origin);
+    if (url.origin !== origin || url.protocol !== "https:" || !url.hostname.endsWith(".ts.net")) return;
+    const addresses = networkInterfaces().Tailscale?.filter(address => !address.internal).map(address => address.address);
+    if (addresses?.length) return { origin, addresses: new Set(addresses) };
+  } catch { /* Invalid configuration leaves proxy access disabled. */ }
+}
+
 export function localDesktopRequest(req: {
   headers: IncomingMessage["headers"];
   socket: Pick<IncomingMessage["socket"], "remoteAddress" | "localPort">;
-}) {
+}, tailscale?: TailscaleDesktop) {
   if (!LOOPBACK.has(req.socket.remoteAddress ?? "") || !req.headers.origin || !req.headers.host) return false;
   try {
     const origin = new URL(req.headers.origin);
+    const forwardedFor = req.headers["x-forwarded-for"];
+    if (tailscale && origin.origin === tailscale.origin && req.headers.origin === tailscale.origin) {
+      return origin.host === req.headers.host &&
+        req.headers["x-forwarded-host"] === origin.host &&
+        req.headers["x-forwarded-proto"] === "https" &&
+        !req.headers.forwarded && !req.headers["tailscale-funnel-request"] &&
+        typeof forwardedFor === "string" && tailscale.addresses.has(forwardedFor);
+    }
     const port = Number(origin.port || (origin.protocol === "https:" ? 443 : 80));
     return (origin.protocol === "http:" || origin.protocol === "https:") &&
       origin.origin === req.headers.origin &&

@@ -13,7 +13,7 @@ const DOCUMENTS = new Set([
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-type TailscaleDesktop = { origin: string; addresses: ReadonlySet<string> };
+type TailscaleDesktop = { origin: string; addresses: () => ReadonlySet<string> };
 
 // Enable only for a loopback-bound CASM behind Tailscale Serve. Serve
 // replaces forwarding headers with the authenticated connection's source.
@@ -22,8 +22,9 @@ export function tailscaleDesktop(origin: unknown, listenHost: string): Tailscale
   try {
     const url = new URL(origin);
     if (url.origin !== origin || url.protocol !== "https:" || !url.hostname.endsWith(".ts.net")) return;
-    const addresses = networkInterfaces().Tailscale?.filter(address => !address.internal).map(address => address.address);
-    if (addresses?.length) return { origin, addresses: new Set(addresses) };
+    return { origin, addresses: () => new Set(
+      (networkInterfaces().Tailscale ?? []).filter(address => !address.internal).map(address => address.address),
+    ) };
   } catch { /* Invalid configuration leaves proxy access disabled. */ }
 }
 
@@ -40,7 +41,7 @@ export function localDesktopRequest(req: {
         req.headers["x-forwarded-host"] === origin.host &&
         req.headers["x-forwarded-proto"] === "https" &&
         !req.headers.forwarded && !req.headers["tailscale-funnel-request"] &&
-        typeof forwardedFor === "string" && tailscale.addresses.has(forwardedFor);
+        typeof forwardedFor === "string" && tailscale.addresses().has(forwardedFor);
     }
     const port = Number(origin.port || (origin.protocol === "https:" ? 443 : 80));
     return (origin.protocol === "http:" || origin.protocol === "https:") &&

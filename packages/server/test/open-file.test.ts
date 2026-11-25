@@ -24,7 +24,10 @@ test("Tailscale Serve allows only the configured HTTPS origin and this laptop's 
     "x-forwarded-proto": "https",
     "x-forwarded-for": local,
   };
-  const proxy = { origin, addresses: new Set([local]) };
+  const assigned = new Set<string>();
+  const proxy = { origin, addresses: () => assigned };
+  assert.equal(localDesktopRequest({ socket, headers }, proxy), false);
+  assigned.add(local);
   assert.equal(localDesktopRequest({ socket, headers }, proxy), true);
   assert.equal(localDesktopRequest({ socket, headers }), false);
   assert.equal(localDesktopRequest({ socket, headers: { ...headers, "x-forwarded-for": "100.100.1.3" } }, proxy), false);

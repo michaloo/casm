@@ -62,11 +62,10 @@ import "./fonts/fonts.css";
 import "./style.css";
 // Same threshold the server uses for a slow peer probe.
 const SLOW_HOST_MS = 2000;
-const noModels: ModelInfo[] = [];
 const coarsePointer = matchMedia("(pointer: coarse)");
 // Memoized: transcript deltas re-render App often, and the sidebar can hold 100+ agents.
-const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, online, models, onChoose }: {
-  agent: Agent; host: string; depth: number; status: string; selected: boolean; online: boolean; models: ModelInfo[];
+const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, online, onChoose }: {
+  agent: Agent; host: string; depth: number; status: string; selected: boolean; online: boolean;
   onChoose: (s: Selection) => void;
 }) {
   return (
@@ -77,7 +76,7 @@ const AgentRow = memo(function AgentRow({ agent, host, depth, status, selected, 
       style={{ "--agent-depth": depth } as React.CSSProperties}
       onClick={() => onChoose({ host, project: agent.projectId, id: agent.id })}
     >
-      <AgentSummary agent={agent} status={status} online={online} models={models} />
+      <AgentSummary agent={agent} status={status} online={online} />
     </button>
   );
 });
@@ -1069,7 +1068,6 @@ function App() {
                         return (
                           <AgentRow key={a.id} agent={a} host={h.id} depth={depth} status={status} online={online}
                             selected={selection?.id === a.id && selection.host === h.id}
-                            models={h.id === selection?.host && a.provider === provider && catalog.models.length ? catalog.models : rowModels[`${h.id}\n${a.provider}`] ?? noModels}
                             onChoose={chooseAgent} />
                         );
                       })}

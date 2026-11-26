@@ -434,14 +434,14 @@ nav .agent {
   align-items: center;
   gap: 9px;
   padding: 6px 0 6px calc(10px + min(48px, calc(var(--agent-depth, 0) * 14px)));
-  height: 52px;
+  height: 34px;
   margin: 1px 0 1px 24px;
   width: calc(100% - 24px);
   font-size: 13px;
   flex-wrap: nowrap;
   border-radius: 8px;
   content-visibility: auto;
-  contain-intrinsic-size: auto 52px;
+  contain-intrinsic-size: auto 34px;
 }
 nav .agent:hover {
   background: color-mix(in srgb, var(--raised) 75%, transparent);
@@ -461,29 +461,11 @@ nav .agent-name {
   white-space: nowrap;
   font-weight: 500;
 }
-nav .agent small {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  margin-top: 1px;
-  font-size: 12px;
-  white-space: nowrap;
-  color: var(--muted);
-}
 nav .agent-summary {
   flex: 1;
   min-width: 0;
   line-height: 1.4;
 }
-nav .agent-model {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-nav .agent-counts { flex-shrink: 0; max-width: 65%; overflow: hidden; text-overflow: ellipsis; }
-nav .agent .agent-meta { gap: 0; overflow: hidden; }
 nav .agent-end { display: grid; place-items: center; flex: 0 0 28px; width: 28px; }
 .chat-model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 650px) { nav .agent-end { flex-basis: 44px; width: 44px; } }
@@ -1951,8 +1933,7 @@ textarea::placeholder {
   nav .host-collapse .host-name {
     font-size: 13px;
   }
-  .host-label small,
-  nav .agent small {
+  .host-label small {
     font-size: 13px;
   }
   nav .project-toggle {
@@ -1960,12 +1941,12 @@ textarea::placeholder {
     font-size: 15px;
   }
   nav .agent {
-    height: 58px;
-    min-height: 58px;
+    height: 44px;
+    min-height: 44px;
     margin-left: 32px;
     width: calc(100% - 32px);
     font-size: 16px;
-    contain-intrinsic-size: auto 58px;
+    contain-intrinsic-size: auto 44px;
   }
   .sidebar-empty {
     font-size: 14px;

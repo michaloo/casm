@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test, expect, openNewAgent } from "./fixtures.ts";
 import { openAgents } from "./phone.ts";
 
-test("compact provider/model rows and remembered collapse preserve routed agent visibility", async ({ page }) => {
+test("single-line conversation rows and remembered collapse preserve routed agent visibility", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -11,7 +11,7 @@ test("compact provider/model rows and remembered collapse preserve routed agent 
   await row.click();
   const agentRoute = page.url();
   await expect(row.locator(".provider-icon")).toHaveAttribute("aria-label", "Claude");
-  await expect(row.locator(".agent-model")).toContainText("Model unresolved");
+  await expect(row.locator(".agent-model")).toHaveCount(0);
   const modelPicker = page.locator(".composer-picker").filter({ has: page.getByRole("combobox", { name: "Model", exact: true }) });
   await expect(modelPicker.locator(".composer-picker-label")).toHaveText("Default");
   await expect(modelPicker).toHaveAttribute("title", /Session model unresolved/);

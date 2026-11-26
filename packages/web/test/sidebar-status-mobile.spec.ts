@@ -4,7 +4,7 @@ import { test, expect } from "./fixtures.ts";
 import { openAgents } from "./phone.ts";
 
 for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as const)
-  test(`sidebar mobile status and aligned metadata at ${width} ${colorScheme}`, async ({ page }, info) => {
+  test(`compact sidebar rows and aligned status at ${width} ${colorScheme}`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 812 });
     await page.emulateMedia({ colorScheme });
     await page.routeWebSocket("**", socket => {
@@ -50,7 +50,6 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
     if (width === 375) await openAgents(page);
     // Status dots line up under the project's ⋯, the sidebar's right-hand column.
     const menuBox = (await page.getByRole("button", { name: "Project options for Test project", exact: true }).boundingBox())!;
-    let height = 0;
     for (let i = 0; i < 8; i++) {
       const agent = row(i);
       await expect(agent.locator(".dot")).toHaveCount(1);
@@ -59,14 +58,11 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
       const dot = (await agent.locator(".dot").boundingBox())!;
       expect(Math.abs(dot.x + dot.width / 2 - menuBox.x - menuBox.width / 2)).toBeLessThanOrEqual(1.5);
       const box = (await agent.boundingBox())!;
-      if (height) expect(box.height).toBe(height);
-      height = box.height;
-      const meta = agent.locator(".agent-meta");
-      await expect(meta).toHaveCSS("white-space", "nowrap");
-      expect((await meta.boundingBox())!.height).toBeLessThan(22);
+      expect(box.height).toBe(width <= 650 ? 44 : 34);
+      await expect(agent.locator(".agent-name")).toHaveCSS("white-space", "nowrap");
       expect(await agent.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     }
-    await expect(row(0).locator(".agent-meta")).toHaveAttribute("title", /2 sub · 1 queued/);
+    await expect(row(0).locator(".agent-name")).toHaveAttribute("title", /2 sub · 1 queued/);
     await expect(row(2).locator(".dot")).toHaveAttribute("title", /Provider failed to resume/);
     await expect(row(2).locator(".dot")).toHaveClass(/failed/);
     await expect(row(1).locator(".dot")).toHaveClass(/waiting/);

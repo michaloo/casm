@@ -40,7 +40,7 @@ test("same-server/project nesting preserves selectable rows and excludes unrelat
     const row = page.getByRole("button", { name: new RegExp(name) });
     await expect(row).toHaveAttribute("data-depth", String(i === 1 ? 1 : i === 2 ? 2 : 0));
     await expect(row.locator(".provider-icon")).toHaveCount(1);
-    await expect(row.locator(".agent-model")).toHaveCount(1);
+    await expect(row.locator(".agent-model")).toHaveCount(0);
     await row.click();
     await expect(page.locator("main header strong")).toHaveText(name);
   }

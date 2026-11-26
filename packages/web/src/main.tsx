@@ -6,6 +6,7 @@ import "./register-service-worker";
 import "./input-modality";
 import { ComposerPickers } from "./composer-pickers";
 import { ProjectOptions } from "./project-settings";
+import { orderedProjects, readProjectOrders, saveProjectOrders } from "./project-order";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
 import { evict, hold, leave, replaceHistory } from "./state";
@@ -170,6 +171,8 @@ function App() {
     if (c?.loaded) void cache.current?.saveChat(k, { items: c.items, start: c.start, pending: c.pending }).catch(() => {});
   }
   const [hosts, setHosts] = useState<Host[]>([]);
+  const [projectOrders, setProjectOrders] = useState(() => readProjectOrders(localStorage));
+  useEffect(() => saveProjectOrders(localStorage, projectOrders), [projectOrders]);
   const hostsRef = useRef(hosts);
   hostsRef.current = hosts;
   const [selection, select] = useState<{
@@ -1008,6 +1011,8 @@ function App() {
         </header>
         <nav aria-label="Agents">
           {hosts.map((h) => {
+            const hostKey = h.serverId ?? h.id;
+            const projects = orderedProjects(h.projects, projectOrders[hostKey]);
             const state: HostState = !online || h.error ? "offline"
               : h.loading && h.latencyMs === undefined ? "connecting"
               : (h.latencyMs ?? 0) > SLOW_HOST_MS ? "slow" : "online";
@@ -1016,6 +1021,7 @@ function App() {
             <HostSection key={h.id} host={h.id} name={h.name} status={`${hostStateLabel(state)}${working ? ` · ${working} working` : ""}`}
               identity={<HostIdentity name={h.name} state={state} bare />}
               menu={<HostActions host={h.id} name={h.name} state={state} rpc={rpc.current} projects={h.projects}
+                  projectOrder={projects.length > 1 ? { projects, change: ids => setProjectOrders(prev => ({ ...prev, [hostKey]: ids })) } : undefined}
                   openProject={project => {
                     setHosts(list => list.map(item => item.id === h.id ? { ...item, projects: [...item.projects.filter(p => p.id !== project.id), project] } : item));
                     choose({ host: h.id, project: project.id });
@@ -1023,14 +1029,7 @@ function App() {
                   />}>
               {h.error && <p className="host-error" title={h.error}>{h.error}</p>}
               {!h.error && !h.loading && !h.projects.length && <p className="sidebar-empty">No projects on this host yet.</p>}
-              {[...h.projects]
-                .sort(
-                  (a, b) =>
-                    a.sort - b.sort ||
-                    a.name.localeCompare(b.name) ||
-                    a.id.localeCompare(b.id),
-                )
-                .map((p) => {
+              {projects.map((p) => {
                   const expanded = projectExpanded(collapsed, h.id, p.id, selection);
                   const pinned = !!(selection?.id && selection.host === h.id && selection.project === p.id);
                   const agents = agentHierarchy(h.agents, p.id, h.serverId);

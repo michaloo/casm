@@ -1,11 +1,12 @@
 import type { Agent } from "@casm/protocol";
+import { compareRecent, type ChatActivity } from "./recent-agents.ts";
 
 export type AgentHierarchyRow = { agent: Agent; depth: number };
 const compare = (a: Agent, b: Agent) =>
   a.name.localeCompare(b.name) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
 
 /** Flatten only visible, same-server/project relationships. Each agent appears once. */
-export function agentHierarchy(agents: readonly Agent[], projectId: string, serverId: string | null | undefined): AgentHierarchyRow[] {
+export function agentHierarchy(agents: readonly Agent[], projectId: string, serverId: string | null | undefined, activity?: ChatActivity): AgentHierarchyRow[] {
   const visible = agents.filter((agent) => agent.projectId === projectId && !agent.archivedAt).sort(compare);
   const byId = new Map(visible.map((agent) => [agent.id, agent]));
   const parents = new Map<string, string>();
@@ -41,6 +42,21 @@ export function agentHierarchy(agents: readonly Agent[], projectId: string, serv
       siblings.push(agent);
       children.set(parent, siblings);
     }
+  }
+  if (activity) {
+    const latest = new Map(visible.map(agent => [agent.id, activity(agent)]));
+    // Keep nested chats with their parent while ordering each group by its latest activity.
+    for (const agent of visible) {
+      let parent = parents.get(agent.id);
+      while (parent) {
+        latest.set(parent, Math.max(latest.get(parent) ?? 0, activity(agent)));
+        parent = parents.get(parent);
+      }
+    }
+    const groupActivity = (agent: Agent) => latest.get(agent.id) ?? 0;
+    const byRecent = (a: Agent, b: Agent) => compareRecent(a, b, groupActivity);
+    roots.sort(byRecent);
+    for (const siblings of children.values()) siblings.sort(byRecent);
   }
   const result: AgentHierarchyRow[] = [];
   const stack = roots.map((agent) => ({ agent, depth: 0 })).reverse();

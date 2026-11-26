@@ -41,6 +41,7 @@ for (const width of [1440, 375]) for (const colorScheme of ["light", "dark"] as 
     await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     if (width === 375) await openAgents(page);
+    await page.getByRole("button", { name: /Show \d+ more chats/ }).click();
     const row = (index: number) => page.locator("nav .agent").filter({ hasText: `Agent 0${index}` });
     await row(0).click();
     const header = page.locator(".chat > header");

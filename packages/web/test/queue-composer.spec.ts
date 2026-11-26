@@ -11,6 +11,7 @@ async function open(page: Page, agent: string) {
   await page.goto("/");
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: /Show \d+ more chats/ }).click();
   await page.getByRole("button", { name: new RegExp(agent) }).click();
   await expect(page.locator(".item").first()).toBeVisible();
 }

@@ -20,6 +20,7 @@ async function open(page: Page, agent: string, width = 1440) {
   await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   if (width === 375) await openAgents(page);
+  await page.getByRole("button", { name: /Show \d+ more chats/ }).click();
   await page.getByRole("button", { name: new RegExp(agent) }).click();
   return { input: page.getByLabel("Message", { exact: true }), methods };
 }

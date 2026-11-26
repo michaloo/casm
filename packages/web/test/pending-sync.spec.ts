@@ -62,6 +62,7 @@ test("external queue updates survive stale load/live responses and switching cac
     await page.goto("/");
     await page.getByLabel("Server token").fill(readFileSync(`${testHome}/web-token`, "utf8"));
     await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await page.getByRole("button", { name: /Show \d+ more chats/ }).click();
     await page.getByRole("button", { name: /Agent 60/ }).click();
     await expect.poll(() => !!release).toBe(true);
     // Hold the initial empty load snapshot, then deliver newer live snapshots.

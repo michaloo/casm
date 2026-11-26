@@ -41,6 +41,7 @@ import { schedulesChanged } from "./project-schedules";
 import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
 import { agentHierarchy } from "./agent-hierarchy";
+import { agentActivity, lastMessageTime, recentProjectAgents } from "./recent-agents";
 import { modelLabels } from "./model-label";
 import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type CollapsedProjects } from "./project-collapse";
 import { ViewportDebug } from "./viewport-debug";
@@ -222,7 +223,16 @@ function App() {
   const [chatMemory, setChatMemory] = useState<ChatMemory>(() => readChatMemory(localStorage));
   const [viewportDebug, setViewportDebug] = useState(false);
   const [collapsed, setCollapsed] = useState<CollapsedProjects>(() => readCollapsed(localStorage));
+  const [fullProjects, setFullProjects] = useState<ReadonlySet<string>>(new Set());
+  const showAllAgents = (key: string, show: boolean) => {
+    setFullProjects(previous => {
+      const next = new Set(previous);
+      if (show) next.add(key); else next.delete(key);
+      return next;
+    });
+  };
   const toggleProject = (host: string, project: string) => {
+    showAllAgents(projectKey(host, project), false);
     setCollapsed((previous) => {
       const next = { ...previous };
       const id = projectKey(host, project);
@@ -232,6 +242,71 @@ function App() {
     });
   };
   const rpc = useRef<Rpc>(null);
+  const recentProjectNav = useRef<HTMLElement>(null);
+  const [recentFirst, setRecentFirst] = useState(() => localStorage.getItem("casm.chat-sort") !== "alphabetical");
+  const [messageTimes, setMessageTimes] = useState<Record<string, number>>({});
+  const refreshMessageTime = useRef<(host: string, agent: string) => void>(undefined);
+  function recordMessageTime(host: string, id: string, time: number) {
+    if (!time) return;
+    const h = hostsRef.current.find(h => h.id === host);
+    const marker = projectKey(h?.serverId ?? host, id);
+    setMessageTimes(previous => (previous[marker] ?? 0) >= time ? previous : { ...previous, [marker]: time });
+  }
+  const projectLists = JSON.stringify(hosts.map(h => h.projects.map(p => projectKey(h.id, p.id))));
+  useEffect(() => {
+    const nav = recentProjectNav.current;
+    if (!online || !nav) return;
+    const visible = new Set<string>();
+    const checked = new Set<string>();
+    let active = true;
+    let sampling = false;
+    async function sample() {
+      const r = rpc.current;
+      if (!r?.open || sampling) return;
+      sampling = true;
+      try {
+        while (active && r.open && document.visibilityState === "visible") {
+          const host = hostsRef.current.find(h => !h.error && h.agents.some(a =>
+            !a.archivedAt && visible.has(projectKey(h.id, a.projectId)) && !checked.has(projectKey(h.id, a.id))));
+          const agent = host?.agents.find(a =>
+            !a.archivedAt && visible.has(projectKey(host.id, a.projectId)) && !checked.has(projectKey(host.id, a.id)));
+          if (!host || !agent) break;
+          checked.add(projectKey(host.id, agent.id));
+          try {
+            let before: number | undefined;
+            while (active && r.open) {
+              const result = await r.call("agent.history", { id: agent.id, limit: 40, before }, host.id);
+              if (!active || rpc.current !== r) return;
+              const time = lastMessageTime(result.items);
+              if (time) recordMessageTime(host.id, agent.id, time);
+              if (time || result.start === 0 || result.start === before) break;
+              before = result.start;
+            }
+          } catch { /* Keep the existing timestamp when a history is unavailable. */ }
+        }
+      } finally { sampling = false; }
+    }
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const id = (entry.target as HTMLElement).dataset.recentProject!;
+        if (entry.isIntersecting) visible.add(id); else visible.delete(id);
+      }
+      void sample();
+    }, { root: nav });
+    for (const node of nav.querySelectorAll("[data-recent-project]")) observer.observe(node);
+    refreshMessageTime.current = (host, agent) => {
+      checked.delete(projectKey(host, agent));
+      void sample();
+    };
+    const resumed = () => { if (document.visibilityState === "visible") void sample(); };
+    document.addEventListener("visibilitychange", resumed);
+    return () => {
+      active = false;
+      observer.disconnect();
+      refreshMessageTime.current = undefined;
+      document.removeEventListener("visibilitychange", resumed);
+    };
+  }, [online, projectLists, collapsed, sidebar, selection?.project, selection?.host]);
   // Stable for memoized agent rows; always calls the latest choose().
   const chooseRef = useRef<(s: Selection) => void>(null);
   chooseRef.current = choose;
@@ -295,6 +370,7 @@ function App() {
       sub.turn.forEach((e) => event(c, e, true));
       buffered.forEach((e) => event(c, e));
       c.loaded = true;
+      recordMessageTime(host, id, lastMessageTime(c.items));
       persistChat(key(host, id), 0);
     } finally {
       buffers.delete(key(host, id));
@@ -393,6 +469,7 @@ function App() {
         const p = n.params;
         const k = key(host, p?.agentId ?? p?.agent?.id ?? "");
         if (n.method === "agent.event") {
+          if (p.event.type === "item") recordMessageTime(host, p.agentId, lastMessageTime([p.event.item]));
           if (buffers.has(k)) buffers.get(k)!.push(p.event);
           else {
             event(chat(k), p.event);
@@ -401,6 +478,7 @@ function App() {
           redraw();
         }
         if (n.method === "agent.status" || n.method === "agent.changed") {
+          if (n.method === "agent.status" && p.status === "idle") refreshMessageTime.current?.(host, p.agentId);
           // A /restart (here or from another client) ended the native session:
           // read the history again for its divider.
           const before = hostsRef.current.find((h) => h.id === host)?.agents.find((a) => a.id === p.agent?.id);
@@ -1006,7 +1084,14 @@ function App() {
             </button>
           )}
         </header>
-        <nav aria-label="Agents">
+        <div className="chat-sort-options" role="group" aria-label="Sort conversations">
+          {[true, false].map(recent => <button key={String(recent)} type="button" aria-pressed={recentFirst === recent}
+            onClick={() => {
+              setRecentFirst(recent);
+              localStorage.setItem("casm.chat-sort", recent ? "message" : "alphabetical");
+            }}>{recent ? "Latest message" : "A-Z"}</button>)}
+        </div>
+        <nav ref={recentProjectNav} aria-label="Agents">
           {hosts.map((h) => {
             const state: HostState = !online || h.error ? "offline"
               : h.loading && h.latencyMs === undefined ? "connecting"
@@ -1033,11 +1118,17 @@ function App() {
                 .map((p) => {
                   const expanded = projectExpanded(collapsed, h.id, p.id, selection);
                   const pinned = !!(selection?.id && selection.host === h.id && selection.project === p.id);
-                  const agents = agentHierarchy(h.agents, p.id, h.serverId);
+                  const activity = (a: Agent) => agentActivity(a, messageTimes[projectKey(h.serverId ?? h.id, a.id)]);
+                  const agents = agentHierarchy(h.agents, p.id, h.serverId, recentFirst ? activity : undefined);
+                  const listKey = projectKey(h.id, p.id);
+                  const showAll = fullProjects.has(listKey);
+                  const recent = expanded ? recentProjectAgents(h.agents, p.id, pinned ? selection?.id : undefined, activity) : [];
+                  const hidden = agents.length - recent.length;
+                  const rows = showAll || !hidden ? agents : agentHierarchy(recent, p.id, h.serverId, activity);
                   return (
                   <div key={p.id} className="project-group">
                     {/* The whole row folds; + starts a new agent, ⋯ opens the project modal. */}
-                    <div className={`project-row ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}>
+                    <div data-recent-project={expanded ? listKey : undefined} className={`project-row ${ckey === key(h.id, `new:${p.id}`) ? "selected" : ""}`}>
                     <button className="project-toggle"
                       aria-label={`Toggle ${p.name}`}
                       aria-expanded={expanded}
@@ -1058,7 +1149,7 @@ function App() {
                       openAgent={(a) => choose({ host: h.id, project: a.projectId, id: a.id })} />
                     </div>
                     {expanded && !agents.length && <p className="sidebar-empty project-empty">No agents yet</p>}
-                    {expanded && agents.map(({ agent: a, depth }) => {
+                    {expanded && rows.map(({ agent: a, depth }) => {
                         const state = chat(key(h.id, a.id));
                         const status =
                           a.status === "idle" &&
@@ -1073,6 +1164,10 @@ function App() {
                             onChoose={chooseAgent} />
                         );
                       })}
+                    {expanded && hidden > 0 && <button type="button" className="project-show-more" aria-expanded={showAll}
+                      onClick={() => showAllAgents(listKey, !showAll)}>
+                      {showAll ? "Show recent chats" : "Show " + hidden + " more chats"}
+                    </button>}
                   </div>
                   );
                 })}

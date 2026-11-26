@@ -40,6 +40,7 @@ import { HostActions, HostIdentity, hostStateLabel, type HostState } from "./hos
 import { schedulesChanged } from "./project-schedules";
 import { AgentActivity } from "./agent-activity-view";
 import { AgentSummary } from "./agent-summary";
+import { ChatRenameButton } from "./chat-rename";
 import { agentHierarchy } from "./agent-hierarchy";
 import { modelLabels } from "./model-label";
 import { projectKey, projectExpanded, readCollapsed, writeCollapsed, type CollapsedProjects } from "./project-collapse";
@@ -1110,6 +1111,8 @@ function App() {
                   : "Choose a project to start a conversation"}
             </small>
           </div>
+          {agent && selection && <ChatRenameButton key={ckey} agent={agent} rpc={rpc.current}
+            host={selection.host} online={online} />}
           {agent && <button type="button" className="find-trigger" aria-label="Find in chat" aria-pressed={!!finding} title={`Find in chat: ${mac ? "⌘" : "Ctrl+"}F`}
             onClick={() => finding ? closeFind() : openFind()}><FindGlyph /></button>}
           <button type="button" className="launcher-trigger" aria-label="Open launcher" title="Launcher: Cmd/Ctrl+K" onClick={() => setLauncher(true)}><SearchGlyph /></button>

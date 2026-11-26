@@ -6,7 +6,7 @@ import "./register-service-worker";
 import "./input-modality";
 import { ComposerPickers } from "./composer-pickers";
 import { ProjectOptions } from "./project-settings";
-import { orderedProjects, readProjectOrders, saveProjectOrders } from "./project-order";
+import { ProjectOrderButton, orderedProjects, readProjectOrders, saveProjectOrders } from "./project-order";
 import { useSlashCommands, type CasmCommand } from "./slash-commands";
 import { McpPanel } from "./mcp-panel";
 import { evict, hold, leave, replaceHistory } from "./state";
@@ -1021,7 +1021,6 @@ function App() {
             <HostSection key={h.id} host={h.id} name={h.name} status={`${hostStateLabel(state)}${working ? ` · ${working} working` : ""}`}
               identity={<HostIdentity name={h.name} state={state} bare />}
               menu={<HostActions host={h.id} name={h.name} state={state} rpc={rpc.current} projects={h.projects}
-                  projectOrder={projects.length > 1 ? { projects, change: ids => setProjectOrders(prev => ({ ...prev, [hostKey]: ids })) } : undefined}
                   openProject={project => {
                     setHosts(list => list.map(item => item.id === h.id ? { ...item, projects: [...item.projects.filter(p => p.id !== project.id), project] } : item));
                     choose({ host: h.id, project: project.id });
@@ -1029,6 +1028,8 @@ function App() {
                   />}>
               {h.error && <p className="host-error" title={h.error}>{h.error}</p>}
               {!h.error && !h.loading && !h.projects.length && <p className="sidebar-empty">No projects on this host yet.</p>}
+              {projects.length > 1 && <ProjectOrderButton hostName={h.name} projects={projects}
+                change={ids => setProjectOrders(prev => ({ ...prev, [hostKey]: ids }))} />}
               {projects.map((p) => {
                   const expanded = projectExpanded(collapsed, h.id, p.id, selection);
                   const pinned = !!(selection?.id && selection.host === h.id && selection.project === p.id);

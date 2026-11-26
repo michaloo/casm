@@ -29,13 +29,14 @@ test("move a project to the top or middle and keep the order after reload", asyn
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   const projects = page.locator("aside .project-name");
   await expect(projects).toHaveText(["Alpha project", "Design review", "Test project", "Zulu project"]);
-  await page.getByRole("button", { name: "Host options for Test host" }).click();
-  const dialog = page.getByRole("dialog", { name: "Test host host" });
-  await dialog.getByRole("button", { name: "Project order", exact: true }).click();
+  const reorder = page.getByRole("button", { name: "Reorder folders on Test host" });
+  await expect(reorder).toBeInViewport();
+  await reorder.click();
+  const dialog = page.getByRole("dialog", { name: "Reorder folders" });
   await dialog.getByRole("combobox", { name: "Position of Zulu project" }).selectOption("0");
   await expect(dialog.getByRole("status")).toHaveText("Zulu project moved to position 1.");
   await dialog.getByRole("combobox", { name: "Position of Test project" }).selectOption("1");
-  await dialog.getByRole("button", { name: "Close host options" }).click();
+  await dialog.getByRole("button", { name: "Close folder order" }).click();
   await expect(projects).toHaveText(["Zulu project", "Test project", "Alpha project", "Design review"]);
   await page.reload();
   await expect(projects).toHaveText(["Zulu project", "Test project", "Alpha project", "Design review"]);

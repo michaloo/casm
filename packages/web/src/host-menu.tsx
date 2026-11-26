@@ -1,5 +1,4 @@
 import { NewProject } from "./new-project";
-import type { ProjectOrderControls } from "./project-order";
 import { useRef, useState } from "react";
 import type { Project } from "@casm/protocol";
 import type { Rpc } from "./state";
@@ -34,8 +33,8 @@ export function HostIdentity({ name, state, detail, bare = false }: { name: stri
 }
 
 /** The host row's actions: + adds a project, ⋯ opens the host modal. */
-export function HostActions({ host, name, state, rpc, projects, projectOrder, openProject }: {
-  host: string; name: string; state: HostState; rpc: Rpc | null; projects: Project[]; projectOrder?: ProjectOrderControls; openProject: (project: Project) => void;
+export function HostActions({ host, name, state, rpc, projects, openProject }: {
+  host: string; name: string; state: HostState; rpc: Rpc | null; projects: Project[]; openProject: (project: Project) => void;
 }) {
   const options = useRef<HTMLButtonElement>(null);
   const plus = useRef<HTMLButtonElement>(null);
@@ -58,7 +57,7 @@ export function HostActions({ host, name, state, rpc, projects, projectOrder, op
       close={() => { setNewProject(false); plus.current?.focus(); }}
       created={project => { setNewProject(false); openProject(project); }} />}
     {settings && <HostSettings key={settings.opened} host={host} name={name} state={state} rpc={rpc} online={online}
-      initialSection={settings.section} projectOrder={projectOrder}
+      initialSection={settings.section}
       // The dialog's close event is async: a reopen may already have replaced this one.
       close={() => { const back = settings.back; setSettings(current => current === settings ? undefined : current);
         if (!document.querySelector("dialog[open]")) (back?.isConnected ? back : options.current)?.focus(); }} />}

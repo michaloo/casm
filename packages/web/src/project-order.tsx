@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Project } from "@casm/protocol";
 
 export type ProjectOrders = Record<string, string[]>;
@@ -24,12 +25,31 @@ export function orderedProjects(projects: readonly Project[], order: readonly st
     a.sort - b.sort || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
-export type ProjectOrderControls = { projects: readonly Project[]; change: (ids: string[]) => void };
+type ProjectOrderControls = { projects: readonly Project[]; change: (ids: string[]) => void };
 
-export function ProjectOrder({ projects, change }: ProjectOrderControls) {
+export function ProjectOrderButton({ hostName, projects, change }: ProjectOrderControls & { hostName: string }) {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { if (open) dialog.current?.showModal(); }, [open]);
+
+  return <>
+    <button ref={trigger} type="button" className="project-order-trigger" aria-haspopup="dialog" aria-expanded={open}
+      aria-label={`Reorder folders on ${hostName}`} onClick={() => setOpen(true)}>Reorder folders</button>
+    {open && createPortal(<dialog ref={dialog} className="host-settings project-order-dialog" aria-label="Reorder folders"
+      onClose={() => { setOpen(false); trigger.current?.focus(); }}>
+      <header>
+        <h2>Reorder folders</h2>
+        <button type="button" aria-label="Close folder order" onClick={() => dialog.current?.close()}>Done</button>
+      </header>
+      <div className="settings-content"><ProjectOrder projects={projects} change={change} /></div>
+    </dialog>, document.body)}
+  </>;
+}
+
+function ProjectOrder({ projects, change }: ProjectOrderControls) {
   const [announcement, announce] = useState("");
-  return <section aria-label="Project order">
-    <h3>Project order</h3>
+  return <>
     <p className="settings-lede">Choose a position to move a project. This order is saved in this browser.</p>
     <ol className="project-order-list">
       {projects.map((project, index) => <li key={project.id}>
@@ -49,5 +69,5 @@ export function ProjectOrder({ projects, change }: ProjectOrderControls) {
       </li>)}
     </ol>
     <span className="visually-hidden" role="status">{announcement}</span>
-  </section>;
+  </>;
 }

@@ -77,7 +77,7 @@ Errors use the standard codes plus casm's own:
 | MCP | `agent.mcpStatus`, `agent.mcpReconnect`, `agent.mcpToggle` |
 | Host-wide | `pending.list`, `provider.limits`, `provider.costs`, `provider.catalog`, `host.stats` |
 | Schedules | `schedule.list` (`projectId?`, `agentId?` filters), `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.runNow`; each schedule carries its derived `projectId` |
-| Files | `fs.read`, `fs.search`, `fs.downloadLink`, `upload.start`, `upload.chunk` |
+| Files | `fs.read`, `fs.openOnHost`, `fs.search`, `fs.downloadLink`, `upload.start`, `upload.chunk` |
 | Notifications | `push.list`, `push.subscribe`, `push.unsubscribe`, `push.test`, `push.notify` |
 | Browser | `browser.list`, `browser.tabs`, `browser.open`, `browser.snapshot`, `browser.click`, `browser.type`, `browser.press`, `browser.screenshot`, `browser.eval`, `browser.dialog`, `browser.upload`, `browser.downloads`, `browser.download`; `browser.share` (from the extension) |
 

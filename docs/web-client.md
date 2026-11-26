@@ -321,7 +321,20 @@ folder completion as you type, a name, a group and tags.
 Paths that agents mention inside a project folder become links. Clicking one
 opens a preview: syntax-highlighted code, rendered Markdown, pretty JSON,
 images, with **Download** and **Copy path**. `/f/<absolute path>` opens a
-preview directly. Files are read-only through casm, except those you attach
+preview directly. On Windows, a local browser connected directly to CASM can
+also **Open file** in the system's default app for supported documents and
+media. If the server starts in the background without a desktop, register the
+desktop opener once as the same Windows user with
+`powershell -NoProfile -File scripts/windows-open-file.ps1 -Install`.
+
+On a Windows laptop using Tailscale Serve, set the server's
+`desktopOpenOrigin` in `config.json` to its exact HTTPS Serve origin to keep
+using the same browser session for **Open file**. Use this setting only with
+Tailscale Serve directly proxying to the loopback-bound CASM server. The
+forwarded address must match an address assigned to the laptop's Tailscale
+interface.
+
+Files are read-only through casm, except those you attach
 to a message. Links inside a rendered
 HTML page open in a new browser tab, never inside casm.
 

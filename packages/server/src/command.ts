@@ -25,7 +25,7 @@ const home = process.env.CASM_HOME ?? join(homedir(), ".casm-ng");
 const LOCAL_FILE = "local.json";
 const LOCAL_TOKEN = "local-cli";
 
-function readConfig(): { listen?: string; name?: string; peerTimeoutMs?: number; web?: string | false } {
+function readConfig(): { listen?: string; name?: string; peerTimeoutMs?: number; web?: string | false; desktopOpenOrigin?: string } {
   try {
     return JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
   } catch {
@@ -103,13 +103,15 @@ export async function serverCommand(argv: string[]) {
   if (values.help || !cmd) {
     console.log(usage);
   } else if (cmd === "serve") {
-    const { host, port } = parseListen(values.listen ?? process.env.CASM_LISTEN ?? readConfig().listen ?? DEFAULT_LISTEN);
+    const config = readConfig();
+    const { host, port } = parseListen(values.listen ?? process.env.CASM_LISTEN ?? config.listen ?? DEFAULT_LISTEN);
     const log = (m: string) => console.error(`[${new Date().toISOString()}] ${m}`);
-    const name = values.name ?? process.env.CASM_NAME ?? readConfig().name;
+    const name = values.name ?? process.env.CASM_NAME ?? config.name;
     // The web client: "web" in config.json (a path, or false for none), else this checkout's build.
-    const web = process.env.CASM_WEB_ROOT ?? readConfig().web ?? fileURLToPath(new URL("../../web/dist", import.meta.url));
+    const web = process.env.CASM_WEB_ROOT ?? config.web ?? fileURLToPath(new URL("../../web/dist", import.meta.url));
     const webRoot = web === false ? undefined : web;
-    const server = await startServer({ store, providers: availableProviders(), host, port, version: VERSION, name, log, home, peerTimeoutMs: readConfig().peerTimeoutMs, webRoot });
+    const server = await startServer({ store, providers: availableProviders(), host, port, version: VERSION, name, log, home, peerTimeoutMs: config.peerTimeoutMs,
+      webRoot, desktopOpenOrigin: config.desktopOpenOrigin });
     log(`agents: ${server.agents.providerIds().join(", ") || "none found on PATH"}`);
     writeLocalCredential(store, server.url);
     if (store.listTokens().length === 1) log('no client tokens for other machines yet: run "casm token create <name>"');

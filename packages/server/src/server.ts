@@ -27,6 +27,7 @@ import { createHandlers, type Conn } from "./methods.ts";
 import { Scheduler } from "./schedules.ts";
 import { PeerPool } from "./peers.ts";
 import { Files } from "./files.ts";
+import { localDesktopRequest, tailscaleDesktop } from "./open-file.ts";
 import { Uploads } from "./attachments.ts";
 import { AgentPrompt } from "./agent-prompt.ts";
 import { Settings } from "./settings.ts";
@@ -54,6 +55,8 @@ export type ServerOptions = {
   home?: string;
   // The built web client (packages/web/dist), served at /. Without it, / says to use a WebSocket.
   webRoot?: string;
+  // Explicit HTTPS Tailscale Serve origin used by this Windows laptop.
+  desktopOpenOrigin?: string;
   // Delivers Web Push requests (tests replace the real HTTP POST).
   pushSend?: PushSend;
   // How long a connection may stay unauthenticated, and how often open
@@ -89,6 +92,7 @@ type Client = Conn & { ws: WebSocket; from: string; token?: string; remote: Map<
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? (() => {});
   const clients = new Set<Client>();
+  const desktopProxy = process.platform === "win32" ? tailscaleDesktop(opts.desktopOpenOrigin, opts.host) : undefined;
 
   const notify: Notify = <N extends NotificationName>(method: N, params: NotificationParams<N>, agentId?: string) => {
     const msg = JSON.stringify({ jsonrpc: "2.0", method, params });
@@ -155,7 +159,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     }
     if (name && token === query) log(`client ${name} sent its token in the URL (?token=), which is deprecated: update the client`);
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const client: Client = { ws, subscriptions: new Set(), remote: new Map(), send: (raw) => ws.send(raw), from };
+      const client: Client = { ws, localDesktop: localDesktopRequest(req, desktopProxy), subscriptions: new Set(), remote: new Map(), send: (raw) => ws.send(raw), from };
       const timer = name
         ? undefined
         : setTimeout(() => {
@@ -237,6 +241,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (host && req.method === "browser.share")
       return reply(client, { jsonrpc: "2.0", id, error: { code: ErrorCode.InvalidRequest, message: "a browser shares its tabs with the server it connects to, not through a peer" } });
     try {
+      if (host && req.method === "fs.openOnHost")
+        throw new RpcError(ErrorCode.InvalidRequest, "Opening a file requires a connection directly to its host.");
       const handler = handlers[req.method as MethodName] as (p: unknown, c: Conn) => unknown;
       const result = host ? await forward(client, host, req.method as MethodName, req.params ?? {}) : await handler(parsed.data, client);
       if (id !== null) reply(client, { jsonrpc: "2.0", id, result });

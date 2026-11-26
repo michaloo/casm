@@ -70,11 +70,13 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
   const memory = images?.[index];
   const [trail, setTrail] = useState([initial]);
   const { path, line } = splitLine(trail[trail.length - 1]);
-  const [file, setFile] = useState<FileContent>();
+  const [loadedFile, setLoadedFile] = useState<{ path: string; file: FileContent }>();
+  const file = loadedFile?.path === path ? loadedFile.file : undefined;
   const [error, setError] = useState("");
   const [download, setDownload] = useState<Link>();
   const [image, setImage] = useState<string>();
   const [copied, setCopied] = useState("");
+  const [openingFile, setOpeningFile] = useState(false);
   const [info, setInfo] = useState(false);
   const [view, setView] = useState<"rendered" | "source">("rendered");
   useEffect(() => {
@@ -86,11 +88,11 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
   }, []);
   useEffect(() => {
     let active = true;
-    setFile(undefined); setError(""); setDownload(undefined); setImage(undefined); setView("rendered");
+    setLoadedFile(undefined); setError(""); setDownload(undefined); setImage(undefined); setView("rendered");
     if (memory || !rpc) return;
     void rpc.call("fs.read", { path }, host).then(async (f) => {
       if (!active) return;
-      setFile(f);
+      setLoadedFile({ path, file: f });
       if (f.type !== "file") return;
       const [link, inline] = await Promise.all([
         signedLink(rpc, host, path),
@@ -134,6 +136,12 @@ export function FilePreview({ rpc, host = "", path: initial = "", images, index:
         {file?.type === "file" && (download
           ? <a className="button file-icon" href={download.href} download={name} onClick={fresh} aria-label="Download" title="Download"><Glyph d={DOWNLOAD} /><span>Download</span></a>
           : <button type="button" className="file-icon" disabled aria-label="Download" title="Download"><Glyph d={DOWNLOAD} /><span>Download</span></button>)}
+        {!memory && !host && rpc && file?.openOnHost && <button type="button" className="file-icon"
+          aria-label="Open file" title="Open file in the default application" disabled={openingFile} onClick={() => {
+            setOpeningFile(true);
+            setError("");
+            void rpc.call("fs.openOnHost", { path }).catch(err => setError(message(err))).finally(() => setOpeningFile(false));
+          }}><Glyph d="M9 3h4v4m0-4L7 9m5 0v4H3V4h4" /><span>Open file</span></button>}
         {!memory && <button type="button" className="file-icon" aria-label={copied || "Copy path"} title={copied || "Copy path"} onClick={() => void copy(path).then(() => setCopied("Copied ✓"), () => setCopied("Select to copy"))
           .finally(() => setTimeout(() => setCopied(""), 1800))}><Glyph d={copied === "Copied ✓" ? "m3 8.5 3.2 3.2L13 4.8" : COPY} /><span>{copied || "Copy path"}</span></button>}
         {source && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write && <button type="button" className="file-icon" aria-label={copied || "Copy image"} title={copied || "Copy image"} onClick={() => {

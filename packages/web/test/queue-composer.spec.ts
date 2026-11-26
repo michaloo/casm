@@ -200,7 +200,7 @@ test("a new agent whose first send fails keeps the draft once, with the agent", 
   await open(page, "Agent 57");
   await openNewAgent(page);
   await type(page, "draft that moves");
-  await expect(page.locator("main header strong")).toHaveText("draft that moves");
+  await expect(page.locator("main header strong")).toHaveText("Draft that moves");
   await expect(page.getByRole("alert")).toContainText("Test send failure");
   await expect(page.getByLabel("Message")).toHaveValue("draft that moves");
   await openNewAgent(page);
